@@ -29,9 +29,11 @@ These tests check what vtium does with the sequences on this page.
 - `a_doubled_underline_skips_the_ink_of_the_whole_doubled_character` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
 - `a_magnified_underline_skips_the_ink_of_its_whole_character_on_the_gpu_path` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
 - `a_sized_runs_underline_skips_the_ink_of_the_whole_run` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
+- `a_turned_underline_skips_the_ink_of_the_letter_the_next_frame_shows` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
 - `an_underline_skips_the_ink_at_every_turn_of_the_display` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
 - `every_underline_style_skips_the_ink_of_descenders` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
 - `every_underline_style_skips_the_ink_of_descenders_on_the_gpu_path` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
+- `the_underlined_bench_rows_draw_the_same_at_every_turn_of_the_display` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
 - `underline_styles_take_a_sub_parameter` in [crates/vtium-term/tests/sgr.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sgr.rs)
 
 ## Where to read more

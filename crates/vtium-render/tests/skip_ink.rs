@@ -566,3 +566,108 @@ fn differ_w(got: &[u32], want: &[u32], w: u32) -> Option<(usize, (u32, u32), u32
     let i = got.iter().zip(want).position(|(a, b)| a != b)?;
     Some((n, (i as u32 % w, i as u32 / w), got[i], want[i]))
 }
+
+/// The rows of the draw bench's `underlined` screen, 20 cells wide: for
+/// each underline style, a line of [`TEXT`] at the normal size, a
+/// double-width line, a double-height pair, and a sized run at scale 2,
+/// two rows tall. Six rows for each style.
+fn bench_terminal() -> vtium_term::Terminal {
+    const COLS: usize = 20;
+    let text = |n: usize| TEXT.repeat(n.div_ceil(TEXT.len()))[..n].to_owned();
+    let mut bytes = Vec::new();
+    for (i, u) in STYLES.into_iter().enumerate() {
+        let (row, sgr) = (i * 6 + 1, sgr(u));
+        let half = text(COLS / 2);
+        bytes.extend(format!("\x1b[{row};1H{sgr}{}\x1b[m", text(COLS)).bytes());
+        bytes.extend(format!("\x1b[{};1H\x1b#6{sgr}{half}\x1b[m", row + 1).bytes());
+        bytes.extend(format!("\x1b[{};1H\x1b#3{sgr}{half}\x1b[m", row + 2).bytes());
+        bytes.extend(format!("\x1b[{};1H\x1b#4{sgr}{half}\x1b[m", row + 3).bytes());
+        bytes.extend(format!("\x1b[{};1H{sgr}\x1b]66;s=2;{half}\x07\x1b[m", row + 4).bytes());
+    }
+    term(COLS, 6 * STYLES.len(), &bytes)
+}
+
+// On a display turned a quarter, vtium works out the gap of a cell's
+// underline once for each display column the underline covers, down the
+// whole cell, where upright it works the gap out along each display line.
+// Both must leave out the same pixels. So each turn of the display draws
+// the draw bench's underlined rows, turned back, exactly as the upright
+// display draws them: the normal, doubled and sized lines in every style.
+// covers: sgr.underline-style
+#[test]
+fn the_underlined_bench_rows_draw_the_same_at_every_turn_of_the_display() {
+    let t = bench_terminal();
+    let upright = cpu_term_turned(&t, Orientation::Normal);
+    // the frame shows the underlines, and their gaps beside the descenders
+    let line = upright.iter().filter(|&&p| p == pixel(LINE)).count();
+    assert!(line > 1000, "{line} pixels of the underline's color");
+    for o in [
+        Orientation::Right,
+        Orientation::UpsideDown,
+        Orientation::Left,
+    ] {
+        let got = cpu_term_turned(&t, o);
+        let n = got.iter().zip(&upright).filter(|(a, b)| a != b).count();
+        let first = got.iter().zip(&upright).position(|(a, b)| a != b);
+        assert_eq!(n, 0, "{o:?}: pixels that differ, the first at {first:?}");
+    }
+}
+
+// The gap that vtium works out for a cell's columns on a turned display
+// holds for that cell's glyph alone. When the next frame shows another
+// letter in the same cell, its underline skips the new letter's ink, as a
+// display that draws only the new frame skips it. A screen of one cell
+// draws the same cell first in both frames.
+// covers: sgr.underline-style
+#[test]
+fn a_turned_underline_skips_the_ink_of_the_letter_the_next_frame_shows() {
+    for u in STYLES {
+        let first = term(1, 1, format!("{}a\x1b[m", sgr(u)).as_bytes());
+        let next = term(1, 1, format!("{}g\x1b[m", sgr(u)).as_bytes());
+        for o in [Orientation::Right, Orientation::Left] {
+            let config = Config {
+                orientation: o,
+                ..Config::default()
+            };
+            let st = DrawState {
+                cursor_on: true,
+                background: first.palette().bg(),
+                ..DrawState::default()
+            };
+            let mut r = Renderer::new(unifont(), 16, 8, config);
+            let mut got = Canvas::new(16, 8, 0);
+            r.draw(
+                &first.screen().frame(first.palette(), Age::NEVER),
+                &mut got,
+                0,
+                &st,
+            );
+            r.draw(
+                &next.screen().frame(next.palette(), Age::NEVER),
+                &mut got,
+                1,
+                &st,
+            );
+            let mut fresh = Renderer::new(unifont(), 16, 8, config);
+            let mut want = Canvas::new(16, 8, 0);
+            fresh.draw(
+                &next.screen().frame(next.palette(), Age::NEVER),
+                &mut want,
+                0,
+                &st,
+            );
+            let px = |c: &Canvas| -> Vec<u32> {
+                (0..8)
+                    .flat_map(|y| (0..16).map(move |x| (x, y)))
+                    .map(|(x, y)| c.pixel(x, y).unwrap())
+                    .collect()
+            };
+            let (got, want) = (px(&got), px(&want));
+            let n = got.iter().zip(&want).filter(|(a, b)| a != b).count();
+            assert_eq!(
+                n, 0,
+                "{u:?}, {o:?}: pixels that differ from a fresh drawing"
+            );
+        }
+    }
+}
