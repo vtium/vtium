@@ -163,7 +163,10 @@ pub const SECTIONS: &str = "version = 1\n[look proof]\nfont-name = proof\nvtlook
 
 /// What the TUI opens on: the fonts of a machine with three frits, one that
 /// does not read, its vtium.conf, and [`flow`] in the Flow view, with no
-/// desk, so the Flow view changes nothing.
+/// desk, so the Flow view changes nothing. The frits' directory is a path
+/// that no machine has, so what the machine running the tests installed in
+/// `/etc/vtium/fonts` changes no test; a test that needs frits on disk
+/// sets `frits` to a directory of its own.
 pub fn inputs() -> Inputs {
     let font = |name: &str, state| Font {
         name: name.to_owned(),
@@ -186,7 +189,7 @@ pub fn inputs() -> Inputs {
         dpi: (96, DpiFrom::Assumed),
         densities: vec![96],
         vconsole_font: None,
-        frits: PathBuf::from("/etc/vtium/fonts"),
+        frits: PathBuf::from("/nonexistent/vtium/fonts"),
         view: View::Fonts,
         display: Some((640, 480)),
         flow: flow(),

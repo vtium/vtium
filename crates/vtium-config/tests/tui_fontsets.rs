@@ -110,7 +110,7 @@ fn a_new_frit_is_built_by_role_and_installed_into_the_frits() {
     assert_eq!(plan.files.len(), 1);
     assert_eq!(
         plan.files[0].path,
-        PathBuf::from("/etc/vtium/fonts/quiet.vtfrit")
+        PathBuf::from("/nonexistent/vtium/fonts/quiet.vtfrit")
     );
     assert_eq!(
         plan.files[0].new,
@@ -202,7 +202,7 @@ fn picks_from_the_lists_go_into_the_font_set_in_the_order_of_the_roles() {
     let plan = d.plans.first().expect("an install");
     assert_eq!(
         plan.files[0].path,
-        PathBuf::from("/etc/vtium/fonts/dejavu-sans-mono.vtfrit")
+        PathBuf::from("/nonexistent/vtium/fonts/dejavu-sans-mono.vtfrit")
     );
     assert_eq!(
         plan.files[0].new,
@@ -234,7 +234,7 @@ fn a_new_frit_replaces_the_installed_one_of_its_name() {
     let plan = d.plans.first().expect("an install");
     assert_eq!(
         plan.files[0].path,
-        PathBuf::from("/etc/vtium/fonts/proof.vtfrit")
+        PathBuf::from("/nonexistent/vtium/fonts/proof.vtfrit")
     );
     assert_eq!(
         plan.files[0].old.as_deref(),
@@ -279,7 +279,7 @@ fn r_removes_the_highlighted_frit_at_the_next_install() {
     assert_eq!(
         plan.removals,
         [vtium_config::draft::Removal {
-            path: PathBuf::from("/etc/vtium/fonts/tiny5.vtfrit"),
+            path: PathBuf::from("/nonexistent/vtium/fonts/tiny5.vtfrit"),
             old: b"source=bdf:/x/Tiny5Mono.bdf\n".to_vec(),
         }]
     );
@@ -404,7 +404,7 @@ fn i_installs_a_frit_waiting_and_q_then_quits() {
     assert_eq!(
         plan.removals,
         [vtium_config::draft::Removal {
-            path: PathBuf::from("/etc/vtium/fonts/tiny5.vtfrit"),
+            path: PathBuf::from("/nonexistent/vtium/fonts/tiny5.vtfrit"),
             old: b"source=bdf:/x/Tiny5Mono.bdf\n".to_vec(),
         }]
     );
