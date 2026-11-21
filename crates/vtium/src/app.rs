@@ -7685,6 +7685,32 @@ mod tests {
         assert_eq!(drawn(&app), before, "the head draws in its earlier cell");
     }
 
+    // The console's turn of the helpers asks for the frit's cells again
+    // when its helper says it left a source out: the turn forgets the cell
+    // the frit held, and the running helper is asked for it once more.
+    #[test]
+    fn a_turn_after_a_font_was_left_out_asks_for_the_cells_again() {
+        let (_lp, mut app, _dir) = late_seat("late-turn-blamed");
+        let at = app.heads.first().map(|h| h.font_size).unwrap();
+        let (width, height) = app.heads.first().unwrap().cell;
+        let own = vtium_font::Cell {
+            width: width + 2,
+            height,
+        };
+        app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(own)));
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(frit.own.contains_key(&at), "the frit's cell");
+        let helper = frit.helper.as_mut().unwrap();
+        let mut asked = helper.asked_late();
+        helper.set_blamed();
+        app.helper_turn((app.clock)());
+        let frit = app.frits.get("t").unwrap();
+        assert!(frit.own.is_empty(), "the cells are forgotten");
+        asked.push(at);
+        let helper = frit.helper.as_ref().unwrap();
+        assert_eq!(helper.asked_late(), asked, "the cell is asked again");
+    }
+
     fn late_seat(test: &str) -> (Loop<App>, App, Scratch) {
         let dir = Scratch::new(&format!("app-{test}"));
         std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
