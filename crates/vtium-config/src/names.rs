@@ -165,38 +165,46 @@ pub fn swash_fonts(font: &[u8]) -> Result<swash::FontDataRef<'_>, String> {
 const NOT_A_FONT: &str = "not a TrueType or OpenType font";
 
 /// Checks the structures swash reads in `font`, and refuses a font where
-/// one would make swash overflow. swash 0.2.10 checks a range by
-/// subtracting the range's start from the end of its data before it
-/// compares them, so a start past the end overflows, and some of its sums
-/// and counts overflow on values that a damaged font holds. In a debug
-/// build each overflow panics. vtium-config checks each face swash would
-/// read:
+/// one would make swash, or the outline reader under it, panic. swash
+/// 0.2.10 checks a range by subtracting the range's start from the end of
+/// its data before it compares them, so a start past the end overflows,
+/// and some of its sums, counts and negations overflow on values that a
+/// damaged font holds. In a debug build each overflow panics. vtium-config
+/// checks each face swash would read:
 ///
 /// - each table its table directory lists lies inside the file;
 /// - its `name` table holds the records its count gives, and each
 ///   record's string lies inside the table;
-/// - each character map subtable of format 12, the format whose range
-///   swash checks against the end of the file, lies inside the file, maps
-///   no character past U+10FFFF, and maps no character to a glyph number
-///   past the largest one a 32-bit number holds, which swash's sum would
-///   overflow;
-/// - a face with a character map or a `hmtx` table gives swash at least
-///   one glyph width: it has `head` and `maxp` tables, and its `hhea`
-///   table, where it has one, holds a number of widths that is not 0;
+/// - the character map subtable that swash reads, when swash reads it as
+///   format 12, lies inside the file, maps no character past U+10FFFF, and
+///   maps no character to a glyph number past the largest one a 32-bit
+///   number holds, which swash's sum would overflow;
+/// - a face gives swash at least one glyph width: a face with `head` and
+///   `maxp` tables holds a number of widths that is not 0 in its `hhea`
+///   table, where it has one, and a face with a character map or a `hmtx`
+///   table has `head` and `maxp` tables;
+/// - the descender of its `hhea` and `vhea` tables is not -32768, which
+///   swash cannot negate, and neither is the typographic descender of its
+///   `OS/2` table when the face asks for its typographic metrics;
 /// - its `HVAR` table, which varies the glyph widths, places its item
 ///   variation store at an offset from the file's start that 32 bits
 ///   hold, its advance width map holds at least one entry, and each of
 ///   the store's item variation data gives no more 16-bit deltas than
-///   regions.
+///   regions;
+/// - no glyph of its `glyf` table has no contours yet gives a point flag,
+///   which read-fonts, the reader skrifa draws outlines with, stores past
+///   the end of the glyph's flags.
 ///
 /// swash finds each table with a binary search over the table directory,
-/// and the check finds the table that swash finds. swash reads a format 4
+/// and picks one subtable of a character map, and the check finds the
+/// table and the subtable that swash finds. swash reads a format 4
 /// subtable only after a check that cannot overflow, so a format 4
-/// subtable is left to swash.
+/// subtable is left to swash. swash's reader of color bitmap strikes is
+/// not checked.
 ///
-/// The check costs time in proportion to the file. It walks each distinct
-/// `name` table, character map, format 12 subtable and `HVAR` table once,
-/// however many faces or records point at it. It reads at most
+/// The check walks each distinct `name` table, character map and `HVAR`
+/// table once, however many faces or records point at it, and of a
+/// character map only the subtable swash reads. It reads at most
 /// [`FACES_MAX`] faces of a collection, as [`faces`] does, and refuses a
 /// collection that lists more, because swash would read the faces past
 /// that number unchecked.
@@ -216,10 +224,13 @@ struct Checked {
     subtables: BTreeSet<usize>,
     /// The `HVAR` tables walked, by their start.
     hvars: BTreeSet<usize>,
+    /// The `glyf` tables walked, by the place of their `loca` table, its
+    /// format, and their own place.
+    glyfs: BTreeSet<GlyfKey>,
     /// How many `name` tables had their records walked.
     names_walked: usize,
-    /// How many format 12 subtables had their groups walked.
-    subtables_walked: usize,
+    /// How many groups of format 12 subtables the check walked.
+    groups_walked: usize,
 }
 
 /// [`sound`], giving what the check walked.
@@ -250,7 +261,74 @@ fn check(font: &[u8]) -> Result<Checked, String> {
     for at in offsets {
         sound_face(font, at, &mut checked)?;
     }
+    sound_glyphs(font, &mut checked)?;
     Ok(checked)
+}
+
+/// Where a `loca` table and a `glyf` table lie in a file, each as its
+/// start and length, and whether the `loca` table is of the long format.
+type GlyfKey = ((usize, usize), bool, (usize, usize));
+
+/// Whether each simple glyph that read-fonts can read from `font` gives
+/// point flags only when it has points. read-fonts 0.41, which skrifa reads
+/// outlines with for swash and for the rasteriser, stores a glyph's first
+/// point flag before it compares the number of flags stored with the
+/// glyph's number of points. So a glyph of no contours, which has no
+/// points, whose data still holds a flag without the repeat bit (0x08)
+/// stores that flag past the end of its flags, and read-fonts panics, in a
+/// release build too. This walks each face as read-fonts reads the file,
+/// so it reaches the faces skrifa reads, and each glyph number up to the
+/// largest that a 16-bit glyph number holds, as a character map or a
+/// composite glyph can name.
+fn sound_glyphs(font: &[u8], checked: &mut Checked) -> Result<(), String> {
+    use skrifa::raw::types::{GlyphId, Tag};
+    use skrifa::raw::{FileRef, TableProvider, tables::glyf::Glyph};
+    let Ok(file) = FileRef::new(font) else {
+        return Ok(());
+    };
+    let place = |data: FontData<'_>| {
+        let bytes = data.as_bytes();
+        (
+            bytes.as_ptr() as usize - font.as_ptr() as usize,
+            bytes.len(),
+        )
+    };
+    for face in file.fonts().take(FACES_MAX as usize).flatten() {
+        let (Ok(head), Ok(glyf)) = (face.head(), face.glyf()) else {
+            continue;
+        };
+        let long = head.index_to_loc_format() == 1;
+        let (Ok(loca), Some(loca_data), Some(glyf_data)) = (
+            face.loca(Some(long)),
+            face.table_data(Tag::new(b"loca")),
+            face.table_data(Tag::new(b"glyf")),
+        ) else {
+            continue;
+        };
+        if !checked
+            .glyfs
+            .insert((place(loca_data), long, place(glyf_data)))
+        {
+            continue;
+        }
+        for id in 0..=u32::from(u16::MAX) {
+            if loca.get_raw(id as usize + 1).is_none() {
+                break;
+            }
+            if let Ok(Some(Glyph::Simple(glyph))) = loca.get_glyf(GlyphId::new(id), &glyf)
+                && glyph.number_of_contours() == 0
+                && glyph
+                    .glyph_data()
+                    .first()
+                    .is_some_and(|&flag| flag & 0x08 == 0)
+            {
+                return Err(format!(
+                    "the font is damaged: its glyph {id} has no outline points but gives flags for some"
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// [`sound`] for the face whose table directory starts at `at`.
@@ -291,23 +369,46 @@ fn sound_face(font: &[u8], at: usize, checked: &mut Checked) -> Result<(), Strin
     }
     if let Some((start, _)) = table(b"cmap")
         && checked.cmaps.insert(start)
+        && let Some(subtable) = swash_subtable(font, start)
+        && checked.subtables.insert(subtable)
     {
-        sound_cmap(font, start, checked).map_err(damaged)?;
+        sound_subtable(font, subtable, checked).map_err(damaged)?;
     }
-    if table(b"cmap").is_some() || table(b"hmtx").is_some() {
-        // swash stops reading the metrics without a head or maxp table,
-        // and its number of widths stays 0
-        if table(b"head").is_none() || table(b"maxp").is_none() {
-            return Err(damaged(
-                "it lacks the head or maxp table that swash reads its glyph widths after",
-            ));
-        }
+    if table(b"head").is_some() && table(b"maxp").is_some() {
         // a face with no hhea table gives swash one width
         if let Some((start, end)) = table(b"hhea")
             && u16_at(font.get(start..end).unwrap_or_default(), 34).unwrap_or(0) == 0
         {
             return Err(damaged("its hhea table gives no glyph widths"));
         }
+    } else if table(b"cmap").is_some() || table(b"hmtx").is_some() {
+        // swash stops reading the metrics without a head or maxp table,
+        // and its number of widths stays 0
+        return Err(damaged(
+            "it lacks the head or maxp table that swash reads its glyph widths after",
+        ));
+    }
+    // swash negates each descender, a 16-bit number, and the smallest one
+    // has no negative; a field that the table does not hold reads as 0
+    let field = |tag: &[u8; 4], at: usize| {
+        table(tag).and_then(|(start, end)| u16_at(font.get(start..end)?, at))
+    };
+    for tag in [b"hhea", b"vhea"] {
+        if field(tag, 6) == Some(0x8000) {
+            let tag = String::from_utf8_lossy(tag);
+            return Err(damaged(&format!(
+                "its {tag} table gives a descender of -32768"
+            )));
+        }
+    }
+    // swash reads the typographic descender only for a face whose
+    // fsSelection field sets bit 7, which asks for the typographic metrics
+    if field(b"OS/2", 62).is_some_and(|flags| flags & 0x80 != 0)
+        && field(b"OS/2", 70) == Some(0x8000)
+    {
+        return Err(damaged(
+            "its OS/2 table gives a typographic descender of -32768",
+        ));
     }
     // swash reads no HVAR table at the file's start
     if let Some((start, _)) = table(b"HVAR")
@@ -364,51 +465,75 @@ fn sound_name(table: &[u8]) -> Result<(), ()> {
     Ok(())
 }
 
-/// Whether each character map subtable of format 12 that the `cmap` table
-/// at `cmap` lists is sound, as [`sound`] says. swash reads the subtables'
-/// list and each subtable against the end of the file, not of the table,
-/// and so does this. A subtable that another record or another face
-/// already pointed at is not walked again.
-fn sound_cmap(font: &[u8], cmap: usize, checked: &mut Checked) -> Result<(), &'static str> {
-    let records = usize::from(u16_at(font, cmap.saturating_add(2)).unwrap_or(0));
-    for i in 0..records {
-        // swash stops at the first record the file does not hold
-        let Some(offset) = u32_at(font, cmap.saturating_add(4 + i * 8 + 4)) else {
-            return Ok(());
-        };
-        let at = cmap.saturating_add(offset as usize);
-        if u16_at(font, at) != Some(12) || !checked.subtables.insert(at) {
+/// The start of the character map subtable that swash 0.2.10's
+/// `cmap::subtable` picks from the `cmap` table at `cmap`, when swash reads
+/// it as format 12. swash picks the first subtable for Windows' symbol
+/// encoding, or else the last Unicode subtable of format 12, or else the
+/// first Unicode subtable. It considers only subtables whose format's low
+/// byte is 4 or 12, and maps characters by that byte alone. It picks none
+/// when a record, or the format a record points at, lies past the end of
+/// the file, or when the subtable's offset from the file's start passes 32
+/// bits. vtium-config reaches character maps through swash only by this
+/// pick, and a format 4 subtable is left to swash, whose reads of one
+/// cannot overflow.
+fn swash_subtable(font: &[u8], cmap: usize) -> Option<usize> {
+    let cmap = u32::try_from(cmap).ok().filter(|&c| c != 0)?;
+    let data = font.get(cmap as usize..)?;
+    let mut best = None;
+    for i in 0..usize::from(u16_at(data, 2)?) {
+        let record = 4 + i * 8;
+        let platform = u16_at(data, record)?;
+        let encoding = u16_at(data, record + 2)?;
+        let offset = u32_at(data, record + 4)?;
+        let format = u16_at(data, offset as usize)? as u8;
+        if format != 4 && format != 12 {
             continue;
         }
-        let groups = u32_at(font, at.saturating_add(12)).map(|n| n as usize);
-        let end = groups
-            .and_then(|n| n.checked_mul(12))
-            .and_then(|n| n.checked_add(16))
-            .and_then(|n| n.checked_add(at));
-        if end.is_none_or(|end| end > font.len()) {
-            return Err("its character map runs past the end of the file");
+        let at = (cmap.checked_add(offset)? as usize, format);
+        if (platform, encoding) == (3, 0) {
+            best = Some(at);
+            break;
         }
-        checked.subtables_walked += 1;
-        for g in 0..groups.unwrap_or(0) {
-            let group = at + 16 + g * 12;
-            let (Some(first), Some(last), Some(glyph)) = (
-                u32_at(font, group),
-                u32_at(font, group + 4),
-                u32_at(font, group + 8),
-            ) else {
-                return Err("its character map runs past the end of the file");
-            };
-            if first > last {
-                continue;
-            }
-            if last > 0x10_ffff {
-                return Err("its character map maps a character past U+10FFFF");
-            }
-            if glyph.checked_add(last).is_none() {
-                return Err(
-                    "its character map maps a character to a glyph past the largest glyph number",
-                );
-            }
+        let unicode = matches!((platform, encoding), (0, _) | (3, 1) | (3, 10));
+        if unicode && (format == 12 || best.is_none()) {
+            best = Some(at);
+        }
+    }
+    best.filter(|&(_, format)| format == 12).map(|(at, _)| at)
+}
+
+/// Whether the format 12 subtable at `at` is sound, as [`sound`] says.
+/// swash reads the subtable against the end of the file, not of the
+/// `cmap` table, and so does this.
+fn sound_subtable(font: &[u8], at: usize, checked: &mut Checked) -> Result<(), &'static str> {
+    let groups = u32_at(font, at.saturating_add(12)).map(|n| n as usize);
+    let end = groups
+        .and_then(|n| n.checked_mul(12))
+        .and_then(|n| n.checked_add(16))
+        .and_then(|n| n.checked_add(at));
+    if end.is_none_or(|end| end > font.len()) {
+        return Err("its character map runs past the end of the file");
+    }
+    for g in 0..groups.unwrap_or(0) {
+        checked.groups_walked += 1;
+        let group = at + 16 + g * 12;
+        let (Some(first), Some(last), Some(glyph)) = (
+            u32_at(font, group),
+            u32_at(font, group + 4),
+            u32_at(font, group + 8),
+        ) else {
+            return Err("its character map runs past the end of the file");
+        };
+        if first > last {
+            continue;
+        }
+        if last > 0x10_ffff {
+            return Err("its character map maps a character past U+10FFFF");
+        }
+        if glyph.checked_add(last).is_none() {
+            return Err(
+                "its character map maps a character to a glyph past the largest glyph number",
+            );
         }
     }
     Ok(())
@@ -1000,11 +1125,27 @@ mod tests {
         .is_err()
     }
 
-    /// Checks that swash panics on `font`, that the check refuses `font`
-    /// as damaged in the way `what` says, and that `describe` refuses the
-    /// font too, with no panic.
+    /// Whether swash, asked for the font's metrics as `describe`, the
+    /// rasteriser and every scaler ask, panics on `font`.
+    fn swash_metrics_panics(font: &[u8]) -> bool {
+        std::panic::catch_unwind(|| {
+            if let Some(f) = swash::FontRef::from_index(font, 0) {
+                let _ = f.metrics(&[]);
+            }
+        })
+        .is_err()
+    }
+
+    /// Checks that swash panics on `font` when asked for a glyph's width,
+    /// that the check refuses `font` as damaged in the way `what` says, and
+    /// that `describe` refuses the font too, with no panic.
     fn refused(font: &[u8], what: &str) {
-        assert!(swash_width_panics(font), "swash reads {what} with no panic");
+        refused_after(font, what, swash_width_panics);
+    }
+
+    /// [`refused`], with `panics` saying whether swash panics on `font`.
+    fn refused_after(font: &[u8], what: &str, panics: fn(&[u8]) -> bool) {
+        assert!(panics(font), "swash reads {what} with no panic");
         assert_eq!(sound(font), Err(format!("the font is damaged: {what}")));
         let described = std::panic::catch_unwind(|| crate::describe::describe(font, "f.ttf"));
         assert!(matches!(described, Ok(Err(_))), "{what}: {described:?}");
@@ -1034,6 +1175,15 @@ mod tests {
             }),
             none,
         );
+        // and whether or not the face has a character map: the shaper asks
+        // for the width of the glyph a tatweel maps to, glyph 0 here
+        refused(
+            &retable(DEJAVU, |t| {
+                table(t, b"hhea")[34..36].fill(0);
+                t.retain(|(tag, _)| tag != b"hmtx" && tag != b"cmap");
+            }),
+            none,
+        );
         let lacks = "it lacks the head or maxp table that swash reads its glyph widths after";
         refused(
             &retable(DEJAVU, |t| t.retain(|(tag, _)| tag != b"maxp")),
@@ -1047,6 +1197,57 @@ mod tests {
         let no_hhea = retable(DEJAVU, |t| t.retain(|(tag, _)| tag != b"hhea"));
         assert!(!swash_width_panics(&no_hhea));
         assert_eq!(sound(&no_hhea), Ok(()));
+    }
+
+    // swash negates the descender of the `hhea` and `vhea` tables, and the
+    // typographic descender of the `OS/2` table when the face asks for its
+    // typographic metrics. Each is a 16-bit number, and negating the
+    // smallest one, -32768, overflows.
+    #[test]
+    fn the_check_refuses_a_descender_that_swash_cannot_negate() {
+        assert!(!swash_metrics_panics(DEJAVU));
+        refused_after(
+            &retable(DEJAVU, |t| {
+                table(t, b"hhea")[6..8].copy_from_slice(&0x8000u16.to_be_bytes())
+            }),
+            "its hhea table gives a descender of -32768",
+            swash_metrics_panics,
+        );
+        // a vhea table of version 1.0 with one vertical metric
+        let mut vhea = vec![0u8; 36];
+        vhea[..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        vhea[6..8].copy_from_slice(&0x8000u16.to_be_bytes());
+        vhea[34..36].copy_from_slice(&1u16.to_be_bytes());
+        refused_after(
+            &retable(DEJAVU, |t| t.push((*b"vhea", vhea))),
+            "its vhea table gives a descender of -32768",
+            swash_metrics_panics,
+        );
+        // fsSelection's bit 7 asks for the typographic metrics
+        let typo = |use_typo: bool| {
+            retable(DEJAVU, |t| {
+                let os2 = table(t, b"OS/2");
+                os2[63] = if use_typo {
+                    os2[63] | 0x80
+                } else {
+                    os2[63] & !0x80
+                };
+                os2[70..72].copy_from_slice(&0x8000u16.to_be_bytes());
+            })
+        };
+        refused_after(
+            &typo(true),
+            "its OS/2 table gives a typographic descender of -32768",
+            swash_metrics_panics,
+        );
+        assert!(!swash_metrics_panics(&typo(false)));
+        assert_eq!(sound(&typo(false)), Ok(()));
+        // one more than the smallest descender negates
+        let next = retable(DEJAVU, |t| {
+            table(t, b"hhea")[6..8].copy_from_slice(&0x8001u16.to_be_bytes())
+        });
+        assert!(!swash_metrics_panics(&next));
+        assert_eq!(sound(&next), Ok(()));
     }
 
     // swash adds the offset of an HVAR table's item variation store to the
@@ -1085,6 +1286,58 @@ mod tests {
         refused(
             &with(hvar(20, 0, &store(2))),
             "its HVAR table gives more 16-bit deltas than regions",
+        );
+    }
+
+    /// DejaVu with its last glyph, glyph 95, replaced by a glyph of no
+    /// contours whose data after its header and its empty instructions is
+    /// `rest`. Its `loca` table is of the short format, which halves each
+    /// offset.
+    fn last_glyph(rest: &[u8]) -> Vec<u8> {
+        retable(DEJAVU, |t| {
+            let glyf = table(t, b"glyf");
+            let start = glyf.len();
+            glyf.extend([0u8; 12]);
+            glyf.extend(rest);
+            let end = glyf.len();
+            let loca = table(t, b"loca");
+            let last = loca.len() - 4;
+            loca[last..last + 2].copy_from_slice(&((start / 2) as u16).to_be_bytes());
+            loca[last + 2..].copy_from_slice(&((end / 2) as u16).to_be_bytes());
+        })
+    }
+
+    /// Whether swash, asked to draw glyph 95's outline as the rasteriser
+    /// asks, panics on `font`.
+    fn swash_draw_panics(font: &[u8]) -> bool {
+        use swash::scale::{Render, ScaleContext, Source};
+        std::panic::catch_unwind(|| {
+            if let Some(f) = swash::FontRef::from_index(font, 0) {
+                let mut context = ScaleContext::new();
+                let mut scaler = context.builder(f).size(16.0).build();
+                let _ = Render::new(&[Source::Outline]).render(&mut scaler, 95);
+            }
+        })
+        .is_err()
+    }
+
+    // read-fonts, which swash and the rasteriser read outlines with,
+    // writes a simple glyph's first point flag before it compares the
+    // number of flags written with the glyph's number of points. A glyph
+    // of no contours has no points, so a flag in its data without the
+    // repeat bit (0x08) lands past the end of its flags, which panics in a
+    // release build too.
+    #[test]
+    fn the_check_refuses_a_glyph_that_gives_flags_but_no_points() {
+        assert!(!swash_draw_panics(DEJAVU));
+        for sound_one in [last_glyph(&[]), last_glyph(&[0x08, 0])] {
+            assert!(!swash_draw_panics(&sound_one));
+            assert_eq!(sound(&sound_one), Ok(()));
+        }
+        refused_after(
+            &last_glyph(&[0x01, 0]),
+            "its glyph 95 has no outline points but gives flags for some",
+            swash_draw_panics,
         );
     }
 
@@ -1133,12 +1386,94 @@ mod tests {
             cmap.extend(subtable.to_be_bytes());
         }
         cmap.extend(&cmap12(&groups)[12..]);
-        assert_eq!(check(&with_widths(cmap)).map(|c| c.subtables_walked), Ok(1));
+        assert_eq!(
+            check(&with_widths(cmap)).map(|c| c.groups_walked),
+            Ok(10_000)
+        );
 
         let one = sfnt(&[&[(1, "Mono")]]);
         let many = collection(FACES_MAX, FACES_MAX, &one);
         assert_eq!(faces(many.as_slice()).map(|f| f.len()), Ok(256));
         assert_eq!(check(&many).map(|c| c.names_walked), Ok(1));
+    }
+
+    // A region of the 32-bit number 0x000C0000 repeated reads, from any
+    // four-byte step, as a sound format 12 subtable of 786,432 groups.
+    // Sixteen encoding records that each point four bytes further into it
+    // list sixteen such subtables, which share their groups' bytes. swash
+    // reads only one of them, and the check walks only that one.
+    #[test]
+    fn the_check_walks_only_the_subtable_that_swash_reads() {
+        let records = 16u32;
+        let mut cmap = vec![0u8, 0];
+        cmap.extend((records as u16).to_be_bytes());
+        let region = 4 + 8 * records;
+        for i in 0..records {
+            for v in [3u16, 10] {
+                cmap.extend(v.to_be_bytes());
+            }
+            cmap.extend((region + 4 * i).to_be_bytes());
+        }
+        let groups = 0x000C_0000;
+        for _ in 0..(16 + 12 * groups) / 4 + records as usize {
+            cmap.extend(0x000C_0000u32.to_be_bytes());
+        }
+        let font = with_widths(cmap);
+        assert!(!swash_panics(&font));
+        assert_eq!(check(&font).map(|c| c.groups_walked), Ok(groups));
+    }
+
+    /// Whether swash, asked for the glyph of U+0042, panics on `font`.
+    fn swash_map_panics(font: &[u8]) -> bool {
+        std::panic::catch_unwind(|| {
+            if let Some(f) = swash::FontRef::from_index(font, 0) {
+                let _ = f.charmap().map(0x42u32);
+            }
+        })
+        .is_err()
+    }
+
+    // swash picks one subtable of a character map: the first one for
+    // Windows' symbol encoding, or else the last Unicode one of format 12,
+    // or else the first Unicode one. It reads only the low byte of the
+    // subtable's format when it picks, so it maps characters through a
+    // subtable of format 0x010C as through one of format 12.
+    #[test]
+    fn the_check_reads_the_subtable_that_swash_picks_as_swash_reads_it() {
+        let wraps = (0x41, 0x42, u32::MAX - 1);
+        let wrong = "its character map maps a character to a glyph past the largest glyph number";
+        // a character map of a sound Unicode subtable, then a damaged
+        // subtable under the second record's platform and encoding
+        let after = |platform: u16, encoding: u16| {
+            let sound = &cmap12(&[(0x41, 0x5a, 1)])[12..];
+            let mut two = Vec::new();
+            for v in [0u16, 2, 3, 10] {
+                two.extend(v.to_be_bytes());
+            }
+            two.extend(20u32.to_be_bytes());
+            for v in [platform, encoding] {
+                two.extend(v.to_be_bytes());
+            }
+            two.extend((20 + sound.len() as u32).to_be_bytes());
+            two.extend(sound);
+            two.extend(&cmap12(&[wraps])[12..]);
+            with_widths(two)
+        };
+        // swash never picks the Macintosh's Roman encoding
+        let mac = after(1, 0);
+        assert!(!swash_panics(&mac) && !swash_map_panics(&mac));
+        assert_eq!(sound(&mac), Ok(()));
+        // and picks Windows' symbol encoding before any other
+        let symbol = after(3, 0);
+        assert!(swash_panics(&symbol));
+        assert_eq!(sound(&symbol), Err(format!("the font is damaged: {wrong}")));
+        // a subtable of format 0x010C, whose first glyph swash's mapping
+        // adds to the distance from the group's first character
+        let mut odd = cmap12(&[(0x41, 0x42, u32::MAX)]);
+        odd[12..14].copy_from_slice(&0x010Cu16.to_be_bytes());
+        let odd = with_widths(odd);
+        assert!(swash_map_panics(&odd));
+        assert_eq!(sound(&odd), Err(format!("the font is damaged: {wrong}")));
     }
 
     // swash reads every face that a collection lists, and the check reads

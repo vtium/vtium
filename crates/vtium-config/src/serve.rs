@@ -1647,6 +1647,7 @@ fn outline_face<'a>(font: &'a [u8], family: &str) -> Result<swash::FontRef<'a>, 
     let want = family_key(family);
     fonts
         .fonts()
+        .take(crate::names::FACES_MAX as usize)
         .find(|f| {
             want.is_empty() || {
                 let strings = f.localized_strings();
