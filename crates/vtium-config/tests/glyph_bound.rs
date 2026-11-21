@@ -8,7 +8,9 @@
 //! so a font whose ascent and descent span one unit draws each unit at
 //! almost the cell's height. Each test drives `outline::cell_width` and
 //! `outline::rasterise` as the font helper calls them, and checks that
-//! they answer without a panic and leave the oversized glyphs empty.
+//! they answer without a panic and leave the oversized glyphs empty. A font
+//! whose W is past the bound gives no cell width, so its source fails
+//! rather than take a cell that its glyphs draw nothing in.
 
 use vtium_config::frit::Hinting;
 use vtium_config::names::sound;
@@ -95,12 +97,25 @@ fn bitmap_of_one_unit() -> Vec<u8> {
 }
 
 fn request(font: Vec<u8>, height: u32) -> OutlineRequest {
+    request_in(font, 0, height)
+}
+
+/// A request for cells `width` pixels wide and `height` high, as a later
+/// source of a frit is drawn in the first source's cell; a width of 0 asks
+/// for the font's own.
+fn request_in(font: Vec<u8>, width: u32, height: u32) -> OutlineRequest {
     OutlineRequest {
         font: font.into(),
-        cells: vec![(0, height)],
+        cells: vec![(width, height)],
         hinting: Hinting::Light,
         ..Default::default()
     }
+}
+
+/// Whether `answer` is the error of a font whose W is past the glyph
+/// bound, which fails the source rather than give it a cell.
+fn w_past_the_bound<T: std::fmt::Debug>(answer: Result<T, String>) -> bool {
+    matches!(&answer, Err(e) if e.starts_with("its W draws wider or taller than 4,096 pixels"))
 }
 
 /// Whether the glyph mapped from `c` in strike 0 has no ink: every pixel
@@ -118,20 +133,35 @@ fn empty(o: &Outline, c: char) -> bool {
 
 // DejaVu's W spans about 1,200 font units, so at a cell 64 pixels high it
 // would be about 78,000 × 95,000 pixels: a mask whose size overflows u32.
-// The cell width comes from W's advance alone, clamped to the largest
-// cell, and every printable letter draws empty
+// The font gives no cell width, so the source fails as a whole. Drawn in
+// another source's cell, every printable letter draws empty
 #[test]
 fn a_font_whose_span_is_one_unit_draws_its_letters_empty() {
     let font = dejavu_of_one_unit();
     assert_eq!(sound(&font), Ok(()));
     for height in [16, 64] {
-        assert_eq!(cell_width(&[(&font, "")], height), Ok(CELL_SIDE_MAX));
-        let o = rasterise(&request(font.clone(), height)).expect("rasterised");
-        assert_eq!(o.strikes[0].width, CELL_SIDE_MAX);
+        assert!(w_past_the_bound(cell_width(&[(&font, "")], height)));
+        assert!(w_past_the_bound(rasterise(&request(font.clone(), height))));
+        let o = rasterise(&request_in(font.clone(), 9, height)).expect("rasterised");
         for c in ['W', 'A', 'g', '_'] {
             assert!(empty(&o, c), "{c} at a cell {height} pixels high");
         }
     }
+}
+
+// Measured from its W's advance alone, this font's cell would be 2,048
+// pixels wide at a cell 2,048 high, and its 95 printable glyphs, every one
+// empty, would hold 398 MB of pixels. The font gives no cell width, so the
+// rasteriser answers with the error before it draws a glyph
+#[test]
+fn a_cover_of_empty_glyphs_holds_no_cells_of_the_largest_size() {
+    let font = dejavu_of_one_unit();
+    let request = OutlineRequest {
+        cells: vec![(0, 16), (0, 440), (0, CELL_SIDE_MAX)],
+        cover: vec![(0x20, 0x7e)],
+        ..request(font, 16)
+    };
+    assert!(w_past_the_bound(rasterise(&request)));
 }
 
 // A square of 32,767 font units is 247,000 pixels on a side at a cell 8
@@ -141,8 +171,8 @@ fn a_glyph_of_32767_units_draws_empty() {
     let font = rectangle_of_one_unit(32767, 32767);
     assert_eq!(sound(&font), Ok(()));
     for height in [8, 16] {
-        assert_eq!(cell_width(&[(&font, "")], height), Ok(CELL_SIDE_MAX));
-        let o = rasterise(&request(font.clone(), height)).expect("rasterised");
+        assert!(w_past_the_bound(cell_width(&[(&font, "")], height)));
+        let o = rasterise(&request_in(font.clone(), 9, height)).expect("rasterised");
         assert!(empty(&o, 'W'), "W at a cell {height} pixels high");
     }
 }
@@ -154,8 +184,8 @@ fn a_glyph_of_32767_units_draws_empty() {
 fn a_glyph_whose_mask_size_wraps_draws_empty() {
     let font = rectangle_of_one_unit(22210, 1);
     assert_eq!(sound(&font), Ok(()));
-    assert_eq!(cell_width(&[(&font, "")], 440), Ok(CELL_SIDE_MAX));
-    let o = rasterise(&request(font, 440)).expect("rasterised");
+    assert!(w_past_the_bound(cell_width(&[(&font, "")], 440)));
+    let o = rasterise(&request_in(font, 200, 440)).expect("rasterised");
     assert!(empty(&o, 'W'));
 }
 
@@ -166,10 +196,12 @@ fn a_glyph_whose_mask_size_wraps_draws_empty() {
 fn the_bound_is_twice_the_largest_cell_side() {
     let drawn = rectangle_of_one_unit(264, 1);
     assert_eq!(sound(&drawn), Ok(()));
+    assert!(cell_width(&[(&drawn, "")], 16).is_ok());
     let o = rasterise(&request(drawn, 16)).expect("rasterised");
     assert!(!empty(&o, 'W'));
     let past = rectangle_of_one_unit(265, 1);
-    let o = rasterise(&request(past, 16)).expect("rasterised");
+    assert!(w_past_the_bound(cell_width(&[(&past, "")], 16)));
+    let o = rasterise(&request_in(past, 9, 16)).expect("rasterised");
     assert!(empty(&o, 'W'));
 }
 

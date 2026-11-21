@@ -855,6 +855,10 @@ pub(crate) mod raster {
     /// the largest cell still draws.
     pub(crate) const GLYPH_SIDE_MAX: u32 = 2 * vtium_font::CELL_SIDE_MAX;
 
+    /// [`GLYPH_SIDE_MAX`] as an error message writes it.
+    const GLYPH_SIDE_TEXT: &str = "4,096";
+    const _: () = assert!(GLYPH_SIDE_MAX == 4096);
+
     /// The whole pixels that a glyph whose points lie within `b` covers, as
     /// zeno sizes the mask it fills: its left edge, its top edge above the
     /// baseline, and its width and height. `None` when either side is
@@ -1615,40 +1619,44 @@ pub(crate) mod raster {
     /// Sans Mono's `W` at 16 pixels spans 8.02 pixels, 9 columns, where
     /// full hinting snaps it to 8. A glyph with no outline, a color or bitmap
     /// one, is measured as it is drawn.
-    fn w_width(drawer: &mut Drawer<'_>, ppem: f32, h: u32) -> u32 {
+    ///
+    /// An outline past the glyph bound draws as nothing, so a cell measured
+    /// without it would hold only empty glyphs, each as large as the cell.
+    /// The face then gives no width, and the source fails as a whole.
+    fn w_width(drawer: &mut Drawer<'_>, ppem: f32, h: u32) -> Result<u32, String> {
         let font = drawer.font;
         let (charmap, advances) = (font.charmap(), font.glyph_metrics(&[]).scale(ppem));
-        ['W', 'M', '0']
+        let Some((c, g)) = ['W', 'M', '0']
             .into_iter()
-            .map(|c| charmap.map(c))
-            .find(|&g| g != 0)
-            .map(|g| {
-                let mut scaler = drawer.context.builder(font).size(ppem).build();
-                // swash's Render rasterises with zeno inside swash, so the
-                // glyph bound is checked on the same outline first; a W past
-                // it has no ink to measure, and its advance sets the width
-                let in_bound = scaler
-                    .scale_outline(g)
-                    .is_none_or(|outline| fits(outline.path()));
-                let ink = if in_bound {
-                    Render::new(&[Source::Outline])
-                        .render(&mut scaler, g)
-                        .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
-                        .map_or(0, |i| i.placement.width)
-                } else {
-                    0
-                };
-                // vtium rounds the advance once, from a float, where
-                // FreeType's advance is already rounded in 26.6 fixed point.
-                // They can differ when the fraction is near a half, as
-                // DejaVu Sans Mono's W at 15 pixels advances 7.4995, which
-                // vtium rounds to 7 and FreeType to 8. That changes the cell
-                // only for a font whose W ink is narrower than its advance;
-                // DejaVu's covers 8 columns either way
-                (advances.advance_width(g).round() as u32).max(ink)
-            })
-            .unwrap_or(h.div_ceil(2))
-            .clamp(1, vtium_font::CELL_SIDE_MAX)
+            .map(|c| (c, charmap.map(c)))
+            .find(|&(_, g)| g != 0)
+        else {
+            return Ok(h.div_ceil(2).clamp(1, vtium_font::CELL_SIDE_MAX));
+        };
+        let mut scaler = drawer.context.builder(font).size(ppem).build();
+        // swash's Render rasterises with zeno inside swash, so the glyph
+        // bound is checked on the same outline first
+        if scaler
+            .scale_outline(g)
+            .is_some_and(|outline| !fits(outline.path()))
+        {
+            return Err(format!(
+                "its {c} draws wider or taller than {GLYPH_SIDE_TEXT} pixels in a cell {h} pixels high, so the font gives no cell width"
+            ));
+        }
+        let ink = Render::new(&[Source::Outline])
+            .render(&mut scaler, g)
+            .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
+            .map_or(0, |i| i.placement.width);
+        // vtium rounds the advance once, from a float, where FreeType's
+        // advance is already rounded in 26.6 fixed point. They can differ
+        // when the fraction is near a half, as DejaVu Sans Mono's W at 15
+        // pixels advances 7.4995, which vtium rounds to 7 and FreeType to 8.
+        // That changes the cell only for a font whose W ink is narrower
+        // than its advance;
+        // DejaVu's covers 8 columns either way
+        let width = (advances.advance_width(g).round() as u32).max(ink);
+        Ok(width.clamp(1, vtium_font::CELL_SIDE_MAX))
     }
 
     /// The width of an outline font's own cell `height` pixels high
@@ -1671,7 +1679,7 @@ pub(crate) mod raster {
             // the W rule measures the unhinted outline whatever `hinting=`
             // says (ADR-1200 D1, D17); only a color W is drawn, unhinted
             let mut drawer = Drawer::new(font, index, Hinting::default());
-            let width = w_width(&mut drawer, ppem, height);
+            let width = w_width(&mut drawer, ppem, height)?;
             widest = Some(widest.map_or(width, |w: u32| w.max(width)));
         }
         widest.ok_or_else(|| "no face to take the cell from".to_owned())
@@ -1900,7 +1908,7 @@ pub(crate) mod raster {
             let width = if want_w != 0 {
                 want_w
             } else {
-                w_width(&mut plain, ppem, h)
+                w_width(&mut plain, ppem, h)?
             };
             let cell = Cell {
                 width,
