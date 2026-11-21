@@ -3316,6 +3316,9 @@ const BASE: &[Case] = &[
         screen: shipped(1, "frit-hebrew", FRIT_HEBREW_DESC, FRIT_HEBREW, 4),
     },
     Case {
+        screen: shipped(2, "frit-indic", FRIT_INDIC_DESC, FRIT_INDIC, 12),
+    },
+    Case {
         screen: shipped(
             2,
             "frit-kannada-syllables",
@@ -3844,9 +3847,7 @@ const OSD_TEXT: &[u8] = concat!(
 /// with the others, so the defect can be seen. When its fix lands, a
 /// screen moves to [`CASES`], its golden is added and its pending row
 /// goes.
-pub const WAITING: &[Case] = &[Case {
-    screen: shipped(2, "frit-indic", FRIT_INDIC_DESC, FRIT_INDIC, 12),
-}];
+pub const WAITING: &[Case] = &[];
 
 /// The scripts screens' one drawing, at 40 pixels, in Iosevka Term's
 /// 16x40 cell.
