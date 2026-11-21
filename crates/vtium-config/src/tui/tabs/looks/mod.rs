@@ -1,9 +1,10 @@
 //! The Looks tab: one list in four groups, the looks of the draft, the
 //! font sets, the color schemes and the installed pointer themes, with a
 //! preview of the highlighted look, font set or color scheme. Enter on a
-//! look opens its card, and Enter on any other item opens its detail. `n`
-//! makes a new look among the looks and opens the form for a new font set
-//! among the font sets. `r` deletes a look after a question and marks a
+//! look opens its card, and Enter on any other item opens its detail. The
+//! card's list of sizes shows the preview of the highlighted size below
+//! it. `n` makes a new look among the looks and opens the form for a new
+//! font set among the font sets. `r` deletes a look after a question and marks a
 //! font set for removal at the next install. `t` tries the look's font set
 //! or the font set on the console, and `p` switches the preview between
 //! sample characters and a picture of the console. Space activates or
@@ -40,10 +41,11 @@ pub mod newfrit;
 pub mod palettes;
 pub mod pointers;
 
+use super::super::canvas::Row;
 use super::super::color::Style;
 use super::super::edit::Change as DraftChange;
 use super::super::input::Key;
-use super::super::layout::{PICTURE_COL, PICTURE_ROW};
+use super::super::layout::{MESSAGE_ROWS, PICTURE_COL, PICTURE_ROW};
 use super::super::listbox::{Body, Item, ListBox, Marks, plain, prose, rows, step, tail};
 use super::super::model::{DpiFrom, Font, FontState, Shared, Size, Then, View};
 use super::super::resources;
@@ -368,28 +370,9 @@ impl Looks {
             };
         }
         let preview = Tab::preview(self, shared, size);
-        let line = preview.preview_line();
-        // a picture says the density it is drawn at, and automatic has
-        // none, since vtium picks the size for each display
-        if shared.graphics && !shared.text_preview() && !self.picture {
+        for words in preview_words(shared, &preview, self.points(shared), !self.picture) {
             sentence.push(' ');
-            if self.points(shared) == 0 {
-                sentence.push_str(words::AUTOMATIC_PICTURE);
-            } else {
-                let (dpi, from) = shared.inputs.dpi;
-                sentence.push_str(&words::density(
-                    dpi,
-                    match from {
-                        DpiFrom::Conf => words::DPI_FROM_CONF,
-                        DpiFrom::Edid => words::DPI_FROM_EDID,
-                        DpiFrom::Assumed => words::DPI_ASSUMED,
-                    },
-                ));
-            }
-        }
-        if let Some(line) = line {
-            sentence.push(' ');
-            sentence.push_str(&line);
+            sentence.push_str(&words);
         }
 
         // the console's own preview draws its text beside the names, so the
@@ -406,6 +389,74 @@ impl Looks {
             keep,
             tail: tail(&sentence, cols),
         }
+    }
+
+    /// A look card's size list with the preview of the highlighted size
+    /// under it, or `None` where the size list is not open or the screen
+    /// leaves the preview no row. The list takes the rows it needs, up to
+    /// half the body's rows, and scrolls in that window to keep the
+    /// highlight in view. Under it come the sentence that says what the
+    /// keys do and the line that describes the preview, then a blank row,
+    /// then the rows of a picture or of the console's own text, from the
+    /// left edge. A written description is the whole preview, so it needs
+    /// no rows of its own.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "Sizes, live on a vtium console": the preview
+    ///   follows the highlight over the sizes, and its note of 2026-11-21
+    ///   puts it below the card's size list.
+    fn size_view(&self, shared: &Shared, size: Size) -> Option<SizeView> {
+        let (list, keep, points) = self.card()?.size_list(shared, size.cols)?;
+        let room = body_rows(size);
+        let window = list.len().min(room / 2);
+        let first = keep.saturating_add(1).saturating_sub(window);
+        let list: Vec<Row> = list.into_iter().skip(first).take(window).collect();
+        let keep = keep.saturating_sub(first);
+        let mut sentence = words::CARD_LIST_HINT.to_owned();
+        // in a vtium console the preview is the console's own text, at the
+        // size the console draws now, so the caption says what Enter does
+        // to that size; elsewhere the caption describes the preview
+        let parts = if shared.text_preview() {
+            vec![
+                if shared.window_ops() {
+                    words::CARD_CONSOLE_SIZE_TRY
+                } else {
+                    words::CARD_CONSOLE_SIZE_FIXED
+                }
+                .to_owned(),
+            ]
+        } else {
+            preview_words(
+                shared,
+                &self.size_preview(shared, size, points),
+                points,
+                true,
+            )
+        };
+        for part in parts {
+            sentence.push(' ');
+            sentence.push_str(&part);
+        }
+        let tail = tail(&sentence, size.cols);
+        let used = list.len().saturating_add(tail.len());
+        let drawn = shared.text_preview() || shared.graphics;
+        if used.saturating_add(usize::from(drawn)) >= room {
+            return None;
+        }
+        Some(SizeView {
+            body: Body { list, keep, tail },
+            at: (PICTURE_ROW.saturating_add(used).saturating_add(1), 2),
+            points,
+        })
+    }
+
+    /// The preview of the look card's font set at `points`, on the
+    /// sample screen.
+    fn size_preview<'a>(&self, shared: &'a Shared, size: Size, points: u32) -> Preview<'a> {
+        let font = self
+            .font_set(shared)
+            .and_then(|name| shared.inputs.fonts.iter().find(|f| f.name == name));
+        Preview::of(shared, size, Source::Size { font, points })
     }
 
     /// `n` among the looks: a new look, with No filter and every other key
@@ -602,6 +653,9 @@ impl Tab for Looks {
     }
 
     fn body(&self, shared: &Shared, size: Size) -> Body {
+        if let Some(view) = self.size_view(shared, size) {
+            return view.body;
+        }
         match &self.open {
             None => self.list_body(shared, size),
             Some(Open::Card(c)) => c.body(shared, size),
@@ -634,15 +688,23 @@ impl Tab for Looks {
     /// Beside the list of names, two rows below the looks group's
     /// heading. The preview's area keeps the size it had beside the list of
     /// sizes this tab held before it held looks, so a picture drawn for it
-    /// keeps its size too.
-    fn picture_at(&self, _shared: &Shared, _size: Size) -> (usize, usize) {
-        (PICTURE_ROW.saturating_add(2), PICTURE_COL)
+    /// keeps its size too. Under a look card's size list, below the list
+    /// and its sentences, from the left edge.
+    fn picture_at(&self, shared: &Shared, size: Size) -> (usize, usize) {
+        match self.size_view(shared, size) {
+            Some(view) => view.at,
+            None => (PICTURE_ROW.saturating_add(2), PICTURE_COL),
+        }
     }
 
     /// The previewed font set: sample characters at the look's size, or a
-    /// picture of the console in it. A card or a detail fills the screen
-    /// with its lines, so the preview waits for the list.
+    /// picture of the console in it. Under a look card's size list, the
+    /// sample characters at the highlighted size. Any other card or detail
+    /// fills the screen with its lines, so the preview waits for the list.
     fn preview<'a>(&self, shared: &'a Shared, size: Size) -> Preview<'a> {
+        if let Some(view) = self.size_view(shared, size) {
+            return self.size_preview(shared, size, view.points);
+        }
         if self.open.is_some()
             || matches!(
                 self.highlighted(shared),
@@ -669,9 +731,16 @@ impl Tab for Looks {
     }
 
     /// In a vtium console, the sample screen's lines, or with `p` the
-    /// detailed specimen's lines for the locale; none while a card or a
+    /// detailed specimen's lines for the locale. Under a look card's size
+    /// list, the sample screen's lines; none while another card or a
     /// detail is open.
     fn console_lines(&self, shared: &Shared) -> Vec<Vec<(&'static str, Style)>> {
+        if self
+            .card()
+            .is_some_and(|c| c.size_list(shared, 0).is_some())
+        {
+            return super::super::shot::sample_rows();
+        }
         if self.open.is_some()
             || matches!(
                 self.highlighted(shared),
@@ -779,6 +848,48 @@ impl Looks {
             }
         }
     }
+}
+
+/// A look card's size list laid out with the preview under it: the body,
+/// where the picture or the console's own text goes, row and column from
+/// 1, and the highlighted size in points.
+struct SizeView {
+    body: Body,
+    at: (usize, usize),
+    points: u32,
+}
+
+/// The rows a tab's body has on a screen of `size` when the message is at
+/// its longest: the screen less the tab bar, the status line, the two
+/// rules, a key line of one row and the message's rows.
+fn body_rows(size: Size) -> usize {
+    size.rows.saturating_sub(5).saturating_sub(MESSAGE_ROWS)
+}
+
+/// What a preview at `points` adds to the sentences under a list. Where
+/// the preview is a picture of a size, which `sized` says, the density it
+/// is drawn at comes first, or that automatic has no preview, since vtium
+/// picks the size for each display. Then comes the line that describes
+/// the preview.
+fn preview_words(shared: &Shared, preview: &Preview<'_>, points: u32, sized: bool) -> Vec<String> {
+    let mut out = Vec::new();
+    if sized && shared.graphics && !shared.text_preview() {
+        if points == 0 {
+            out.push(words::AUTOMATIC_PICTURE.to_owned());
+        } else {
+            let (dpi, from) = shared.inputs.dpi;
+            out.push(words::density(
+                dpi,
+                match from {
+                    DpiFrom::Conf => words::DPI_FROM_CONF,
+                    DpiFrom::Edid => words::DPI_FROM_EDID,
+                    DpiFrom::Assumed => words::DPI_ASSUMED,
+                },
+            ));
+        }
+    }
+    out.extend(preview.preview_line());
+    out
 }
 
 /// The rows of a detail of `lines` under its title, each paragraph
