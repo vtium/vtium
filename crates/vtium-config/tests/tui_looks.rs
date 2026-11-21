@@ -2094,3 +2094,103 @@ fn in_a_vtium_console_a_look_card_s_size_list_prints_the_sample_below_it() {
         assert!(c.pictures.is_empty() && c.cells.is_empty());
     }
 }
+
+/// A long written description keeps its place under a look card's size
+/// list: the list's window gives up rows first, so the sentence that says
+/// why a size cannot be used still shows at 80x25 when the font helper's
+/// reason names a path of 300 characters.
+#[test]
+fn a_long_reason_under_the_size_list_shrinks_the_list_before_it_goes() {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::{App, Effect, Event, Live, Size, View};
+    use vtium_config::tui::view;
+    let mut i = sized();
+    i.view = View::Looks;
+    let (mut app, _) = App::start(
+        i,
+        Size {
+            cols: 80,
+            rows: 25,
+            cell_px: Some((8, 16)),
+        },
+    );
+    app.shared.live = Live::OpsOff;
+    app.shared.graphics = false;
+    // the card of look seven, its size list, and Down to 8 pt
+    let mut asked = None;
+    for key in [
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+    ] {
+        for effect in app.event(Event::Input(Input::Key(key))) {
+            if let Effect::Summary { font, height } = effect {
+                asked = Some((font, height));
+            }
+        }
+        app.shared.drawing = false;
+    }
+    let (font, height) = asked.expect("the description of a size asked for");
+    let why = format!(
+        "cannot read /usr/share/fonts/{}/x.otb: No such file or directory",
+        "d".repeat(300)
+    );
+    app.event(Event::Summarized {
+        font,
+        height,
+        summary: Err(why),
+    });
+    let screen = view::as_text(&view::screen(&app));
+    let said = flat(&screen);
+    assert!(
+        said.contains("This size cannot be used: cannot read"),
+        "{screen}"
+    );
+    assert!(said.contains("No such file or directory"), "{screen}");
+    // the list still shows the highlighted size, in a window of at least
+    // three rows
+    let rows = body(&screen);
+    let listed = rows
+        .iter()
+        .filter(|r| r.starts_with("   ○ ") || r.starts_with("   ● "))
+        .count();
+    assert!(listed >= 3, "{screen}");
+}
+
+/// In a vtium console, a look card's size list prints the sample screen
+/// as its preview only where the screen leaves the preview a row, as the
+/// layout of the list and its sentences decides. On a screen too short
+/// for that, the card shows its list alone, and no sample lines would
+/// print over the list.
+#[test]
+fn the_console_s_text_under_the_size_list_follows_the_layout() {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::{App, Event, Live, Size, View};
+    let mut i = sized();
+    i.view = View::Looks;
+    let size = |rows| Size {
+        cols: 80,
+        rows,
+        cell_px: Some((8, 16)),
+    };
+    let (mut app, _) = App::start(i, size(25));
+    app.shared.live = Live::On;
+    // the card of look seven and its size list
+    for key in [
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+    ] {
+        app.event(Event::Input(Input::Key(key)));
+    }
+    let sample = vtium_config::tui::shot::sample_rows();
+    assert_eq!(app.tab().console_lines(&app.shared, size(25)), sample);
+    assert!(app.tab().console_lines(&app.shared, size(12)).is_empty());
+}

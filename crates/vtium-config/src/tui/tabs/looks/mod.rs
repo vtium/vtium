@@ -400,7 +400,9 @@ impl Looks {
     /// keys do and the line that describes the preview, then a blank row,
     /// then the rows of a picture or of the console's own text, from the
     /// left edge. A written description is the whole preview, so it needs
-    /// no rows of its own.
+    /// no rows of its own. Where the sentences are long, the list's window
+    /// gives up rows to them, down to [`SIZE_LIST_MIN`] rows, so a long
+    /// reason why a size cannot be used still shows.
     ///
     /// References:
     /// - ADR-1201 D4, "Sizes, live on a vtium console": the preview
@@ -409,10 +411,6 @@ impl Looks {
     fn size_view(&self, shared: &Shared, size: Size) -> Option<SizeView> {
         let (list, keep, points) = self.card()?.size_list(shared, size.cols)?;
         let room = body_rows(size);
-        let window = list.len().min(room / 2);
-        let first = keep.saturating_add(1).saturating_sub(window);
-        let list: Vec<Row> = list.into_iter().skip(first).take(window).collect();
-        let keep = keep.saturating_sub(first);
         let mut sentence = words::CARD_LIST_HINT.to_owned();
         // in a vtium console the preview is the console's own text, at the
         // size the console draws now, so the caption says what Enter does
@@ -439,11 +437,19 @@ impl Looks {
             sentence.push_str(&part);
         }
         let tail = tail(&sentence, size.cols);
-        let used = list.len().saturating_add(tail.len());
+        // a picture or the console's text needs a blank row and one row of
+        // its own below the sentences; a written description needs none
         let drawn = shared.text_preview() || shared.graphics;
-        if used.saturating_add(usize::from(drawn)) >= room {
+        let below = tail.len().saturating_add(usize::from(drawn));
+        let fits = room.saturating_sub(below).saturating_sub(1);
+        let window = list.len().min(room / 2).min(fits);
+        if window < list.len().min(SIZE_LIST_MIN) {
             return None;
         }
+        let first = keep.saturating_add(1).saturating_sub(window);
+        let list: Vec<Row> = list.into_iter().skip(first).take(window).collect();
+        let keep = keep.saturating_sub(first);
+        let used = list.len().saturating_add(tail.len());
         Some(SizeView {
             body: Body { list, keep, tail },
             at: (PICTURE_ROW.saturating_add(used).saturating_add(1), 2),
@@ -738,14 +744,18 @@ impl Tab for Looks {
 
     /// In a vtium console, the sample screen's lines, or with `p` the
     /// detailed specimen's lines for the locale. Under a look card's size
-    /// list, the sample screen's lines; none while another card or a
-    /// detail is open.
-    fn console_lines(&self, shared: &Shared) -> Vec<Vec<(&'static str, Style)>> {
+    /// list, the sample screen's lines where the screen leaves the preview
+    /// a row, as [`Looks::size_view`] lays it out; none while another card
+    /// or a detail is open, or where the size list leaves no row.
+    fn console_lines(&self, shared: &Shared, size: Size) -> Vec<Vec<(&'static str, Style)>> {
         if self
             .card()
             .is_some_and(|c| c.size_list(shared, 0).is_some())
         {
-            return super::super::shot::sample_rows();
+            return match self.size_view(shared, size) {
+                Some(_) => super::super::shot::sample_rows(),
+                None => Vec::new(),
+            };
         }
         if self.open.is_some()
             || matches!(
@@ -855,6 +865,11 @@ impl Looks {
         }
     }
 }
+
+/// The fewest rows a look card's size list keeps when the sentences under
+/// it are long. With fewer rows than this, the card shows its whole list
+/// and no preview.
+const SIZE_LIST_MIN: usize = 3;
 
 /// A look card's size list laid out with the preview under it: the body,
 /// where the picture or the console's own text goes, row and column from
