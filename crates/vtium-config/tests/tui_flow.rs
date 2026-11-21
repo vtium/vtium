@@ -780,6 +780,37 @@ mod draft_flow {
         assert!(flat(screen).contains(words::SUBFLOW_REQUIRES), "{screen}");
     }
 
+    // vtium draws a terminal that names no look with the draft's
+    // `[look default]` section, so panel's subflow shows that look's font
+    // set and not vtium.conf's
+    //
+    // References:
+    // - ADR-1403 D7, "The terminal's subflow: font set and effects".
+    #[test]
+    fn a_terminal_with_no_look_shows_the_font_set_of_look_default() {
+        const DOWN: &[u8] = b"\x1b[B";
+        let b = bench("subflow-default");
+        let text = INSTALLED.replace(
+            "[head desk]\n",
+            "[look default]\nfont-name = unifont\n[head desk]\n",
+        );
+        assert_ne!(text, INSTALLED);
+        std::fs::write(b.root.join("etc/vtium.conf"), &text).expect("vtium.conf");
+        let ran = run_at(
+            &b,
+            (120, 32),
+            vec![present(vec![keyboard()], true)],
+            true,
+            &[b"\x1b[H", RIGHT, DOWN, b"\r"],
+        );
+        let screen = ran.screen();
+        assert!(screen.contains("TERMINAL panel"), "{screen}");
+        assert!(
+            screen.contains("Font set unifont  →  default look  →  no display"),
+            "{screen}"
+        );
+    }
+
     /// A terminal's card picks one of the draft's looks, and Save writes
     /// only the head's `look =` line. Desk's card steps its look from big
     /// to the default look and back: the first writes desk's head with no

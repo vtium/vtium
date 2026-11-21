@@ -11,7 +11,7 @@
 //!   layout functions and never a view.
 
 use super::canvas::wrap;
-use super::flow::Kind;
+use super::flow::{Flow, Kind, Look};
 use super::flowview::{self, Ctx, Layout, Obj, Slot};
 use super::model::{App, Shared, Size};
 use super::paths::{self, Path, Piece};
@@ -44,6 +44,16 @@ pub fn look_names(shared: &Shared) -> Vec<String> {
         .map(|l| l.name.clone())
         .filter(|l| l != "default")
         .collect()
+}
+
+/// The `[look NAME]` section vtium draws a terminal with when the
+/// terminal names the look `look`: that look's section, or the
+/// `[look default]` section for a terminal that names no look. `None`
+/// when the draft holds no such section. vtium then draws the terminal
+/// with the settings at the top of vtium.conf, outside any section.
+pub fn look_section<'a>(flow: &'a Flow, look: Option<&str>) -> Option<&'a Look> {
+    let name = look.unwrap_or("default");
+    flow.looks.iter().find(|l| l.name == name)
 }
 
 /// The document as the Flow tab's `state` and the draft hold it, laid
