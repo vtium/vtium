@@ -73,7 +73,7 @@ When vtium starts, it draws the first frame at once in the built-in font, in the
 
 The glyphs live in a store in vtium's memory. The store's limit depends on how much memory the machine has. When the store reaches its limit, the font helper stops filling it. Only a request for characters on the screen makes room in a full store. It evicts the glyphs least recently shown first.
 
-The font helper starts the first time the console needs it, and exits when it has nothing to do. If it crashes, vtium starts it again, up to a limited number of times per boot.
+The font helper starts the first time the console needs it, and exits when it has nothing to do. When one font makes the font helper crash or hang, vtium starts the helper again without that font, and the font set's other fonts go on drawing. vtium leaves that font out until vtium restarts. A boot gives the helper three chances to recover, and after that the built-in fonts draw the whole font set.
 
 ## The fallback and switching
 
