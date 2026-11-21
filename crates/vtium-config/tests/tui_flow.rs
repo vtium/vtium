@@ -811,6 +811,43 @@ mod draft_flow {
         );
     }
 
+    // A head whose look line names a look the draft lacks: the card's Look
+    // line offers that name, marked as missing, after the draft's looks, and
+    // starts on it. The line's note says what vtium draws instead. Enter on
+    // the missing name changes nothing, and the subflow marks it too.
+    #[test]
+    fn a_terminal_that_names_a_missing_look_shows_it_as_missing() {
+        const DOWN: &[u8] = b"\x1b[B";
+        let b = bench("card-look-missing");
+        let text = INSTALLED.replace("[head panel]\n", "[head panel]\nlook = gone\n");
+        assert_ne!(text, INSTALLED);
+        std::fs::write(b.root.join("etc/vtium.conf"), &text).expect("vtium.conf");
+        let panel = [b"\x1b[H", RIGHT, DOWN, b"\r", DOWN];
+        let ran = run_at(
+            &b,
+            (120, 32),
+            vec![present(vec![keyboard()], true)],
+            true,
+            &panel,
+        );
+        let screen = ran.screen();
+        assert!(screen.contains("TERMINAL panel"), "{screen}");
+        assert!(
+            screen.contains("○ default look   ○ big   ● gone (missing)"),
+            "{screen}"
+        );
+        assert!(
+            flat(screen).contains(&words::look_missing_about("gone")),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("Font set from vtium.conf  →  look gone (missing)  →  no display"),
+            "{screen}"
+        );
+        let ran = run(&b, &[&panel[..], &[b"\r", ESC, b"s"]].concat());
+        assert_eq!(b.draft(), text, "{}", ran.screen());
+    }
+
     /// A terminal's card picks one of the draft's looks, and Save writes
     /// only the head's `look =` line. Desk's card steps its look from big
     /// to the default look and back: the first writes desk's head with no

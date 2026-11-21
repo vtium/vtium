@@ -437,6 +437,20 @@ pub fn look_box(name: &str) -> String {
     format!("look {name}")
 }
 
+/// A look that a head's look line names and the draft does not hold, as
+/// the terminal's card shows it.
+pub fn missing_look(name: &str) -> String {
+    format!("{name} (missing)")
+}
+
+/// What the card's Look line says while its cursor is on a terminal whose
+/// look the draft does not hold.
+pub fn look_missing_about(name: &str) -> String {
+    format!(
+        "The draft has no look named {name}. Until you choose another look, vtium draws this terminal with the settings at the top of vtium.conf."
+    )
+}
+
 pub const SUBFLOW_REQUIRES: &str = "Filters and requirements: vtium-config does not read a look's vtlook file yet, so this card names the look and shows no filters.";
 
 pub const EVERY_OF_TYPE: &str = "every input of that type";

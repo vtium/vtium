@@ -907,7 +907,7 @@ impl Flow {
         if let Some(typed) = state.typing.clone() {
             return self.card_type_key(shared, obj, &path, &line, typed, key);
         }
-        let choices = flowlayout::card_choices(shared, &line);
+        let choices = flowlayout::path_choices(shared, &path, &line);
         match key {
             Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
                 let at = step(state.line, lines.len(), key);
@@ -1549,7 +1549,14 @@ mod tests {
     #[test]
     fn enter_on_the_default_look_shows_the_font_set_of_look_default() {
         let mut app = app();
-        let mut big = app.shared.inputs.flow.looks[0].clone();
+        let mut big = app
+            .shared
+            .inputs
+            .flow
+            .looks
+            .first()
+            .cloned()
+            .expect("the look big");
         big.name = "default".into();
         big.frit = "unifont".into();
         app.shared.inputs.flow.looks.push(big);
