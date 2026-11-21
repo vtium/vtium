@@ -470,3 +470,78 @@ fn the_stand_in_console_reads_its_arguments_as_the_console_does() {
     assert_eq!(status, Some(1), "{err}");
     assert_eq!(err.matches("is not a font set file").count(), 2, "{err}");
 }
+
+/// `t` on a font set the draft replaces tries the font set, and its
+/// countdown says, on every tick, that the console shows the installed
+/// version: the console reads only installed font sets, so the draft's
+/// changes show once the draft is installed. A font set the draft leaves
+/// as it is gets the countdown alone.
+///
+/// References:
+/// - ADR-1403 D8, "The live trial": `t` tries an installed frit, since the console reads frits only from the frits' directory.
+#[test]
+fn t_on_a_font_set_the_draft_replaces_says_it_tries_the_installed_one() {
+    use vtium_config::drafts::FritEdit;
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{App, Event, View};
+    use vtium_config::tui::shot::TRIAL_TICKS;
+    use vtium_config::tui::words;
+    let trying = |replaced: bool| {
+        let (mut app, _) = App::new(inputs(), 80, 25);
+        for r in [
+            Reply::Version("vtium(test)".into()),
+            Reply::Font("unifont".into()),
+            Reply::Attributes,
+        ] {
+            app.event(Event::Input(Input::Reply(r)));
+        }
+        let mut frits = vtium_config::store::FritChanges::default();
+        frits
+            .kept
+            .insert("tiny5".into(), "source=builtin:unifont\n".into());
+        app.shared.draft = Some(desk::Opened {
+            name: "mine".into(),
+            frits,
+            frit_changes: if replaced {
+                vec![("tiny5".into(), FritEdit::Replace)]
+            } else {
+                Vec::new()
+            },
+            ..Default::default()
+        });
+        // the Looks tab lists the look proof, then broken, minspec-16,
+        // proof and tiny5
+        app.event(Event::Input(Input::Key(Key::Char('3'))));
+        assert_eq!(app.nav.view, View::Looks);
+        for _ in 0..4 {
+            app.event(Event::Input(Input::Key(Key::Down)));
+        }
+        app.event(Event::Input(Input::Key(Key::Char('t'))));
+        assert!(app.nav.trial.is_some(), "{:?}", app.shared.message);
+        app
+    };
+    let mut app = trying(true);
+    let installed = "The console reads the installed tiny5, so the draft's changes to it show once you install the draft.";
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(words::trial_countdown_installed("tiny5", TRIAL_TICKS).as_str())
+    );
+    assert!(
+        app.shared
+            .message
+            .as_deref()
+            .is_some_and(|m| m.contains(installed)),
+        "{:?}",
+        app.shared.message
+    );
+    app.event(Event::Timeout);
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(words::trial_countdown_installed("tiny5", TRIAL_TICKS - 1).as_str())
+    );
+    let app = trying(false);
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(words::trial_countdown("tiny5", TRIAL_TICKS).as_str())
+    );
+}

@@ -178,6 +178,21 @@ pub struct Trial {
     pub grid: Option<GridTrial>,
 }
 
+/// The live trial's countdown for the font set `font` with `left` seconds
+/// to go. The console reads only installed font sets, so on a font set the
+/// draft replaces the countdown also says that the console shows the
+/// installed version.
+///
+/// References:
+/// - ADR-1403 D8, "The live trial": `t` tries an installed frit, since the console reads frits only from the frits' directory.
+fn countdown(shared: &Shared, font: &str, left: u32) -> String {
+    if super::tabs::looks::fontsets::replaced(shared, font) {
+        words::trial_countdown_installed(font, left)
+    } else {
+        words::trial_countdown(font, left)
+    }
+}
+
 /// A size tried on the console: the size in points, the grid it gives on
 /// the display, and the grid the console had before, which the trial puts
 /// back. Each grid is columns by rows.
@@ -1057,7 +1072,7 @@ impl App {
             grid: None,
         });
         self.shared.want = Some(name.clone());
-        self.shared.message = Some(words::trial_countdown(&name, TRIAL_TICKS));
+        self.shared.message = Some(countdown(&self.shared, &name, TRIAL_TICKS));
         let mut out = self.follow();
         out.push(Effect::Wait(TICK));
         out
@@ -1206,7 +1221,7 @@ impl App {
         }
         self.shared.message = Some(match t.grid {
             Some(g) => words::size_countdown(g.points, t.left),
-            None => words::trial_countdown(&t.font, t.left),
+            None => countdown(&self.shared, &t.font, t.left),
         });
         vec![Effect::Wait(TICK)]
     }

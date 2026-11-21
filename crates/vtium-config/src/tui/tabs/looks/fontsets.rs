@@ -81,15 +81,14 @@ pub fn state_of(name: &str, text: &str) -> FontState {
     }
 }
 
-/// What the install does to the font set `name`, where it changes it.
-fn install_of(shared: &Shared, name: &str) -> Option<FritEdit> {
-    shared
-        .draft
-        .as_ref()?
-        .frit_changes
-        .iter()
-        .find(|(n, _)| n == name)
-        .map(|(_, c)| *c)
+/// Whether the draft replaces the installed font set `name` with text of
+/// its own, which the install writes in its place.
+pub fn replaced(shared: &Shared, name: &str) -> bool {
+    shared.draft.as_ref().is_some_and(|d| {
+        d.frit_changes
+            .iter()
+            .any(|(n, c)| n == name && *c == FritEdit::Replace)
+    })
 }
 
 /// The font set at `at` in the list of fonts as an item of the tab's
@@ -119,7 +118,7 @@ pub fn item(shared: &Shared, at: usize) -> Item {
         note = format!("{note}, {}", words::TO_REMOVE);
     } else if only_drafted(shared, &f.name) {
         note = format!("{note}, {}", words::IN_DRAFT);
-    } else if install_of(shared, &f.name) == Some(FritEdit::Replace) {
+    } else if replaced(shared, &f.name) {
         note = format!("{note}, {}", words::REPLACED_IN_DRAFT);
     }
     if shared.changed("font-name") && shared.drafted("font-name").as_deref() == Some(&f.name) {

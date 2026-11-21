@@ -78,6 +78,15 @@ pub fn trial_countdown(font: impl Display, left: u32) -> String {
     )
 }
 
+/// The live trial's countdown for the font set `font`, which the draft
+/// replaces. The console reads only installed font sets, so the trial
+/// shows the installed version, and the countdown says so.
+pub fn trial_countdown_installed(font: impl Display, left: u32) -> String {
+    format!(
+        "Trying {font} on the console for {left} s. The console reads the installed {font}, so the draft's changes to it show once you install the draft. Press k to keep it, or any other key to put the font back."
+    )
+}
+
 pub fn trial_kept(font: impl Display) -> String {
     format!(
         "The console keeps {font} until you quit vtium-config. To keep {font} after that, choose it on a look's card in the Looks tab, then press s to save and i to install."
