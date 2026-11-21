@@ -41,7 +41,7 @@ These four sets add no line spacing. Han, kana and Hangul have no marks above or
 
 ## Install the font sets and their fonts
 
-vtium ships the font sets, never the fonts. The optional `vtium-fonts` package installs all nine sets and their layers in `/etc/vtium/fonts`, and it depends on the fonts they name. From its next publish, installing it gives you both:
+vtium ships the font sets, never the fonts. The optional `vtium-fonts` package installs all nine sets in `/etc/vtium/fonts/scripts/` and their layers in `/etc/vtium/fonts/layers/`, and it depends on the fonts they name. Installing it gives you both:
 
 ```
 $ git clone https://aur.archlinux.org/vtium-fonts.git
