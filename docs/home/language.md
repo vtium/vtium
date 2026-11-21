@@ -10,7 +10,7 @@ The codes are control sequences. The base is [xterm's control sequences](https:/
 
 From DEC's VT terminals come the editing features that the [VT510 manual](https://vt100.net/docs/vt510-rm/contents.html) describes. They include left and right margins, column insert and delete, rectangular area operations, and protected characters. Double-width and double-height lines are supported too, in bitmap and outline fonts.
 
-Among the newer protocols, vtium supports sixel, the kitty graphics and keyboard protocols, OSC 8 links, OSC 133 prompt marks, OSC 52 copy, synchronized output, and resize reports. The kitty text sizing protocol is planned; see [the text sizing issue](https://github.com/vtium/vtium/issues/60).
+Among the newer protocols, vtium supports sixel, the kitty graphics and keyboard protocols, OSC 8 links, OSC 133 prompt marks, OSC 52 copy, synchronized output, and resize reports. vtium also interprets the kitty text sizing protocol, and draws a sized run from the font's normal glyphs scaled up. An outline font does not draw a run at its true size yet. See [the text sizing issue](https://github.com/vtium/vtium/issues/60).
 
 ## How vtium interprets a sequence
 
