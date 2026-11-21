@@ -121,8 +121,8 @@ pub use place::{By, Disposition, Lockout, Place, Placed, Placement, rule_for};
 pub use route::{Judged, Missing, Route, complete_route};
 pub use split::{Split, split};
 pub use write::{
-    Of, SectionEdit, add_rule, add_section, install_file, move_rule, placement, remove_rule,
-    remove_section, rename_section, rule_lines, set_key, set_rule,
+    Of, SectionEdit, add_rule, add_section, install_file, install_file_at, move_rule, placement,
+    remove_rule, remove_section, rename_section, rule_lines, set_key, set_rule,
 };
 
 /// The exit status of `vtium check-config` when the only problems it
