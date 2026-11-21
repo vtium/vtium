@@ -204,8 +204,16 @@ fn remove_frit_keeps_the_removal_in_the_draft_until_install() {
         assert_eq!(ran.status, 1, "{name}: {}", ran.out);
         assert!(ran.err.contains(says), "{name}: {}", ran.err);
     }
-    // the TUI's r refuses the catalog's set in the same words
+    // the refusal's words, written out here so that a change to them shows,
+    // and the TUI's r refuses the catalog's set in the same words
     let why = vtium_config::commands::removal_refusal(&fonts, "cat").expect("the catalog's set");
+    assert_eq!(
+        why,
+        format!(
+            "cat is a font set of vtium's catalog, {}, and vtium-config does not remove a font set of the catalog",
+            fonts.join("console/cat.vtfrit").display()
+        )
+    );
     assert_eq!(
         f.run(&["remove-frit", "cat"]).err,
         format!("vtium-config: {why}\n")
