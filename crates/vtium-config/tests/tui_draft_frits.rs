@@ -28,7 +28,9 @@ const END: &[u8] = b"\x1b[F";
 
 /// A change that waits for Save: `4` opens the Flow view, and the first
 /// path's terminal, desk, is renamed deskx on its card.
-const CHANGE: [&[u8]; 8] = [b"4", b"\x1b[H", b"\x1b[C", ENTER, ENTER, b"x", ENTER, b"\x1b"];
+const CHANGE: [&[u8]; 8] = [
+    b"4", b"\x1b[H", b"\x1b[C", ENTER, ENTER, b"x", ENTER, b"\x1b",
+];
 
 /// A machine of the test's own: the installed vtium.conf under `etc`, an
 /// empty frits' directory, the stand-in console, and a home whose store

@@ -652,7 +652,11 @@ fn with_a_font_set_waiting_q_asks_only_the_quit_question() {
     press(&mut sim, &TO_TINY5);
     press(&mut sim, &["r", "q"]);
     assert_eq!(sim.app.shared.unsaved, 1);
-    assert!(sim.desk.frits.removed.iter().eq(["tiny5"]), "{:?}", sim.desk.frits);
+    assert!(
+        sim.desk.frits.removed.iter().eq(["tiny5"]),
+        "{:?}",
+        sim.desk.frits
+    );
     let confirm = sim.app.nav.confirm.clone().expect("the quit question");
     assert!(
         matches!(confirm.then, vtium_config::tui::model::Then::Quit(0)),
@@ -691,11 +695,19 @@ fn with_a_font_set_waiting_q_asks_only_the_quit_question() {
     let did = n.press(press_of("n"));
     assert_eq!((n.exited, n.desk.writes), (Some(0), 0));
     assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
-    assert!(n.desk.frits.removed.iter().eq(["tiny5"]), "{:?}", n.desk.frits);
+    assert!(
+        n.desk.frits.removed.iter().eq(["tiny5"]),
+        "{:?}",
+        n.desk.frits
+    );
     let did = sim.press(press_of("y"));
     assert_eq!((sim.exited, sim.desk.writes), (Some(0), 1));
     assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
-    assert!(sim.desk.frits.removed.iter().eq(["tiny5"]), "{:?}", sim.desk.frits);
+    assert!(
+        sim.desk.frits.removed.iter().eq(["tiny5"]),
+        "{:?}",
+        sim.desk.frits
+    );
     let font = vtium_settings::setting(&sim.desk.draft, "font-name");
     assert_eq!(font.as_deref(), Some("proof"), "{}", sim.desk.draft);
     assert_eq!(sim.desk.installed, n.desk.installed, "y installed");
@@ -738,7 +750,11 @@ fn with_a_font_set_waiting_and_nothing_unsaved_q_leaves_at_once() {
     assert!(sim.app.nav.confirm.is_none());
     assert_eq!(sim.desk.writes, 0);
     assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
-    assert!(sim.desk.frits.removed.iter().eq(["tiny5"]), "{:?}", sim.desk.frits);
+    assert!(
+        sim.desk.frits.removed.iter().eq(["tiny5"]),
+        "{:?}",
+        sim.desk.frits
+    );
 }
 
 /// Below the minimum size, `q` with a change not saved asks the quit
