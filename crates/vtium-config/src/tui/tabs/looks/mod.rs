@@ -745,8 +745,9 @@ impl Tab for Looks {
     /// In a vtium console, the sample screen's lines, or with `p` the
     /// detailed specimen's lines for the locale. Under a look card's size
     /// list, the sample screen's lines where the screen leaves the preview
-    /// a row, as [`Looks::size_view`] lays it out; none while another card
-    /// or a detail is open, or where the size list leaves no row.
+    /// a row, as the layout of the list and its sentences decides; none
+    /// while another card or a detail is open, or where the size list
+    /// leaves no row.
     fn console_lines(&self, shared: &Shared, size: Size) -> Vec<Vec<(&'static str, Style)>> {
         if self
             .card()
