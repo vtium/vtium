@@ -149,7 +149,8 @@ pub fn connected(flow: &Flow, piece: &Piece) -> bool {
 /// The parts of the draft's flow `flow`, whose configuration is `doc`:
 /// each connected display, keyboard and pointer, by the match it is picked
 /// by; each display and input the configuration's paths name or labels;
-/// and the special parts and font sets the paths use.
+/// the special parts the paths use; and the looks they use that the draft
+/// holds.
 pub fn enumerate(flow: &Flow, doc: &Doc) -> Vec<Part> {
     let mut pieces: Vec<Piece> = Vec::new();
     let mut add = |p: Piece| {
@@ -190,8 +191,12 @@ pub fn enumerate(flow: &Flow, doc: &Doc) -> Vec<Part> {
     if !doc.off.is_empty() || !doc.ignored.is_empty() {
         add(Piece::NoTerminal);
     }
+    // a look line that names no section offers nothing: vtium draws that
+    // terminal with the default look
     for p in &doc.paths {
-        add(Piece::Look(p.look.clone()));
+        if p.look.as_deref().is_none_or(|l| holds_look(flow, l)) {
+            add(Piece::Look(p.look.clone()));
+        }
     }
     pieces
         .into_iter()
@@ -204,11 +209,25 @@ pub fn enumerate(flow: &Flow, doc: &Doc) -> Vec<Part> {
         .collect()
 }
 
+/// Whether the draft holds a `[look NAME]` section named `name` that a
+/// terminal can name. A section named `default` is the default look,
+/// which a terminal takes by naming no look.
+fn holds_look(flow: &Flow, name: &str) -> bool {
+    name != "default" && flow.looks.iter().any(|l| l.name == name)
+}
+
 /// Merges the parts `now`, enumerated again from `flow`, into the parts
 /// `known`, by each part's match: a part is added only for what is new,
 /// and every part held is marked connected or not by `flow`. A part keeps
-/// its place and, while its device is away, its name.
+/// its place and, while its device is away, its name. A look's part
+/// leaves once the draft no longer holds that look, as when the Looks tab
+/// renames or deletes it, because a terminal can name only a look the
+/// draft holds.
 pub fn merge(known: &mut Vec<Part>, flow: &Flow, now: Vec<Part>) {
+    known.retain(|k| match &k.piece {
+        Piece::Look(Some(l)) => holds_look(flow, l),
+        _ => true,
+    });
     for k in known.iter_mut() {
         k.connected = connected(flow, &k.piece);
         if k.connected && !k.made {
@@ -637,6 +656,75 @@ mod tests {
             ),
             made
         );
+    }
+
+    /// The flow of `text`, read as the TUI reads a draft.
+    fn built(text: &str) -> Flow {
+        crate::flowmodel::build(text, &crate::flowmodel::Present::default(), None)
+    }
+
+    /// `text` with `change` applied, as the Looks tab applies it.
+    fn changed(text: &str, change: &super::super::edit::Change) -> String {
+        change
+            .apply(text)
+            .unwrap_or_else(|e| panic!("{change:?}: {}", e.text()))
+    }
+
+    /// The names of the looks PARTS offers, the default look as `None`.
+    fn looks_in(parts: &[Part]) -> Vec<Option<String>> {
+        parts
+            .iter()
+            .filter_map(|p| match &p.piece {
+                Piece::Look(l) => Some(l.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The looks PARTS offers after the Looks tab applies `change` to
+    /// `TEXT`, whose one look is `big`, while the Flow view holds its parts.
+    fn looks_after(change: &super::super::edit::Change) -> Vec<Option<String>> {
+        use super::super::paths::tests::TEXT;
+        let f = built(TEXT);
+        let mut known = enumerate(&f, &paths::read(&f));
+        assert!(looks_in(&known).contains(&Some("big".to_owned())));
+        let f = built(&changed(TEXT, change));
+        merge(&mut known, &f, enumerate(&f, &paths::read(&f)));
+        looks_in(&known)
+    }
+
+    // A terminal names a look that the draft holds, so PARTS offers only
+    // the draft's looks: a look the Looks tab renames leaves PARTS, and the
+    // new name joins it.
+    #[test]
+    fn a_look_the_looks_tab_renames_leaves_parts_under_its_old_name() {
+        let now = looks_after(&super::super::edit::Change::LookRename {
+            name: "big".into(),
+            new: "large".into(),
+        });
+        assert!(now.contains(&Some("large".to_owned())), "{now:?}");
+        assert!(!now.contains(&Some("big".to_owned())), "{now:?}");
+    }
+
+    #[test]
+    fn a_look_the_looks_tab_deletes_leaves_parts() {
+        let now = looks_after(&super::super::edit::Change::LookRm("big".into()));
+        assert!(!now.contains(&Some("big".to_owned())), "{now:?}");
+        assert!(now.contains(&None), "the default look stays: {now:?}");
+    }
+
+    // A head's look line can name a look the draft lacks. vtium then draws
+    // the head with the default look, and PARTS does not offer the name.
+    #[test]
+    fn a_look_line_that_names_no_section_makes_no_part() {
+        use super::super::paths::tests::TEXT;
+        let text = TEXT.replace("[head panel]\n", "[head panel]\nlook = gone\n");
+        let f = built(&text);
+        let doc = paths::read(&f);
+        assert!(doc.paths.iter().any(|p| p.look.as_deref() == Some("gone")));
+        let now = looks_in(&enumerate(&f, &doc));
+        assert!(!now.contains(&Some("gone".to_owned())), "{now:?}");
+        assert!(now.contains(&Some("big".to_owned())), "{now:?}");
     }
 
     #[test]
