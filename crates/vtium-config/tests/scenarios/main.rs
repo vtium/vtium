@@ -659,10 +659,9 @@ fn right_on_a_missing_look_s_line_reaches_the_missing_look() {
         .iter()
         .position(|l| *l == CardLine::Look)
         .expect("a Look line");
-    for _ in 0..look {
-        press(&mut sim, &["Down"]);
-        keys.push("Down");
-    }
+    let downs = vec!["Down"; look];
+    press(&mut sim, &downs);
+    keys.extend(downs);
     let choices = flowlayout::path_choices(&sim.app.shared, &path, &CardLine::Look);
     assert_eq!(
         choices.last().map(|(_, v)| v.as_str()),
