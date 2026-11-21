@@ -1639,6 +1639,10 @@ enum TextOut {
     /// The text font, by its spelling and the frit's line that names it,
     /// is missing or cannot be read.
     LeftOut(String, usize),
+    /// The console left the text font out, by its spelling and the frit's
+    /// line that names it, because the font made an earlier helper crash,
+    /// hang or reach its CPU limit.
+    Dropped(String, usize),
     /// The frit has no source of its own, only layers' sources.
     NoneOwn,
 }
@@ -2427,10 +2431,20 @@ impl Engine {
         let text_left_out = match frit
             .sources
             .iter()
-            .find(|s| s.style == REGULAR && s.layer.is_none())
+            .enumerate()
+            .find(|(_, s)| s.style == REGULAR && s.layer.is_none())
         {
             None => Some(TextOut::NoneOwn),
-            Some(text)
+            // the console left it out, after it made a helper fail
+            Some((i, text))
+                if u32::try_from(i)
+                    .ok()
+                    .and_then(|i| 1u32.checked_shl(i))
+                    .is_some_and(|bit| leave & bit != 0) =>
+            {
+                Some(TextOut::Dropped(text.spelling.clone(), text.line))
+            }
+            Some((_, text))
                 if !sources
                     .iter()
                     .any(|(s, _): &(Source, _)| s.line == text.line) =>
@@ -2638,9 +2652,10 @@ impl Engine {
     /// high that the W rule gives it (the maintainer, 2026-11-01); the
     /// console names the height, and at a height of 0 there is none. An outline
     /// source whose W rule fails fails as a source that fails to draw does.
-    /// Else why the frit has none: a missing text font, a later bitmap
-    /// source whose cell does not fit, no height to draw an outline font
-    /// at, or no source of its own left.
+    /// Else why the frit has none: a missing text font, a text font the
+    /// console left out after it made a helper fail, a later bitmap source
+    /// whose cell does not fit, no height to draw an outline font at, or
+    /// no source of its own left.
     ///
     /// References:
     /// - ADR-1204 D5: a missing text font leaves the cell to the
@@ -2650,6 +2665,11 @@ impl Engine {
             Some(TextOut::LeftOut(text, _)) => {
                 return Err(format!(
                     "the text font source={text} is missing or cannot be read, so the built-in font draws the text in its place, and the cell comes from the configuration"
+                ));
+            }
+            Some(TextOut::Dropped(text, _)) => {
+                return Err(format!(
+                    "vtium left out the text font source={text} after it made the font helper fail, so the built-in font draws the text in its place"
                 ));
             }
             Some(TextOut::NoneOwn) => {
@@ -3680,7 +3700,7 @@ impl Engine {
         // built-in font. A layer spliced in before that line draws first.
         let built_in = self.built_in_at(cell);
         let text_line = match &self.text_left_out {
-            Some(TextOut::LeftOut(_, line)) => *line,
+            Some(TextOut::LeftOut(_, line) | TextOut::Dropped(_, line)) => *line,
             Some(TextOut::NoneOwn) | None => 0,
         };
         let mut standing: Option<BTreeSet<u32>> = None;
@@ -5351,6 +5371,37 @@ mod tests {
         let (status, none) = answer(Some(0b111));
         assert_eq!(status, 0);
         assert_eq!(none.iter().map(|f| f.0).collect::<Vec<_>>(), [FRAME_FAILED]);
+    }
+
+    // ADR-1200 D14: a text font the console left out, after it made a
+    // helper fail, gives no cell, and the reason says that vtium left it
+    // out, not that it is missing; the built-in font draws the text in its
+    // place
+    #[test]
+    fn a_text_font_the_console_left_out_gives_no_cell_and_says_why() {
+        let text = "source=builtin:unscii-8\nsource=builtin:unifont\n";
+        let mut bytes = leave_out_request(0b01);
+        bytes.extend_from_slice(&query_at(frit(text), 16).encode());
+        let mut out = Vec::new();
+        let status = serve(
+            std::io::Cursor::new(bytes),
+            &mut out,
+            &Paths::default(),
+            Duration::from_secs(5),
+        );
+        assert_eq!(status, 0);
+        let frames: Vec<(u32, Vec<u8>)> = frames(&out)
+            .into_iter()
+            .filter(|f| f.0 != FRAME_WARNING)
+            .collect();
+        assert_eq!(
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_NO_OWN_CELL]
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&frames[0].1),
+            "vtium left out the text font source=builtin:unscii-8 after it made the font helper fail, so the built-in font draws the text in its place"
+        );
     }
 
     // a leave-out request reads back, and one with a bit past the sixteen
