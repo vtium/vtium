@@ -83,7 +83,7 @@ The live path does not send the case's own stream. A test command, an answer of 
 - Each picture is sent through the kitty graphics protocol as the renderer draws it. vtium-render's `placed_picture` gives the part drawn and the pixels the renderer draws there, scaled from the picture's crop and cut to the screen. The live path sends those pixels at their own size, at their place by cell and pixel offset, with the picture's layer. The reading terminal then draws the renderer's pixels, whatever cell the picture was made in.
 - The cursor goes to its cell in its shape, blink and color.
 
-`make tier1-shots` checks each picture against its live path. It reads the live path's bytes for that block back through a terminal of the replay's size, and draws that terminal as the picture path draws. When the two drawings differ, the tool prints the picture's name and writes the live path's drawing beside the picture. Today all 250 pictures match their live play.
+`make tier1-shots` checks each picture against its live path. It reads the live path's bytes for that block back through a terminal of the replay's size, and draws that terminal as the picture path draws. When the two drawings differ, the tool prints the picture's name and writes the live path's drawing beside the picture. A run that prints no picture's name shows that every picture matches its live play.
 
 The output goes to `OUT`, `target/tier1-shots/` by default. `OUT` must be new, empty, or the output of an earlier run, which holds a `manifest.json`. The tool removes an earlier run's pictures and manifest first. It writes:
 

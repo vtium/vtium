@@ -87,7 +87,7 @@ qemu-user runs vtium's code on an emulated CPU over the host's kernel, so it jud
 | Test | Skips when |
 |---|---|
 | vtium-platform's `display::card::tests::a_render_node_through_the_real_ioctls` | its DRM ioctl answers ENOTTY |
-| vtium's `check_config` test `it_opens_nothing_but_the_configuration` | strace records opens under `QEMU_LD_PREFIX` |
+| vtium's `check_config` test `it_opens_nothing_under_dev_and_writes_nothing` | strace records opens under `QEMU_LD_PREFIX` |
 | vtium's `helper::tests::a_failed_start_names_proc_self_fd` | a program no one may execute starts |
 | vtium's `check::tests`, the assertions that root's own helper draws no note | root does not own `/bin/sh` |
 | vtium-config's `serve::tests::the_helpers_socket_filter_refuses_every_new_socket` | the socket filter's install answers ENOSYS |
