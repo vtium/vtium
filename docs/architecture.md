@@ -25,10 +25,18 @@ vtium-config (binary)   the configuration tool and the glyph helper: the drafts,
 ├── vtium-devices
 ├── vtium-font
 ├── vtium-platform
-└── vtium-settings
+├── vtium-render     the pointer's bounds and shapes, and (feature `filters`) the frame filters' color tables for the Effects tab's preview
+├── vtium-settings
+└── vtium-term       the terminal's cluster width rule and its palettes
+
+vtium-image-helper (binary, `vtium-image`)   the sandboxed program that reads and decodes pictures (feature `images`)
+└── vtium-image
+
+vtium-clipboard (binary, `vticlip`)   copies text to the console's clipboard from the command line
+└── vtium-term       the clipboard's size bound
 ```
 
-The tree shows the workspace as it is built today. vtium-term takes vtium-image as an optional dependency, behind vtium-term's `images` feature. vtium-image depends on vtium-parse alone. It names a line of the screen by an opaque key, so it never needs vtium-term (ADR-1100 D1, D10). vtium-render and the binary also take vtium-image, each behind its own `images` feature. vtium-render reads from it the placements of the images a frame draws. The binary uses it to send the image helper its requests and to check the helper's replies. It also uses it to work out the `auto` budget for image storage, and to pick the frame each animated image shows. The minspec build, the default and smallest build, links none of the image code.
+The tree shows the workspace as it is built today. vtium-term takes vtium-image as an optional dependency, behind vtium-term's `images` feature. vtium-image depends on vtium-parse alone. It names a line of the screen by an opaque key, so it never needs vtium-term (ADR-1100 D1, D10). vtium-render, vtium-platform and the binary also take vtium-image, each behind its own `images` feature. vtium-render reads from it the placements of the images a frame draws. The binary uses it to send the image helper its requests and to check the helper's replies. It also uses it to work out the `auto` budget for image storage, and to pick the frame each animated image shows. The minspec build, the default and smallest build, links none of the image code.
 
 vtium-config, the configuration tool, is a binary of its own. A user runs it as `vtium config`. The console binary then replaces itself with vtium-config. That hand-off is the only part of the tool that the console binary holds (ADR-1201 D12). The install tree carries vtium-config beside the console. vtium-config is not part of the console's binary, and the minspec size budget does not count it, because that budget judges the console alone. The console also starts vtium-config as its glyph helper. The glyph helper reads the fonts of a frit (a font set file) and sends their glyphs to the console (ADR-1200). This keeps the font decoders and the rasterizer out of the console.
 
@@ -56,15 +64,21 @@ From vtium-font and vtium-term, vtium-settings takes only constants: the bounds 
 
 `vtium-devices` takes what vtium-platform reads about a display or an input device, and turns it into the identity that the rules match. Three parts of vtium decide through vtium-devices where a device goes: the console when it starts, `vtium check-config`, and vtium-config's Flow view. So all three place every device the same way (ADR-1403 D9).
 
-`vtium-platform` makes its syscalls through rustix (vtium/vtium#6). There is one kind of exception: vtium calls libc where rustix has no call. Five files do this:
+`vtium-platform` makes its syscalls through rustix (vtium/vtium#6). There is one kind of exception: vtium calls libc where rustix has no call. These files do this:
 
 - `src/fds.rs` calls `close_range` and `fcntl`, to mark descriptors close-on-exec.
+- `src/pty.rs` calls `close` in the pre-exec hook of the pty child.
+- `src/vt/kernel.rs` takes a pending SIGUSR2 with `sigtimedwait`, so that the loop's signalfd does not report a VT release twice.
+- `src/gpu.rs` ends the process with `_exit`, which runs no exit handler, while a render thread may still be inside the GPU driver.
 - `src/rt_signal.rs` calls the signalfd, the signal set and mask, `pidfd_send_signal` and `pthread_kill`, because rustix has no safe call for real-time signals.
 - `src/power.rs` calls the `kill` that signals PID 1.
 - `src/image_helper/start.rs` calls `dup2` onto descriptor 3, reads the ids, calls `prctl` to drop capabilities, calls `close_range`, and sends a pidfd signal to the helper's process group.
 - `src/image_helper/identity.rs` looks up the password and group databases, and reads the process's real, effective and saved ids.
+- `src/logind/localed.rs` and `src/image_helper/login.rs` call `free` on the strings that libsystemd's functions return.
 
-`src/logind.rs` and `src/image_helper/login.rs` also declare `extern "C"` blocks for the sd-bus and sd-login functions of libsystemd or libelogind. `login.rs` calls libc's `free` on what those functions return.
+Other files take only error numbers and types from libc.
+
+With the `logind` feature, `src/logind.rs`, the files under `src/logind/` and `src/image_helper/login.rs` declare `extern "C"` blocks for the sd-bus and sd-login functions of libsystemd or libelogind. With the `libseat` feature, `src/seat/binding.rs` reaches libseat through the `libseat` crate, and declares the two C functions it needs to take libseat's log lines. With `gpu`, `src/gpu/gbm.rs` types the GBM functions it takes by name as `extern "C"` pointers.
 
 The crate reaches three more C libraries at its boundary. DRM's ioctls go through `drm-ffi`. Keys go through libxkbcommon. The device monitor goes through libudev.
 
@@ -90,7 +104,7 @@ The crate's `unsafe` sites are these:
   - the GL functions that glow lacks, loaded by name;
   - every GL call of the safe GL type `Context`, which itself checks what keeps each call sound.
 
-The crate's README lists them. C stays at that boundary, and libseat (vtium/vtium#34) will join it there. The crate denies `unsafe_code`, so each site carries an `#[expect]` with its reason.
+The list above leaves out the calls into libsystemd and libseat, the signal calls of `src/vt/kernel.rs`, and the image helper's start, identity and login. The crate's README lists every site. C stays at that boundary. The crate denies `unsafe_code`, so each site carries an `#[expect]` with its reason.
 
 The console starts two kinds of child process: the session on the pty, and the suspend shell that the power keys start. It starts them from its main thread, which runs the event loop. Just before each start, that thread marks every descriptor that the child would inherit as close-on-exec (vtium/vtium#133). The console has other threads too: a render thread for each head, and three threads for each running font helper. A descriptor that another thread opens between the marking and the fork would slip past it. So a new thread that opens descriptors must revisit that call. When a session's child must wait for its systemd scope, the fork itself runs on a short-lived thread named `vtium-spawn`. The main thread starts that thread after the marking.
 
