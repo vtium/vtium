@@ -829,6 +829,8 @@ pub fn family_key(name: &str) -> String {
 
 pub use raster::{baseline, cell_width, decorations, own_box, rasterise, size};
 
+mod strike;
+
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
 pub(crate) mod raster {
@@ -851,7 +853,7 @@ pub(crate) mod raster {
     /// The most pixels across or down that vtium-config rasterises one
     /// glyph at: twice the largest cell side, so a glyph two cells wide in
     /// the largest cell still draws.
-    const GLYPH_SIDE_MAX: u32 = 2 * vtium_font::CELL_SIDE_MAX;
+    pub(crate) const GLYPH_SIDE_MAX: u32 = 2 * vtium_font::CELL_SIDE_MAX;
 
     /// The whole pixels that a glyph whose points lie within `b` covers, as
     /// zeno sizes the mask it fills: its left edge, its top edge above the
@@ -1019,6 +1021,8 @@ pub(crate) mod raster {
         hinter: Option<(f32, HintingInstance)>,
         /// The automatic hinter's classes of the face's glyphs, found once.
         styles: Option<GlyphStyles>,
+        /// The face's color bitmap strikes, which vtium-config reads itself.
+        strikes: super::strike::Strikes<'a>,
         /// The style drawn over each outline ([`OutlineRequest::synth`]).
         synth: Style,
         /// How many times wider than the font draws it each outline is
@@ -1234,15 +1238,23 @@ pub(crate) mod raster {
         /// A drawer of the glyphs of `font`, face `index` of its file,
         /// hinting its outlines as `hinting` says.
         pub(crate) fn new(font: FontRef<'a>, index: u32, hinting: Hinting) -> Self {
+            let raw = skrifa::FontRef::from_index(font.data, index).ok();
+            // swash's test for Apple Color Emoji, on the family name
+            let apple = || {
+                font.localized_strings()
+                    .find_by_id(StringId::Family, None)
+                    .is_some_and(|name| name.chars().eq("Apple Color Emoji".chars()))
+            };
             Self {
                 font,
                 context: ScaleContext::new(),
-                outlines: skrifa::FontRef::from_index(font.data, index)
-                    .ok()
-                    .map(|f| f.outline_glyphs()),
+                outlines: raw.as_ref().map(|f| f.outline_glyphs()),
                 hinting,
                 hinter: None,
                 styles: None,
+                strikes: raw.map_or(super::strike::Strikes::None, |f| {
+                    super::strike::Strikes::new(&f, apple)
+                }),
                 synth: Style::default(),
                 widen: 1.0,
             }
@@ -1295,12 +1307,7 @@ pub(crate) mod raster {
         pub(crate) fn is_color(&mut self, g: u16, ppem: f32) -> bool {
             let mut scaler = self.context.builder(self.font).size(ppem).build();
             (scaler.has_color_outlines() && scaler.scale_color_outline(g).is_some())
-                || (scaler.has_color_bitmaps()
-                    && self
-                        .font
-                        .color_strikes()
-                        .find_by_largest_ppem(g)
-                        .is_some_and(|strike| strike.ppem() != 0))
+                || self.strikes.holds(g)
         }
 
         /// Glyph `g` drawn as [`Drawer::draw`] draws it, its outline moved
@@ -1320,9 +1327,7 @@ pub(crate) mod raster {
                 drew_color();
                 return Some(self.compose(&layers));
             }
-            if scaler.has_color_bitmaps()
-                && let Some(image) = self.bitmap(g, ppem, fit)
-            {
+            if let Some(image) = self.bitmap(g, ppem, fit) {
                 drew_color();
                 return Some(image);
             }
@@ -1439,19 +1444,18 @@ pub(crate) mod raster {
 
         /// A color bitmap from the font's largest strike holding `g`, its
         /// colors premultiplied, scaled to `ppem` or as far under as fits
-        /// `fit`, by [`METHOD`] (ADR-1200 D13; the operator's choice on
-        /// vtium/vtium#23).
+        /// `fit`, by [`METHOD`]. vtium-config reads the strike itself
+        /// (`strike.rs`), which refuses an image larger than the glyph
+        /// bound before decoding it.
+        ///
+        /// References:
+        /// - ADR-1200 D13 and the operator's choice on vtium/vtium#23: the
+        ///   resampling method.
         fn bitmap(&mut self, g: u16, ppem: f32, fit: (u32, u32)) -> Option<Image> {
-            let strike = self.font.color_strikes().find_by_largest_ppem(g)?.ppem();
-            // a scaler of no size draws the strike as it is stored
-            let mut native = self.context.builder(self.font).build();
-            let image = native.scale_color_bitmap(g, StrikeWith::LargestSize)?;
-            let (w, h) = (image.placement.width, image.placement.height);
-            if strike == 0 || w == 0 || h == 0 {
-                return None;
-            }
+            let image = self.strikes.bitmap(g)?;
+            let (strike, w, h) = (image.ppem, image.width, image.height);
             let premultiplied = image
-                .data
+                .rgba
                 .as_chunks::<4>()
                 .0
                 .iter()
@@ -1481,8 +1485,8 @@ pub(crate) mod raster {
                 source: Source::ColorBitmap(StrikeWith::LargestSize),
                 content: Content::Color,
                 placement: Placement {
-                    left: (f64::from(image.placement.left) * s).round() as i32,
-                    top: (f64::from(image.placement.top) * s).round() as i32,
+                    left: (f64::from(image.left) * s).round() as i32,
+                    top: (f64::from(image.top) * s).round() as i32,
                     width: out.width,
                     height: out.height,
                 },
