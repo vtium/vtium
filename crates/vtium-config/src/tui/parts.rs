@@ -667,7 +667,8 @@ mod tests {
     fn changed(text: &str, change: &super::super::edit::Change) -> String {
         change
             .apply(text)
-            .unwrap_or_else(|e| panic!("{change:?}: {}", e.text()))
+            .map_err(|e| format!("{change:?}: {}", e.text()))
+            .expect("the change applies")
     }
 
     /// The names of the looks PARTS offers, the default look as `None`.
