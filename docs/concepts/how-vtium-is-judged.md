@@ -9,7 +9,7 @@ vtium is judged in tiers, each with its harness in vtium's tree; [AGENTS.md](htt
 - **Tier 3, the VM:** vtium's install tree runs on a VT in a QEMU/KVM guest with a real display device. The tier captures its screens and compares them with goldens, and it records size and memory figures ([tools/tier3](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md)).
 - **The VT review:** the maintainer judges a build by eye on a real VT, guided step by step ([vt-review.md](../vt-review.md)).
 
-The goldens are the judge, and each tier keeps its own in vtium's tree. A difference from one is a failure, unless the tier's list of expected differences names the case, with vtium's expected output and the reason, or lists the case as pending. A new golden stays provisional, and judges nothing, until the maintainer reviews it, and a golden changes only in a commit of its own that the maintainer reviews. vtium builds tier 3's guest images from its own scripts.
+The goldens are the judge, and each tier keeps its own in vtium's tree. A difference from one is a failure, unless the tier's list of expected differences names the case, with vtium's expected output and the reason, or lists the case as pending. A golden changes only in a commit of its own. The maintainer reviews each pixel golden, those of tiers 2 and 3, by eye. A golden of tier 1 is a readable case whose expected result cites a specification. A fresh reviewer, an agent that did not write the change, checks that citation. The maintainer answers the cases that no specification settles. A new golden stays provisional, and judges nothing, until it is accepted this way. vtium builds tier 3's guest images from its own scripts.
 
 ## How a pixel difference is flagged
 

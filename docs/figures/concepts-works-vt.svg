@@ -58,7 +58,7 @@
 <text x="36" y="544" font-size="12" fill="#1f2933">oneshot sessions ended</text>
 <text x="36" y="566" font-size="12" fill="#2f6fb0">exit status 1:</text>
 <text x="36" y="582" font-size="12" fill="#1f2933">the VT hung up;</text>
-<text x="36" y="598" font-size="12" fill="#1f2933">no display in time;</text>
+<text x="36" y="598" font-size="12" fill="#1f2933">open: no display in time;</text>
 <text x="36" y="614" font-size="12" fill="#1f2933">a session cannot start;</text>
 <text x="36" y="630" font-size="12" fill="#1f2933">sessions end too fast</text>
 <rect x="300" y="490" width="220" height="128" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>

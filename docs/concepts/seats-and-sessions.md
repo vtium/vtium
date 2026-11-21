@@ -52,7 +52,7 @@ When you log in, vtium starts `login` with two variables that name the seat and 
 
 ### With elogind
 
-This works as with logind. PAM's `pam_elogind` module registers your login with elogind from the same two variables, so your login is the seat's active session while its VT is shown. No test of vtium runs under elogind yet, so this is untested. See [the elogind issue](https://github.com/vtium/vtium/issues/100).
+This works as with logind. PAM's `pam_elogind` module registers your login with elogind from the same two variables, so your login is the seat's active session while its VT is shown. No test of vtium runs under elogind yet, so this is untested. See [the issue about distributions without systemd](https://github.com/vtium/vtium/issues/377).
 
 ### With seatd, or with no seat manager
 
@@ -84,7 +84,7 @@ polkit counts a session as one at the machine only when the session has a seat. 
 
 When systemd cannot make the scope, vtium logs one line that says why. `login` then runs inside vtium's own session and gets no session of its own. polkit then judges your login by vtium's session, which is the seat's active session, so it allows you what it allows a login in direct mode.
 
-See [the libseat issue](https://github.com/vtium/vtium/issues/34) for the work on seat mode.
+[The libseat issue](https://github.com/vtium/vtium/issues/34) describes the work that built seat mode.
 
 `vtium console enable --seat` refuses, and changes nothing, when the console was built without libseat and logind, when `vtium-seat@.service` is missing or masked, when `/etc/pam.d/vtium` is missing, or when logind manages no `seat0`.
 
@@ -120,7 +120,7 @@ It recommends direct mode on every systemd machine. Direct mode gives your login
 
 `vtium console enable` works only on a machine booted with systemd, so on an elogind machine your init system starts vtium. Started that way, vtium has no session of its own. vtium then takes its devices from seatd if seatd runs, and opens them itself if it does not. When you log in, PAM's `pam_elogind` module registers your login with elogind on `seat0` and on vtium's VT. So your login is the seat's active session while vtium's VT is shown.
 
-If your init system opens a PAM session for vtium with the PAM file `/etc/pam.d/vtium`, vtium holds the seat through elogind, as in seat mode. Without systemd, vtium cannot make a scope for your login. It logs one line, and `login` starts inside vtium's session without the seat variables. None of this is tested under elogind yet. See [the elogind issue](https://github.com/vtium/vtium/issues/100).
+If your init system opens a PAM session for vtium with the PAM file `/etc/pam.d/vtium`, vtium holds the seat through elogind, as in seat mode. Without systemd, vtium cannot make a scope for your login. It logs one line, and `login` starts inside vtium's session without the seat variables. None of this is tested under elogind yet. See [the issue about distributions without systemd](https://github.com/vtium/vtium/issues/377).
 
 ### With seatd
 
@@ -285,4 +285,4 @@ No test checks these cases yet:
 - seat mode under elogind;
 - a seat manager that stops while vtium runs. When libseat reports that the connection to the seat manager failed, vtium logs an error and exits. systemd then handles the exit as any failure of vtium. See [When vtium fails on a VT](../install.md#when-vtium-fails-on-a-vt) for details.
 
-See [the libseat issue](https://github.com/vtium/vtium/issues/34) for the work on seat mode.
+[The issue about distributions without systemd](https://github.com/vtium/vtium/issues/377) tracks the tests of the first two cases, and [the issue about a seat manager that stops](https://github.com/vtium/vtium/issues/456) tracks the third.
