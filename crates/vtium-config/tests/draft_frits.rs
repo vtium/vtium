@@ -637,3 +637,108 @@ fn the_install_s_own_check_counts_the_bundle_s_font_sets() {
         "the copies go after the check"
     );
 }
+
+/// The install checks the frits' directory, and every folder above it,
+/// under the ownership check the console makes of every font set before
+/// it makes the folder for the check's copies there. A frits' directory
+/// that other users can write is refused before anything is created in
+/// it, and nothing is installed, since the console would refuse every
+/// font set in it.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` reads root's copies of the bundle's font sets.
+/// - ADR-1401 D10: the ownership check that every installed frit passes.
+#[test]
+fn the_install_refuses_a_frits_directory_others_can_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture("apply-writable");
+    // the stand-in console lists the frits' directory each time it runs
+    let log = f.path("log");
+    script::executable(
+        &f.path("vtium"),
+        &format!(
+            "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\nls -a '{}' >> '{}'\nexit 0\n",
+            f.path("etc/fonts").display(),
+            log.display()
+        ),
+    );
+    f.desk();
+    f.ok(&["set", "font-size", "14"]);
+    f.keep("new.vtfrit", NEW);
+    let fonts = f.path("etc/fonts");
+    std::fs::set_permissions(&fonts, std::fs::Permissions::from_mode(0o777)).expect("the mode");
+    std::fs::write(&log, "").expect("the log");
+    let ran = f.run(&["install"]);
+    std::fs::set_permissions(&fonts, std::fs::Permissions::from_mode(0o755)).expect("the mode");
+    assert_ne!(ran.status, 0, "{}{}", ran.out, ran.err);
+    // the install passes on what apply says
+    assert!(
+        format!("{}{}", ran.out, ran.err).contains(
+            "vtium reads no font set in ROOT/etc/fonts, so the install writes none there: other users can change \"ROOT/etc/fonts\" (mode 777)."
+        ),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+    let listed = std::fs::read_to_string(&log).expect("the log");
+    assert!(
+        !listed.contains("vtium-config-apply-"),
+        "the check's folder was made: {listed}"
+    );
+    assert!(!fonts.join("new.vtfrit").exists(), "nothing is installed");
+    assert_eq!(f.held("desk"), ["new.vtfrit"]);
+}
+
+/// A folder for the check's copies that an install left in the frits'
+/// directory, because it was killed before it could remove the folder,
+/// goes at the next install that makes one. The install removes only a
+/// folder of its own name pattern that the user it runs as owns, with
+/// mode 0700. A symbolic link and a folder others can read stay, and so
+/// does what a link points to.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` reads root's copies of the bundle's font sets.
+#[test]
+fn the_install_removes_the_check_s_folders_a_killed_install_left() {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let f = fixture("apply-leftover");
+    let fonts = f.path("etc/fonts");
+    let left = fonts.join("vtium-config-apply-0123456789abcdef");
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&left)
+        .expect("a leftover");
+    std::fs::write(left.join("new.vtfrit"), NEW).expect("a leftover copy");
+    std::fs::set_permissions(
+        left.join("new.vtfrit"),
+        std::fs::Permissions::from_mode(0o600),
+    )
+    .expect("the mode");
+    let open = fonts.join("vtium-config-apply-open");
+    std::fs::DirBuilder::new()
+        .mode(0o755)
+        .create(&open)
+        .expect("a folder others can read");
+    let elsewhere = f.path("elsewhere");
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&elsewhere)
+        .expect("a folder");
+    std::fs::write(elsewhere.join("keep"), "kept").expect("a file");
+    std::os::unix::fs::symlink(&elsewhere, fonts.join("vtium-config-apply-link")).expect("a link");
+    f.desk();
+    f.ok(&["set", "font-size", "14"]);
+    f.keep("new.vtfrit", NEW);
+    f.ok(&["install"]);
+    assert!(!left.exists(), "the leftover goes");
+    assert!(open.is_dir(), "a folder others can read stays");
+    assert!(
+        fonts.join("vtium-config-apply-link").is_symlink(),
+        "a link stays"
+    );
+    assert!(elsewhere.join("keep").is_file(), "what a link names stays");
+    assert_eq!(
+        std::fs::read_to_string(fonts.join("new.vtfrit")).expect("installed"),
+        NEW
+    );
+}
