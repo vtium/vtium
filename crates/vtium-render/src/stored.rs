@@ -433,6 +433,36 @@ impl Stored {
         }
     }
 
+    /// The coverage at drawn column `x`, line `y`, 0 outside the glyph: the
+    /// one pixel that [`Stored::mask_line`] gives there, read without
+    /// filling a line.
+    pub(crate) fn coverage(&self, x: i64, y: i64) -> u8 {
+        let (x, y) = self.local(x, y);
+        let Some((row, drawn_w)) = self.row(y) else {
+            return 0;
+        };
+        if x < 0 || x >= drawn_w {
+            return 0;
+        }
+        let Some(c) = usize::try_from(x)
+            .ok()
+            .and_then(|x| x.checked_div(usize::try_from(self.scale).ok()?.max(1)))
+        else {
+            return 0;
+        };
+        match self.format {
+            Format::Bits => {
+                let bit = row.get(c / 8).map_or(0, |b| b << (c % 8) & 0x80);
+                if bit != 0 { 255 } else { 0 }
+            }
+            Format::Mask => row.get(c).copied().unwrap_or(0),
+            Format::Rgba => row
+                .get(c.wrapping_mul(4).wrapping_add(3))
+                .copied()
+                .unwrap_or(0),
+        }
+    }
+
     /// Whether it is held at 1 bit a pixel: [`Stored::bits_rows`] draws it.
     pub(crate) fn is_bits(&self) -> bool {
         self.format == Format::Bits
@@ -581,6 +611,43 @@ mod tests {
                         let mut got = vec![0u32; w];
                         s.bits_line(x0, y, (1, 2), &mut got);
                         assert_eq!(got, want, "scale {scale}, line {y}, from {x0}, {w} wide");
+                    }
+                }
+            }
+        }
+    }
+
+    // one pixel's coverage is the pixel a line read gives there, at 1 bit,
+    // 8 bits and in a color glyph's alpha, at every scale and turn, and 0
+    // past each edge
+    #[test]
+    fn a_pixels_coverage_is_the_pixel_its_line_gives() {
+        let g = glyph(11, 3, |x, y| ((x * 7 + y) % 4) as u8 * 85);
+        let two = glyph(11, 3, |x, y| if (x * 7 + y) % 3 == 0 { 255 } else { 0 });
+        let rgba: Vec<u8> = (0..11u32 * 3)
+            .flat_map(|i| [0, 0, 0, (i % 3) as u8 * 120])
+            .collect();
+        let color = Glyph::from_pixels(11, 3, FontFormat::Rgba, rgba).unwrap();
+        for o in [
+            Orientation::Normal,
+            Orientation::Right,
+            Orientation::UpsideDown,
+            Orientation::Left,
+        ] {
+            for scale in 1..=3 {
+                let stored = [
+                    Stored::new(&two, scale, o, true),
+                    Stored::new(&g, scale, o, false),
+                    Stored::new(&color, scale, o, false),
+                ];
+                assert!(stored[0].is_bits() && stored[2].is_rgba());
+                for s in &stored {
+                    for y in -2..40 {
+                        for x in -2..40 {
+                            let mut px = [0u8; 1];
+                            s.mask_line(x, y, &mut px);
+                            assert_eq!(s.coverage(x, y), px[0], "{o:?}, scale {scale}, {x}, {y}");
+                        }
                     }
                 }
             }
