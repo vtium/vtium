@@ -1709,6 +1709,16 @@ impl Helper {
             .or(self.pointer.as_ref().map(|(_, sent)| *sent))
     }
 
+    /// Whether the helper owes an answer: an ask, a pointer ask or a fill
+    /// is outstanding, or a cell query whose answer comes late. While it
+    /// owes one, a helper that sends nothing for [`ANSWER_MS`] is ended
+    /// as a hung helper. So a console that holds a program's output until
+    /// a late cell comes never holds it for good: the helper started again
+    /// answers, or vtium gives the helper up.
+    fn owes(&self) -> bool {
+        self.busy() || !self.late.is_empty()
+    }
+
     /// Whether an ask, a pointer ask or a fill is outstanding.
     pub fn busy(&self) -> bool {
         !self.asks.is_empty()
@@ -1918,7 +1928,7 @@ impl Helper {
                                 // a search this answer ends is not left
                                 // waiting for an answer already taken
                                 self.settle();
-                                self.due = (self.busy() || self.suspect.is_some())
+                                self.due = (self.owes() || self.suspect.is_some())
                                     .then(|| after(now, self.answer));
                             }
                             self.kept.push((asked, answer));
@@ -1971,6 +1981,9 @@ impl Helper {
                 }
                 Err(_) => {
                     self.late.push_back(height);
+                    // The late answer is work the helper owes, so a helper
+                    // that never gives it is ended as a hung helper is.
+                    self.due.get_or_insert(after(clock(), self.answer));
                     Err(NoCell {
                         why: format!("the helper gave no answer in {} ms", wait.as_millis()),
                         late: true,
@@ -2159,6 +2172,28 @@ impl Helper {
         self.late.iter().copied().collect()
     }
 
+    /// Answers the oldest cell query that is still waiting with `answer`,
+    /// as [`Helper::poll`] keeps a late answer from the helper, for a test
+    /// of the console whose stand-in helper never answers. Returns false,
+    /// answering nothing, when no query waits, as the real helper's answer
+    /// to a query nobody asked is refused.
+    #[cfg(test)]
+    pub(crate) fn answer_late(&mut self, answer: Result<OwnCell, NoCell>) -> bool {
+        let Some(asked) = self.late.pop_front() else {
+            return false;
+        };
+        self.kept.push((asked, answer));
+        true
+    }
+
+    /// Gives the helper up for `why`, as a helper that fails past its last
+    /// restart is given up, for a test of the console that has no failing
+    /// helper to drive.
+    #[cfg(test)]
+    pub(crate) fn give_up(&mut self, why: &str) {
+        self.fail(why);
+    }
+
     /// Asks for the cell at each of `heights` again, without waiting: the
     /// answers come late ([`Helper::late_cells`]). A running helper is
     /// asked at once. During a search the queries wait for the helper
@@ -2191,6 +2226,7 @@ impl Helper {
             self.post(bytes, now);
             if self.running.is_some() {
                 self.late.push_back(height);
+                self.due.get_or_insert(after(now, self.answer));
             }
         }
     }
@@ -2297,7 +2333,7 @@ impl Helper {
         if let Some(suspect) = &mut self.suspect {
             suspect.later = true;
         }
-        if self.busy() {
+        if self.owes() {
             self.due.get_or_insert(after(now, self.answer));
         }
     }
@@ -2881,7 +2917,7 @@ impl Helper {
                 break;
             }
             self.settle();
-            self.due = (self.busy() || self.suspect.is_some()).then(|| after(now, self.answer));
+            self.due = (self.owes() || self.suspect.is_some()).then(|| after(now, self.answer));
         }
         if self.failed.is_none() {
             let asks_end = match &self.search {
@@ -6616,6 +6652,32 @@ if [ $k -ge 6 ]; then cat \"$1\"; cat \"$1.done\"; exec cat >/dev/null; fi";
             s.helper.failed()
         );
         assert_eq!(s.helper.late_cells(), []);
+    }
+
+    // A cell query whose answer is late is work the helper owes. A helper
+    // that then sends nothing for the answer's bound is ended as a hung
+    // helper is, so a console that waits for the cell before it answers a
+    // program's queries cannot wait on a hung helper forever.
+    //
+    // References:
+    // - ADR-1200 D14: a hung helper is ended and started again.
+    // - ADR-1200 D17: the answer that comes after the wait.
+    #[test]
+    fn a_hung_helper_that_owes_a_late_cell_is_started_again() {
+        let mut s = StandIn::new("cell-late-hung", HELD, &cell_frame(FRAME_OWN_CELL, 8, 16));
+        let short = Duration::from_millis(20);
+        let asked = t0();
+        assert!(s.helper.own_cell(16, short, &t0).unwrap_err().late);
+        assert!(!s.helper.busy(), "no ask, pointer ask or fill is out");
+        let due = s.helper.deadline().unwrap();
+        assert!(due >= after(asked, Duration::from_millis(ANSWER_MS)));
+        crate::getty::tests::logged();
+        let _ = s.helper.poll(due);
+        let hung: Vec<String> = crate::getty::tests::logged()
+            .into_iter()
+            .filter(|l| l.contains("gave no answer for 10 s"))
+            .collect();
+        assert_eq!(hung.len(), 1, "the hung helper is ended once: {hung:?}");
     }
 
     // the operator's decision on #145, 2026-10-28: the console asks the
