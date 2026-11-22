@@ -7738,7 +7738,8 @@ class BuiltinFontTest(unittest.TestCase):
         self.assertTrue(v["agent"])
         with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
             minimal = re.search(r"^tier3-minimal:.*\n\t(.*)", f.read(), re.M).group(1)
-        self.assertIn(" builtin-font)", minimal)
+        names = re.search(r"\$\(or \$\(VARIANTS\),([^)]*)\)", minimal).group(1).split()
+        self.assertIn("builtin-font", names)
         self.assertEqual(t3_scenario.variant_cases("builtin-font"),
                          ["builtin-login", "builtin-notice"])
         self.assertIn("builtin-font", t3_scenario.golden_cases())
