@@ -577,6 +577,12 @@ impl Sprites {
         self.runs.insert(key, stored);
     }
 
+    /// Whether an underline in these sprites' cell skips a color glyph's
+    /// ink ([`crate::skip::skips_color`]), by the normal cell's height.
+    pub(crate) fn skips_color(&self) -> bool {
+        crate::skip::skips_color(self.h)
+    }
+
     /// How the display is turned, which turns the sprites.
     pub(crate) fn orientation(&self) -> Orientation {
         self.o

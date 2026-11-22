@@ -1,10 +1,11 @@
 // The program's source puts `#version 300 es` before this file, then for
 // a cell's text layer or vtium's mark alone `#define OVER`, for the cells
 // that receive ink from their neighbours' glyphs and for the text layers
-// `#define INK`, and then `#define REACH_SIDE` and `#define REACH_ROWS`,
+// `#define INK`, then `#define REACH_SIDE` and `#define REACH_ROWS`,
 // how many cells a glyph's ink may reach past its own to each side and
 // above and below (ADR-1306 D12), which bound the loops over a cell's
-// neighbours. A cell that receives no ink is drawn by the program built
+// neighbours, and `#define COLOR_INK`, the least alpha at which a color
+// glyph's pixel is ink an underline skips (src/skip.rs). A cell that receives no ink is drawn by the program built
 // without INK, which is the cell shader as it was before any ink reached
 // another cell, so it costs what it did.
 //
@@ -24,7 +25,7 @@
 // from masks, 2 a premultiplied color glyph from colors, 3 a sized run's
 // piece of text and color glyphs from colors: its color layer at the
 // texel, and the text's mask in the alpha one cell to the right), y the
-// background and the job's flags (RECEIVES, MARKED, DOWN and GAP below), z the
+// background and the job's flags (RECEIVES, MARKED, DOWN, COLOR and GAP below), z the
 // underline's color and its sprite, w the color and sprite of the lines
 // over the glyph (the strike, the overline or both),
 // a sprite being its place in sprites plus one, or 0 for none.
@@ -162,27 +163,31 @@ float sprite(uint k, ivec2 pos) {
 // the job's flags, in the top byte of params.y: it receives ink from its
 // neighbours; a block cursor or the selection marks it, so received ink
 // takes its foreground (ADR-1306 D6); a display line runs down its column
-// of the upright frame, on a display turned a quarter; and from bit GAP up,
-// the gap in display pixels that its underline keeps on each side of its
-// glyph's ink, or 0 when the underline skips no ink
+// of the upright frame, on a display turned a quarter; its underline skips
+// a color glyph's ink too, which it does only in a tall enough cell; and
+// from bit GAP up, the gap in display pixels that its underline keeps on
+// each side of its glyph's ink, or 0 when the underline skips no ink
 const uint RECEIVES = 1u;
 const uint MARKED = 2u;
 const uint DOWN = 4u;
-const uint GAP = 3u;
+const uint COLOR = 8u;
+const uint GAP = 4u;
 
-// The coverage of the glyph of kind `kind` at its texel `at`: the mask's,
-// the color glyph's alpha, or for a sized run's piece the color layer's
-// alpha and the text's mask one cell to the right together.
-float ink_at(uint kind, ivec2 at) {
+// Whether the glyph of kind `kind` has ink an underline skips at its
+// texel `at`, as src/skip.rs's inked decides: a mask's coverage above 0,
+// and when `color` is set a color glyph's alpha of at least COLOR_INK;
+// for a sized run's piece, the text's mask one cell to the right and the
+// color layer's alpha.
+bool ink_at(uint kind, ivec2 at, bool color) {
     if (kind == 1u) {
-        return byte(texelFetch(masks, at, 0).r);
+        return byte(texelFetch(masks, at, 0).r) != 0.0;
     } else if (kind == 2u) {
-        return byte(texelFetch(colors, at, 0).a);
+        return color && byte(texelFetch(colors, at, 0).a) >= COLOR_INK;
     } else if (kind == 3u) {
-        return max(byte(texelFetch(colors, at, 0).a),
-            byte(texelFetch(colors, at + ivec2(cell.x, 0), 0).a));
+        return byte(texelFetch(colors, at + ivec2(cell.x, 0), 0).a) != 0.0
+            || (color && byte(texelFetch(colors, at, 0).a) >= COLOR_INK);
     }
-    return 0.0;
+    return false;
 }
 
 // Whether the glyph has ink at its texel `at` or at a texel up to `gap`
@@ -193,9 +198,9 @@ float ink_at(uint kind, ivec2 at) {
 // normal cell, so a magnified cell's gap is its magnification. The upright
 // frame always runs the cell's row across, so the pixels beside are the
 // texels beside.
-bool near_ink(uint kind, ivec2 at, int x, int w, int gap) {
+bool near_ink(uint kind, bool color, ivec2 at, int x, int w, int gap) {
     for (int d = -gap; d <= gap; d++) {
-        if (x + d >= 0 && x + d < w && ink_at(kind, at + ivec2(d, 0)) != 0.0) {
+        if (x + d >= 0 && x + d < w && ink_at(kind, at + ivec2(d, 0), color)) {
             return true;
         }
     }
@@ -391,7 +396,8 @@ void main() {
             }
             int gap = int(flags >> GAP);
             if (u != 0.0 && gap != 0
-                && (near_ink(kind, at, local.x, dst.z, gap) || beside(src.z >> 16u, local, dst.z))) {
+                && (near_ink(kind, (flags & COLOR) != 0u, at, local.x, dst.z, gap)
+                    || beside(src.z >> 16u, local, dst.z))) {
                 u = 0.0;
             }
             p = tint_over(p, u, rgb(params.z));

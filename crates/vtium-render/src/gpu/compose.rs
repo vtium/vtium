@@ -57,6 +57,7 @@ use crate::notice::Placed;
 use crate::reach::{Bound, Reach};
 use crate::renderer::Back;
 use crate::renderer::double::Piece;
+use crate::skip;
 use crate::target::Rect;
 
 const QUAD_VERT: &str = include_str!("glsl/quad.vert");
@@ -95,8 +96,10 @@ const REACH_ROWS: [&str; 4] = [
 pub(crate) const INK: &str = "#define INK\n";
 
 /// The cell shader's source for `bound`, after `#version`: for a text
-/// layer or a mark, [`OVER`], and for a cell that receives ink, [`INK`].
-fn cell_frag(over: bool, ink: bool, bound: Bound) -> [&'static str; 6] {
+/// layer or a mark, [`OVER`], for a cell that receives ink, [`INK`], and
+/// the least alpha of a color glyph's ink, which the CPU path reads from
+/// the same constant ([`skip::COLOR_INK`]).
+fn cell_frag(over: bool, ink: bool, bound: Bound) -> [&'static str; 7] {
     let pick =
         |pieces: [&'static str; 4], n: u8| pieces.get(usize::from(n)).copied().unwrap_or(pieces[3]);
     [
@@ -105,6 +108,7 @@ fn cell_frag(over: bool, ink: bool, bound: Bound) -> [&'static str; 6] {
         if ink { INK } else { "" },
         pick(REACH_SIDE, bound.side),
         pick(REACH_ROWS, bound.rows),
+        skip::COLOR_INK_DEFINE,
         CELL_FRAG,
     ]
 }
@@ -172,14 +176,16 @@ const INK_INPUTS: [Input; 10] = [
 /// A cell job's flags, in the top byte of its quad's second parameter, as
 /// the cell shader reads them: it receives ink from its neighbours' glyphs;
 /// a block cursor or the selection marks it; a display line runs down a
-/// column of the upright frame, on a display turned a quarter. The bits
-/// from [`GAP`] up hold the gap its underline keeps on each side of its
-/// glyph's ink, in display pixels, as the CPU path's `near_ink` keeps it,
-/// or 0 when the underline skips no ink ([`Line::skips_ink`]).
+/// column of the upright frame, on a display turned a quarter; its
+/// underline skips a color glyph's ink too ([`skip::skips_color`]). The
+/// bits from [`GAP`] up hold the gap its underline keeps on each side of
+/// its glyph's ink, in display pixels, as the CPU path's `near_ink` keeps
+/// it, or 0 when the underline skips no ink ([`Line::skips_ink`]).
 const RECEIVES: u32 = 1;
 const MARKED: u32 = 2;
 const DOWN: u32 = 4;
-const GAP: u32 = 3;
+const COLOR: u32 = 8;
+const GAP: u32 = 4;
 
 /// The job a quad of the cell shader draws, in cells of `cell`, when it
 /// receives ink. A quad that covers part of a cell counts that cell whole,
@@ -2131,8 +2137,13 @@ pub(crate) fn cell_quad(
         u32::try_from(k).map_or(0, |n| n.saturating_add(1))
     };
     let with = |c: Rgb, k: u32| pixel(c) | k << 24;
+    // a color glyph's underline in a short cell skips nothing and runs
+    // whole under the picture
+    let color = sprites.skips_color();
     let gap = match job.underline {
-        Some((line, _)) if line.skips_ink && kind != 0 => magnification(job.piece).min(31) << GAP,
+        Some((line, _)) if line.skips_ink && kind != 0 && (kind != 2 || color) => {
+            magnification(job.piece).min(15) << GAP | if color { COLOR } else { 0 }
+        }
         _ => 0,
     };
     Quad {

@@ -84,6 +84,7 @@ mod picture;
 mod pointer_file;
 mod reach;
 mod renderer;
+mod skip;
 mod sprite;
 mod stored;
 #[cfg(feature = "bidi")]

@@ -26,6 +26,7 @@ The colon form of SGR 4 chooses the underline's style. vtium draws each of the f
 These tests check what vtium does with the sequences on this page.
 
 - `a_dotted_underline_keeps_one_period_across_cells_on_the_cpu_path` in [crates/vtium-render/tests/dotted_phase.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/dotted_phase.rs)
+- `a_letter_beside_a_color_glyph_still_breaks_the_line_around_its_descender` in [crates/vtium-render/tests/emoji_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/emoji_ink.rs)
 - `every_decoration_draws_on_the_gpu_path_as_on_the_cpu_path` in [crates/vtium-render/tests/gpu_decorations.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/gpu_decorations.rs)
 - `a_doubled_underline_skips_the_ink_of_the_whole_doubled_character` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
 - `a_magnified_underline_skips_the_ink_of_its_whole_character_on_the_gpu_path` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
