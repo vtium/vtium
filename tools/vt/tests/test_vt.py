@@ -1383,6 +1383,24 @@ class RunVt(Case):
                                            f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo"])
                 self.assertEqual(argv[argv.index("/bin/bash") + 1], script)
 
+    def test_the_acceptance_pass_gets_the_users_runtime_directory_and_not_the_bus(self):
+        # The Looks pages make their private folder in $XDG_RUNTIME_DIR, and
+        # in the home folder only when the session has none.
+        def env():
+            p = self.run_vt("8")
+            self.assertEqual(p.returncode, 0, p.stderr)
+            argv = read(self.s.bin_args).splitlines()
+            self.assertEqual(argv[argv.index("/bin/bash") + 1], os.path.join(VT, "accept.sh"))
+            return argv[argv.index("/usr/bin/env") + 1:argv.index("/bin/bash")]
+        self.assertFalse([w for w in env() if w.startswith(("XDG_RUNTIME_DIR=", "DBUS_"))])
+        run = self.s.runtime_dir()
+        words = env()
+        self.assertIn(f"XDG_RUNTIME_DIR={run}", words)
+        self.assertFalse([w for w in words if w.startswith("DBUS_")])
+        # A runtime directory open to others: none.
+        os.chmod(run, 0o755)
+        self.assertFalse([w for w in env() if w.startswith("XDG_RUNTIME_DIR=")])
+
     def test_a_home_directory_not_the_users_is_refused(self):
         a_file = os.path.join(self.s.tmp, "a-file")
         write(a_file, "", 0o644)

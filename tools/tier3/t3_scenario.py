@@ -347,13 +347,18 @@ SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait"
 # the notice of a kernel message, both judged by their goldens.
 VARIANTS["builtin-font"] = dict(POWER, conf="vtium-minimal.conf", builtin=True, agent=True)
 
-# apply-root checks vtium-config's privileged step as root (ADR-1403 D8,
-# t3_apply) on the minspec machine with the minimal configuration. Once
-# vtium shows its login prompt, the agent installs a bundle with a new font
-# set and a vtium.conf that names it through /usr/bin/vtium-config apply,
-# then tries a second bundle into a frits' directory at mode 0777, which
-# apply must refuse, and starts vtium again. Its one case is a check without
-# a golden: the new vtium's screen, kept when the check passes.
+# apply-root checks vtium-config's privileged step as root (t3_apply) on
+# the minspec machine with the minimal configuration, in make
+# tier3-minimal. Once vtium shows its login prompt, the agent installs a
+# bundle with a new font set and a vtium.conf that names it through
+# /usr/bin/vtium-config apply. It then tries a second bundle into a frits'
+# directory at mode 0777, which apply must refuse, and starts vtium again.
+# Its one case is a check without a golden: the new vtium's screen, kept
+# when the check passes.
+#
+# References:
+# - ADR-1403 D8: apply's check reads root's copies of the font sets under
+#   /run, and apply checks the frits' directory with the console's walk.
 VARIANTS["apply-root"] = dict(POWER, conf="vtium-minimal.conf", login=False, agent=True,
                               checks=[t3_apply.CASE])
 

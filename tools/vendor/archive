@@ -245,14 +245,17 @@ with zipfile.ZipFile(sys.argv[2]) as z:
         link = mode & 0o170000 == 0o120000
         got[i.filename.rstrip("/")] = (i.is_dir(), z.read(i).decode() if link else z.read(i) if not i.is_dir() else "",
                                        mode & 0o111 != 0 and not i.is_dir() and not link)
+    # A name the zip holds twice keeps one entry in got, so the comparison
+    # below would read only one of the two.
+    if len(got) != len(z.infolist()):
+        print("archive: the zip names a file twice", file=sys.stderr)
+        sys.exit(1)
+# A directory and a symlink compare by their kind and target alone.
 for k, v in want.items():
     if v[0]:
         want[k] = (True, "", False)
     elif not isinstance(v[1], bytes):
         want[k] = (False, v[1], False)
-    if len(got) != len(z.infolist()):
-        print("archive: the zip names a file twice", file=sys.stderr)
-        sys.exit(1)
 diff = sorted(set(want) ^ set(got)) or sorted(k for k in want if want[k] != got[k])
 if diff:
     print("archive: the zip and the commit differ at", ", ".join(diff[:5]), file=sys.stderr)
