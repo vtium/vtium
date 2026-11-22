@@ -690,14 +690,16 @@ impl Scratch<'_> {
 /// `line` tinted `c` over the premultiplied line `prem`, across the job's
 /// cells, at display line `y`. A dotted underline leaves out its gaps by
 /// each pixel's place along the grid's line ([`Sprites::leave_gaps`]), so
-/// its dots keep one period from cell to cell. With `skip`, the job's glyph and its
-/// scratch, a line that skips ink leaves out the pixels near the glyph's
-/// ink, which it looks for only where the line's sprite has a coverage
-/// above 0. Upright, or turned half round, [`near_ink`] finds them along
-/// the whole display line, once on each display line the sprite covers.
-/// On a display turned a quarter, the cell's row runs down a display
-/// column, so [`Columns`] finds them once for each display column the
-/// sprite covers, down the whole cell.
+/// its dots keep one period from cell to cell.
+///
+/// `skip` holds the job's glyph and scratch lines. When it is given, a
+/// line that skips ink leaves out the pixels near the glyph's ink. It looks
+/// for them only where the line's sprite has a coverage above 0. Upright,
+/// or turned half round, [`near_ink`] finds them along the whole display
+/// line, once on each display line the sprite covers. On a display turned
+/// a quarter, the cell's row runs down a display column, so [`Columns`]
+/// finds them once for each display column the sprite covers, down the
+/// whole cell.
 fn deco_over(
     job: &Job,
     sprites: &Sprites,
@@ -751,16 +753,17 @@ fn deco_over(
     }
 }
 
-/// Marks in `near`, one byte for each pixel of display line `y` across
-/// `job`'s area, each pixel within one pixel of `glyph`'s ink along the
-/// cell's row, the ink's own pixels among them, on a display upright or
-/// turned half round by `o`, where the cell's row runs along the display
-/// line. A pixel here is one of the normal cell's, so in a magnified cell
-/// it spans [`magnification`] display pixels. Ink is any pixel of the
-/// glyph, or of its color layer, with a coverage above 0. Only the ink
-/// inside the job's area counts, and in a piece of a magnified character
-/// the ink of the character's pieces beside it, which the glyph carries
-/// ([`Stored::beside`]). `ink` is scratch for the glyph's line.
+/// Marks in `near` each pixel of display line `y`, across `job`'s area,
+/// that lies within the gap of `glyph`'s ink along the cell's row. `near`
+/// holds one byte for each pixel. The ink's own pixels count too. This
+/// works on a display that is upright or turned half round by `o`, where
+/// the cell's row runs along the display line. The gap is one pixel of the
+/// normal cell, so a magnified cell's gap is [`magnification`] display
+/// pixels wide. Ink is any pixel of the glyph, or of its color layer, with
+/// a coverage above 0. Only the ink inside the job's area counts, and in a
+/// piece of a magnified character the ink of the character's pieces beside
+/// it, which the glyph carries ([`Stored::beside`]). `ink` is scratch for
+/// the glyph's line.
 fn near_ink(
     job: &Job,
     glyph: &Stored,
