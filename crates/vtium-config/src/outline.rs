@@ -1905,6 +1905,10 @@ pub(crate) mod raster {
                 None => baseline_at(&mut plain, &metrics, ppem, h),
             };
             let advances = font.glyph_metrics(&[]).scale(ppem);
+            // the font's ascent and descent at the size drawn, the box a
+            // Powerline separator is designed in
+            let em = ppem / f32::from(metrics.units_per_em);
+            let design = (metrics.ascent * em, metrics.descent.abs() * em);
             let width = if want_w != 0 {
                 want_w
             } else {
@@ -1944,8 +1948,8 @@ pub(crate) mod raster {
                         // D12), or of an Indic script, squeezed to its cell
                         // (ADR-1307 D1); `place` keeps those two at full size
                         let fit = request.fit;
-                        let Some(placed) = place(&mut drawer, (c, g), advance, wide, fit, &cell)
-                        else {
+                        let at = (advance, design);
+                        let Some(placed) = place(&mut drawer, (c, g), at, wide, fit, &cell) else {
                             continue;
                         };
                         let i = u32::try_from(glyphs.len()).map_err(|_| "too many glyphs")?;
@@ -2020,16 +2024,23 @@ pub(crate) mod raster {
     /// where it meets the letter read before it: the right edge for a
     /// right-to-left script (ADR-1302 D2, D11). Any other glyph whose ink
     /// would pass its cells is drawn smaller to fit them when `fit`, as a
-    /// later source's glyph is (ADR-1200 D17).
+    /// later source's glyph is (ADR-1200 D17). A Powerline separator is
+    /// drawn as [`place_separator`] draws it, whatever the source. `design`
+    /// is the font's ascent and descent in pixels at the cell's size.
     fn place(
         drawer: &mut Drawer<'_>,
         (c, g): (u32, u16),
-        advance: f32,
+        (advance, design): (f32, (f32, f32)),
         wide: bool,
         fit: bool,
         cell: &Cell,
     ) -> Option<Placed> {
         let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
+        if separator(c)
+            && let Some(placed) = place_separator(drawer, g, (advance, design), cells(wide), cell)
+        {
+            return Some(placed);
+        }
         let joins = crate::shaping::joins(c);
         if (joins || crate::shaping::indic(c)) && advance > span {
             let sx = span / advance;
@@ -2062,6 +2073,55 @@ pub(crate) mod raster {
             fit,
             cell,
         )
+    }
+
+    /// Whether `c` is a Powerline separator: one of the triangles, half
+    /// circles, slants and other shapes from U+E0B0 to U+E0D7 that a shell
+    /// prompt puts between its colored segments. The Powerline icons before
+    /// them, such as the branch and the padlock, are not separators.
+    fn separator(c: u32) -> bool {
+        (0xe0b0..=0xe0d7).contains(&c)
+    }
+
+    /// Glyph `g` of a Powerline separator, advancing `advance` pixels,
+    /// stretched so that the box its font designs it in fills its cells
+    /// exactly. A separator meets the colored segment beside it, so its
+    /// flat side has to reach its cell's edge on every row. A symbol font
+    /// lays out its separators from the pen to the advance and from the
+    /// descent to the ascent (`design`, in pixels at the cell's size). The
+    /// helper maps that box onto the cells' width and the cell's height,
+    /// scaling it sideways and up and down separately.
+    ///
+    /// The font's advance is often narrower than the cells, and the Nerd
+    /// Fonts patcher draws each separator a little past its box, so that it
+    /// overlaps its neighbors. Placed as other glyphs are, such a separator
+    /// would be centered in its cells, or drawn smaller because its ink
+    /// passes them, and a column of background would show between it and
+    /// its segment. Here the ink past the box goes to the glyph's ink box,
+    /// as any glyph's ink past its cells does.
+    ///
+    /// `None` for a color glyph and for a font with no advance or box for
+    /// it, which [`place`] then places as any other glyph.
+    fn place_separator(
+        drawer: &mut Drawer<'_>,
+        g: u16,
+        (advance, (ascent, descent)): (f32, (f32, f32)),
+        cells: u32,
+        cell: &Cell,
+    ) -> Option<Placed> {
+        let span = ascent + descent;
+        if advance <= 0.0 || span <= 0.0 || drawer.is_color(g, cell.ppem) {
+            return None;
+        }
+        let width = (cell.width * cells) as f32;
+        let (sx, sy) = (width / advance, cell.height as f32 / span);
+        // the box's top lands on the cell's top row, and the outline is
+        // placed on the cell's baseline, so the move up is what the
+        // baseline lies below the box's top
+        let up = cell.baseline as f32 - ascent * sy;
+        let transform = Transform::scale(sx, sy).then_translate(0.0, up);
+        let mut draw = |ppem, fit| drawer.draw_transformed(g, ppem, fit, Some(transform));
+        place_drawn(&mut draw, cells, None, false, cell)
     }
 
     /// The cells a glyph two cells wide when `wide` spans.
