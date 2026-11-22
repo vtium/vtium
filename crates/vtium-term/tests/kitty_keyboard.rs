@@ -413,12 +413,13 @@ fn flags_at_0_send_xterms_bytes() {
 
 // The protocol's legacy section gives five combinations bytes of their own,
 // which vtium sends under flag 2 alone: Ctrl+Shift+I is `CSI 105 ; 6 u`,
-// Ctrl+` a backtick, Ctrl+Backspace the other byte than Backspace,
-// Alt+Shift+Tab `ESC CSI Z`, and Shift+F3 `CSI 13 ; 2 ~`. A program that
-// never asks for the protocol keeps xterm's bytes for all five, in a new
-// session and after a program pops its flags back to 0: Ctrl+Shift+I is
-// Ctrl+I's tab, Ctrl+` is NUL, Ctrl+Backspace is Backspace's own byte,
-// Shift+Tab stays `CSI Z` with Alt, and Shift+F3 is ctlseqs' `CSI 1 ; 2 R`.
+// Ctrl+` a backtick, Ctrl+Backspace DEL where Backspace sends BS and BS
+// where Backspace sends DEL, Alt+Shift+Tab `ESC CSI Z`, and Shift+F3
+// `CSI 13 ; 2 ~`. A program that never asks for the protocol keeps xterm's
+// bytes for all five, in a new session and after a program pops its flags
+// back to 0: Ctrl+Shift+I is Ctrl+I's tab, Ctrl+` is NUL, Ctrl+Backspace
+// is Backspace's own byte under either Backspace setting, Shift+Tab stays
+// `CSI Z` with Alt, and Shift+F3 is ctlseqs' `CSI 1 ; 2 R`.
 //
 // References:
 // - ADR-1005 D6: while the flags are 0, every key sends xterm's bytes, by
@@ -435,6 +436,9 @@ fn flags_at_0_keep_xterms_bytes_where_the_legacy_section_differs() {
         assert_eq!(press(&mut t, i), "\t", "{context}");
         assert_eq!(char_key(&mut t, '`', Mods::CTRL), "\0", "{context}");
         assert_eq!(sym(&mut t, BACKSPACE, Mods::CTRL), "\x08", "{context}");
+        t.set_backspace_sends_delete(true);
+        assert_eq!(sym(&mut t, BACKSPACE, Mods::CTRL), "\x7f", "{context}");
+        t.set_backspace_sends_delete(false);
         assert_eq!(sym(&mut t, ISO_LEFT_TAB, shift_alt), "\x1b[Z", "{context}");
         let f3 = Key::press(F3, 0, Mods::SHIFT, None);
         assert_eq!(press(&mut t, f3), "\x1b[1;2R", "{context}");

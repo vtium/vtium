@@ -138,13 +138,17 @@ fn keep_backup(dir: &impl AsFd, name: &OsStr, staging: &OsStr) -> io::Result<()>
 /// the folder's path changes afterwards. The new bytes go to a new file
 /// `.NAME.PID.new` in the folder, created without following a link and
 /// flushed to disk, and that file is renamed over `NAME`, so `NAME` is the
-/// old file or the new one and never half of each. The folder is flushed
-/// to disk after the rename. Anything at `NAME` but a regular file, a
-/// symbolic link among them, is refused and left, so nothing is read or
-/// replaced through a link. A failure before the rename leaves the old
-/// file as it was and removes the new one. Run as root, the new file is
-/// root's. `name` must be one name in `dir`: a name that is empty, `.`,
-/// `..` or holds a `/` is refused before anything is written.
+/// old file or the new one and never half of each. After the rename, the
+/// folder is flushed to disk through a descriptor of its own, so `dir` may
+/// be opened for reading or with `O_PATH`, as [`folder`](crate::folder)'s
+/// is. Anything at `NAME` but a regular file, a symbolic link among them,
+/// is refused and left, so nothing is read or replaced through a link. A
+/// failure before the rename leaves the old file as it was and removes the
+/// new one. An error from the final flush comes after the rename, so
+/// `NAME` already holds the new bytes and `NAME.bak` the old ones, but the
+/// folder may not be on disk yet. Run as root, the new file is root's.
+/// `name` must be one name in `dir`: a name that is empty, `.`, `..` or
+/// holds a `/` is refused before anything is written.
 pub fn install_file_at(
     dir: &impl AsFd,
     name: &OsStr,
@@ -177,20 +181,22 @@ pub fn install_file_at(
         let _ = rustix::fs::unlinkat(dir, &staging, AtFlags::empty());
         return result;
     }
-    rustix::fs::fsync(dir).map_err(io::Error::from)
+    // Linux refuses to flush a descriptor opened with `O_PATH`, as the one
+    // that `folder` hands out is, so the folder is flushed through a
+    // descriptor opened for reading.
+    let flushed: OwnedFd = rustix::fs::openat(
+        dir,
+        ".",
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    rustix::fs::fsync(&flushed).map_err(io::Error::from)
 }
 
-/// Replaces the file at `path` with `bytes`, mode `mode`, in one rename,
-/// keeping the file it replaces as `NAME.bak`.
-///
-/// It opens the folder that holds `path` and runs [`install_file_at`]'s
-/// steps there: the new bytes go to a new file beside `path`, created
-/// without following a link, flushed to disk, and renamed over `path`, so
-/// `path` is the old file or the new one and never half of each. Anything
-/// at `path` but a regular file, a symbolic link among them, is refused
-/// and left, so nothing is read or replaced through a link. A failure
-/// before the rename leaves the old file as it was and removes the new
-/// one. Run as root, the new file is root's.
+/// Replaces the file at `path` with `bytes`, mode `mode`, keeping the file
+/// it replaces as `NAME.bak`. It opens the folder that holds `path` and
+/// takes [`install_file_at`]'s steps there, so everything that function's
+/// comment says holds for `path`.
 pub fn install_file(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
     let name = path
         .file_name()
