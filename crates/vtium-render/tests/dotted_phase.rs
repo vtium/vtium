@@ -20,11 +20,14 @@ const FG: &str = "c0c0c0";
 const BG: &str = "101010";
 const COLS: usize = 11;
 
-/// A face of blank cells `w` by `h`, with the lines `for_height` gives.
+/// A face of blank cells `w` by `h`, with the lines `for_height` gives,
+/// or with an underline `t` pixels thick on the cell's bottom rows when `t`
+/// is not 0.
 #[derive(Clone, Copy)]
 struct Blank {
     w: u32,
     h: u32,
+    t: u32,
 }
 
 impl Face for Blank {
@@ -44,7 +47,19 @@ impl Face for Blank {
         let n = (self.w * self.h) as usize;
         Glyph::from_pixels(self.w, self.h, Format::Mask, vec![0; n])
     }
+    fn decorations(&self) -> Decorations {
+        let mut d = Decorations::for_height(self.h);
+        if self.t != 0 {
+            d.underline_thickness = self.t;
+            d.underline = self.h - self.t;
+        }
+        d
+    }
 }
+
+/// The widest dot or gap of a dotted underline, in display pixels. The
+/// GPU path's quad carries the width in 7 bits.
+const DOT_MOST: u32 = 127;
 
 /// A line of dotted blanks, at `size`.
 fn screen(size: LineSize) -> Screen {
@@ -128,12 +143,11 @@ fn gpu(s: &Screen, face: Blank) -> Vec<u32> {
 
 /// Checks that the underline's rows in `px`, a line drawn in `face` with
 /// each of its pixels `mag` display pixels wide, are dots and gaps each
-/// `thickness × mag` pixels wide along the whole line. Only the first and
-/// last run may be cut short by the line's ends.
+/// `thickness × mag` pixels wide, and at most [`DOT_MOST`], along the whole
+/// line. Only the first and last run may be cut short by the line's ends.
 fn assert_one_period(px: &[u32], face: Blank, mag: u32, what: &str) {
     let w = face.w * COLS as u32;
-    let m = Decorations::for_height(face.h);
-    let d = (m.underline_thickness * mag) as usize;
+    let d = (face.decorations().underline_thickness * mag).min(DOT_MOST) as usize;
     let bg = px[0];
     let rows: Vec<u32> = (0..face.h)
         .filter(|&y| (0..w).any(|x| px[(y * w + x) as usize] != bg))
@@ -167,11 +181,19 @@ fn assert_one_period(px: &[u32], face: Blank, mag: u32, what: &str) {
 /// widths with a line 1 pixel thick, and widths that are no multiple of 4
 /// with a line 2 pixels thick.
 const FACES: [Blank; 4] = [
-    Blank { w: 9, h: 18 },
-    Blank { w: 7, h: 16 },
-    Blank { w: 11, h: 24 },
-    Blank { w: 13, h: 32 },
+    Blank { w: 9, h: 18, t: 0 },
+    Blank { w: 7, h: 16, t: 0 },
+    Blank { w: 11, h: 24, t: 0 },
+    Blank { w: 13, h: 32, t: 0 },
 ];
+
+/// A face whose underline is 100 pixels thick. On a line of double width
+/// its dots would be 200 pixels wide, past [`DOT_MOST`].
+const THICK: Blank = Blank {
+    w: 50,
+    h: 256,
+    t: 100,
+};
 
 // covers: sgr.underline-style
 #[test]
@@ -213,5 +235,29 @@ fn a_dotted_underline_keeps_one_period_on_the_gpu_path_as_on_the_cpu_path() {
             assert_one_period(&px, face, mag, &what);
             assert_eq!(px, cpu(&s, face, Orientation::Normal), "{what}");
         }
+    }
+}
+
+// The GPU path's quad holds the width of a dot in 7 bits, so both paths
+// cap a dot at 127 pixels. A line 100 pixels thick at double width draws
+// 127-pixel dots and gaps on the CPU path at every turn. The GPU path
+// draws the same pixels, so the cap and the quad's field agree.
+#[test]
+fn a_dotted_underline_caps_its_dots_at_127_pixels() {
+    let s = screen(LineSize::DoubleWidth);
+    for o in [
+        Orientation::Normal,
+        Orientation::UpsideDown,
+        Orientation::Right,
+        Orientation::Left,
+    ] {
+        let what = format!("100 pixels thick, double width, {o:?}");
+        assert_one_period(&cpu(&s, THICK, o), THICK, 2, &what);
+    }
+    #[cfg(feature = "gpu")]
+    {
+        let px = gpu(&s, THICK);
+        assert_one_period(&px, THICK, 2, "100 pixels thick, double width, GPU path");
+        assert_eq!(px, cpu(&s, THICK, Orientation::Normal), "GPU path");
     }
 }
