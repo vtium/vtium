@@ -671,19 +671,19 @@ mod tests {
     }
 
     // Every sprite at every cell size from 1x1 to 24x48 against its digest
-    // in `tests/digests/cells.tsv` (tests/digests/README.md); the
-    // curly wave's sine is computed by `src/trig.rs`, so this is also the
-    // check that the wave's bytes stay the same on every host. A double or
-    // curl past a quarter of the cell, and the dash and the dotted line in
-    // a cell 2 or more pixels wide, are redrawn: the stored digest is of the
+    // in `tests/digests/cells.tsv` (tests/digests/README.md); the curly
+    // wave's sine is computed by `src/trig.rs`, so this is also the check
+    // that the wave's bytes stay the same on every host. A double or curl
+    // past a quarter of the cell, and the dash and the dotted line in a
+    // cell 2 or more pixels wide, are redrawn: the stored digest is of the
     // earlier shape, so each must differ from it and draw the fallback, the
     // dash, or for the dotted line the whole single line, whose gaps the
-    // cell leaves out as it draws. When a
-    // digest differs, the test fails and says how many lines differ. When
-    // the environment variable VTIUM_DECO_DIGESTS names a file, the test
-    // also writes every `deco` line as vtium draws it to that file, a
-    // redrawn sprite's line as it is, and names the file; without it the
-    // test writes nothing, so a failing run leaves nothing behind.
+    // cell leaves out as it draws. When a digest differs, the test fails
+    // and says how many lines differ. When the environment variable
+    // VTIUM_DECO_DIGESTS names a file, the test also writes every `deco`
+    // line as vtium draws it to that file, a redrawn sprite's line as it
+    // is, and names the file; without it the test writes nothing, so a
+    // failing run leaves nothing behind.
     // covers: platform.compositor
     #[test]
     fn every_sprite_matches_its_digest_or_its_redrawn_shape() {

@@ -7,10 +7,10 @@
 //! which its underline skips as it skips the piece's own ink
 //! ([`crate::beside`]). The GPU path keeps each slot's rows when the slot
 //! is filled, because the slot keeps no pixels the CPU could read later.
-//! Each frame then gives every slot whose piece draws an underline that
-//! skips ink an entry, the first such slot entry 0, and the quad of each
-//! such cell names its slot's entry plus one in the bits of `src[2]` from
-//! [`SHIFT`] up. A quad with no entry names 0 there.
+//! In each frame, every slot whose piece draws an underline that skips ink
+//! gets an entry, numbered from 0 in the order the frame reaches the
+//! slots. Each such cell's quad names its slot's entry plus one in the bits
+//! of `src[2]` from [`SHIFT`] up. A quad with no entry names 0 there.
 //!
 //! The texture is [`Format::Rgba8`]: each entry takes a cell's height of
 //! texels, one for each row of the cell, upright, from the top, and
@@ -156,7 +156,7 @@ impl Besides {
                 return Err(Error::new(
                     ErrorKind::Limit,
                     format!(
-                        "the rows beside {n} pieces of magnified characters pass the largest texture"
+                        "the texture of the underline gaps beside {n} magnified characters is larger than the GPU's largest texture"
                     ),
                 ));
             }
@@ -219,6 +219,7 @@ mod tests {
 
     use super::*;
     use crate::beside::Ink;
+    use crate::gpu::{Call, StandIn};
 
     // A quad holds its entry plus one in the 16 bits above the column, so
     // the most it can name is 0xffff, the entry 0xfffe. A slot past that
@@ -246,5 +247,77 @@ mod tests {
         assert_eq!(besides.entry((0, last), |_| true), 0);
         assert_eq!(besides.entry((0, 7), |_| true), 8);
         assert_eq!(besides.entries.len(), usize::try_from(last).unwrap());
+    }
+
+    /// What a 2×2 piece has beside it when the piece to its left has the
+    /// mask `pixels`, row by row.
+    fn beside_of(pixels: [u8; 4]) -> Beside {
+        let left = Glyph::from_pixels(2, 2, GlyphFormat::Mask, pixels.to_vec()).unwrap();
+        let ink = Some(Ink {
+            glyph: &left,
+            layer: None,
+            scale: 1,
+        });
+        Beside::of((2, 2), 1, &[ink], &[None]).unwrap()
+    }
+
+    /// The fills the stand-in received, and the texels of entry 0 in the
+    /// texture it made first, as `[left, right]` for each row of the cell.
+    fn filled(gl: &StandIn) -> (usize, Vec<[u8; 2]>) {
+        let fills = gl
+            .calls()
+            .iter()
+            .filter(|c| matches!(c, Call::FillTexture(_)))
+            .count();
+        let (_, _, texels) = gl.texture_pixels(1).unwrap();
+        let rows = texels
+            .chunks(4)
+            .take(2)
+            .map(|t| [*t.first().unwrap(), *t.get(1).unwrap()])
+            .collect();
+        (fills, rows)
+    }
+
+    // A slot keeps its rows from frame to frame, because the GPU keeps no
+    // pixels the CPU could read later. When the glyph cache fills the
+    // slot again with another piece, the texture must carry the new
+    // piece's rows even though the frame's list of entries is the same.
+    // When the new piece has nothing beside it, the slot must give no
+    // entry, so its underline does not keep the old piece's gap. Filling
+    // the slot again with the same rows uploads nothing.
+    #[test]
+    fn a_slot_filled_again_carries_its_new_rows_or_none() {
+        // the left piece's ink touches this piece on the top row, then on the
+        // bottom row
+        let (first, second) = (beside_of([0, 255, 0, 0]), beside_of([0, 0, 0, 255]));
+        assert_ne!(first.rows(), second.rows());
+        let mut gl = StandIn::new();
+        let mut besides = Besides::new(2, 64);
+        let key = (0, 3);
+
+        besides.set(key, Some(&first));
+        besides.begin();
+        assert_eq!(besides.entry(key, |_| true), 1);
+        besides.upload(&mut gl).unwrap();
+        assert_eq!(filled(&gl), (1, first.rows().to_vec()));
+
+        gl.clear_calls();
+        besides.set(key, Some(&second));
+        besides.begin();
+        assert_eq!(besides.entry(key, |_| true), 1);
+        assert_eq!(besides.upload(&mut gl).unwrap(), 1);
+        assert_eq!(filled(&gl), (1, second.rows().to_vec()));
+
+        gl.clear_calls();
+        besides.set(key, Some(&second));
+        besides.begin();
+        assert_eq!(besides.entry(key, |_| true), 1);
+        assert_eq!(besides.upload(&mut gl).unwrap(), 0);
+        assert_eq!(filled(&gl).0, 0);
+
+        besides.set(key, None);
+        besides.begin();
+        assert_eq!(besides.entry(key, |_| true), 0);
+        besides.free(&mut gl).unwrap();
     }
 }

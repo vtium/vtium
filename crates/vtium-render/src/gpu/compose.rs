@@ -2047,6 +2047,10 @@ pub(crate) const ROW: u32 = 0xffff;
 /// (`crate::deco::in_gap`), so the dots keep one period from cell to cell.
 pub(crate) const DOTS: u32 = 25;
 
+// The widest dot the CPU path draws must fit in the bits from `DOTS` up, or
+// the shader would read a narrower dot than the CPU path draws.
+const _: () = assert!(crate::deco::DOT_MOST < 1 << (32 - DOTS));
+
 /// The piece of its decorations that a cell of a sized run of scale 2 or
 /// more on a line of the normal size draws, as the bits above [`ROW`] in a
 /// quad's `src[3]`: the scale in bits 16 to 18, the cell's row in the
@@ -2077,13 +2081,13 @@ fn run_bits(job: &Job) -> u32 {
 /// the glyph lying at `place` and `g`, and the column and row of the job's
 /// first cell, with `beside`, its entry of the ink beside its piece plus
 /// one, above the column, and a sized run's piece of its decorations above
-/// the row ([`run_bits`]);
-/// and its colors, each with a kind in its top byte: the glyph's (none, a
-/// mask, a color glyph), `flags` with the background, the underline's
-/// sprite and the sprite of the lines over the glyph (the strike, the
-/// overline or both), each its place among the sprites plus one, or
-/// 0 for none. The width of a dotted underline's dots in `sprites` goes
-/// above the row's bits from [`DOTS`].
+/// the row ([`run_bits`]); and its colors, each with a kind in its top
+/// byte: the glyph's (none, a mask, a color glyph), `flags` with the
+/// background, the underline's sprite and the sprite of the lines over the
+/// glyph (the strike, the overline or both), each its place among the
+/// sprites plus one, or 0 for none. The width of the job's dotted
+/// underline's dots, from `sprites`, goes in the bits from [`DOTS`], above
+/// the run's bits.
 pub(crate) fn cell_quad(
     job: &Job,
     (r, g): (Area, Area),
