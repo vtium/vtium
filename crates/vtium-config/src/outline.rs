@@ -1682,7 +1682,7 @@ pub(crate) mod raster {
             .is_some_and(|outline| !fits(outline.path()))
         {
             return Err(format!(
-                "its {c} draws wider or taller than {GLYPH_SIDE_TEXT} pixels in a cell {h} pixels high, so the font gives no cell width"
+                "its {c} draws wider or taller than {GLYPH_SIDE_TEXT} pixels in a character cell {h} pixels high, so vtium cannot size a character cell from this font"
             ));
         }
         let ink = Render::new(&[Source::Outline])
@@ -1694,8 +1694,7 @@ pub(crate) mod raster {
         // when the fraction is near a half, as DejaVu Sans Mono's W at 15
         // pixels advances 7.4995, which vtium rounds to 7 and FreeType to 8.
         // That changes the cell only for a font whose W ink is narrower
-        // than its advance;
-        // DejaVu's covers 8 columns either way
+        // than its advance. DejaVu's covers 8 columns either way.
         let width = (advances.advance_width(g).round() as u32).max(ink);
         Ok(width.clamp(1, vtium_font::CELL_SIDE_MAX))
     }
@@ -1969,15 +1968,14 @@ pub(crate) mod raster {
                 cluster_width: request.cluster_width,
             };
             let mut glyphs: Vec<Placed> = Vec::new();
-            // Each placed glyph, keyed by its glyph id and by whether its
-            // character is a Powerline separator, since a font can map a
-            // separator and an icon to one glyph, and the two are placed
-            // differently.
-            let mut index: Vec<(u16, bool, u32)> = Vec::new();
+            // Each placed glyph, keyed by its glyph id and by how its
+            // character is placed, since a font can map characters that
+            // are placed differently to one glyph.
+            let mut index: Vec<(u16, Placing, u32)> = Vec::new();
             let mut map = Vec::new();
             for &(c, g) in &wanted {
-                let sep = separator(c);
-                let at = match index.iter().find(|&&(id, s, _)| id == g && s == sep) {
+                let how = Placing::of(c);
+                let at = match index.iter().find(|&&(id, h, _)| id == g && h == how) {
                     Some(&(_, _, i)) => i,
                     None => {
                         // a line of double width stretches each outline
@@ -1988,9 +1986,6 @@ pub(crate) mod raster {
                             continue;
                         }
                         let advance = advances.advance_width(g) * widen;
-                        // a glyph larger than a set's chunk goes in a chunk of
-                        // its own (ADR-1302 D6), so none is left out for its size
-                        let wide = crate::shaping::wide(&[c]);
                         // a fallback source's glyph too big for its cells is
                         // drawn smaller to fit them (ADR-1200 D17), unless it
                         // is a letter of a joining script, which uses the
@@ -1999,12 +1994,12 @@ pub(crate) mod raster {
                         // (ADR-1307 D1); `place` keeps those two at full size
                         let fit = request.fit;
                         let at = (advance, design, arrow);
-                        let Some(placed) = place(&mut drawer, (c, g), at, wide, fit, &cell) else {
+                        let Some(placed) = place(&mut drawer, g, how, at, fit, &cell) else {
                             continue;
                         };
                         let i = u32::try_from(glyphs.len()).map_err(|_| "too many glyphs")?;
                         glyphs.push(placed);
-                        index.push((g, sep, i));
+                        index.push((g, how, i));
                         i
                     }
                 };
@@ -2062,39 +2057,76 @@ pub(crate) mod raster {
         pub(crate) cluster_width: vtium_term::ClusterWidth,
     }
 
-    /// Glyph `g` of the character `c`, advancing `advance` pixels, placed
-    /// in `cell`, two cells wide when `wide`, as the terminal gives its
-    /// character two cells (ADR-1200 D21); `None` when the font draws
-    /// nothing for it. A glyph wider than its cells of a character that
-    /// joins (ADR-1302 D2) or of an Indic script (ADR-1307 D1) is squeezed
-    /// sideways before it is rasterised, by its cells' width over its
-    /// advance, unrounded, its pen on its cell's left edge, so its advance
-    /// fills its cells, and it is never drawn smaller. A joining letter no
-    /// wider than its cells keeps its width, its advance against the edge
-    /// where it meets the letter read before it: the right edge for a
-    /// right-to-left script (ADR-1302 D2, D11). Any other glyph whose ink
-    /// would pass its cells is drawn smaller to fit them when `fit`, as a
-    /// later source's glyph is (ADR-1200 D17). A Powerline separator is
+    /// What [`place`] reads of a glyph's character to choose how it places
+    /// the glyph: whether the character is a Powerline separator, joins its
+    /// neighbors, belongs to an Indic script, runs right to left, and
+    /// takes two cells. A font can map characters that differ in any of
+    /// these to one glyph, so the helper keeps each placed glyph by its
+    /// glyph id and by this, and two characters share a placed glyph only
+    /// when they agree on all of it.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    struct Placing {
+        separator: bool,
+        joins: bool,
+        indic: bool,
+        /// Whether a joining character runs right to left; false for a
+        /// character that does not join, since `place` asks only then.
+        backward: bool,
+        wide: bool,
+    }
+
+    impl Placing {
+        fn of(c: u32) -> Placing {
+            let joins = crate::shaping::joins(c);
+            Placing {
+                separator: separator(c),
+                joins,
+                indic: crate::shaping::indic(c),
+                backward: joins && crate::shaping::shape::backward(c),
+                wide: crate::shaping::wide(&[c]),
+            }
+        }
+    }
+
+    /// Glyph `g` of a character that is placed as `how` says, advancing
+    /// `advance` pixels, placed in `cell`; `None` when the font draws
+    /// nothing for it. The glyph takes two cells when the terminal gives
+    /// its character two. A glyph wider than its cells of a character that
+    /// joins or of an Indic script is squeezed sideways before it is
+    /// rasterised, by its cells' width over its advance, unrounded, its pen
+    /// on its cell's left edge, so its advance fills its cells, and it is
+    /// never drawn smaller. A joining letter no wider than its cells keeps
+    /// its width, its advance against the edge where it meets the letter
+    /// read before it: the right edge for a right-to-left script. Any other
+    /// glyph whose ink would pass its cells is drawn smaller to fit them
+    /// when `fit`, as a later source's glyph is. A Powerline separator is
     /// drawn as [`place_separator`] draws it, whatever the source. `design`
     /// is the font's ascent and descent in pixels at the cell's size, and
     /// `arrow` the width its separators are designed in ([`separator_box`]).
+    ///
+    /// References:
+    /// - ADR-1200 D21: a character the terminal gives two cells is drawn across both.
+    /// - ADR-1302 D2, D11: a joining letter is squeezed to its cells, or kept against the edge where it joins.
+    /// - ADR-1307 D1: an Indic letter wider than its cells is squeezed to them.
+    /// - ADR-1200 D17: a later source's glyph is drawn smaller to fit its cells.
     fn place(
         drawer: &mut Drawer<'_>,
-        (c, g): (u32, u16),
+        g: u16,
+        how: Placing,
         (advance, design, arrow): (f32, (f32, f32), Option<f32>),
-        wide: bool,
         fit: bool,
         cell: &Cell,
     ) -> Option<Placed> {
+        let wide = how.wide;
         let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
-        if separator(c)
+        if how.separator
             && let Some(placed) =
                 place_separator(drawer, g, (advance, design, arrow), cells(wide), cell)
         {
             return Some(placed);
         }
-        let joins = crate::shaping::joins(c);
-        if (joins || crate::shaping::indic(c)) && advance > span {
+        let joins = how.joins;
+        if (joins || how.indic) && advance > span {
             let sx = span / advance;
             return place_drawn(
                 &mut |ppem, bounds| drawer.draw_stretched(g, ppem, bounds, sx),
@@ -2105,11 +2137,7 @@ pub(crate) mod raster {
             );
         }
         if joins && advance > 0.0 {
-            let dx = if crate::shaping::shape::backward(c) {
-                span - advance
-            } else {
-                0.0
-            };
+            let dx = if how.backward { span - advance } else { 0.0 };
             return place_drawn(
                 &mut |ppem, bounds| drawer.draw_moved(g, ppem, bounds, dx),
                 cells(wide),
@@ -2150,12 +2178,13 @@ pub(crate) mod raster {
 
     /// The width, in the drawer's pixels at `ppem` before any widening,
     /// that the font designs its separators in: the ink of `arrow`, its
-    /// glyph for U+E0B0, unhinted and cut to that glyph's pen and advance. Monoid Nerd
-    /// Font Mono's triangles span their whole advance. Symbols Nerd Font
-    /// Mono advances a whole em, which is wider than a cell, and draws its
-    /// separators in a box about 0.65 em wide, against the pen or against
-    /// the advance. `None` when the font has no such glyph or it has no ink
-    /// inside its advance, and the separators' advance is then their box.
+    /// glyph for U+E0B0, unhinted and cut to that glyph's pen and advance.
+    /// Monoid Nerd Font Mono's triangles span their whole advance. Symbols
+    /// Nerd Font Mono advances a whole em, which is wider than a cell, and
+    /// draws its separators in a box about 0.65 em wide, against the pen or
+    /// against the advance. `None` when the font has no such glyph or it
+    /// has no ink inside its advance, and the separators' advance is then
+    /// their box.
     fn separator_box(
         drawer: &mut Drawer<'_>,
         arrow: u16,
@@ -2187,10 +2216,11 @@ pub(crate) mod raster {
     /// from its flat side to its point. A thin divider in the middle of its
     /// advance stays a thin bar in the middle of the cell, and a bar against
     /// one side keeps its width. The ink reaches a side when the font's own
-    /// outline comes within [`SEPARATOR_SLACK`] of the advance of it, or
-    /// passes it. The helper decides that on the unhinted outline, since
-    /// hinting at a small size can move an edge by part of a pixel, and
-    /// then maps the hinted edge, the one that is drawn.
+    /// outline passes that side, or stops short of it by no more than
+    /// [`SEPARATOR_SLACK`] of the advance. The helper decides that on the
+    /// unhinted outline, since hinting at a small size can move an edge by
+    /// part of a pixel, and then maps the hinted edge, the one that is
+    /// drawn.
     ///
     /// The box is the advance, from the pen. Some fonts design their
     /// separators narrower than their advance, which `arrow` measures
