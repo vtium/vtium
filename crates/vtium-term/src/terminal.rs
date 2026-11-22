@@ -230,6 +230,8 @@ struct State {
     /// Bytes the terminal writes to the program, in order: replies, and
     /// what keys, the pointer, focus and pastes send.
     out: Vec<u8>,
+    /// The replies the host holds, until it releases them.
+    hold: Option<reply::Hold>,
     modes: Modes,
     host: HostSettings,
     /// The configured palette with the colors the program set: what
@@ -298,6 +300,7 @@ impl Terminal {
         let mut state = State {
             screen: Screen::new(cols, rows, scrollback_cap),
             out: Vec::new(),
+            hold: None,
             modes: Modes::INITIAL,
             host: HostSettings {
                 cursor_blink: true,
@@ -363,7 +366,7 @@ impl Terminal {
     /// taking nothing until the reply is handed back, and once the call's
     /// image work reaches its bound (ADR-1100, D5 and D7).
     pub fn input(&mut self, bytes: &[u8]) -> usize {
-        if self.state.out.len() >= REPLIES_PENDING_MAX {
+        if self.state.pending() >= REPLIES_PENDING_MAX {
             return 0;
         }
         #[cfg(feature = "images")]
@@ -383,7 +386,8 @@ impl Terminal {
     /// their start, and the kitty keyboard protocol's flag stacks of both
     /// screens emptied (ADR-1005 D10, the reset key). The replies already
     /// queued for the host are dropped, since the program that asked for
-    /// them is being reset. A request out to the image helper is
+    /// them is being reset, and so are the replies the host holds, which
+    /// it goes on holding. A request out to the image helper is
     /// abandoned, as [`abandon_image_request`](Self::abandon_image_request)
     /// abandons it, so the terminal takes the program's output again at
     /// once; the host drops the helper's answer. The parser returns to its
@@ -395,6 +399,9 @@ impl Terminal {
         self.parser = Parser::new();
         self.state.hard_reset();
         self.state.out.clear();
+        if self.state.hold.is_some() {
+            self.state.hold = Some(reply::Hold::default());
+        }
         self.state.screen.refresh_hover();
     }
 
@@ -414,6 +421,38 @@ impl Terminal {
 
     pub fn take_replies(&mut self) -> Vec<u8> {
         core::mem::take(&mut self.state.out)
+    }
+
+    /// Holds the replies to the program's queries until
+    /// [`release_replies`](Self::release_replies), while the terminal goes
+    /// on parsing the program's output and drawing it. The host holds them
+    /// while a size the replies report is about to change, such as the
+    /// cell of a font set whose size the host learns late. XTWINOPS 14, 16,
+    /// 18 and 19 are answered at the release from the sizes the terminal
+    /// has then, and every other reply as it was when the program asked.
+    /// What keys, the pointer, focus and pastes send does not wait. The
+    /// held replies count toward
+    /// [`REPLIES_PENDING_MAX`](crate::REPLIES_PENDING_MAX), each size
+    /// report at 48 bytes, so a program that queries in a loop during the
+    /// hold stops the input call at the bound, as one that does not read
+    /// its replies does.
+    pub fn hold_replies(&mut self) {
+        if self.state.hold.is_none() {
+            self.state.hold = Some(reply::Hold::default());
+        }
+    }
+
+    /// Whether the host holds the replies.
+    pub fn replies_held(&self) -> bool {
+        self.state.hold.is_some()
+    }
+
+    /// Ends the hold: the held replies join the bytes that
+    /// [`take_replies`](Self::take_replies) returns, after what keys and
+    /// the pointer sent during the hold, in the order the program asked.
+    /// Replies go to the program at once again.
+    pub fn release_replies(&mut self) {
+        self.state.release_replies();
     }
 
     /// The session on this terminal ended. Each picture handler drops what
@@ -1407,6 +1446,6 @@ impl Consumer for State {
         if self.images_paused() {
             return true;
         }
-        self.pause || self.out.len() >= REPLIES_PENDING_MAX
+        self.pause || self.pending() >= REPLIES_PENDING_MAX
     }
 }
