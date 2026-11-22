@@ -51,7 +51,7 @@ You run these commands from the top of the checkout, and they cover most work on
 | `make gates` | Runs every gate and reports each one's result. `make gates JOBS=N` runs up to N gates at once, 8 by default. |
 | `make conformance` | Runs tier 1: it replays the byte streams in `tools/conformance/corpus/` and compares the screens and replies with their goldens. |
 | `make tier2` | Runs tier 2: it draws its screens in memory and compares them with their goldens pixel for pixel. |
-| `make tier3-minimal`, `make tier3` | Run tier 3 in a QEMU/KVM virtual machine: the minspec variants on 1 vCPU and 512 MB, or every variant. [tools/tier3/README.md](tools/tier3/README.md) lists what tier 3 needs. |
+| `make tier3-minimal`, `make tier3` | Run tier 3 in a QEMU/KVM virtual machine: the minspec variants on 1 vCPU and 512 MB, or the five default variants. `VARIANTS="..."` names others. [tools/tier3/README.md](tools/tier3/README.md) lists what tier 3 needs. |
 | `make test-tools` | Tests the project's own tools, such as the VT review tools, the tier 3 harness, the gate runner and the docs checks. |
 | `make vt-check GUIDE=<name>`, `make vt-accept` | Run a guided check or the acceptance pass on a real VT, with sudo. See [The VT review](docs/vt-review.md#running-it) for details. |
 | `make man` | Writes vtium's man pages in `man/` again from their sources. |
