@@ -370,6 +370,10 @@ considered:
   - operator: aaronsb
     said: "a. we are just keeping a low footprint because it keeps us honest about size changes"
     via: the steering session's chat, 2026-11-19, choosing to raise the minspec budget to 4 MiB + 128 KiB after the trust library's size was measured and trimmed
+  - operator: aaronsb
+    said: "Raise to 4 MiB + 192 KiB, chosen over winning the bytes back first and over raising the budget just enough to fit."
+    via: the steering session's question on 2026-11-21, after make tier3-minimal on the wave 5 candidate at e304e2dab measured the minspec binary at 4,356,352 bytes, 30,976 over the 4,325,376-byte budget
+    paraphrase: true
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
@@ -751,6 +755,8 @@ The console already opens its VT as root, and it reads the kernel's font once at
 > Added 2026-11-15: the maintainer raised the budget to 4,259,840 bytes (4 MiB + 64 KiB), for now, rather than leave pointer files out of the minspec build. `make minspec FEATURES=` built a 4,231,088-byte console binary at integration 7eef1c4e, once the work that lets an SVG file or a cursor theme replace the pointer pictures had landed. The code review's fix round cut it to 4,200,072 bytes, by inserting each picture in place of a sort and by sending the pointer asks through the font helper's client in place of a second client, and to 4,200,152 bytes at the round's head with its other fixes. The pointer file's loader still costs about 12.7 KB. Removing the compiled Unifont, about 1.35 MB, is the planned way back under 4 MiB. The figure is tier 3's `BINARY_BUDGET` (tools/tier3/README.md).
 
 > Added 2026-11-19: the maintainer raised the budget to 4,325,376 bytes (4 MiB + 128 KiB). The console now judges every resource file it reads against the trust rule and the batch of ADR-1205 D4, and that code took the minspec binary from 4,259,504 to 4,311,760 bytes. A measurement found where the bytes go: the folder walk and its checks about 10.5 KB, the mount table and removable-disk check about 9.5 KB, the batch reader and the fresh-install list about 6.3 KB, unwind tables about 7.1 KB and messages about 6.3 KB. Plain loops in place of iterator chains cut 5,744 bytes, to 4,306,016 bytes. The maintainer keeps the budget low on purpose: "we are just keeping a low footprint because it keeps us honest about size changes".
+
+> Added 2026-11-21: the maintainer raised the budget to 4,390,912 bytes (4 MiB + 192 KiB), so that no feature is cut to fit (`considered`). `make tier3-minimal` on the wave 5 candidate branch at e304e2dab measured the minspec binary at 4,356,352 bytes, 30,976 bytes over 4 MiB + 128 KiB. Five pieces of work grew it: a look's own pointer theme, the Ink color scheme for e-ink displays, one frame for each echoed key, underlines that skip the ink of descenders, and the font helper's recovery that drops only the font that failed. Each one's share of the growth was not measured. The new budget leaves 34,560 bytes of headroom. The figure is tier 3's `BINARY_BUDGET` (tools/tier3/README.md).
 
 ### D20: keys
 
