@@ -438,6 +438,17 @@ pub struct App {
     pointers: Vec<pointers::Theme>,
     /// Each frit a head draws, by its name, with its one helper.
     frits: BTreeMap<String, Frit>,
+    /// What each frit's helpers have used up this boot, by the frit's
+    /// name: the chances, and the fonts left out because they made a
+    /// helper fail. A frit that no head draws any more is dropped from
+    /// `frits` with its helper, and its record stays here, so a frit that
+    /// comes back has no fresh chances and leaves out the same fonts.
+    ///
+    /// References:
+    /// - ADR-1200 D15, "Restarted after a failure", and its note of
+    ///   2026-11-21: three chances a boot bound the restarts, because each
+    ///   start re-randomizes the helper's address layout.
+    failures: BTreeMap<String, helper::FailureRecord>,
     /// The kernel's font, read from the VT at start for a frit's
     /// `console:` source (vtium/vtium#145).
     console_font: Option<vtium_platform::vt::font::ConsoleFont>,
@@ -646,6 +657,7 @@ impl App {
             batch_changes: 0,
             pointers: Vec::new(),
             frits: BTreeMap::new(),
+            failures: BTreeMap::new(),
             console_font: None,
             locale: locale(&inherited),
             config,
@@ -1445,7 +1457,8 @@ impl App {
         }
     }
 
-    /// Drops each frit no head draws any more, and with it its helper.
+    /// Drops each frit no head draws any more, and with it its helper. The
+    /// record of what the frit's helpers used up stays in `failures`.
     fn prune(&mut self) {
         let used: BTreeSet<String> = self
             .heads
@@ -2118,6 +2131,7 @@ impl App {
     fn helper(&mut self, name: &str) -> Option<&mut Helper> {
         let frit = self.frits.get(name)?;
         if frit.helper.is_none() && !frit.refused {
+            let record = Rc::clone(self.failures.entry(name.to_owned()).or_default());
             let launcher = self.launcher.clone();
             let started = match launcher.and_then(|l| self.helper_wake().map(|w| (l, w))) {
                 Ok((launcher, wake)) => Ok(Helper::new(
@@ -2131,7 +2145,8 @@ impl App {
                         crate::deferred::store_limit(physical_memory()),
                         self.heads.len(),
                     ),
-                )),
+                )
+                .remembering(record)),
                 Err(why) => {
                     log::warn!(
                         "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"
@@ -7902,6 +7917,60 @@ mod tests {
         assert_eq!(
             replies,
             "\x1b]50;t\x07\x1b[6;8;8t\x1b[4;160;320t\x1b[8;20;40t"
+        );
+    }
+
+    // A font set's helper crashed on its second font, so vtium used one of
+    // the helper's three chances and left that font out. A program then
+    // switches with OSC 50 to the built-in font and back. No head draws the
+    // font set in between, so vtium drops it and its helper. The helper
+    // that vtium starts when the program switches back still has one
+    // chance used, and it leaves the same font out. Otherwise each round
+    // trip would give the helper three new chances, and a program could
+    // make vtium start the helper as often as it likes.
+    //
+    // References:
+    // - ADR-1200 D15, "Restarted after a failure": three chances a boot.
+    #[test]
+    fn a_font_set_switched_away_and_back_keeps_its_chances_and_left_out_fonts() {
+        let dir = Scratch::new("app-failures-kept");
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\nsource=kbd:y\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let (_lp, mut app) = seat_with(&[], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let osc50 = |app: &mut App, name: &str| {
+            let request = format!("\x1b]50;{name}\x07");
+            app.term_mut()
+                .unwrap()
+                .parse(request.as_bytes(), &mut |_| {});
+            app.turn(Instant::now());
+        };
+        osc50(&mut app, "t");
+        let helper = app.helper("t").unwrap();
+        helper.crashed_on(1, Instant::now());
+        assert_eq!(helper.used(), (1, 0b10));
+        osc50(&mut app, "unifont");
+        assert!(!app.frits.contains_key("t"), "no head draws the font set");
+        osc50(&mut app, "t");
+        assert_eq!(app.font_name(), "t");
+        let helper = app.helper("t").unwrap();
+        assert_eq!(
+            helper.used(),
+            (1, 0b10),
+            "the chance and the font stay used"
         );
     }
 
