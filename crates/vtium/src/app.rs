@@ -1762,6 +1762,21 @@ impl App {
         {
             self.own_cell(h, height);
         }
+        // A console that the head shows while it waits for the cell of the
+        // font set an OSC 50 switch chose would otherwise report the new
+        // name with the cell the head keeps. So that console holds its
+        // replies too, until the wait ends and `end_cell_waits` sends
+        // them from the new cell. The console that made the switch holds
+        // its replies already, and a second hold changes nothing.
+        if self
+            .heads
+            .get(h)
+            .is_some_and(|head| head.switched.is_some())
+            && self.waits_for_cell(h)
+            && let Some(head) = self.heads.get_mut(h)
+        {
+            head.console.term.terminal.hold_replies();
+        }
         let App {
             heads,
             config,
@@ -8216,6 +8231,81 @@ mod tests {
         app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
         app.turn(Instant::now());
         assert_eq!(app.heads.first().unwrap().console.id, second, "shown");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;t\x07\x1b[6;24;12t"
+        );
+    }
+
+    // A program on console 1 switches head 0 from frit a to frit t, whose
+    // cell comes late. The user opens console 2 during the wait, and a
+    // program there asks for the font set's name and for the cell at once.
+    // Console 2 holds its replies, as console 1 does, so it never reports
+    // t's name with the 8×8 cell the head keeps during the wait. The user goes back to
+    // console 1 before the late 12×24 cell comes. Console 2 is hidden and
+    // keeps its hold. Once shown, it is laid out in t's cell, it sends its
+    // held replies, and it answers with t's name and t's cell together.
+    //
+    // References:
+    // - ADR-1200 D5: the name OSC 50's query reports.
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_console_shown_during_the_wait_holds_its_replies_until_the_new_cell() {
+        let dir = Scratch::new("app-shown-during-wait");
+        let fonts = two_cells_and_a_late_one(&dir);
+        let (_lp, mut app) = seat_with(&["--font-name=a", "--font-size=0"], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let first = app.heads.first().unwrap().console.id;
+        app.term_mut().unwrap().parse(b"\x1b]50;t\x07", &mut |_| {});
+        app.turn(Instant::now());
+        assert!(
+            app.open_console(0, Instant::now()),
+            "a second console opens"
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first().unwrap();
+        let second = head.console.id;
+        assert_eq!(head.cell, (8, 8), "the cell the head keeps during the wait");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "",
+            "console 2 holds its replies"
+        );
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, first);
+        let own = vtium_font::Cell {
+            width: 12,
+            height: 24,
+        };
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(
+            frit.helper
+                .as_mut()
+                .unwrap()
+                .answer_late(Ok(helper::OwnCell::Bitmap(own)))
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.cell, (12, 24), "the late cell");
+        let hidden = head.hidden.iter_mut().find(|c| c.id == second).unwrap();
+        assert!(
+            hidden.term.terminal.replies_held(),
+            "hidden console 2 keeps its hold"
+        );
+        assert_eq!(hidden.term.terminal.take_replies(), b"", "nothing went out");
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.console.id, second, "console 2 is shown again");
+        assert_eq!(head.cell, (12, 24), "in t's cell");
+        assert!(!head.console.term.terminal.replies_held(), "the hold ended");
         assert_eq!(
             name_and_cell(&mut app, second),
             "\x1b]50;t\x07\x1b[6;24;12t"
