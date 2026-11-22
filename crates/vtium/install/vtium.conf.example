@@ -21,9 +21,9 @@
 ## `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with
 ## `font-engine = psf` the path of a PSF font; vtium then uses that one font.
 ##
-## When unset, vtium uses the font from vconsole.conf, and when vconsole.conf
-## names none, the font set `terminus`. If vtium cannot find the font, it uses
-## its built-in font and logs why.
+## When unset, vtium uses the font from vconsole.conf, or else the font set
+## `terminus`. If vtium cannot find the font, it uses its built-in font and
+## logs why.
 #
 ## font-frits: The directory that holds the font sets (the `NAME.vtfrit` files
 ## that `font-name` names).
@@ -194,9 +194,9 @@
 ## The size lasts until the session of the program that asked for it ends, or
 ## until you zoom. Then vtium returns to the size that `font-size` sets.
 ##
-## When off, vtium ignores the request and changes nothing. It is off by
-## default, as xterm's `allowWindowOps` is. A program can ask for the size in
-## any case, with `CSI 18 t`.
+## When off, vtium ignores the request. It is off by default, as xterm's
+## `allowWindowOps` is. A program can ask for the size in any case, with
+## `CSI 18 t`.
 
 #no-allow-window-ops
 
@@ -236,8 +236,8 @@
 ## first letter. A paragraph that starts with an Arabic or Hebrew letter runs
 ## right to left, and any other paragraph runs left to right.
 ##
-## vtium reads this key when it starts, so a change takes effect when vtium
-## restarts. The key never changes text that is already on the screen.
+## A change takes effect when vtium restarts. The key never changes text that
+## is already on the screen.
 ##
 ## A build without right-to-left support (the `bidi` feature) accepts this key
 ## and does nothing with it.
@@ -253,8 +253,7 @@
 ## `double`, the default, gives such a syllable two cells, so கொ takes two.
 ## `single` gives it one cell and squeezes it to fit.
 ##
-## vtium reads this key when it starts, so a change takes effect when vtium
-## restarts.
+## A change takes effect when vtium restarts.
 
 #cluster-width=double
 

@@ -169,6 +169,10 @@ blink_line() {
 # copies those frits into a folder of its own and gives vtium-config a home
 # of its own, so the TUI reads and writes none of your drafts, settings or
 # installed files, and nothing it does reaches the console's own vtium.conf.
+# The page makes that folder in $XDG_RUNTIME_DIR, or in your home folder
+# when that is unset, and not in /tmp: vtium refuses a font set in a folder
+# that other users can write to, so the TUI would count both looks' font
+# sets as problems.
 # The vtium.conf has two looks: big, in the outline font set at 20 points,
 # which the head desk uses, and small, in the bitmap font set, with vtium's
 # own pointer pictures. The page prints its steps and waits for a key before
@@ -184,7 +188,7 @@ looks_tui() {
 	printf '%s\n' "$@"
 	printf '\n  Press a key to open vtium-config. Quit it with q, then n if it asks.\n'
 	read -rsn1 </dev/tty
-	dir=$(mktemp -d) || cannot_show "The page could not make a folder for its vtium.conf."
+	dir=$(mktemp -d "${XDG_RUNTIME_DIR:-$HOME}/vtium-looks.XXXXXX") || cannot_show "The page could not make a folder for its vtium.conf."
 	mkdir -p "$dir/etc" "$dir/home"
 	cp -R "$stage/frits" "$dir/frits"
 	printf '%s\n' 'version = 1' "font-frits = $dir/frits" '[look big]' 'font-name = acceptance-outline' \
