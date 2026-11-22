@@ -1712,9 +1712,9 @@ impl Helper {
     /// Whether the helper owes an answer: an ask, a pointer ask or a fill
     /// is outstanding, or a cell query whose answer comes late. While it
     /// owes one, a helper that sends nothing for [`ANSWER_MS`] is ended
-    /// as a hung helper. So a console that holds a program's output until
-    /// a late cell comes never holds it for good: the helper started again
-    /// answers, or vtium gives the helper up.
+    /// as a hung helper. So a console that holds a program's replies until
+    /// a late cell comes never holds them for good: the helper started
+    /// again answers, or vtium gives the helper up.
     fn owes(&self) -> bool {
         self.busy() || !self.late.is_empty()
     }

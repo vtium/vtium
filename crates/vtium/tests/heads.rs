@@ -1506,12 +1506,8 @@ display card:mem-small -> small
 /// FIFO, so the start's ask has no answer in time whatever the machine's
 /// speed. In the `refused` case the test then lets the helper answer, and
 /// waits until vtium has kept its late refusal of the start's ask; neither
-/// switch back asks again. In the `timeout` case the helper stays held, so
-/// the first switch back asks again. While that ask waits for its answer,
-/// vtium takes none of the program's output, so the program's queries
-/// that follow the switch would answer in the cell the answer gives. The
-/// test then lets the helper answer, the console shows the program's
-/// output, and the second switch back keeps the refusal and asks nothing.
+/// switch back asks again. In the `timeout` case the helper stays held, and
+/// each switch back asks again.
 // covers: text.font-change
 #[test]
 fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
@@ -1577,17 +1573,17 @@ input class:keyboard -> roaming
             late(&seen[0]),
             "{case}: the held helper answered nothing: {seen:?}"
         );
-        // The helper waits on the FIFO with its answer, so an open to write
-        // succeeds once it does.
-        let open = |_: &App| {
-            rustix::fs::open(
-                &go,
-                rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::NONBLOCK,
-                rustix::fs::Mode::empty(),
-            )
-            .is_ok()
-        };
         if refused {
+            // The helper waits on the FIFO with its answer, so an open to
+            // write succeeds once it does.
+            let open = |_: &App| {
+                rustix::fs::open(
+                    &go,
+                    rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::NONBLOCK,
+                    rustix::fs::Mode::empty(),
+                )
+                .is_ok()
+            };
             assert!(s.until(BOUND, open), "the helper answers");
             assert!(
                 s.until(BOUND, |a| refusal_kept(a)),
@@ -1604,23 +1600,10 @@ input class:keyboard -> roaming
             assert!(s.until(BOUND, |a| head_shows(a, "a", away)), "{case}");
             assert_eq!(s.app.font_name(), "unifont", "{case}");
             s.type_str("y\r");
-            if !refused && n == 0 {
-                // The switch back asks again, and the console waits for
-                // the answer before it shows the program's output.
-                assert!(
-                    s.until(BOUND, |_| {
-                        seen.extend(unknown(&logged()));
-                        seen.len() == 2
-                    }),
-                    "{case}: the switch back asks again: {seen:?}"
-                );
-                assert!(!head_shows(&s.app, "a", back), "{case}: the output waits");
-                assert!(s.until(BOUND, open), "the helper answers");
-            }
             assert!(s.until(BOUND, |a| head_shows(a, "a", back)), "{case}");
             assert_eq!(s.app.font_name(), "t", "{case}");
             seen.extend(unknown(&logged()));
-            let asked = if refused { 0 } else { 1 };
+            let asked = if refused { 0 } else { n + 1 };
             assert_eq!(
                 seen.len() - 1,
                 asked,
@@ -1642,6 +1625,90 @@ input class:keyboard -> roaming
         }
         drop(s);
     }
+}
+
+/// A program switches with OSC 50 to frit `t`, whose cell the held helper
+/// gives late, and writes `drawn`. It then asks for the cell with XTWINOPS
+/// 16, writes `asked`, reads the reply from its terminal and prints it
+/// without its ESC. While the helper is held, vtium draws both words and
+/// holds the reply, so the program waits in its read. Once the test lets
+/// the helper answer, its late refusal leaves the head in the cell it kept,
+/// and the reply reaches the program through the pty with that cell.
+///
+/// References:
+/// - ADR-1200 D17: the cell that comes after the wait.
+// covers: text.font-change
+#[test]
+fn an_osc_50_switch_holds_the_programs_replies_until_the_late_cell() {
+    let dir = scratch_dir("osc50-held-replies");
+    std::fs::write(dir.join("t.vtfrit"), "source=kbd:vtium-no-such-font\n").expect("the frit");
+    let (kinds, go) = (dir.join("kinds"), dir.join("go"));
+    rustix::fs::mknodat(
+        rustix::fs::CWD,
+        &go,
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        0,
+    )
+    .expect("the go FIFO");
+    let fonts = Sources {
+        frits: dir.to_path_buf(),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    let heads = "version = 1
+[head a]
+[rules]
+display card:mem-small -> a
+";
+    // The reply is read one byte at a time up to its final `t`, with
+    // echo off so the line discipline does not show it.
+    let script = "printf '\\033]50;t\\007'; echo drawn; stty -icanon -echo min 1; \
+                  printf '\\033[16t'; echo asked; r=; \
+                  while c=$(dd bs=1 count=1 2>/dev/null); do \
+                  r=\"$r$c\"; [ \"$c\" = t ] && break; done; \
+                  printf 'got%s\\n' \"$r\" | tr -d '\\033'; read x";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&["--font-size=0"], Some(heads), [small], script, fonts);
+    // The terminal parsed the query before the word after it.
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "a", "asked")),
+        "drawn during the wait"
+    );
+    assert!(head_shows(&s.app, "a", "drawn"), "drawn during the wait");
+    assert_eq!(s.app.font_name(), "t", "the switch took");
+    let held = |a: &App| {
+        a.head("a")
+            .is_some_and(|h| h.term().terminal.replies_held())
+    };
+    assert!(held(&s.app), "vtium holds the reply");
+    assert!(!head_shows(&s.app, "a", "got"), "the reply waits");
+    // The helper waits on the FIFO with its answer, so an open to write
+    // succeeds once it does.
+    let open = |_: &App| {
+        rustix::fs::open(
+            &go,
+            rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        )
+        .is_ok()
+    };
+    assert!(s.until(BOUND, open), "the helper answers");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "a", "got")),
+        "the reply arrives"
+    );
+    assert!(!held(&s.app), "the hold ended");
+    let cells = s.app.head("a").map(Head::cells);
+    let Some([(w, h)]) = cells.as_deref() else {
+        panic!("one display: {cells:?}");
+    };
+    let want = format!("got[6;{h};{w}t");
+    assert!(
+        head_shows(&s.app, "a", &want),
+        "{want} in {:?}",
+        s.app.head("a").map(Head::screen_text)
+    );
 }
 
 /// D6: with no head file the seat runs the compiled-in configuration,

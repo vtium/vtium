@@ -70,13 +70,6 @@ pub struct Term {
     /// - ADR-1401 D2, the note of 2026-11-17: the parser stops at a
     ///   frame's end, and vtium keeps no copy of the finished frame.
     pub unshown: bool,
-    /// The program switched the font with OSC 50 to a font set whose cell
-    /// the font helper has not given yet. Until the cell is known, or the
-    /// helper fails, the terminal takes no more of the program's output.
-    /// So once the program has seen the new font set's name, every answer
-    /// about the cell, the text area or the grid reports the new cell, and
-    /// the answers keep the order of the program's queries.
-    pub cell_wait: bool,
     /// The child exited and its output has been read.
     pub exited: Option<ExitStatus>,
     /// Bytes of the child's output parsed since the start.
@@ -151,7 +144,6 @@ impl Term {
             changed: false,
             present: false,
             unshown: false,
-            cell_wait: false,
             exited: None,
             parsed: 0,
             keys: 0,
@@ -227,12 +219,11 @@ impl Term {
     }
 
     /// Whether the terminal takes the child's output now: no finished
-    /// frame waits for a display, no request waits for the turn that
-    /// carries it out, and no font switch waits for its cell. While the pty holds output and this is true, the
+    /// frame waits for a display, and no request waits for the turn that
+    /// carries it out. While the pty holds output and this is true, the
     /// loop turns again at once.
     pub fn takes_input(&self) -> bool {
         !(self.unshown
-            || self.cell_wait
             || self.terminal.font_requested()
             || self.terminal.grid_requested()
             || self.terminal.display_requested())
@@ -254,13 +245,11 @@ impl Term {
         // The output after a synchronized update's end waits until each
         // display has taken the finished frame. The output after an OSC 50
         // request waits for the turn that switches the font, so a query
-        // that follows names the new set. When the font helper gives the
-        // new set's cell late, the output also waits for the cell, so a
-        // cell query that follows answers the new cell. The output after
-        // an XTWINOPS 8 request waits for the turn that resizes, so a size
-        // report that follows answers the new size, and the output after
-        // setBackground or setForeground for the turn that takes it, so
-        // the seat takes each in order.
+        // that follows names the new set, the output after an XTWINOPS 8
+        // request for the turn that resizes, so a size report that follows
+        // answers the new size, and the output after setBackground or
+        // setForeground for the turn that takes it, so the seat takes each
+        // in order.
         if !self.takes_input() {
             return 0;
         }

@@ -1527,7 +1527,9 @@ impl App {
         match new {
             Ok(()) => {
                 head.switched = Some(head.console.id);
-                head.console.term.cell_wait = wait;
+                if wait {
+                    head.console.term.terminal.hold_replies();
+                }
                 let refused = std::mem::take(&mut head.font_refused);
                 if refused > 1 {
                     log::info!(
@@ -2273,24 +2275,27 @@ impl App {
         known.is_some_and(|k| k.is_err_and(|no| no.late))
     }
 
-    /// Lets each console whose font switch waited for its cell take the
-    /// program's output again once the head waits no more: the helper's
-    /// late answer laid the head out in the new cell, or the helper
-    /// failed and the head keeps its cell. A zoom or a new font that
-    /// leaves nothing to wait for ends the wait too. The state alone ends
-    /// the wait, never a timer.
+    /// Sends each console the replies it held since its font switch, once
+    /// its head waits no more for the new font set's cell: the helper's
+    /// late answer laid the head out in the new cell, or the helper failed
+    /// and the head keeps its cell. A zoom or a new font that leaves
+    /// nothing to wait for ends the wait too. The terminal answers the
+    /// held size reports from the cell and the grid the head has now, so
+    /// once the program has the new font set's name, every size it is
+    /// told is the new cell's. The state alone ends the wait, never a
+    /// timer.
     fn end_cell_waits(&mut self) {
         for h in 0..self.heads.len() {
             let held = self
                 .heads
                 .get(h)
-                .is_some_and(|head| head.consoles().any(|c| c.term.cell_wait));
+                .is_some_and(|head| head.consoles().any(|c| c.term.terminal.replies_held()));
             if !held || self.waits_for_cell(h) {
                 continue;
             }
             if let Some(head) = self.heads.get_mut(h) {
                 for console in head.consoles_mut() {
-                    console.term.cell_wait = false;
+                    console.send_held_replies();
                 }
             }
         }
@@ -7792,10 +7797,11 @@ mod tests {
     /// font in its 8×8 cell, switches with OSC 50 to the bitmap frit `t`,
     /// whose helper never answers in time. The program then asks for the
     /// font's name and, with XTWINOPS 16, 14 and 18, for the cell, the text
-    /// area and the grid. `settle` makes the state change that ends the
-    /// wait for the cell. Returns the replies the program got before
-    /// `settle` ran, and all the replies it got.
-    fn late_switch(test: &str, settle: impl FnOnce(&mut App)) -> (String, String) {
+    /// area and the grid, and writes `hi`. `settle` makes the state change
+    /// that ends the wait for the cell. Returns the replies the program got
+    /// and the screen's first row before `settle` ran, and all the replies
+    /// it got.
+    fn late_switch(test: &str, settle: impl FnOnce(&mut App)) -> (String, String, String) {
         let dir = Scratch::new(&format!("app-{test}"));
         std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
         let fonts = font::Sources {
@@ -7815,13 +7821,14 @@ mod tests {
         );
         shown(&mut app);
         assert_eq!(app.heads.first().unwrap().cell, (8, 8), "the built-in cell");
-        let program = b"\x1b]50;t\x07\x1b]50;?\x07\x1b[16t\x1b[14t\x1b[18t";
+        let program = b"\x1b]50;t\x07\x1b]50;?\x07\x1b[16t\x1b[14t\x1b[18thi";
         let mut replies = Vec::new();
         let mut fed = 0;
         let mut feed = |app: &mut App, replies: &mut Vec<u8>| {
             let term = app.term_mut().unwrap();
             let rest = program.get(fed..).unwrap_or_default();
             fed = fed.saturating_add(term.parse(rest, &mut |r| replies.extend_from_slice(r)));
+            fed
         };
         // The terminal stops after the switch's request, and the turn
         // switches the font, whose cell is not known in time.
@@ -7829,22 +7836,25 @@ mod tests {
         app.turn(Instant::now());
         assert_eq!(app.heads.first().unwrap().frit(), Some("t"), "switched");
         assert_eq!(app.heads.first().unwrap().cell, (8, 8), "in the old cell");
-        feed(&mut app, &mut replies);
+        // The terminal reads the rest of the program's output and draws
+        // it in the old cell.
+        let read = feed(&mut app, &mut replies);
+        assert_eq!(read, program.len(), "the program's output is all read");
         app.turn(Instant::now());
-        feed(&mut app, &mut replies);
         let early = String::from_utf8(replies.clone()).unwrap();
+        let row = app.screen_text().first().cloned().unwrap_or_default();
         settle(&mut app);
         app.turn(Instant::now());
         feed(&mut app, &mut replies);
-        assert_eq!(fed, program.len(), "the program's queries are all read");
-        (early, String::from_utf8(replies).unwrap())
+        (early, row, String::from_utf8(replies).unwrap())
     }
 
     // A program that switches to a bitmap font set whose cell comes after
-    // the wait, and then asks for the set's name and its cell, gets the
-    // answers once the cell is known. Every answer after the new name then
-    // reports the new 10×8 cell, on the grid of 32×20 cells it lays out,
-    // in the order the program asked.
+    // the wait, then asks for the set's name and its cell, and then writes
+    // text, sees its text drawn at once. The answers wait until the cell is
+    // known. Every answer after the new name then reports the new 10×8
+    // cell, on the grid of 32×20 cells it lays out, in the order the
+    // program asked.
     //
     // References:
     // - ADR-1200 D5: OSC 50's query names the font set in use.
@@ -7852,7 +7862,7 @@ mod tests {
     // covers: text.font-change
     #[test]
     fn a_switch_answers_once_its_late_cell_is_known() {
-        let (early, replies) = late_switch("late-switch-cell", |app| {
+        let (early, row, replies) = late_switch("late-switch-cell", |app| {
             let own = vtium_font::Cell {
                 width: 10,
                 height: 8,
@@ -7861,6 +7871,7 @@ mod tests {
             let running = frit.helper.as_mut().unwrap();
             assert!(running.answer_late(Ok(helper::OwnCell::Bitmap(own))));
         });
+        assert_eq!(row.trim_end(), "hi", "the text is drawn during the wait");
         assert_eq!(early, "", "nothing is answered while the cell is not known");
         assert_eq!(
             replies,
@@ -7869,15 +7880,17 @@ mod tests {
     }
 
     // When the font helper fails before the cell comes, the console stops
-    // waiting for it. The program then gets the answers in the 8×8 cell
-    // the head keeps, in the order it asked.
+    // waiting for it. The program's text is drawn during the wait, and the
+    // program then gets the answers in the 8×8 cell the head keeps, in the
+    // order it asked.
     // covers: text.font-change
     #[test]
     fn a_switch_answers_in_the_kept_cell_once_the_helper_fails() {
-        let (early, replies) = late_switch("late-switch-failed", |app| {
+        let (early, row, replies) = late_switch("late-switch-failed", |app| {
             let frit = app.frits.get_mut("t").unwrap();
             frit.helper.as_mut().unwrap().give_up("the helper failed");
         });
+        assert_eq!(row.trim_end(), "hi", "the text is drawn during the wait");
         assert_eq!(early, "", "nothing is answered while the cell is not known");
         assert_eq!(
             replies,

@@ -81,6 +81,22 @@ impl Console {
         }
     }
 
+    /// Ends the terminal's hold of the replies and sends them to the
+    /// program as replies, which count against the pty's bound on replies.
+    /// Without a pty they wait in the terminal.
+    pub(crate) fn send_held_replies(&mut self) {
+        if !self.term.terminal.replies_held() {
+            return;
+        }
+        self.term.terminal.release_replies();
+        if let Some(pty) = &mut self.pty {
+            let bytes = self.term.terminal.take_replies();
+            if !bytes.is_empty() {
+                pty.reply(&bytes);
+            }
+        }
+    }
+
     /// Whether its command has started.
     pub(crate) fn started(&self) -> bool {
         self.respawn.is_some()
