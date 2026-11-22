@@ -1042,6 +1042,135 @@ fn the_built_in_keymap_compiles_and_a_broken_one_falls_back() {
     assert!(Keymap::new(&config).is_some());
 }
 
+/// Set in the child process that
+/// [`the_built_in_keymap_is_taken_where_xkbs_data_is_missing`] starts.
+const XKB_DATA_HIDDEN: &str = "VTIUM_INPUT_TEST_XKB_DATA_HIDDEN";
+
+/// vtium starts with its built-in keymap on a system that has no xkb data,
+/// instead of crashing. The test runs itself again in a child process whose
+/// environment points every directory that libxkbcommon searches for its
+/// data at a directory that does not exist, so a crash shows as a failed
+/// test instead of ending the test run.
+///
+/// libxkbcommon before 1.13 refuses to make a context when it can add none
+/// of those directories, and the `xkbcommon` crate keeps that NULL context,
+/// so the first keymap compiled with it crashed vtium. Debian bookworm's
+/// libxkbcommon 1.5 and Ubuntu 24.04's 1.6 behave this way. From 1.12.2,
+/// libxkbcommon falls back to `/usr/share/X11/xkb` where the directory
+/// that `XKB_CONFIG_ROOT` names is missing. So on a machine with such a
+/// libxkbcommon and xkeyboard-config installed, the child compiles the
+/// rules' names, and the test checks only that the child did not crash. To see the crash
+/// on such a machine, run the test with `LD_LIBRARY_PATH` naming a directory
+/// that holds an older `libxkbcommon.so.0`.
+#[test]
+fn the_built_in_keymap_is_taken_where_xkbs_data_is_missing() {
+    const NAME: &str = "input::tests::the_built_in_keymap_is_taken_where_xkbs_data_is_missing";
+    if std::env::var_os(XKB_DATA_HIDDEN).is_none() {
+        let missing = std::env::temp_dir().join("vtium-no-such-xkb-data-directory");
+        assert!(!missing.exists(), "{} exists", missing.display());
+        let out = std::process::Command::new(
+            std::env::current_exe().unwrap_or_else(|e| panic!("this test binary: {e}")),
+        )
+        .args(["--exact", NAME, "--test-threads=1", "--nocapture"])
+        .env(XKB_DATA_HIDDEN, "1")
+        .env("XKB_CONFIG_ROOT", &missing)
+        .env("XKB_CONFIG_EXTRA_PATH", &missing)
+        .env("XKB_CONFIG_VERSIONED_EXTENSIONS_PATH", &missing)
+        .env("XKB_CONFIG_UNVERSIONED_EXTENSIONS_PATH", &missing)
+        .env("XDG_CONFIG_HOME", &missing)
+        .env("HOME", &missing)
+        .output()
+        .unwrap_or_else(|e| panic!("the test in a child process: {e}"));
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.success() && text.contains("test result: ok. 1 passed"),
+            "the child process ended with {}:\n{text}{}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return;
+    }
+    crate::display::fake::logs::capture();
+    let config = KeymapConfig {
+        layout: String::from("us"),
+        ..KeymapConfig::default()
+    };
+    let keymap = Keymap::new(&config).unwrap_or_else(|| panic!("a keymap"));
+    let warnings = crate::display::fake::logs::at_least(log::Level::Warn);
+    match keymap.compiled() {
+        // A libxkbcommon that falls back to its compiled-in data directory.
+        super::Compiled::Names(names) => assert_eq!(names.layout, "us"),
+        super::Compiled::BuiltIn => {
+            let missing: Vec<&String> = warnings
+                .iter()
+                .filter(|line| line.contains("keyboard layouts are missing"))
+                .collect();
+            assert_eq!(missing.len(), 1, "one line says why: {warnings:?}");
+            // vtium goes straight to the built-in keymap, with no line about
+            // names that cannot compile. A line about compose may follow on a
+            // machine without the locale's compose table.
+            assert!(
+                !warnings.iter().any(|line| line.contains("cannot compile")),
+                "{warnings:?}"
+            );
+        }
+        other @ super::Compiled::File(_) => panic!("{other:?}"),
+    }
+    // The built-in keymap alone compiles too.
+    let built_in = Keymap::fallback().unwrap_or_else(|| panic!("the built-in keymap"));
+    assert_eq!(built_in.compiled(), &super::Compiled::BuiltIn);
+    // A key types through the keymap vtium took.
+    let events = keymap.key_events(&[(KEY_A, true), (KEY_A, false)]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, InputEvent::Key(k) if k.codepoints == [Some('a')])),
+        "{events:?}"
+    );
+}
+
+// Without xkb's keyboard layouts, vtium tries the keymap file and then takes
+// the built-in keymap, with one line that says why and none about names that
+// cannot compile. This runs on every libxkbcommon, where the test above
+// reaches this case only on one that has no fallback directory.
+#[test]
+fn without_layouts_the_keymap_file_and_then_the_built_in_keymap_are_taken() {
+    crate::display::fake::logs::capture();
+    let config = KeymapConfig {
+        layout: String::from("de"),
+        locale: String::from("\0"),
+        ..KeymapConfig::default()
+    };
+    let keymap = Keymap::without_layouts(&config).unwrap_or_else(|| panic!("a keymap"));
+    assert_eq!(keymap.compiled(), &super::Compiled::BuiltIn);
+    let warnings = crate::display::fake::logs::at_least(log::Level::Warn);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings
+            .iter()
+            .all(|line| line.starts_with("The keyboard layouts are missing.")),
+        "{warnings:?}"
+    );
+
+    let dir = std::env::temp_dir().join(format!("vtium-input-layouts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    let file = dir.join("us.xkb");
+    std::fs::write(&file, US).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+    crate::display::fake::logs::capture();
+    let config = KeymapConfig {
+        keymap_file: Some(file.clone()),
+        locale: String::from("\0"),
+        ..config
+    };
+    let keymap = Keymap::without_layouts(&config).unwrap_or_else(|| panic!("a keymap"));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(keymap.compiled(), &super::Compiled::File(file));
+    assert_eq!(
+        crate::display::fake::logs::at_least(log::Level::Warn),
+        Vec::<String>::new()
+    );
+}
+
 // The hide timer in a real loop: a frame arms it, and its firing reports
 // the hide.
 #[test]
