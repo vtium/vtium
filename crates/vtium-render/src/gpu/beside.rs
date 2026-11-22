@@ -156,7 +156,7 @@ impl Besides {
                 return Err(Error::new(
                     ErrorKind::Limit,
                     format!(
-                        "The texture of the underline gaps beside {n} magnified characters is larger than the GPU's largest texture."
+                        "the texture of the underline gaps beside {n} magnified characters is larger than the GPU's largest texture"
                     ),
                 ));
             }
