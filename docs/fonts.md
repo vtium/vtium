@@ -182,7 +182,7 @@ A frit can say which font each source needs, so that vtium-config can name the f
 
 - `version=` gives the lowest version of the font that the frit was written for, such as `3.4.0`.
 - `check=` names a character that only the right font holds, such as `U+E0B0`. A Nerd Fonts build holds that character, and the plain font of a similar name does not.
-- `sha256=` gives the SHA-256 of a font file that the frit names by its path.
+- `sha256=` gives the SHA-256 of a font file that the frit names by its path. On the lines after a `strike=` line, it gives the hash of that strike's file.
 - `url=` gives the font's page on the web, where you can get it.
 
 For example, this frit names the Nerd Fonts build of Fira Code precisely:
