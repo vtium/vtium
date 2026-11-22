@@ -29,6 +29,14 @@ considered:
     said: "Paste: a paste key, plus a confirmed vtium-clipboard paste command that shows a prompt on the console; both can be turned off, so a program that implements its own copy and paste keys is not intercepted."
     via: the maintainer's interview in the steering session, 2026-11-20, round 5, as the steering session's notes and its comment on the GitHub issue for vtium-clipboard paste record it
     paraphrase: true
+  - operator: aaronsb
+    said: "A socket vtium checks"
+    via: the steering session's interview on 2026-11-22 (question tool, brief/for/against/lean per probe); the maintainer chose the lean
+    covers: [the channel]
+  - operator: aaronsb
+    said: "Off until turned on"
+    via: "the steering session's interview on 2026-11-22 (question tool, brief/for/against/lean per probe); the maintainer chose against the lean (on, each read confirmed): a fresh install refuses every read until clipboard-read = on"
+    covers: [reads on by default]
 status: proposed
 date: 2026-11-14
 deciders:

@@ -28,6 +28,15 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "At the first beta"
+    via: the steering session's interview on 2026-11-22 (question tool, brief/for/against/lean per probe); the maintainer chose the lean over 0.1.0 and 'when someone relies on one'
+    covers: [when it binds]
+  - operator: aaronsb
+    said: "Ignore just the unknown key"
+    via: "the steering session's interview on 2026-11-22 (question tool, brief/for/against/lean per probe); the maintainer chose against the lean (drop the section): an older vtium keeps the rest of the section and skips only the key it does not know, with the same message naming the file and line"
+    covers: [an older vtium and a newer file]
 status: proposed
 date: 2026-11-20
 deciders:

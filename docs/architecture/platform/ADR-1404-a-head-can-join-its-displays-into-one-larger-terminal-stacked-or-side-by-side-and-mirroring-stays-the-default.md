@@ -23,6 +23,15 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "Same physical size"
+    via: the steering session's interview on 2026-11-22 (question tool, brief/for/against/lean per probe); the figure ADR-1404-joined-displays.svg was rendered and shown first; the maintainer chose the lean
+    covers: [the size on each display]
+  - operator: aaronsb
+    said: "Shrink the grid"
+    via: the steering session's interview on 2026-11-22 (question tool, brief/for/against/lean per probe); the figure ADR-1404-joined-displays.svg was rendered and shown first; the maintainer chose the lean
+    covers: [an unplugged display]
 observable:
   - "A head with `arrange = stacked` over two displays of the same size shows one grid with the rows of both, and a line that a program writes on the last row of the top display continues on the first row of the bottom one"
   - "The same head with `arrange = side-by-side` shows one grid with the columns of both, and a line wraps only at the right edge of the right display"
