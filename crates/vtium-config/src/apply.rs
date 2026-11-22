@@ -38,14 +38,16 @@
 //!    line that the installed batch file does not already hold, and each
 //!    resource it activates against the trust rule, as the user `apply`
 //!    runs as; the edited vtium.conf, both its parts in one run, with the
-//!    console's own `vtium check-config`, so the verdict before writing is
-//!    the verdict at the next start, with the frits the draft writes and
-//!    removes counted as installed and removed, each frit read from a copy
-//!    in a private folder under `/run`, or under the user's runtime folder
-//!    when `apply` runs as a user (`frit_copies`); and a system font with
-//!    the font helper, which must describe a copy root made of the font's bytes
-//!    ([`SystemFont`]). A system font's draft that holds any other file
-//!    is refused, so that draft runs no `check-config`;
+//!    console's own `vtium check-config`, or the installed vtium.conf when
+//!    the draft changes font sets and holds no vtium.conf, so the verdict
+//!    before writing is the verdict at the next start, with the frits the
+//!    draft writes and removes counted as installed and removed, each frit
+//!    read from a copy in a private folder under `/run`, or under the
+//!    user's runtime folder when `apply` runs as a user (`frit_copies`);
+//!    and a system font with the font helper, which must describe a copy
+//!    root made of the font's bytes ([`SystemFont`]). A system font's draft
+//!    that holds any other file is refused, so that draft runs no
+//!    `check-config`;
 //! 4. writes the frits, then the batch file, then vtium.conf, so
 //!    vtium.conf never names a frit or a resource that is not yet there,
 //!    and removes frits last. Each file goes in through
@@ -102,7 +104,7 @@ pub const MANIFEST: &str = "MANIFEST";
 
 /// Why a change that moves the frits' directory and also writes or
 /// removes a frit is refused, by the TUI's save and by `apply`.
-pub const FRITS_MOVE_FIRST: &str = "this install changes font-frits and also adds or removes font sets, which would go to the old directory. Install the font-frits change first, then change the font sets.";
+pub const FRITS_MOVE_FIRST: &str = "this install changes font-frits and also adds, replaces or removes font sets, which would go to the old directory. Install the font-frits change first, then change the font sets.";
 
 /// The manifest line's words that accept a vtium.conf that wires no
 /// complete route (ADR-1403 D8).
@@ -825,14 +827,14 @@ struct CheckFrits {
     without: Vec<String>,
 }
 
-/// Runs the console's `vtium check-config` on the draft's vtium.conf,
-/// `file`, both its parts in one run, against the installed configuration
-/// directory `configdir`, or on the installed vtium.conf where the draft
-/// holds none: what its exit status says of the draft, and what it wrote
-/// to standard error. The check counts the bundle's font sets `frits` as
-/// installed or removed, with one `--with-frit` or `--without-frit` each,
-/// so a look that names a font set the bundle adds passes. When the check
-/// fails, [`summarize`] says that as root may say it.
+/// Runs the console's `vtium check-config` on the vtium.conf `file`, both
+/// its parts in one run, against the installed configuration directory
+/// `configdir`, or on the built-in configuration when there is no `file`:
+/// what its exit status says of the draft, and what it wrote to standard
+/// error. The check counts the bundle's font sets `frits` as installed or
+/// removed, with one `--with-frit` or `--without-frit` each, so a look
+/// that names a font set the bundle adds passes. When the check fails,
+/// [`summarize`] says that as root may say it.
 ///
 /// References:
 /// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets, so its verdict is the draft's.
@@ -1164,56 +1166,21 @@ fn apply(
             return Err(FRITS_MOVE_FIRST.to_owned());
         }
     }
-    // step 3: the console's own check, on a copy root made, so what is
-    // checked is what is written
-    if let Some(c) = &conf {
-        let scratch = Scratch::system()?;
-        let file = scratch.write("vtium.conf", c.bytes.as_deref().unwrap_or_default())?;
-        let copies = [
-            (file.clone(), "vtium.conf"),
-            (
-                targets.configdir.join("vtium.conf"),
-                "the installed vtium.conf",
-            ),
-        ];
-        let (held, check_frits) = frit_copies(runtime, &frits, &removals)?;
-        let checked = check_config(
-            &targets.vtium,
-            &targets.configdir,
-            &check_frits,
-            Some(&file),
-        );
-        drop(held);
-        drop(scratch);
-        match checked {
-            Ok((Verdict::Passed, _)) => {}
-            // check-config's own status for a draft whose only problems
-            // are missing fonts: the warnings are shown, and the draft
-            // installs
-            Ok((Verdict::MissingFonts, said)) => {
-                for line in said.lines() {
-                    let _ = writeln!(out, "{line}");
-                }
-            }
-            // the one problem the person may accept, and only that one
-            // (ADR-1403 D8)
-            Ok((Verdict::Failed, said))
-                if accept_no_route
-                    && crate::drafts::only_no_route(
-                        &said.lines().collect::<Vec<_>>(),
-                        &file.to_string_lossy(),
-                    ) =>
-            {
-                let _ = writeln!(out, "{ACCEPTED_NO_ROUTE}");
-            }
-            Ok((Verdict::Failed, said)) | Err(said) => {
-                return Err(format!(
-                    "vtium check-config refused the draft:\n{}\nTo see the full report, run vtium check-config --configdir {} as yourself.",
-                    summarize(&said, &copies),
-                    dir.display()
-                ));
-            }
-        }
+    // step 3: the console's own check, on copies root made, so what is
+    // checked is what is written. A bundle that changes font sets but
+    // holds no vtium.conf is checked too, with the installed vtium.conf,
+    // since a font set it adds, replaces or removes can change the verdict
+    if conf.is_some() || !(frits.is_empty() && removals.is_empty()) {
+        console_check(
+            dir,
+            targets,
+            runtime,
+            &frits,
+            &removals,
+            conf.as_ref(),
+            accept_no_route,
+            out,
+        )?;
     }
     // a frit vtium.conf names after the save is never removed
     let conf_text = match &conf {
@@ -1272,6 +1239,168 @@ fn apply(
         }
     }
     Ok(!failed)
+}
+
+/// Step 3's run of the console's own `vtium check-config`, as root.
+/// The check reads the bundle's vtium.conf, `conf`, from a copy root
+/// made. When the bundle holds none, because the draft's vtium.conf is the
+/// installed one, the check reads a copy root makes of the installed
+/// vtium.conf, as the check of the draft read a copy of that same text. So
+/// the verdict is the draft's. It counts
+/// the bundle's font sets `frits` as installed and `removals` as removed,
+/// each frit read from a copy in a private folder ([`frit_copies`]). So
+/// the verdict before writing is the verdict at the next start. `Ok` lets
+/// the install go on: the check passed, or found only missing fonts, whose
+/// warnings go to `out`, or found only the missing complete route that the
+/// person accepted (`accept_no_route`). `Err` is the refusal, which ends
+/// with the command that gives the same verdict when the person runs it
+/// on the bundle in `dir`.
+///
+/// References:
+/// - ADR-1403 D3: the console's own check judges vtium.conf before `apply` writes it.
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets, so its verdict is the draft's; the one problem the person may accept.
+#[allow(clippy::too_many_arguments)]
+fn console_check(
+    dir: &Path,
+    targets: &Targets,
+    runtime: &Result<PathBuf, String>,
+    frits: &[Staged],
+    removals: &[PathBuf],
+    conf: Option<&Staged>,
+    accept_no_route: bool,
+    out: &mut dyn Write,
+) -> Result<(), String> {
+    let installed = targets.configdir.join("vtium.conf");
+    // the text the check reads as vtium.conf, and the file the person names
+    // to get the same verdict. With no vtium.conf installed, the check reads
+    // the built-in configuration, as the console does at its next start
+    let (text, theirs) = match conf {
+        Some(c) => (
+            Some(c.bytes.clone().unwrap_or_default()),
+            Some(dir.join("vtium.conf")),
+        ),
+        None => match installed_conf(&installed)? {
+            Some(text) => (Some(text), Some(installed.clone())),
+            None => (None, None),
+        },
+    };
+    let scratch = text.as_ref().map(|_| Scratch::system()).transpose()?;
+    let file = match (&scratch, &text) {
+        (Some(scratch), Some(text)) => Some(scratch.write("vtium.conf", text)?),
+        _ => None,
+    };
+    let shown = if conf.is_some() {
+        "vtium.conf"
+    } else {
+        "the installed vtium.conf"
+    };
+    let mut copies = vec![(installed.clone(), "the installed vtium.conf")];
+    if let Some(copy) = &file {
+        copies.insert(0, (copy.clone(), shown));
+    }
+    let (held, check_frits) = frit_copies(runtime, frits, removals)?;
+    let checked = check_config(
+        &targets.vtium,
+        &targets.configdir,
+        &check_frits,
+        file.as_deref(),
+    );
+    drop(held);
+    drop(scratch);
+    let checked_path = file.as_ref().unwrap_or(&installed);
+    match checked {
+        Ok((Verdict::Passed, _)) => Ok(()),
+        // check-config's own status for a draft whose only problems are
+        // missing fonts: the warnings are shown, and the draft installs
+        Ok((Verdict::MissingFonts, said)) => {
+            for line in said.lines() {
+                let _ = writeln!(out, "{line}");
+            }
+            Ok(())
+        }
+        // the one problem the person may accept, and only that one
+        Ok((Verdict::Failed, said))
+            if accept_no_route
+                && crate::drafts::only_no_route(
+                    &said.lines().collect::<Vec<_>>(),
+                    &checked_path.to_string_lossy(),
+                ) =>
+        {
+            let _ = writeln!(out, "{ACCEPTED_NO_ROUTE}");
+            Ok(())
+        }
+        Ok((Verdict::Failed, said)) | Err(said) => Err(format!(
+            "vtium check-config refused the draft:\n{}\nTo see the full report, run {} as yourself.",
+            summarize(&said, &copies),
+            same_check(dir, targets, frits, removals, theirs.as_deref())
+        )),
+    }
+}
+
+/// The installed vtium.conf at `path`, read for step 3's check of a bundle
+/// that holds no vtium.conf of its own; `None` when there is none. A file
+/// larger than vtium-config reads is refused, since no draft could have
+/// been made from it.
+fn installed_conf(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut text = Vec::new();
+    file.take(CONF_MAX.saturating_add(1))
+        .read_to_end(&mut text)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    if u64::try_from(text.len()).unwrap_or(u64::MAX) > CONF_MAX {
+        return Err(format!(
+            "{} is larger than {CONF_MAX} bytes, so the install cannot check it.",
+            path.display()
+        ));
+    }
+    Ok(Some(text))
+}
+
+/// The `vtium check-config` command that a person runs as themselves to
+/// get the verdict of [`console_check`] on the bundle in `dir`. The command
+/// passes the same options, with the bundle's own files in place of the
+/// copies root made of them: `--with-frit DIR/fonts/NAME.vtfrit` for each
+/// frit the bundle writes, `--without-frit NAME` for each frit it removes,
+/// and `file`, the vtium.conf to check: `DIR/vtium.conf` when the bundle
+/// holds one, else the installed one. Each word is quoted for a shell
+/// where it needs it.
+fn same_check(
+    dir: &Path,
+    targets: &Targets,
+    frits: &[Staged],
+    removals: &[PathBuf],
+    file: Option<&Path>,
+) -> String {
+    let path = |p: &Path| crate::tui::edit::shell(&p.to_string_lossy());
+    let name = |p: &Path, of: fn(&Path) -> Option<&std::ffi::OsStr>| {
+        of(p)
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    let mut words = vec![
+        "vtium".to_owned(),
+        "check-config".to_owned(),
+        "--configdir".to_owned(),
+        path(&targets.configdir),
+    ];
+    for frit in frits {
+        words.push("--with-frit".to_owned());
+        words.push(path(
+            &dir.join("fonts").join(name(&frit.target, Path::file_name)),
+        ));
+    }
+    for removal in removals {
+        words.push("--without-frit".to_owned());
+        words.push(crate::tui::edit::shell(&name(removal, Path::file_stem)));
+    }
+    if let Some(file) = file {
+        words.push(path(file));
+    }
+    words.join(" ")
 }
 
 /// Where apply makes the private folder for the check's copies of the

@@ -271,7 +271,7 @@ pub const CARD_CONSOLE_SIZE_TRY: &str = "The console draws this at its current s
 
 /// The caption of the console's own preview under a look card's size list,
 /// where the console does not let programs resize its grid.
-pub const CARD_CONSOLE_SIZE_FIXED: &str = "The console draws this at its current size. A size takes effect when vtium starts again, because the console does not let programs resize its grid. Press w in the list of looks to let them.";
+pub const CARD_CONSOLE_SIZE_FIXED: &str = "The console draws this at its current size. A size takes effect when vtium starts again, because the console does not let programs resize its grid. Press w in the Looks tab to let programs resize the grid.";
 
 /// The sentence under a card while its name is typed.
 pub const CARD_TYPING_HINT: &str =
@@ -445,12 +445,12 @@ pub const WINDOW_OPS_ON: &str = "The draft already lets programs resize the grid
 /// The notice on a look card's size line, in a vtium console that does
 /// not let programs resize its grid, where the live trial is on, so the
 /// preview is the console's own text at its current size.
-pub const WINDOW_OPS_NOTICE_NEXT_START: &str = "The console does not let programs resize its grid, so a size takes effect when vtium starts again. Press w in the list of looks to let them.";
+pub const WINDOW_OPS_NOTICE_NEXT_START: &str = "The console does not let programs resize its grid, so a size takes effect when vtium starts again. Press w in the Looks tab to let programs resize the grid.";
 
 /// The notice on a look card's size line, in a vtium console that does
 /// not let programs resize its grid, where the live trial is off, so the
 /// preview is a picture or a description of the size.
-pub const WINDOW_OPS_NOTICE: &str = "The console does not let programs resize its grid, so a size shows only in the preview. Press w in the list of looks to let them.";
+pub const WINDOW_OPS_NOTICE: &str = "The console does not let programs resize its grid, so a size shows only in the preview. Press w in the Looks tab to let programs resize the grid.";
 
 /// The heading of the Looks tab's group of pointer themes.
 pub const POINTERS_GROUP: &str = "Pointer themes";

@@ -28,6 +28,9 @@ const DEJAVU: &str = concat!(
 const RIGHT: char = '\u{e0b0}';
 /// U+E0B2, the left-pointing solid triangle: its flat side is on the right.
 const LEFT: char = '\u{e0b2}';
+/// U+E0D7, the last of the separators, which Symbols Nerd Font Mono draws
+/// as a left-pointing triangle; these tests draw it as U+E0B2.
+const LAST: char = '\u{e0d7}';
 /// U+F015, an icon.
 const HOUSE: char = '\u{f015}';
 
@@ -50,7 +53,10 @@ fn symbols() -> Vec<u8> {
         glyph(vec![vec![(1086, -394), (0, 640), (1086, 1674)]]),
         glyph(vec![vec![(200, 200), (200, 1000), (824, 1000), (824, 200)]]),
     ];
-    monoid_shaped(glyphs, vec![(0xe0b0, 1), (0xe0b2, 2), (0xf015, 3)])
+    monoid_shaped(
+        glyphs,
+        vec![(0xe0b0, 1), (0xe0b2, 2), (0xe0d7, 2), (0xf015, 3)],
+    )
 }
 
 /// A symbol font with `glyphs`, mapped by `cmap`, laid out as Monoid Nerd
@@ -194,7 +200,10 @@ fn symbols_nerd_shaped() -> Shape {
             (1198, 300),
         ]]),
     ];
-    let font = symbols_nerd_font(glyphs, vec![(0xe0b0, 1), (0xe0b2, 2), (0xf015, 3)]);
+    let font = symbols_nerd_font(
+        glyphs,
+        vec![(0xe0b0, 1), (0xe0b2, 2), (0xe0d7, 2), (0xf015, 3)],
+    );
     Shape { font, corner: 77 }
 }
 
@@ -237,7 +246,8 @@ fn column(glyph: &Glyph, x: u32) -> Vec<u8> {
 }
 
 /// Checks that each separator's flat side reaches its cell edge on `rows`,
-/// at every text height and every size, that the ink its font draws past
+/// at every text height and every size, U+E0D7 at the top of the
+/// separators' range among them, that the ink its font draws past
 /// that edge lies in its ink box, that its point reaches the opposite
 /// edge, and that the house touches neither side of its cell.
 /// `corner` is the shape's [`Shape::corner`].
@@ -264,7 +274,7 @@ fn separators_meet_their_segments(
                 Size::Doubled(Doubled::Height) => 2,
                 _ => 1,
             };
-            for (c, side) in [(RIGHT, "left"), (LEFT, "right")] {
+            for (c, side) in [(RIGHT, "left"), (LEFT, "right"), (LAST, "right")] {
                 let g = drawn(engine, height, band, size, c);
                 let (edge, inner, tip) = match side {
                     "left" => (0, 1, g.width() - 1),
@@ -537,6 +547,48 @@ fn a_symbols_nerd_shaped_divider_keeps_its_place_in_the_middle_of_its_cell() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
+/// U+E0B4, the solid half circle whose flat side is on the left.
+const HALF_CIRCLE: char = '\u{e0b4}';
+
+// In a font shaped like Symbols Nerd Font Mono, the solid half circle runs
+// from the patcher's overlap past the pen to about 1100 units, while the
+// font designs its separators in a box 1325 units wide, the width of its
+// U+E0B0 from the pen. The flat side reaches the pen, so it meets the
+// cell's left edge. The round side stops 225 units short of the box's
+// right side, so the half circle keeps the font's own spacing there: its
+// ink ends at 1100/1325 of the cell's width. A tolerance for a side that
+// the ink almost reaches that took in the 225 units would stretch the half
+// circle to the cell's right edge, and this test would fail.
+#[test]
+fn a_symbols_nerd_shaped_half_circle_keeps_its_spacing_on_its_round_side() {
+    let triangle = ttf::Glyph {
+        advance: 2048,
+        contours: vec![vec![(-123, -421), (-123, 1649), (1325, 614)]],
+    };
+    // the half circle's outline, clockwise from its top, round from the
+    // top through 1100 units on the middle row to its bottom
+    let arc: Vec<(i16, i16)> = std::iter::once((-123, -421))
+        .chain((0..=32).map(|i| {
+            let angle = std::f32::consts::PI * (0.5 - i as f32 / 32.0);
+            (
+                (-123.0 + 1223.0 * angle.cos()).round() as i16,
+                (614.0 + 1035.0 * angle.sin()).round() as i16,
+            )
+        }))
+        .collect();
+    let half_circle = ttf::Glyph {
+        advance: 2048,
+        contours: vec![arc],
+    };
+    let font = symbols_nerd_font(
+        vec![ttf::Glyph::empty(2048), triangle, half_circle],
+        vec![(0xe0b0, 1), (0xe0b4, 2)],
+    );
+    let engine = engine_with("symbols-nerd-half-circle", &font, "");
+    let wrong = keeps_its_place(&engine, 0, HALF_CIRCLE, (0.0, 1100.0 / 1325.0));
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
 // One glyph that a font maps from an icon before the separators' range,
 // U+E0A0, from a separator, U+E0B0, and from an icon after the range,
 // U+F015, is placed for each character as it is placed when that character
@@ -576,6 +628,67 @@ fn a_glyph_shared_by_a_separator_and_icons_is_placed_for_each() {
             let separator = drawn(&engine, height, Band::NONE, size, RIGHT);
             let icon = drawn(&engine, height, Band::NONE, size, HOUSE);
             assert_ne!(separator, icon, "height {height} {size:?}");
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+// One glyph wider than a cell that a font maps from characters `place`
+// places in different ways is placed for each character as it is placed
+// when that character is drawn alone. The wider glyph is mapped from a
+// Devanagari letter and a Mongolian letter, which are squeezed to their
+// cell, an ideograph, given two cells, an icon in the Private Use Area,
+// drawn smaller to fit its cell, and an Adlam letter. The narrower glyph
+// is mapped from a Mongolian letter, which joins left to right and keeps
+// its pen on the cell's left edge, an icon, centered in its cell, and an
+// Adlam letter, which joins right to left and ends on the cell's right
+// edge. DejaVu Sans Mono has none of them, so the second source, which
+// covers every character it maps, draws each one.
+#[test]
+fn a_glyph_shared_by_characters_placed_differently_is_placed_for_each() {
+    let wide = ttf::Glyph {
+        advance: 1536,
+        contours: vec![vec![(0, 0), (0, 1200), (1536, 1200), (1536, 0)]],
+    };
+    let narrow = ttf::Glyph {
+        advance: 384,
+        contours: vec![vec![(0, 0), (0, 1200), (384, 1200), (384, 0)]],
+    };
+    // sorted, as a request lists its characters
+    let wider = ['\u{915}', '\u{1820}', '\u{4e00}', '\u{f016}', '\u{1e900}'];
+    let narrower = ['\u{1821}', '\u{f017}', '\u{1e901}'];
+    let mut all: Vec<char> = wider.iter().chain(&narrower).copied().collect();
+    all.sort_unstable();
+    let font = monoid_shaped(
+        vec![ttf::Glyph::empty(1024), wide, narrow],
+        wider
+            .iter()
+            .map(|&c| (u32::from(c), 1))
+            .chain(narrower.iter().map(|&c| (u32::from(c), 2)))
+            .collect(),
+    );
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("vtium-separators-shared-kinds");
+    std::fs::create_dir_all(&dir).expect("the test's directory");
+    let path = dir.join("SharedTest.ttf");
+    std::fs::write(&path, font).expect("the font");
+    let frit = FritText {
+        name: "shared-kinds".to_owned(),
+        text: format!(
+            "source=outline:{DEJAVU}\nsource=outline:{}\n",
+            path.display()
+        ),
+    };
+    let engine = Engine::load(&frit, &Paths::default(), None).expect("the frit loads");
+    let mut wrong = Vec::new();
+    for height in [16, 24] {
+        for &c in &all {
+            let alone = drawn(&engine, height, Band::NONE, Size::Normal, c);
+            let together = drawn_among(&engine, height, Band::NONE, Size::Normal, &all, c);
+            if alone != together {
+                wrong.push(format!(
+                    "height {height}: {c:?} drawn with the others differs from {c:?} drawn alone"
+                ));
+            }
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));

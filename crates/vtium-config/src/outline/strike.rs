@@ -443,9 +443,11 @@ fn cbdt_png<'a>(
     }
     location.data_offset = base.checked_add(from)?;
     location.data_size = to - from;
-    // read-fonts adds the two unchecked, so the end is checked here
-    let end = location.data_offset.checked_add(location.data_size)?;
-    if end > cbdt.offset_data().len() {
+    if !inside(
+        location.data_offset,
+        location.data_size,
+        cbdt.offset_data().len(),
+    ) {
         return None;
     }
     let image = cbdt.data(&location).ok()?;
@@ -526,6 +528,17 @@ fn decode(png: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     (rgba.len() == pixels.checked_mul(4)?).then_some((width, height, rgba))
 }
 
+/// Whether a glyph's image, `size` bytes from `offset`, lies inside the
+/// CBDT table's data of `len` bytes. read-fonts adds the offset and the
+/// size without a check before it slices the table. With a 32-bit `usize`,
+/// as on armv7, the offsets of a damaged font can make that sum overflow,
+/// which panics in a debug build. So the reader hands read-fonts only an
+/// image that this function accepts, whose end it computed with a checked
+/// add.
+fn inside(offset: usize, size: usize, len: usize) -> bool {
+    offset.checked_add(size).is_some_and(|end| end <= len)
+}
+
 /// The width and height `png`'s header gives, read from the bytes without
 /// the png crate.
 fn png_size(png: &[u8]) -> Option<(u32, u32)> {
@@ -580,6 +593,22 @@ mod tests {
     //! vtium-config reads. Each font holds only the tables a lookup reads.
 
     use super::*;
+
+    /// The end check before read-fonts' unchecked add, with the values
+    /// near `usize::MAX` that only a 32-bit `usize` reaches from a font's
+    /// 32-bit offsets: a sum that overflows is refused, as is an end past
+    /// the table, and an image that ends at the table's end is read.
+    #[test]
+    fn an_image_whose_end_overflows_or_passes_the_table_is_refused() {
+        let max = usize::MAX;
+        assert!(!inside(max - 1, 2, max), "the sum overflows");
+        assert!(!inside(max, 1, max), "the sum overflows");
+        assert!(inside(max - 2, 2, max), "the end is the table's end");
+        assert!(!inside(max - 2, 2, max - 1), "the end passes the table");
+        assert!(inside(0, 0, 0));
+        assert!(inside(2, 2, 4));
+        assert!(!inside(3, 2, 4));
+    }
 
     fn p16(v: &mut Vec<u8>, x: u16) {
         v.extend(x.to_be_bytes());
