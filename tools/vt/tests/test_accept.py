@@ -1176,6 +1176,167 @@ class Pages(Case):
         ])
 
 
+# A stand-in for the review run's vtium-config. It records its arguments,
+# the home and XDG folders it was given, the vtium.conf and font sets it
+# was handed, and the mode of the page's folder, in LOOKS_LOG. Like the real
+# vtium-config, it refuses a font set folder that other users can write to.
+# With LOOKS_WAIT set it stays open, as the TUI does, until a signal ends it.
+LOOKS_STANDIN = r"""#!/bin/bash
+[ "$1 $3 $5 $7" = "--configdir --frits --vtium tui" ] || { echo "unexpected arguments: $*" >&2; exit 2; }
+printf '%s\n' "$@" >"$LOOKS_LOG/argv"
+printf '%s\n' "HOME=$HOME" "XDG_CONFIG_HOME=$XDG_CONFIG_HOME" "XDG_DATA_HOME=$XDG_DATA_HOME" \
+	"XDG_STATE_HOME=$XDG_STATE_HOME" "XDG_CACHE_HOME=$XDG_CACHE_HOME" >"$LOOKS_LOG/env"
+cp "$2/vtium.conf" "$LOOKS_LOG/vtium.conf"
+ls -A "$4" >"$LOOKS_LOG/frits"
+for d in "$4" "${2%/etc}"; do
+	case $(stat -c %A -- "$d") in
+	????????w?) echo "the font set folder $d is writable by other users" >&2; exit 2 ;;
+	esac
+done
+stat -c %a -- "${2%/etc}" >"$LOOKS_LOG/mode"
+if [ -n "${LOOKS_WAIT:-}" ]; then
+	echo "the TUI is open"
+	exec sleep 60
+fi
+exit 3
+"""
+
+LOOKS_PAGES = ["64-look-pointer.sh", "74-looks-sizes.sh", "76-looks-font-set.sh"]
+
+
+class Looks(Case):
+    """The Looks pages (common.inc's looks_tui), run on a stand-in stage: the
+    vtium.conf they write, what they give vtium-config, where their folder
+    goes, and that the folder is gone when the page ends, however it ends."""
+
+    def setUp(self):
+        super().setUp()
+        self.stage = os.path.join(self.tmp, "stage")
+        os.makedirs(os.path.join(self.stage, "config"))
+        os.makedirs(os.path.join(self.stage, "frits"))
+        write(os.path.join(self.stage, "config", "vtium.conf"), "version = 1\n")
+        write(os.path.join(self.stage, "frits", "acceptance-outline.frit"), "outline\n")
+        write(os.path.join(self.stage, "frits", "acceptance-bitmap.frit"), "bitmap\n")
+        write(os.path.join(self.stage, "vtium"), "#!/bin/sh\nexit 0\n", 0o755)
+        write(os.path.join(self.stage, "vtium-config"), LOOKS_STANDIN, 0o755)
+        self.log = os.path.join(self.tmp, "log")
+        self.home = os.path.join(self.tmp, "home")
+        self.run_dir = os.path.join(self.tmp, "run")
+        # mktemp's own default, which the page must not use
+        self.tmpdir = os.path.join(self.tmp, "tmpdir")
+        for d in (self.log, self.home, self.run_dir, self.tmpdir):
+            os.mkdir(d, 0o700)
+
+    def looks(self, page, hangup=False, runtime=True):
+        """Runs PAGE on a pseudo-terminal, presses a key at its prompt, and
+        returns its exit status and everything it printed. With HANGUP, it
+        hangs up the page's terminal while the stand-in TUI is open: every
+        process of the page gets SIGHUP, as when vtium stops."""
+        env = {"PATH": os.environ["PATH"], "TERM": "linux", "ACCEPT_TOP": "3", "HOME": self.home,
+               "TMPDIR": self.tmpdir, "LOOKS_LOG": self.log,
+               "ACCEPT_VTIUM_CONF": os.path.join(self.stage, "config", "vtium.conf")}
+        if runtime:
+            env["XDG_RUNTIME_DIR"] = self.run_dir
+        if hangup:
+            env["LOOKS_WAIT"] = "1"
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execve("/bin/bash", ["/bin/bash", os.path.join(SECTIONS, page)], env)
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 25, 80, 0, 0))
+        seen, pressed, hung = b"", False, False
+        end = time.monotonic() + WAIT_BOUND
+        try:
+            while time.monotonic() < end:
+                if not select.select([fd], [], [], 0.1)[0]:
+                    continue
+                try:
+                    data = os.read(fd, 65536)
+                except OSError:
+                    data = b""
+                if not data:
+                    break
+                seen += data
+                if not pressed and b"Press a key to open vtium-config" in seen:
+                    os.write(fd, b"x")
+                    pressed = True
+                if hangup and not hung and b"the TUI is open" in seen:
+                    os.killpg(pid, signal.SIGHUP)
+                    hung = True
+            _, status = os.waitpid(pid, 0)
+        except BaseException:
+            os.killpg(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+            raise
+        finally:
+            os.close(fd)
+        self.assertTrue(pressed, seen[-500:])
+        self.assertEqual(hung, hangup, seen[-500:])
+        return os.waitstatus_to_exitcode(status), seen.decode(errors="replace")
+
+    def folder(self):
+        """The page's folder, from the --configdir the stand-in was given."""
+        argv = read(os.path.join(self.log, "argv")).splitlines()
+        return os.path.dirname(argv[1])
+
+    def test_a_looks_page_runs_vtium_config_on_a_vtium_conf_of_its_own_then_removes_it(self):
+        status, seen = self.looks("74-looks-sizes.sh")
+        self.assertEqual(status, 0, seen[-500:])
+        self.assertIn("vtium-config ended with status 3.", seen)
+        dir = self.folder()
+        # in the runtime directory, never in /tmp, and only the user's
+        self.assertEqual(os.path.dirname(dir), self.run_dir)
+        self.assertRegex(os.path.basename(dir), r"^vtium-looks\.[A-Za-z0-9]{6}$")
+        self.assertEqual(read(os.path.join(self.log, "mode")), "700\n")
+        self.assertEqual(read(os.path.join(self.log, "argv")).splitlines(),
+                         ["--configdir", f"{dir}/etc", "--frits", f"{dir}/frits",
+                          "--vtium", os.path.join(self.stage, "vtium"), "tui"])
+        self.assertEqual(read(os.path.join(self.log, "env")).splitlines(),
+                         [f"HOME={dir}/home", f"XDG_CONFIG_HOME={dir}/home/.config",
+                          f"XDG_DATA_HOME={dir}/home/.local/share", f"XDG_STATE_HOME={dir}/home/.local/state",
+                          f"XDG_CACHE_HOME={dir}/home/.cache"])
+        self.assertEqual(read(os.path.join(self.log, "frits")).splitlines(),
+                         ["acceptance-bitmap.frit", "acceptance-outline.frit"])
+        self.assertEqual(read(os.path.join(self.log, "vtium.conf")), "\n".join([
+            "version = 1", f"font-frits = {dir}/frits", "[look big]", "font-name = acceptance-outline",
+            "font-size = 20", "[look small]", "font-name = acceptance-bitmap",
+            "pointer-theme = /usr/share/vtium/pointers.svg", "[head desk]", "look = big", "[rules]",
+            "display * -> desk", ""]))
+        self.assertFalse(os.path.exists(dir))
+        self.assertEqual(os.listdir(self.run_dir), [])
+        self.assertEqual(os.listdir(self.tmpdir), [])
+        # The stage's own vtium.conf is untouched.
+        self.assertEqual(read(os.path.join(self.stage, "config", "vtium.conf")), "version = 1\n")
+
+    def test_without_a_runtime_directory_the_folder_goes_in_the_home_folder(self):
+        status, seen = self.looks("74-looks-sizes.sh", runtime=False)
+        self.assertEqual(status, 0, seen[-500:])
+        self.assertIn("vtium-config ended with status 3.", seen)
+        self.assertEqual(os.path.dirname(self.folder()), self.home)
+        self.assertEqual(os.listdir(self.home), [])
+        self.assertEqual(os.listdir(self.tmpdir), [])
+
+    def test_a_hangup_while_the_tui_is_open_leaves_no_folder(self):
+        status, seen = self.looks("74-looks-sizes.sh", hangup=True)
+        self.assertEqual(status, 129, seen[-500:])
+        self.assertNotIn("vtium-config ended", seen)
+        self.assertEqual(os.path.dirname(self.folder()), self.run_dir)
+        self.assertEqual(os.listdir(self.run_dir), [])
+
+    def test_each_looks_page_prints_its_steps_and_runs_the_tui(self):
+        for page in LOOKS_PAGES:
+            with self.subTest(page=page):
+                status, seen = self.looks(page)
+                self.assertEqual(status, 0, seen[-500:])
+                self.assertIn("  1. Press 3 for the Looks tab", seen)
+                self.assertIn("vtium-config ended with status 3.", seen)
+                self.assertEqual(os.listdir(self.run_dir), [])
+
+    def test_every_page_that_runs_the_tui_is_listed(self):
+        found = sorted(f for f in os.listdir(SECTIONS)
+                       if f.endswith(".sh") and re.search(r"^looks_tui\b", read(os.path.join(SECTIONS, f)), re.M))
+        self.assertEqual(found, LOOKS_PAGES)
+
+
 def flat(text):
     """TEXT with each run of spaces and line breaks one space, as a page's
     folded lines read."""

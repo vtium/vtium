@@ -337,6 +337,20 @@ if [ -f "$locale_file" ]; then
 		[[ ! $line =~ $assignment ]] || locale+=("${BASH_REMATCH[1]}=${BASH_REMATCH[2]}")
 	done <"$locale_file"
 fi
+# The user's runtime directory and bus, which the desktop session already
+# gives the user: pipewire, systemctl --user and the user's agents. Only a
+# directory of the user's alone, never a symlink; /run/user is root's, so the
+# user cannot swap it afterwards. The shell gets both. The acceptance pass
+# gets the runtime directory alone, so that the Looks pages make their
+# private folder on that tmpfs and not in the user's home folder.
+runtime=()
+rundir=()
+rt=$run_user/$uid
+if [ -d "$rt" ] && [ ! -L "$rt" ] && [ "$(stat -c '%u %a' -- "$rt")" = "$uid 700" ]; then
+	runtime=(XDG_RUNTIME_DIR="$rt")
+	rundir=(XDG_RUNTIME_DIR="$rt")
+	[ ! -S "$rt/bus" ] || [ -L "$rt/bus" ] || runtime+=(DBUS_SESSION_BUS_ADDRESS="unix:path=$rt/bus")
+fi
 if [ -n "$shell" ]; then
 	# The shell reaches script(1) inside a command line, so its path takes no
 	# character a shell would read.
@@ -351,16 +365,6 @@ if [ -n "$shell" ]; then
 	# The shell would start nowhere, and the run would end as if it had exited.
 	[ -d "$home" ] && [ "$(stat -L -c %u -- "$home")" = "$uid" ] ||
 		die "$user's home directory $home is missing, not a directory, or not theirs"
-	# The user's runtime directory and bus, which the desktop session already
-	# gives the user: pipewire, systemctl --user and the user's agents. Only
-	# a directory of the user's alone, never a symlink; /run/user is root's,
-	# so the user cannot swap it afterwards.
-	runtime=()
-	rt=$run_user/$uid
-	if [ -d "$rt" ] && [ ! -L "$rt" ] && [ "$(stat -c '%u %a' -- "$rt")" = "$uid 700" ]; then
-		runtime=(XDG_RUNTIME_DIR="$rt")
-		[ ! -S "$rt/bus" ] || [ -L "$rt/bus" ] || runtime+=(DBUS_SESSION_BUS_ADDRESS="unix:path=$rt/bus")
-	fi
 	if [ -n "$transcript" ]; then
 		# Absolute, and not resolved: a symlink is refused below.
 		[[ $transcript == /* ]] || transcript=$PWD/$transcript
@@ -844,7 +848,7 @@ for o in "${extra[@]}"; do
 	--no-blink) accept+=(ACCEPT_BLINK=off) ;;
 	esac
 done
-session=(/usr/bin/env "${locale[@]}" "${terminfo[@]}" "${accept[@]}" /bin/bash "$here/accept.sh")
+session=(/usr/bin/env "${locale[@]}" "${rundir[@]}" "${terminfo[@]}" "${accept[@]}" /bin/bash "$here/accept.sh")
 if [ -n "$guide" ]; then
 	session=(/usr/bin/env "${locale[@]}" "${terminfo[@]}" GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
 		/bin/bash "$here/checks/guide.sh" "$guide")
