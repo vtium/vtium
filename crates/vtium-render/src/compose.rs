@@ -688,7 +688,9 @@ impl Scratch<'_> {
 }
 
 /// `line` tinted `c` over the premultiplied line `prem`, across the job's
-/// cells, at display line `y`. With `skip`, the job's glyph and its
+/// cells, at display line `y`. A dotted underline leaves out its gaps by
+/// each pixel's place along the grid's line ([`Sprites::leave_gaps`]), so
+/// its dots keep one period from cell to cell. With `skip`, the job's glyph and its
 /// scratch, a line that skips ink leaves out the pixels near the glyph's
 /// ink, which it looks for only where the line's sprite has a coverage
 /// above 0. Upright, or turned half round, [`near_ink`] finds them along
@@ -711,8 +713,10 @@ fn deco_over(
     let o = sprites.orientation();
     let mut skip = skip.filter(|_| line.skips_ink);
     let mut near_found = false;
-    for t in job.tiles.get(..job.ncells).unwrap_or_default() {
-        s.mask_line(job.r.x.saturating_sub(t.x), y.saturating_sub(t.y), cov);
+    for (col, t) in (job.posx..).zip(job.tiles.get(..job.ncells).unwrap_or_default()) {
+        let at = (job.r.x.saturating_sub(t.x), y.saturating_sub(t.y));
+        s.mask_line(at.0, at.1, cov);
+        sprites.leave_gaps((line, job.piece), col, at, cov);
         if let Some(Skip {
             glyph,
             ink,

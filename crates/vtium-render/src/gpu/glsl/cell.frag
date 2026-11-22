@@ -43,6 +43,13 @@
 // its place in the scaled cell divided by s, which repeats each sprite
 // pixel s times across and down, as the CPU path's deco.rs scaled does.
 //
+// A dotted underline's sprite holds the whole line. Bits 25 to 31 of
+// src.w hold d, the width in display pixels of each of its dots and of
+// each gap between them, or 0 for an underline that is not dotted. The
+// pixel x display pixels from the left edge of the grid's line falls in a
+// gap when x % 2d < d, so the dots keep one period from cell to cell, as
+// the CPU path's deco.rs in_gap decides.
+//
 // With INK, a job that RECEIVES ink from its neighbours' glyphs (ADR-1306
 // D4, D9) first reads the bit the ink grid holds for the display line
 // through the pixel, which the renderer sets when ink reaches that line
@@ -369,7 +376,7 @@ void main() {
         // the bottom, then over its background
         vec4 p = vec4(0.0);
         ivec2 pos = ivec2(local.x % cell.x, local.y);
-        uint run = src.w >> 16u;
+        uint run = (src.w >> 16u) & 0x1ffu;
         if (run != 0u) {
             int s = int(run & 7u);
             ivec2 at_run = ivec2(int((run >> 6u) & 7u), int((run >> 3u) & 7u));
@@ -377,6 +384,11 @@ void main() {
         }
         if (ul != 0u) {
             float u = sprite(ul, pos);
+            int dots = int(src.w >> 25u);
+            if (u != 0.0 && dots != 0
+                && (int(src.z & 0xffffu) * cell.x + local.x) % (2 * dots) < dots) {
+                u = 0.0;
+            }
             int gap = int(flags >> GAP);
             if (u != 0.0 && gap != 0
                 && (near_ink(kind, at, local.x, dst.z, gap) || beside(src.z >> 16u, local, dst.z))) {
