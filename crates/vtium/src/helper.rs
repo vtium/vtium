@@ -89,6 +89,7 @@
 //! The wire format is `vtium-config`'s serve mode's (`serve.rs`), whose
 //! constants this module repeats.
 
+use std::cell::RefCell;
 use std::collections::{BTreeSet, VecDeque};
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -96,6 +97,7 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as Process, ExitStatus, Stdio};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -1418,12 +1420,13 @@ fn chance(n: u32) -> String {
 }
 
 /// The reason vtium gives a font set up when the helper fails after its
-/// last chance: what happened, `why`, and that vtium has already started
-/// the helper again or looked for the failing font as many times as a
-/// boot allows.
+/// last chance: what happened to the helper, `why`, such as "was ended by
+/// signal 11", and that vtium has used every chance a boot gives it.
+/// Every caller passes `why` without a subject, so the reason reads the
+/// same whichever path gives the font set up.
 fn no_chance_left(why: &str) -> String {
     format!(
-        "{why}, and vtium has already restarted the font helper or looked for the font that makes it fail {RESTARTS_MAX} times this boot"
+        "the font helper {why} after vtium had used all {RESTARTS_MAX} chances that it gives the font helper each boot"
     )
 }
 
@@ -1461,6 +1464,34 @@ fn source_lines(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// What a frit's helpers have used up this boot: the chances, and the
+/// sources left out because they made a helper fail. The console keeps one
+/// record for each frit, by the frit's name, outside the frit's helper, so
+/// the record outlives the helper. A frit that no head draws any more is
+/// dropped with its helper, and a program can bring it back at once with
+/// two OSC 50 switches. The helper started then takes the same record, so
+/// it has no fresh chances, and it leaves out the same fonts. Each left-out
+/// source is kept by its spelling on its `source=` line, so the record
+/// still names the right fonts when the frit's file is read again with
+/// other lines.
+///
+/// References:
+/// - ADR-1200 D15, "Restarted after a failure", and its note of
+///   2026-11-21: three chances a boot, and a source left out stays left
+///   out for the rest of the boot.
+#[derive(Debug, Default)]
+pub struct Failures {
+    /// How many of the [`RESTARTS_MAX`] chances this boot has used: each
+    /// search begun, and each restart that looked for no source.
+    restarts: u32,
+    /// The spelling of each source that made the helper fail.
+    left_out: BTreeSet<String>,
+}
+
+/// A frit's [`Failures`], shared by the console's record of the frit and
+/// the frit's helper while it lives.
+pub type FailureRecord = Rc<RefCell<Failures>>;
+
 /// The helper as the console sees it.
 pub struct Helper {
     launcher: Launcher,
@@ -1490,15 +1521,12 @@ pub struct Helper {
     early: VecDeque<Event>,
     /// When the next answer is due, while work is outstanding.
     due: Option<Instant>,
-    /// How many of the [`RESTARTS_MAX`] chances this boot has used: each
-    /// search begun, and each restart that looked for no source.
-    restarts: u32,
+    /// The chances used and the sources left out this boot, which every
+    /// helper of the frit started from then on shares.
+    failures: FailureRecord,
     /// The spelling of each `source=` line of the frit's text, in order:
     /// the sources the helper reads, numbered as it numbers them.
     sources: Vec<String>,
-    /// The sources that made the helper fail, a bit for each, which every
-    /// helper started from then on leaves out, for the rest of the boot.
-    left_out: u32,
     /// The search for the source that made the helper fail, while it
     /// runs.
     search: Option<Search>,
@@ -1572,9 +1600,8 @@ impl Helper {
             kept: Vec::new(),
             early: VecDeque::new(),
             due: None,
-            restarts: 0,
+            failures: FailureRecord::default(),
             sources,
-            left_out: 0,
             search: None,
             deferred: Vec::new(),
             suspect: None,
@@ -1591,6 +1618,45 @@ impl Helper {
             answer: Duration::from_millis(ANSWER_MS),
             request: Duration::from_millis(REQUEST_MS),
         }
+    }
+
+    /// Makes the helper count its chances in `record` and leave out the
+    /// sources `record` names, the record of what the frit's earlier
+    /// helpers used up this boot. The console calls this as it starts a
+    /// frit's helper, before the helper's first start.
+    #[must_use]
+    pub fn remembering(mut self, record: FailureRecord) -> Helper {
+        self.failures = record;
+        self
+    }
+
+    /// How many of the [`RESTARTS_MAX`] chances this boot has used, for a
+    /// test.
+    #[cfg(test)]
+    fn restarts(&self) -> u32 {
+        self.failures.borrow().restarts
+    }
+
+    /// Uses one of the [`RESTARTS_MAX`] chances, and returns how many are
+    /// used now, or `None` when none was left.
+    fn use_chance(&mut self) -> Option<u32> {
+        let mut failures = self.failures.borrow_mut();
+        if failures.restarts >= RESTARTS_MAX {
+            return None;
+        }
+        failures.restarts = failures.restarts.saturating_add(1);
+        Some(failures.restarts)
+    }
+
+    /// The sources that made a helper fail, a bit for each by its place
+    /// in the frit, which every helper started from then on leaves out.
+    fn left_out(&self) -> u32 {
+        let failures = self.failures.borrow();
+        self.sources
+            .iter()
+            .enumerate()
+            .filter(|(_, source)| failures.left_out.contains(source.as_str()))
+            .fold(0, |mask, (i, _)| mask | bit(i))
     }
 
     /// Tells the helper the active fonts of `launcher`, the console's
@@ -2173,6 +2239,22 @@ impl Helper {
         self.blamed = true;
     }
 
+    /// Uses a chance and leaves out the source at `i`, as a search that
+    /// finds the source that crashed the helper does, for a test of the
+    /// console that has no failing helper to drive.
+    #[cfg(test)]
+    pub(crate) fn crashed_on(&mut self, i: usize, now: Instant) {
+        assert!(self.use_chance().is_some(), "a chance is left");
+        self.blame(i, "was ended by signal 11", now);
+    }
+
+    /// How many chances this boot has used, and the bits of the sources
+    /// left out, for a test of the console.
+    #[cfg(test)]
+    pub(crate) fn used(&self) -> (u32, u32) {
+        (self.restarts(), self.left_out())
+    }
+
     /// The heights of the cell queries the running helper has been asked
     /// and has not answered, whose answers come late, for a test.
     #[cfg(test)]
@@ -2533,14 +2615,13 @@ impl Helper {
             return self.blame(suspect.source, why, now);
         }
         let Some(search) = self.search.take() else {
-            if self.restarts >= RESTARTS_MAX {
+            let Some(used) = self.use_chance() else {
                 return self.fail(&no_chance_left(why));
-            }
-            self.restarts = self.restarts.saturating_add(1);
+            };
             log::warn!(
                 "the font helper {why}; vtium starts it again with the fonts of the font set {} added one at a time, to find the font that makes it fail ({})",
                 escaped(&self.frit.name),
-                chance(self.restarts)
+                chance(used)
             );
             self.search = Some(Search {
                 why: why.to_owned(),
@@ -2565,7 +2646,9 @@ impl Helper {
     /// without it, its work sent again. A font set left with no source
     /// falls back to the built-in font.
     fn blame(&mut self, i: usize, why: &str, now: Instant) {
-        self.left_out |= bit(i);
+        if let Some(source) = self.sources.get(i) {
+            self.failures.borrow_mut().left_out.insert(source.clone());
+        }
         self.blamed = true;
         log::warn!(
             "the font set {} leaves out source={} until vtium starts again, because the font helper {why} when vtium added that font; the font set's other fonts go on drawing",
@@ -2582,13 +2665,12 @@ impl Helper {
     /// frit has no source, its asks sent again, or gives it up past
     /// [`RESTARTS_MAX`].
     fn start_again(&mut self, why: &str, now: Instant) {
-        if self.restarts >= RESTARTS_MAX {
+        let Some(used) = self.use_chance() else {
             return self.fail(&no_chance_left(why));
-        }
-        self.restarts = self.restarts.saturating_add(1);
+        };
         log::warn!(
             "the font helper {why}; vtium starts it again ({})",
-            chance(self.restarts)
+            chance(used)
         );
         self.resend(now, false);
     }
@@ -2742,8 +2824,9 @@ impl Helper {
 
     /// The sources not left out, by their place in the frit.
     fn in_use(&self) -> Vec<usize> {
+        let left_out = self.left_out();
         (0..self.sources.len())
-            .filter(|&i| self.left_out & bit(i) == 0)
+            .filter(|&i| left_out & bit(i) == 0)
             .collect()
     }
 
@@ -2754,7 +2837,7 @@ impl Helper {
         self.in_use()
             .into_iter()
             .skip(past)
-            .fold(self.left_out, |mask, i| mask | bit(i))
+            .fold(self.left_out(), |mask, i| mask | bit(i))
     }
 
     /// Takes `event` from a helper of the search, and returns whether
@@ -3315,13 +3398,12 @@ impl Helper {
         }
         self.due = None;
         if !clean {
-            if self.restarts >= RESTARTS_MAX {
-                return self.fail(&no_chance_left(&format!("the font helper {why}")));
-            }
-            self.restarts = self.restarts.saturating_add(1);
+            let Some(used) = self.use_chance() else {
+                return self.fail(&no_chance_left(&why));
+            };
             log::warn!(
                 "the font helper {why}; vtium restarts it when it next needs it ({})",
-                chance(self.restarts)
+                chance(used)
             );
         }
     }
@@ -3585,6 +3667,24 @@ mod tests {
                     break;
                 }
             }
+        }
+
+        /// Drops the helper and makes a new one for the same frit, as the
+        /// console does when no head draws the frit and then one draws it
+        /// again. The new helper takes the record of what the dropped
+        /// one used up, as the console's [`Failures`] record gives it.
+        fn again(&mut self) {
+            let record = Rc::clone(&self.helper.failures);
+            let fresh = Helper::new(
+                self.helper.launcher.clone(),
+                Arc::clone(&self.helper.wake),
+                t0(),
+                self.helper.frit.clone(),
+                None,
+                Shared::default(),
+                self.helper.limit,
+            );
+            self.helper = fresh.remembering(record);
         }
 
         /// Polls until the helper's process is gone.
@@ -4904,7 +5004,7 @@ mod tests {
         assert_eq!(s.run(now).len(), 1);
         s.until_gone(now);
         assert_eq!(s.helper.failed(), None);
-        assert_eq!(s.helper.restarts, 0);
+        assert_eq!(s.helper.restarts(), 0);
         // the cell asked for again, as after its glyphs were dropped; with
         // no helper running, the drop starts none
         s.helper.retain(&[], now);
@@ -4930,7 +5030,7 @@ mod tests {
         assert_eq!(s.run(now).len(), 1);
         s.until_gone(now);
         assert_eq!(s.helper.failed(), None);
-        assert_eq!(s.helper.restarts, 0);
+        assert_eq!(s.helper.restarts(), 0);
     }
 
     fn given_up(name: &str, script: &str, fixture: &[u8], fill: bool) -> (String, u32) {
@@ -4946,7 +5046,7 @@ mod tests {
         // given up: nothing more is asked
         s.helper.ask(CELL, Band::NONE, &shown(&['Z']), now);
         assert!(!s.helper.busy());
-        (why, s.helper.restarts)
+        (why, s.helper.restarts())
     }
 
     #[test]
@@ -5377,8 +5477,8 @@ cat \"$1\"; exec cat >/dev/null"
             let why = s.helper.failed().unwrap();
             assert!(why.contains(said), "{why}");
             assert!(why.ends_with("before it read any font"), "{why}");
-            assert_eq!(s.helper.restarts, 1, "the search used one chance");
-            assert_eq!(s.helper.left_out, 0, "no source was blamed");
+            assert_eq!(s.helper.restarts(), 1, "the search used one chance");
+            assert_eq!(s.helper.left_out(), 0, "no source was blamed");
             // given up: nothing more is asked
             s.helper.ask(CELL, Band::NONE, &shown(&['Z']), now);
             assert!(!s.helper.busy());
@@ -5447,7 +5547,7 @@ cat \"$1\"; exec cat >/dev/null"
         let answers = drive(&mut s, &mut now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(masks(&s), [0, 0b111, 0b110, 0b100, 0b010]);
-        assert_eq!(s.helper.left_out, 0b010);
+        assert_eq!(s.helper.left_out(), 0b010);
         assert_eq!(answers.len(), 2);
         assert!(s.held('A') && s.held('B'));
         assert!(!s.helper.busy(), "the fill is done");
@@ -5494,7 +5594,7 @@ cat \"$1\"; exec cat >/dev/null"
             drive_slowly(&mut s, &mut now);
             assert_eq!(s.helper.failed(), None);
             assert!(s.helper.search.is_none(), "the search ended");
-            assert_eq!(s.helper.left_out, 0b010);
+            assert_eq!(s.helper.left_out(), 0b010);
             assert!(s.held('A'));
             assert_eq!(masks(&s), [0, 0b111, 0b110, 0b100, 0b010]);
             let blamed: Vec<String> = crate::getty::tests::logged()
@@ -5529,7 +5629,7 @@ cat \"$1\"; exec cat >/dev/null"
         s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         drive_slowly(&mut s, &mut now);
         assert_eq!(s.helper.failed(), None);
-        assert_eq!(s.helper.left_out, 0, "no source was blamed");
+        assert_eq!(s.helper.left_out(), 0, "no source was blamed");
         assert_eq!(masks(&s), [0, 7, 6, 4, 0]);
         assert!(s.held('A') && fill.iter().all(|&c| s.held(c)));
     }
@@ -5555,7 +5655,7 @@ cat \"$1\"; exec cat >/dev/null"
             s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
             let answers = drive(&mut s, &mut now);
             assert_eq!(s.helper.failed(), None, "{guilty:#b}");
-            assert_eq!(s.helper.left_out, guilty, "{guilty:#b}");
+            assert_eq!(s.helper.left_out(), guilty, "{guilty:#b}");
             assert_eq!(answers.len(), 1, "{guilty:#b}");
             assert_eq!(masks(&s), want, "{guilty:#b}");
         }
@@ -5569,7 +5669,7 @@ cat \"$1\"; exec cat >/dev/null"
         let (s, answers, masks) =
             one_source_fails("source-cut", 0b010, "head -c 12 \"$1\"; kill -XCPU $$");
         assert_eq!(s.helper.failed(), None);
-        assert_eq!(s.helper.left_out, 0b010);
+        assert_eq!(s.helper.left_out(), 0b010);
         assert_eq!(answers.len(), 1);
         assert_eq!(masks, [0, 0b111, 0b110, 0b100, 0b010]);
     }
@@ -5595,14 +5695,19 @@ cat \"$1\"; exec cat >/dev/null"
         s.until(now, |h| !h.kept.is_empty());
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
-        assert_eq!(s.helper.left_out, 0b010);
-        assert_eq!(s.helper.restarts, 1, "the search used one chance");
+        assert_eq!(s.helper.left_out(), 0b010);
+        assert_eq!(s.helper.restarts(), 1, "the search used one chance");
         assert_eq!(s.helper.late_cells(), [(16, Ok(OwnCell::Bitmap(CELL)))]);
         assert_eq!(masks(&s), [0, 0b111, 0b110, 0b100, 0b010]);
     }
 
     // ADR-1200 D15 gives the helper three chances a boot, which the
     // searches and the plain restarts share: an exit with no work uses
+    /// Why vtium gives a font set up when the helper crashes after the
+    /// last of its chances: the helper is the subject, and the count
+    /// belongs to the chances.
+    const GIVEN_UP_AFTER_A_CRASH: &str = "the font helper was ended by signal 11 after vtium had used all 3 chances that it gives the font helper each boot";
+
     // one, each search uses one, and the failure after the third gives the
     // font set up, though a source is still in use
     #[test]
@@ -5613,15 +5718,18 @@ cat \"$1\"; exec cat >/dev/null"
         s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         assert_eq!(drive(&mut s, &mut now).len(), 1);
         s.until_gone(now);
-        assert_eq!(s.helper.restarts, 1, "the exit with no work used a chance");
+        assert_eq!(
+            s.helper.restarts(),
+            1,
+            "the exit with no work used a chance"
+        );
         s.helper.ask(CELL, Band::NONE, &shown(&['B']), now);
         let _ = drive(&mut s, &mut now);
         assert_eq!(masks(&s), [0, 0, 7, 6, 1, 7, 5, 3]);
-        assert_eq!(s.helper.left_out, 0b011);
-        assert_eq!(s.helper.restarts, RESTARTS_MAX);
+        assert_eq!(s.helper.left_out(), 0b011);
+        assert_eq!(s.helper.restarts(), RESTARTS_MAX);
         let why = s.helper.failed().unwrap();
-        assert!(why.contains("signal 11"), "{why}");
-        assert!(why.ends_with(", and vtium has already restarted the font helper or looked for the font that makes it fail 3 times this boot"), "{why}");
+        assert_eq!(why, GIVEN_UP_AFTER_A_CRASH);
     }
 
     // when the last start of a search, which reads every source still in
@@ -5637,8 +5745,8 @@ cat \"$1\"; exec cat >/dev/null"
         assert_eq!(answers.len(), 1);
         assert!(s.held('A'));
         assert_eq!(masks(&s), [0, 7, 6, 4, 0]);
-        assert_eq!(s.helper.restarts, 1, "the search alone used a chance");
-        assert_eq!(s.helper.left_out, 0);
+        assert_eq!(s.helper.restarts(), 1, "the search alone used a chance");
+        assert_eq!(s.helper.left_out(), 0);
         assert!(s.helper.search.is_none() && s.helper.suspect.is_none());
         assert!(s.helper.running.is_some(), "the last start runs on");
     }
@@ -5660,16 +5768,92 @@ cat \"$1\"; exec cat >/dev/null"
             s.until_gone(now);
             if round < 3 {
                 assert_eq!(s.helper.failed(), None, "round {round}");
-                assert_eq!(s.helper.restarts, round + 1, "round {round}");
+                assert_eq!(s.helper.restarts(), round + 1, "round {round}");
             }
         }
         let mut one = [0, 7, 6, 4, 0].repeat(3);
         one.push(0);
         assert_eq!(masks(&s), one);
-        assert_eq!(s.helper.restarts, RESTARTS_MAX);
-        assert_eq!(s.helper.left_out, 0, "no source was blamed");
+        assert_eq!(s.helper.restarts(), RESTARTS_MAX);
+        assert_eq!(s.helper.left_out(), 0, "no source was blamed");
         let why = s.helper.failed().unwrap();
-        assert!(why.ends_with(", and vtium has already restarted the font helper or looked for the font that makes it fail 3 times this boot"), "{why}");
+        assert_eq!(why, GIVEN_UP_AFTER_A_CRASH);
+    }
+
+    // ADR-1200 D15 bounds the chances of a frit for the whole boot, not
+    // for one helper's life. The frit's helper is dropped when no head
+    // draws the frit, and a program can bring the frit back at once with
+    // two OSC 50 switches. The new helper takes the record of the dropped
+    // one: its first start leaves out the font that made a helper fail,
+    // and its chances are those that are left.
+    #[test]
+    fn a_helper_made_again_for_the_frit_keeps_the_left_out_font_and_the_chances() {
+        let (mut s, _, masks_before) = one_source_fails("source-again", 0b010, "kill -SEGV $$");
+        assert_eq!(s.helper.left_out(), 0b010);
+        assert_eq!(s.helper.restarts(), 1);
+        s.again();
+        let mut now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        let _ = drive(&mut s, &mut now);
+        assert_eq!(s.helper.failed(), None);
+        let mut expected = masks_before;
+        expected.push(0b010);
+        assert_eq!(
+            masks(&s),
+            expected,
+            "the new helper's first start leaves the font out"
+        );
+        assert_eq!(s.helper.left_out(), 0b010);
+        assert_eq!(s.helper.restarts(), 1, "no chance came back");
+    }
+
+    // vtium keeps each left-out font by its spelling, so a frit whose file
+    // is read again with its fonts in another order leaves out the same
+    // font, and not the font that now has its place
+    #[test]
+    fn a_left_out_font_is_kept_by_its_spelling() {
+        let record = FailureRecord::default();
+        record.borrow_mut().left_out.insert("kbd:y".to_owned());
+        let mut s = StandIn::of(
+            "spelling",
+            ANSWERS,
+            b"",
+            (64 << 20, "source=kbd:x\nsource=kbd:y\n"),
+        );
+        s.helper.failures = Rc::clone(&record);
+        assert_eq!(s.helper.left_out(), 0b10);
+        let mut s = StandIn::of(
+            "spelling-moved",
+            ANSWERS,
+            b"",
+            (64 << 20, "source = kbd:y # moved\nsource=kbd:x\n"),
+        );
+        s.helper.failures = record;
+        assert_eq!(s.helper.left_out(), 0b01);
+    }
+
+    // the chances a frit has used stay used when its helper is made again:
+    // two failures that no source causes again use two chances, the helper
+    // is made again, and the fourth such failure gives the font set up
+    #[test]
+    fn the_fourth_failure_across_a_helper_made_again_gives_the_font_set_up() {
+        let fails = "if [ $((n % 2)) = 1 ]; then kill -SEGV $$; fi; cat \"$1\"; exit 0";
+        let done = frame_bytes(FRAME_DONE, &[]);
+        let mut s = sourced_with("source-again-flake", "[ \"$b\" = 0 ]", fails, &done);
+        let mut now = t0();
+        for (round, c) in (0u32..).zip(['A', 'B', 'C', 'D']) {
+            if round == 2 {
+                s.again();
+            }
+            s.helper.ask(CELL, Band::NONE, &shown(&[c]), now);
+            let _ = drive(&mut s, &mut now);
+            s.until_gone(now);
+            if round < 3 {
+                assert_eq!(s.helper.failed(), None, "round {round}");
+                assert_eq!(s.helper.restarts(), round + 1, "round {round}");
+            }
+        }
+        assert_eq!(s.helper.failed(), Some(GIVEN_UP_AFTER_A_CRASH));
     }
 
     // a new login while vtium looks for the failed source ends the search,
@@ -5685,7 +5869,7 @@ cat \"$1\"; exec cat >/dev/null"
         assert!(s.helper.own_cell(16, Duration::from_secs(10), &t0).is_err());
         let launcher = s.helper.launcher.clone();
         s.helper.begin_again(&launcher);
-        assert_eq!(s.helper.restarts, 1, "a new login keeps the chances used");
+        assert_eq!(s.helper.restarts(), 1, "a new login keeps the chances used");
         s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         let _ = s.run(now);
         s.until(now, |h| !h.kept.is_empty());
@@ -5729,8 +5913,8 @@ cat \"$1\"; exec cat >/dev/null"
         assert!(s.helper.suspect.is_none(), "the search ended");
         let _ = s.helper.poll(now + Duration::from_secs(11));
         assert_eq!(s.helper.failed(), None);
-        assert_eq!(s.helper.left_out, 0, "no source is left out");
-        assert_eq!(s.helper.restarts, 1, "the search alone used a chance");
+        assert_eq!(s.helper.left_out(), 0, "no source is left out");
+        assert_eq!(s.helper.restarts(), 1, "the search alone used a chance");
         assert!(s.helper.search.is_none());
         assert!(s.helper.running.is_some(), "the last start runs on");
         assert_eq!(masks(&s), [0, 7, 6, 4, 0]);
@@ -5787,8 +5971,8 @@ if [ $k -ge 6 ]; then cat \"$1\"; cat \"$1.done\"; exec cat >/dev/null; fi";
         s.helper.ask(CELL, Band::NONE, &shown(&['B']), now);
         let _ = drive(&mut s, &mut now);
         assert_eq!(s.helper.failed(), None);
-        assert_eq!(s.helper.left_out, 0, "no source is left out");
-        assert_eq!(s.helper.restarts, 2, "a second search used a chance");
+        assert_eq!(s.helper.left_out(), 0, "no source is left out");
+        assert_eq!(s.helper.restarts(), 2, "a second search used a chance");
         assert_eq!(masks(&s), [0, 7, 6, 4, 0, 7, 6, 4, 0]);
         assert!(s.helper.search.is_none() && s.helper.suspect.is_none());
         assert!(s.helper.running.is_some(), "the last start runs on");
@@ -6485,7 +6669,10 @@ if [ $k -ge 6 ]; then cat \"$1\"; cat \"$1.done\"; exec cat >/dev/null; fi";
             }
         }
         let why = s.helper.failed().unwrap();
-        assert!(why.contains("CPU limit"), "{why}");
+        assert_eq!(
+            why,
+            "the font helper reached its CPU limit after vtium had used all 3 chances that it gives the font helper each boot"
+        );
     }
 
     fn own_cell_frame(width: u32, height: u32) -> Vec<u8> {
@@ -6727,7 +6914,7 @@ if [ $k -ge 6 ]; then cat \"$1\"; cat \"$1.done\"; exec cat >/dev/null; fi";
             .filter(|l| l.contains("gave no answer"))
             .collect();
         assert_eq!(hung, Vec::<String>::new(), "the helper is not ended");
-        assert_eq!(s.helper.restarts, 0, "no chance is used");
+        assert_eq!(s.helper.restarts(), 0, "no chance is used");
         assert_eq!(s.helper.failed(), None);
         assert_eq!(s.helper.late_cells(), [(16, Ok(OwnCell::Outline(nine)))]);
     }

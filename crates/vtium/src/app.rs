@@ -438,6 +438,17 @@ pub struct App {
     pointers: Vec<pointers::Theme>,
     /// Each frit a head draws, by its name, with its one helper.
     frits: BTreeMap<String, Frit>,
+    /// What each frit's helpers have used up this boot, by the frit's
+    /// name: the chances, and the fonts left out because they made a
+    /// helper fail. A frit that no head draws any more is dropped from
+    /// `frits` with its helper, and its record stays here, so a frit that
+    /// comes back has no fresh chances and leaves out the same fonts.
+    ///
+    /// References:
+    /// - ADR-1200 D15, "Restarted after a failure", and its note of
+    ///   2026-11-21: three chances a boot bound the restarts, because each
+    ///   start re-randomizes the helper's address layout.
+    failures: BTreeMap<String, helper::FailureRecord>,
     /// The kernel's font, read from the VT at start for a frit's
     /// `console:` source (vtium/vtium#145).
     console_font: Option<vtium_platform::vt::font::ConsoleFont>,
@@ -646,6 +657,7 @@ impl App {
             batch_changes: 0,
             pointers: Vec::new(),
             frits: BTreeMap::new(),
+            failures: BTreeMap::new(),
             console_font: None,
             locale: locale(&inherited),
             config,
@@ -1445,7 +1457,8 @@ impl App {
         }
     }
 
-    /// Drops each frit no head draws any more, and with it its helper.
+    /// Drops each frit no head draws any more, and with it its helper. The
+    /// record of what the frit's helpers used up stays in `failures`.
     fn prune(&mut self) {
         let used: BTreeSet<String> = self
             .heads
@@ -1748,6 +1761,21 @@ impl App {
             .map(|head| draw_height(head, dpi, &self.locale))
         {
             self.own_cell(h, height);
+        }
+        // A console that the head shows while it waits for the cell of the
+        // font set an OSC 50 switch chose would otherwise report the new
+        // name with the cell the head keeps. So that console holds its
+        // replies too, until the wait ends and `end_cell_waits` sends
+        // them from the new cell. The console that made the switch holds
+        // its replies already, and a second hold changes nothing.
+        if self
+            .heads
+            .get(h)
+            .is_some_and(|head| head.switched.is_some())
+            && self.waits_for_cell(h)
+            && let Some(head) = self.heads.get_mut(h)
+        {
+            head.console.term.terminal.hold_replies();
         }
         let App {
             heads,
@@ -2118,6 +2146,7 @@ impl App {
     fn helper(&mut self, name: &str) -> Option<&mut Helper> {
         let frit = self.frits.get(name)?;
         if frit.helper.is_none() && !frit.refused {
+            let record = Rc::clone(self.failures.entry(name.to_owned()).or_default());
             let launcher = self.launcher.clone();
             let started = match launcher.and_then(|l| self.helper_wake().map(|w| (l, w))) {
                 Ok((launcher, wake)) => Ok(Helper::new(
@@ -2131,7 +2160,8 @@ impl App {
                         crate::deferred::store_limit(physical_memory()),
                         self.heads.len(),
                     ),
-                )),
+                )
+                .remembering(record)),
                 Err(why) => {
                     log::warn!(
                         "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"
@@ -7905,6 +7935,60 @@ mod tests {
         );
     }
 
+    // A font set's helper crashed on its second font, so vtium used one of
+    // the helper's three chances and left that font out. A program then
+    // switches with OSC 50 to the built-in font and back. No head draws the
+    // font set in between, so vtium drops it and its helper. The helper
+    // that vtium starts when the program switches back still has one
+    // chance used, and it leaves the same font out. Otherwise each round
+    // trip would give the helper three new chances, and a program could
+    // make vtium start the helper as often as it likes.
+    //
+    // References:
+    // - ADR-1200 D15, "Restarted after a failure": three chances a boot.
+    #[test]
+    fn a_font_set_switched_away_and_back_keeps_its_chances_and_left_out_fonts() {
+        let dir = Scratch::new("app-failures-kept");
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\nsource=kbd:y\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let (_lp, mut app) = seat_with(&[], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let osc50 = |app: &mut App, name: &str| {
+            let request = format!("\x1b]50;{name}\x07");
+            app.term_mut()
+                .unwrap()
+                .parse(request.as_bytes(), &mut |_| {});
+            app.turn(Instant::now());
+        };
+        osc50(&mut app, "t");
+        let helper = app.helper("t").unwrap();
+        helper.crashed_on(1, Instant::now());
+        assert_eq!(helper.used(), (1, 0b10));
+        osc50(&mut app, "unifont");
+        assert!(!app.frits.contains_key("t"), "no head draws the font set");
+        osc50(&mut app, "t");
+        assert_eq!(app.font_name(), "t");
+        let helper = app.helper("t").unwrap();
+        assert_eq!(
+            helper.used(),
+            (1, 0b10),
+            "the chance and the font stay used"
+        );
+    }
+
     // A program on console 1 switches to a bitmap font set whose cell comes
     // after the wait, and asks for the set's name and its cell. The user
     // opens console 2 before the cell comes, which hides console 1. The
@@ -8147,6 +8231,81 @@ mod tests {
         app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
         app.turn(Instant::now());
         assert_eq!(app.heads.first().unwrap().console.id, second, "shown");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;t\x07\x1b[6;24;12t"
+        );
+    }
+
+    // A program on console 1 switches head 0 from frit a to frit t, whose
+    // cell comes late. The user opens console 2 during the wait, and a
+    // program there asks for the font set's name and for the cell at once.
+    // Console 2 holds its replies, as console 1 does, so it never reports
+    // t's name with the 8×8 cell the head keeps during the wait. The user goes back to
+    // console 1 before the late 12×24 cell comes. Console 2 is hidden and
+    // keeps its hold. Once shown, it is laid out in t's cell, it sends its
+    // held replies, and it answers with t's name and t's cell together.
+    //
+    // References:
+    // - ADR-1200 D5: the name OSC 50's query reports.
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_console_shown_during_the_wait_holds_its_replies_until_the_new_cell() {
+        let dir = Scratch::new("app-shown-during-wait");
+        let fonts = two_cells_and_a_late_one(&dir);
+        let (_lp, mut app) = seat_with(&["--font-name=a", "--font-size=0"], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let first = app.heads.first().unwrap().console.id;
+        app.term_mut().unwrap().parse(b"\x1b]50;t\x07", &mut |_| {});
+        app.turn(Instant::now());
+        assert!(
+            app.open_console(0, Instant::now()),
+            "a second console opens"
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first().unwrap();
+        let second = head.console.id;
+        assert_eq!(head.cell, (8, 8), "the cell the head keeps during the wait");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "",
+            "console 2 holds its replies"
+        );
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, first);
+        let own = vtium_font::Cell {
+            width: 12,
+            height: 24,
+        };
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(
+            frit.helper
+                .as_mut()
+                .unwrap()
+                .answer_late(Ok(helper::OwnCell::Bitmap(own)))
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.cell, (12, 24), "the late cell");
+        let hidden = head.hidden.iter_mut().find(|c| c.id == second).unwrap();
+        assert!(
+            hidden.term.terminal.replies_held(),
+            "hidden console 2 keeps its hold"
+        );
+        assert_eq!(hidden.term.terminal.take_replies(), b"", "nothing went out");
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.console.id, second, "console 2 is shown again");
+        assert_eq!(head.cell, (12, 24), "in t's cell");
+        assert!(!head.console.term.terminal.replies_held(), "the hold ended");
         assert_eq!(
             name_and_cell(&mut app, second),
             "\x1b]50;t\x07\x1b[6;24;12t"

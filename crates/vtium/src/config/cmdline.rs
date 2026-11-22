@@ -43,7 +43,9 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
     let mut check = false;
     let mut candidate = None;
     let mut no_devices = None;
-    let mut draft_frits = DraftFrits::default();
+    // each `--with-frit` and `--without-frit` with its value, in order,
+    // taken only when the subcommand is given
+    let mut frit_values = Vec::new();
     // the first `--with-frit` or `--without-frit`, which is an unknown
     // option where the subcommand is not given
     let mut frit_option = None;
@@ -81,15 +83,7 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
                     }
                 },
             };
-            if option == WITHOUT_FRIT {
-                draft_frits.remove(value);
-            } else {
-                let file = PathBuf::from(&value);
-                match crate::check::with_frit_name(&file) {
-                    Some(name) => draft_frits.add(name, file),
-                    None => reports.push(origin, Problem::NotAFritFile(value)),
-                }
-            }
+            frit_values.push((origin, option, value));
             continue;
         }
         if word == "--" {
@@ -226,16 +220,26 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
     if let Some((origin, option)) = frit_option.filter(|_| !check) {
         reports.push(origin, Problem::UnknownKey(option.to_owned()));
     }
+    // A start without the subcommand reports the options as unknown above,
+    // and never reads the files they name.
+    let mut draft_frits = DraftFrits::default();
+    for (origin, option, value) in frit_values.into_iter().filter(|_| check) {
+        if option == WITHOUT_FRIT {
+            draft_frits.remove(value);
+            continue;
+        }
+        let file = PathBuf::from(&value);
+        match crate::check::with_frit_name(&file) {
+            Some(name) => draft_frits.add(name, file),
+            None => reports.push(origin, Problem::NotAFritFile(value)),
+        }
+    }
     Parsed {
         assignments: out,
         check,
         candidate,
         no_devices: check && no_devices.is_some(),
-        draft_frits: if check {
-            draft_frits
-        } else {
-            DraftFrits::default()
-        },
+        draft_frits,
     }
 }
 

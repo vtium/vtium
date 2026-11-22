@@ -4410,6 +4410,11 @@ mod tests {
             "the first of the options is the one reported"
         );
         assert_eq!(l.draft_frits, DraftFrits::default());
+        // without the subcommand, vtium reads no file the option names: a
+        // plain start reports the unknown option once, and nothing more
+        let absent = dir.join("absent.vtfrit").display().to_string();
+        let l = load(&[WITH_FRIT, &absent]);
+        assert_eq!(reported(&l), ["unknown key \"--with-frit\", ignored"]);
         for bad in [
             dir.join("desk.conf"),
             dir.join("absent.vtfrit"),

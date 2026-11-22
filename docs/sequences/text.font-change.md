@@ -29,6 +29,7 @@ vtium takes only the name of one of its font sets, and ignores anything else, su
 These tests check what vtium does with the sequences on this page.
 
 - `a_console_hidden_during_the_wait_answers_once_shown_in_the_new_cell` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
+- `a_console_shown_during_the_wait_holds_its_replies_until_the_new_cell` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
 - `a_hidden_console_names_the_font_it_last_drew_in_until_shown` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
 - `a_hidden_console_takes_the_late_cell_and_its_name_together_once_shown` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
 - `a_switch_answers_in_the_kept_cell_once_the_helper_fails` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
