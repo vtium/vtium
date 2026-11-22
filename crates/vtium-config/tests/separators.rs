@@ -194,13 +194,21 @@ fn symbols_nerd_shaped() -> Shape {
             (1198, 300),
         ]]),
     ];
-    let font = ttf::Font {
+    let font = symbols_nerd_font(glyphs, vec![(0xe0b0, 1), (0xe0b2, 2), (0xf015, 3)]);
+    Shape { font, corner: 77 }
+}
+
+/// A symbol font with `glyphs`, mapped by `cmap`, laid out as Symbols
+/// Nerd Font Mono is: 2048 units to the em, an ascent of 1638 and a
+/// descent of 410.
+fn symbols_nerd_font(glyphs: Vec<ttf::Glyph>, cmap: Vec<(u32, u16)>) -> Vec<u8> {
+    ttf::Font {
         family: "Separator Test".to_owned(),
         upem: 2048,
         ascent: 1638,
         descent: -410,
         glyphs,
-        cmap: vec![(0xe0b0, 1), (0xe0b2, 2), (0xf015, 3)],
+        cmap,
         colr: Vec::new(),
         palette: Vec::new(),
         cbdt: None,
@@ -210,8 +218,7 @@ fn symbols_nerd_shaped() -> Shape {
         os2: None,
         empty_gpos: false,
     }
-    .build();
-    Shape { font, corner: 77 }
+    .build()
 }
 
 /// The rows at each end of a separator `rows` rows tall where its flat
@@ -370,6 +377,164 @@ fn a_symbols_nerd_shaped_separator_fills_a_spaced_cell_to_its_point() {
     let shape = symbols_nerd_shaped();
     let engine = engine_with("symbols-nerd-spaced", &shape.font, "line-spacing=30\n");
     separators_meet_their_segments(&engine, 30, shape.corner, |h, _, _| 0..h);
+}
+
+/// U+E0B1, the thin divider that Powerline puts between two segments of
+/// one color.
+const DIVIDER: char = '\u{e0b1}';
+/// U+E0B5, which these tests draw as a bar against the left side of its
+/// advance.
+const LEFT_BAR: char = '\u{e0b5}';
+
+/// Checks that `c` keeps the place its font gives it across its cells, at
+/// every text height and every size, with `spacing` percent of line
+/// spacing: on the middle row its ink runs from `from` to `to`, as
+/// fractions of the cells' width, so it is neither moved nor stretched.
+/// A side at 0 or 1 is one the ink reaches, and that edge column holds
+/// full ink.
+fn keeps_its_place(engine: &Engine, spacing: u32, c: char, (from, to): (f32, f32)) -> Vec<String> {
+    let mut wrong = Vec::new();
+    for height in 12..=48u32 {
+        let added = (height * spacing + 50) / 100;
+        let band = Band {
+            above: added.div_ceil(2),
+            below: added / 2,
+        };
+        for size in [
+            Size::Normal,
+            Size::Doubled(Doubled::Width),
+            Size::Doubled(Doubled::Height),
+        ] {
+            let g = drawn(engine, height, band, size, c);
+            let w = g.width() as f32;
+            let mid = g.height() / 2;
+            let row: Vec<u8> = (0..g.width())
+                .map(|x| g.pixels()[(mid * g.width() + x) as usize])
+                .collect();
+            let ink: f32 = row.iter().map(|&p| f32::from(p) / 255.0).sum();
+            let want = (to - from) * w;
+            // hinting may move each side of the bar by up to a pixel's
+            // worth of coverage, and antialiasing spreads it over two
+            // columns
+            let stray: Vec<usize> = row
+                .iter()
+                .enumerate()
+                .filter(|&(x, &p)| {
+                    let x = x as f32;
+                    p > 0 && (x + 1.0 < from * w - 1.0 || x > to * w + 1.0)
+                })
+                .map(|(x, _)| x)
+                .collect();
+            let left_edge = from > 0.0 || row[0] == 255;
+            let right_edge = to < 1.0 || row[row.len() - 1] == 255;
+            if (ink - want).abs() > 1.0 || !stray.is_empty() || !left_edge || !right_edge {
+                wrong.push(format!(
+                    "height {height} {size:?}: {c:?} covers {ink:.1} of {w} columns where it should cover {want:.1}, from {:.1} to {:.1}, with stray ink in columns {stray:?}: {row:?}",
+                    from * w,
+                    to * w
+                ));
+            }
+        }
+    }
+    wrong
+}
+
+/// U+E0C4, which these tests draw as a block just inside both sides of
+/// its advance, as the Nerd Fonts draw their pixelated squares.
+const INSET: char = '\u{e0c4}';
+
+/// A Monoid-shaped symbol font with the solid right-pointing triangle,
+/// a thin divider in the middle of the advance, from 410 to 614 of its
+/// 1024 units, a bar from the patcher's overlap past the pen to 205
+/// units, a fifth of the advance, and a block from 50 to 974 units, 50
+/// units inside each side. All three run from the descent to the ascent.
+fn bars() -> Vec<u8> {
+    let triangle = ttf::Glyph {
+        advance: 1024,
+        contours: vec![vec![(-62, -394), (-62, 1674), (1023, 640)]],
+    };
+    monoid_shaped(
+        vec![
+            ttf::Glyph::empty(1024),
+            triangle,
+            ttf::Glyph::rect(1024, 410, -384, 614, 1664),
+            ttf::Glyph::rect(1024, -62, -384, 205, 1664),
+            ttf::Glyph::rect(1024, 50, -384, 974, 1664),
+        ],
+        vec![(0xe0b0, 1), (0xe0b1, 2), (0xe0b5, 3), (0xe0c4, 4)],
+    )
+}
+
+// A separator whose ink reaches neither side of its advance, such as a thin
+// divider in the middle of it, keeps the font's own spacing on both sides:
+// it stays a bar of the width its font designs, in the middle of its cell.
+#[test]
+fn a_thin_divider_keeps_its_place_in_the_middle_of_its_cell() {
+    let font = bars();
+    let mut wrong = Vec::new();
+    for (test, spacing) in [("divider", 0), ("divider-spaced", 30)] {
+        let extra = format!("line-spacing={spacing}\n");
+        let engine = engine_with(test, &font, &extra);
+        wrong.extend(keeps_its_place(
+            &engine,
+            spacing,
+            DIVIDER,
+            (410.0 / 1024.0, 614.0 / 1024.0),
+        ));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+// A separator whose ink reaches only the pen meets the cell's left edge,
+// and keeps the font's own spacing on its right: a bar against the left
+// side of its advance keeps its width.
+#[test]
+fn a_bar_against_the_left_side_reaches_that_edge_and_keeps_its_width() {
+    let font = bars();
+    let mut wrong = Vec::new();
+    for (test, spacing) in [("left-bar", 0), ("left-bar-spaced", 30)] {
+        let extra = format!("line-spacing={spacing}\n");
+        let engine = engine_with(test, &font, &extra);
+        wrong.extend(keeps_its_place(
+            &engine,
+            spacing,
+            LEFT_BAR,
+            (0.0, 205.0 / 1024.0),
+        ));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+// Ink that stops a little short of a side, here 50 of the 1024 units,
+// still reaches that side, so a block just inside both sides of its advance
+// fills its cell edge to edge.
+#[test]
+fn a_separator_just_inside_its_sides_still_reaches_both_edges() {
+    let engine = engine_with("inset", &bars(), "");
+    let wrong = keeps_its_place(&engine, 0, INSET, (0.0, 1.0));
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+// In a font shaped like Symbols Nerd Font Mono, whose advance is wider than
+// its separators, a thin divider in the middle of the advance, from 819 to
+// 1229 of its 2048 units, also keeps its place and its width.
+#[test]
+fn a_symbols_nerd_shaped_divider_keeps_its_place_in_the_middle_of_its_cell() {
+    let triangle = ttf::Glyph {
+        advance: 2048,
+        contours: vec![vec![(-123, -421), (-123, 1649), (1325, 614)]],
+    };
+    let font = symbols_nerd_font(
+        vec![
+            ttf::Glyph::empty(2048),
+            triangle,
+            ttf::Glyph::rect(2048, 819, -410, 1229, 1638),
+        ],
+        vec![(0xe0b0, 1), (0xe0b1, 2)],
+    );
+    let engine = engine_with("symbols-nerd-divider", &font, "");
+    let wrong = keeps_its_place(&engine, 0, DIVIDER, (819.0 / 2048.0, 1229.0 / 2048.0));
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 // One glyph that a font maps from an icon before the separators' range,
