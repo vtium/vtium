@@ -1394,6 +1394,66 @@ pub(crate) mod raster {
         /// set up for the size, or a glyph whose hinting fails, is drawn
         /// unhinted rather than not at all.
         fn outline(&mut self, g: u16, ppem: f32, transform: Option<Transform>) -> Option<Image> {
+            let mut path = self.path(g, ppem, transform)?;
+            synthesise(&mut path, self.synth, ppem);
+            if self.widen != 1.0 {
+                widen(&mut path, self.widen);
+            }
+            if !fits(&path[..]) {
+                return Some(nothing(Source::Outline, Content::Mask));
+            }
+            let mut mask = Mask::new(&path[..]);
+            // the placement's top is right only once the mask knows its size
+            mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
+            let (mut data, placement) = mask.render();
+            if self.hinting == Hinting::Bitmap {
+                one_bit(&mut data);
+            }
+            Some(Image {
+                source: Source::Outline,
+                content: Content::Mask,
+                placement,
+                data,
+            })
+        }
+
+        /// How far glyph `g`'s outline reaches across at `ppem`, in pixels
+        /// from the pen: its leftmost and its rightmost point, before any
+        /// style or widening. When `hinted`, the outline is hinted as
+        /// [`Drawer::draw`] hints it, which can move an edge by part of a
+        /// pixel; otherwise it is the font's own outline, scaled. `None`
+        /// when the face has no outline for `g`, or the outline has no
+        /// width.
+        fn across(&mut self, g: u16, ppem: f32, hinted: bool) -> Option<(f32, f32)> {
+            let path = if hinted {
+                self.path(g, ppem, None)?
+            } else {
+                let outlines = self.outlines.clone()?;
+                let glyph = outlines.get(GlyphId::new(u32::from(g)))?;
+                let mut pen = Pen {
+                    path: Vec::new(),
+                    transform: None,
+                };
+                let unhinted = DrawSettings::unhinted(Size::new(ppem), LocationRef::default());
+                glyph.draw(unhinted, &mut pen).ok()?;
+                pen.end_contour();
+                pen.path
+            };
+            let b = swash::zeno::bounds(&path[..], Fill::NonZero, None);
+            (b.min.x.is_finite() && b.max.x.is_finite() && b.min.x < b.max.x)
+                .then_some((b.min.x, b.max.x))
+        }
+
+        /// Glyph `g`'s outline at `ppem`, hinted, its points moved by
+        /// `transform`, each contour closed. A face whose hinter cannot be
+        /// set up for the size, or a glyph whose hinting fails, gives the
+        /// unhinted outline rather than none.
+        fn path(
+            &mut self,
+            g: u16,
+            ppem: f32,
+            transform: Option<Transform>,
+        ) -> Option<Vec<Command>> {
             let outlines = self.outlines.clone()?;
             let glyph = outlines.get(GlyphId::new(u32::from(g)))?;
             if self.hinter.as_ref().is_none_or(|&(at, _)| at != ppem) {
@@ -1424,26 +1484,7 @@ pub(crate) mod raster {
                 glyph.draw(unhinted, &mut pen).ok()?;
             }
             pen.end_contour();
-            synthesise(&mut pen.path, self.synth, ppem);
-            if self.widen != 1.0 {
-                widen(&mut pen.path, self.widen);
-            }
-            if !fits(&pen.path[..]) {
-                return Some(nothing(Source::Outline, Content::Mask));
-            }
-            let mut mask = Mask::new(&pen.path[..]);
-            // the placement's top is right only once the mask knows its size
-            mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
-            let (mut data, placement) = mask.render();
-            if self.hinting == Hinting::Bitmap {
-                one_bit(&mut data);
-            }
-            Some(Image {
-                source: Source::Outline,
-                content: Content::Mask,
-                placement,
-                data,
-            })
+            Some(pen.path)
         }
 
         /// A color bitmap from the font's largest strike holding `g`, its
@@ -1905,6 +1946,14 @@ pub(crate) mod raster {
                 None => baseline_at(&mut plain, &metrics, ppem, h),
             };
             let advances = font.glyph_metrics(&[]).scale(ppem);
+            // the font's ascent and descent at the size drawn, which a
+            // Powerline separator maps onto its cell's rows
+            let em = ppem / f32::from(metrics.units_per_em);
+            let design = (metrics.ascent * em, metrics.descent.abs() * em);
+            // the width the font designs its separators in, from its solid
+            // right-pointing triangle, which a separator touching one side
+            // of its advance is measured against
+            let arrow = separator_box(&mut drawer, charmap.map(ARROW), ppem, &advances);
             let width = if want_w != 0 {
                 want_w
             } else {
@@ -1920,11 +1969,16 @@ pub(crate) mod raster {
                 cluster_width: request.cluster_width,
             };
             let mut glyphs: Vec<Placed> = Vec::new();
-            let mut index: Vec<(u16, u32)> = Vec::new();
+            // Each placed glyph, keyed by its glyph id and by whether its
+            // character is a Powerline separator, since a font can map a
+            // separator and an icon to one glyph, and the two are placed
+            // differently.
+            let mut index: Vec<(u16, bool, u32)> = Vec::new();
             let mut map = Vec::new();
             for &(c, g) in &wanted {
-                let at = match index.iter().find(|(id, _)| *id == g) {
-                    Some(&(_, i)) => i,
+                let sep = separator(c);
+                let at = match index.iter().find(|&&(id, s, _)| id == g && s == sep) {
+                    Some(&(_, _, i)) => i,
                     None => {
                         // a line of double width stretches each outline
                         // sideways, which a color glyph cannot take: the
@@ -1944,13 +1998,13 @@ pub(crate) mod raster {
                         // D12), or of an Indic script, squeezed to its cell
                         // (ADR-1307 D1); `place` keeps those two at full size
                         let fit = request.fit;
-                        let Some(placed) = place(&mut drawer, (c, g), advance, wide, fit, &cell)
-                        else {
+                        let at = (advance, design, arrow);
+                        let Some(placed) = place(&mut drawer, (c, g), at, wide, fit, &cell) else {
                             continue;
                         };
                         let i = u32::try_from(glyphs.len()).map_err(|_| "too many glyphs")?;
                         glyphs.push(placed);
-                        index.push((g, i));
+                        index.push((g, sep, i));
                         i
                     }
                 };
@@ -2020,16 +2074,25 @@ pub(crate) mod raster {
     /// where it meets the letter read before it: the right edge for a
     /// right-to-left script (ADR-1302 D2, D11). Any other glyph whose ink
     /// would pass its cells is drawn smaller to fit them when `fit`, as a
-    /// later source's glyph is (ADR-1200 D17).
+    /// later source's glyph is (ADR-1200 D17). A Powerline separator is
+    /// drawn as [`place_separator`] draws it, whatever the source. `design`
+    /// is the font's ascent and descent in pixels at the cell's size, and
+    /// `arrow` the width its separators are designed in ([`separator_box`]).
     fn place(
         drawer: &mut Drawer<'_>,
         (c, g): (u32, u16),
-        advance: f32,
+        (advance, design, arrow): (f32, (f32, f32), Option<f32>),
         wide: bool,
         fit: bool,
         cell: &Cell,
     ) -> Option<Placed> {
         let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
+        if separator(c)
+            && let Some(placed) =
+                place_separator(drawer, g, (advance, design, arrow), cells(wide), cell)
+        {
+            return Some(placed);
+        }
         let joins = crate::shaping::joins(c);
         if (joins || crate::shaping::indic(c)) && advance > span {
             let sx = span / advance;
@@ -2062,6 +2125,164 @@ pub(crate) mod raster {
             fit,
             cell,
         )
+    }
+
+    /// Whether `c` is a Powerline separator: one of the triangles, half
+    /// circles, slants and other shapes from U+E0B0 to U+E0D7 that a shell
+    /// prompt puts between its colored segments. The Powerline icons before
+    /// them, such as the branch and the padlock, are not separators.
+    fn separator(c: u32) -> bool {
+        (0xe0b0..=0xe0d7).contains(&c)
+    }
+
+    /// U+E0B0, the solid right-pointing triangle that every Powerline font
+    /// draws. Its flat side lies on the pen and its point on the right side
+    /// of the box the font designs its separators in.
+    const ARROW: u32 = 0xe0b0;
+
+    /// How much of its advance a separator's ink may fall short of a side
+    /// and still reach that side: a sixteenth. The Nerd Fonts patcher draws
+    /// its separators about that far past their box, so that they overlap
+    /// their neighbors, and its pixelated squares (U+E0C4 to U+E0C7) start
+    /// a thirtieth of the advance inside the pen. A thin divider in the
+    /// middle of its advance lies far inside both sides.
+    const SEPARATOR_SLACK: f32 = 1.0 / 16.0;
+
+    /// The width, in the drawer's pixels at `ppem` before any widening,
+    /// that the font designs its separators in: the ink of `arrow`, its
+    /// glyph for U+E0B0, unhinted and cut to that glyph's pen and advance. Monoid Nerd
+    /// Font Mono's triangles span their whole advance. Symbols Nerd Font
+    /// Mono advances a whole em, which is wider than a cell, and draws its
+    /// separators in a box about 0.65 em wide, against the pen or against
+    /// the advance. `None` when the font has no such glyph or it has no ink
+    /// inside its advance, and the separators' advance is then their box.
+    fn separator_box(
+        drawer: &mut Drawer<'_>,
+        arrow: u16,
+        ppem: f32,
+        advances: &swash::GlyphMetrics<'_>,
+    ) -> Option<f32> {
+        if arrow == 0 {
+            return None;
+        }
+        let advance = advances.advance_width(arrow);
+        let (l, r) = drawer.across(arrow, ppem, false)?;
+        let (l, r) = (l.max(0.0), r.min(advance));
+        (l < r).then_some(r - l)
+    }
+
+    /// Glyph `g` of a Powerline separator, advancing `advance` pixels,
+    /// stretched or squeezed onto its cells, and never drawn smaller to
+    /// fit them. A separator meets the colored segment beside it, so a side
+    /// that its ink reaches has to meet its cell's edge on every row.
+    ///
+    /// Up and down, the helper maps the box from the font's descent to its
+    /// ascent (`design`, in pixels at the cell's size) onto the cell's rows.
+    ///
+    /// Across, the helper looks at each side on its own. Where the ink
+    /// reaches the side of the box the font designs the separator in, the
+    /// ink's edge lands on the cell's edge. Where the ink stops short of
+    /// that side, the box's side lands on the cell's edge, so the font's
+    /// own spacing stays on that side. A triangle therefore fills its cell
+    /// from its flat side to its point. A thin divider in the middle of its
+    /// advance stays a thin bar in the middle of the cell, and a bar against
+    /// one side keeps its width. The ink reaches a side when the font's own
+    /// outline comes within [`SEPARATOR_SLACK`] of the advance of it, or
+    /// passes it. The helper decides that on the unhinted outline, since
+    /// hinting at a small size can move an edge by part of a pixel, and
+    /// then maps the hinted edge, the one that is drawn.
+    ///
+    /// The box is the advance, from the pen. Some fonts design their
+    /// separators narrower than their advance, which `arrow` measures
+    /// ([`separator_box`]). Symbols Nerd Font Mono advances a whole em and
+    /// draws U+E0B0 from the pen to about 0.65 em, and U+E0B2 from about
+    /// 0.35 em to the advance. In such a font, a separator whose ink
+    /// reaches the pen but not the advance has its box that wide from the
+    /// pen. One that reaches the advance but not the pen has its box that
+    /// wide up to the advance.
+    ///
+    /// The Nerd Fonts patcher draws each separator a little past its box,
+    /// so that it overlaps its neighbors. The helper cuts the ink to the pen
+    /// and the advance before it maps it, so the ink past them goes to the
+    /// glyph's ink box, as any glyph's ink past its cells does. Placed as
+    /// other glyphs are, such a separator would be centered in its cells,
+    /// or drawn smaller because its ink passes them, and a column of
+    /// background would show between it and its segment.
+    ///
+    /// The pen stays on the cell's left edge. Other glyphs are moved right
+    /// by half of what their cells' width exceeds their advance, which
+    /// centers them; a separator's stretch already lines its box up with
+    /// the cells' edges, so it is not moved.
+    ///
+    /// `None` for a color glyph and for a font with no advance, box or
+    /// outline for it, which [`place`] then places as any other glyph.
+    ///
+    /// References:
+    /// - ADR-1200 D17: separators from every outline source are mapped
+    ///   onto their cells, side by side, while other glyphs of a later
+    ///   source are drawn smaller to fit.
+    /// - ADR-1302 D2: the pen rule that centers other glyphs, which a
+    ///   separator does not follow.
+    /// - ADR-1302 D1: the ink box that takes the ink past the cells.
+    fn place_separator(
+        drawer: &mut Drawer<'_>,
+        g: u16,
+        (advance, (ascent, descent), arrow): (f32, (f32, f32), Option<f32>),
+        cells: u32,
+        cell: &Cell,
+    ) -> Option<Placed> {
+        let span = ascent + descent;
+        if advance <= 0.0 || span <= 0.0 || drawer.is_color(g, cell.ppem) {
+            return None;
+        }
+        // The drawer widens a line of double width after this transform,
+        // so the ink and the advance are mapped in the drawer's pixels
+        // before the widening, onto the cells' width before it too.
+        let widen = drawer.widen;
+        let advance = advance / widen;
+        let width = (cell.width * cells) as f32 / widen;
+        // The ink across, cut to the pen and the advance; ink that lies
+        // wholly outside them, or has no width, maps the advance instead.
+        // Whether the ink reaches a side is a matter of the font's design,
+        // so the helper decides it on the unhinted outline, which hinting
+        // at a small size cannot move. Where the ink reaches a side, the
+        // hinted outline's edge, the edge that is drawn, meets the cell's.
+        let cut = |(l, r): (f32, f32)| Some((l.max(0.0), r.min(advance))).filter(|(l, r)| l < r);
+        let design = drawer.across(g, cell.ppem, false).and_then(cut);
+        let drawn = drawer.across(g, cell.ppem, true).and_then(cut);
+        let mapped = match design.zip(drawn) {
+            Some(((dl, dr), (l, r))) => {
+                let slack = advance * SEPARATOR_SLACK;
+                let narrow = arrow.map_or(advance, |w| w.min(advance));
+                // the box the font designs this separator in
+                let (b0, b1) = match (dl <= slack, dr >= advance - slack) {
+                    (true, false) => (0.0, narrow),
+                    (false, true) => (advance - narrow, advance),
+                    _ => (0.0, advance),
+                };
+                // each side lands on the cell's edge where the ink reaches
+                // it, and keeps the font's spacing where the ink does not
+                let l = if dl <= b0 + slack { l } else { b0 };
+                let r = if dr >= b1 - slack { r } else { b1 };
+                (l, r)
+            }
+            None => (0.0, advance),
+        };
+        // on a tiny cell a hinted edge can cross the box's other side, and
+        // the advance is mapped instead
+        let (left, right) = if mapped.0 < mapped.1 {
+            mapped
+        } else {
+            (0.0, advance)
+        };
+        let (sx, sy) = (width / (right - left), cell.height as f32 / span);
+        // the box's top lands on the cell's top row, and the outline is
+        // placed on the cell's baseline, so the move up is what the
+        // baseline lies below the box's top
+        let up = cell.baseline as f32 - ascent * sy;
+        let transform = Transform::scale(sx, sy).then_translate(-left * sx, up);
+        let mut draw = |ppem, fit| drawer.draw_transformed(g, ppem, fit, Some(transform));
+        place_drawn(&mut draw, cells, None, false, cell)
     }
 
     /// The cells a glyph two cells wide when `wide` spans.
