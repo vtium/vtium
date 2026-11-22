@@ -1506,8 +1506,12 @@ display card:mem-small -> small
 /// FIFO, so the start's ask has no answer in time whatever the machine's
 /// speed. In the `refused` case the test then lets the helper answer, and
 /// waits until vtium has kept its late refusal of the start's ask; neither
-/// switch back asks again. In the `timeout` case the helper stays held, and
-/// each switch back asks again.
+/// switch back asks again. In the `timeout` case the helper stays held, so
+/// the first switch back asks again. While that ask waits for its answer,
+/// vtium takes none of the program's output, so the program's queries
+/// that follow the switch would answer in the cell the answer gives. The
+/// test then lets the helper answer, the console shows the program's
+/// output, and the second switch back keeps the refusal and asks nothing.
 // covers: text.font-change
 #[test]
 fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
@@ -1573,17 +1577,17 @@ input class:keyboard -> roaming
             late(&seen[0]),
             "{case}: the held helper answered nothing: {seen:?}"
         );
+        // The helper waits on the FIFO with its answer, so an open to write
+        // succeeds once it does.
+        let open = |_: &App| {
+            rustix::fs::open(
+                &go,
+                rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::NONBLOCK,
+                rustix::fs::Mode::empty(),
+            )
+            .is_ok()
+        };
         if refused {
-            // The helper waits on the FIFO with its answer, so an open to
-            // write succeeds once it does.
-            let open = |_: &App| {
-                rustix::fs::open(
-                    &go,
-                    rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::NONBLOCK,
-                    rustix::fs::Mode::empty(),
-                )
-                .is_ok()
-            };
             assert!(s.until(BOUND, open), "the helper answers");
             assert!(
                 s.until(BOUND, |a| refusal_kept(a)),
@@ -1600,10 +1604,23 @@ input class:keyboard -> roaming
             assert!(s.until(BOUND, |a| head_shows(a, "a", away)), "{case}");
             assert_eq!(s.app.font_name(), "unifont", "{case}");
             s.type_str("y\r");
+            if !refused && n == 0 {
+                // The switch back asks again, and the console waits for
+                // the answer before it shows the program's output.
+                assert!(
+                    s.until(BOUND, |_| {
+                        seen.extend(unknown(&logged()));
+                        seen.len() == 2
+                    }),
+                    "{case}: the switch back asks again: {seen:?}"
+                );
+                assert!(!head_shows(&s.app, "a", back), "{case}: the output waits");
+                assert!(s.until(BOUND, open), "the helper answers");
+            }
             assert!(s.until(BOUND, |a| head_shows(a, "a", back)), "{case}");
             assert_eq!(s.app.font_name(), "t", "{case}");
             seen.extend(unknown(&logged()));
-            let asked = if refused { 0 } else { n + 1 };
+            let asked = if refused { 0 } else { 1 };
             assert_eq!(
                 seen.len() - 1,
                 asked,
