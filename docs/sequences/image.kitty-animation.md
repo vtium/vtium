@@ -100,6 +100,7 @@ These tests check what vtium does with the sequences on this page.
 - `the_loop_wakes_for_an_animations_frames_and_never_for_a_still_picture` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
 - `the_display_draws_the_frame_the_clock_chose` in [crates/vtium/src/term.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/term.rs)
 - [tools/conformance/vtium/cases/kit-anim-refusals.case](https://github.com/vtium/vtium/blob/main/tools/conformance/vtium/cases/kit-anim-refusals.case)
+- [tools/conformance/vtium/cases/kit-spec-anim-numbers.case](https://github.com/vtium/vtium/blob/main/tools/conformance/vtium/cases/kit-spec-anim-numbers.case)
 
 ## Where to read more
 

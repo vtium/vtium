@@ -33,6 +33,7 @@ The default build of each crate is the minspec build's, the smallest console. A 
 | `images` | vtium, vtium-term, vtium-render, vtium-platform | Inline images: the image store, the protocol handlers, and the image helper's channel. |
 | `bidi` | vtium, vtium-term, vtium-render | Right-to-left text, laid out by the Unicode bidirectional algorithm. |
 | `gpu` | vtium, vtium-render, vtium-platform | The GPU renderer, through OpenGL ES 3.0 on the display's render node. |
+| `filters` | vtium, vtium-render, vtium-settings | Frame filters, which change the picture before the display shows it: their declarations, and the reader for vtlook files that choose and set them. Without the feature, every head renders with the built-in vtlook. |
 | `logind` | vtium, vtium-platform | Talking to systemd-logind through sd-bus, which the power keys use to suspend the machine. |
 | `libseat` | vtium, vtium-platform | The seat's display devices and VT switching from the seat manager, seatd or logind, through libseat. |
 | `psf`, `gzip` | vtium-font | Reading PSF fonts, and gzip-compressed ones. |

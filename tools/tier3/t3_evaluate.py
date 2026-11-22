@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 
+import t3_apply
 import t3_bench
 import t3_builtin
 import t3_fonts
@@ -271,6 +272,7 @@ CHECKS = {
     **t3_images.CHECKS,
     **t3_seat.CHECKS,
     **t3_handover.CHECKS,
+    **t3_apply.CHECKS,
     **t3_keyecho.CHECKS,
     **t3_seat.CAPTIONS,
     **t3_builtin.CAPTIONS,
@@ -283,7 +285,7 @@ CHECKS = {
 # that the screen finished.
 NO_GOLDEN = {"vt-switch", "sync-clock", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS,
              *t3_images.CHECKS, *t3_seat.CHECKS, *t3_handover.CHECKS, *t3_keyecho.CHECKS,
-             *t3_heads.CHECKS, *t3_fonts.CHECKS}
+             *t3_heads.CHECKS, *t3_fonts.CHECKS, *t3_apply.CHECKS}
 
 PROVISIONAL_FILE = os.path.join(HERE, "provisional.tsv")
 

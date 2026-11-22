@@ -835,7 +835,7 @@ fn t_says_where_to_try_a_font_and_n_and_r_do_nothing() {
     for key in ['n', 'r'] {
         let after = app_after(&[Key::Down, Key::Char(key)]);
         assert_eq!(after.nav.view, View::Fonts);
-        assert_eq!(after.shared.pending, before.shared.pending);
+        assert_eq!(after.shared.frits(), before.shared.frits());
         assert_eq!(after.shared.message, before.shared.message);
     }
 }

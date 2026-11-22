@@ -148,6 +148,7 @@ mod held;
 pub mod keyboard_layout;
 #[cfg(test)]
 mod login_scope;
+mod pointers;
 #[cfg(test)]
 mod rapid;
 mod survive;
@@ -424,9 +425,6 @@ pub struct App {
     /// The glyph helper's program, opened at the start, which every helper
     /// starts from; why not, when it cannot be.
     launcher: Result<helper::Launcher, String>,
-    /// Whether the pointer file `pointer-theme` names has started loading
-    /// ([`App::pointer_turn`]).
-    pointer_file_started: bool,
     /// Where the console reads its batch, which lists the active
     /// resources, and the trust rule each resource passes: this
     /// machine's, or a test's.
@@ -434,14 +432,23 @@ pub struct App {
     /// How many times a reading of the batch found it changed since vtium
     /// started. Each head keeps the count it last caught up with.
     batch_changes: u64,
-    /// The pointer file while it loads, with the font helper that draws
-    /// its pictures.
-    pointer_file: Option<(crate::pointer_file::Loader, Helper)>,
-    /// The pointer file's pictures and the heights its displays ask for,
-    /// which the loader shares with every display's view.
-    pointer_store: crate::pointer_file::Store,
+    /// The pointer files the console loads: the top level's
+    /// `pointer-theme`, and each other one a head's look names, each with
+    /// its loader and the store its displays' views read.
+    pointers: Vec<pointers::Theme>,
     /// Each frit a head draws, by its name, with its one helper.
     frits: BTreeMap<String, Frit>,
+    /// What each frit's helpers have used up this boot, by the frit's
+    /// name: the chances, and the fonts left out because they made a
+    /// helper fail. A frit that no head draws any more is dropped from
+    /// `frits` with its helper, and its record stays here, so a frit that
+    /// comes back has no fresh chances and leaves out the same fonts.
+    ///
+    /// References:
+    /// - ADR-1200 D15, "Restarted after a failure", and its note of
+    ///   2026-11-21: three chances a boot bound the restarts, because each
+    ///   start re-randomizes the helper's address layout.
+    failures: BTreeMap<String, helper::FailureRecord>,
     /// The kernel's font, read from the VT at start for a frit's
     /// `console:` source (vtium/vtium#145).
     console_font: Option<vtium_platform::vt::font::ConsoleFont>,
@@ -643,15 +650,14 @@ impl App {
             reread: None,
             launcher: helper::Launcher::configured(&config)
                 .map(|l| l.with_locale(&locale(&inherited))),
-            pointer_file_started: false,
             batch_places: (
                 vtium_settings::batch::Places::system(),
                 vtium_settings::cullet::Rule::new(font::trust()),
             ),
             batch_changes: 0,
-            pointer_file: None,
-            pointer_store: crate::pointer_file::Store::default(),
+            pointers: Vec::new(),
             frits: BTreeMap::new(),
+            failures: BTreeMap::new(),
             console_font: None,
             locale: locale(&inherited),
             config,
@@ -1451,7 +1457,8 @@ impl App {
         }
     }
 
-    /// Drops each frit no head draws any more, and with it its helper.
+    /// Drops each frit no head draws any more, and with it its helper. The
+    /// record of what the frit's helpers used up stays in `failures`.
     fn prune(&mut self) {
         let used: BTreeSet<String> = self
             .heads
@@ -1525,6 +1532,7 @@ impl App {
         }) {
             self.ask_glyphs(other);
         }
+        let wait = new.is_ok() && self.waits_for_cell(h);
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
@@ -1532,6 +1540,9 @@ impl App {
         match new {
             Ok(()) => {
                 head.switched = Some(head.console.id);
+                if wait {
+                    head.console.term.terminal.hold_replies();
+                }
                 let refused = std::mem::take(&mut head.font_refused);
                 if refused > 1 {
                     log::info!(
@@ -1667,6 +1678,8 @@ impl App {
             ));
         }
         self.choose_font_adding(h, Some(size));
+        // the display draws the pointer theme of its head's look
+        let pointers = self.pointer_store(h);
         let Some(head) = self.heads.get(h) else {
             return;
         };
@@ -1685,7 +1698,7 @@ impl App {
                 ..head.render_config(&self.config)
             },
             self.measure(),
-            self.pointer_store.clone(),
+            pointers,
         );
         if self.config.switch(&keys::SOFT_CURSOR) {
             view.pointer = crate::pointer::Pointer::software();
@@ -1748,6 +1761,21 @@ impl App {
             .map(|head| draw_height(head, dpi, &self.locale))
         {
             self.own_cell(h, height);
+        }
+        // A console that the head shows while it waits for the cell of the
+        // font set an OSC 50 switch chose would otherwise report the new
+        // name with the cell the head keeps. So that console holds its
+        // replies too, until the wait ends and `end_cell_waits` sends
+        // them from the new cell. The console that made the switch holds
+        // its replies already, and a second hold changes nothing.
+        if self
+            .heads
+            .get(h)
+            .is_some_and(|head| head.switched.is_some())
+            && self.waits_for_cell(h)
+            && let Some(head) = self.heads.get_mut(h)
+        {
+            head.console.term.terminal.hold_replies();
         }
         let App {
             heads,
@@ -2118,6 +2146,7 @@ impl App {
     fn helper(&mut self, name: &str) -> Option<&mut Helper> {
         let frit = self.frits.get(name)?;
         if frit.helper.is_none() && !frit.refused {
+            let record = Rc::clone(self.failures.entry(name.to_owned()).or_default());
             let launcher = self.launcher.clone();
             let started = match launcher.and_then(|l| self.helper_wake().map(|w| (l, w))) {
                 Ok((launcher, wake)) => Ok(Helper::new(
@@ -2131,7 +2160,8 @@ impl App {
                         crate::deferred::store_limit(physical_memory()),
                         self.heads.len(),
                     ),
-                )),
+                )
+                .remembering(record)),
                 Err(why) => {
                     log::warn!(
                         "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"
@@ -2165,69 +2195,6 @@ impl App {
         }))
     }
 
-    /// Loads the pointer file `pointer-theme` names, from the first turn
-    /// on: takes the font helper's answer to the last pointer ask, sends
-    /// the next ask, and draws every head once the pictures change, so
-    /// that each display's pointer takes them. The loader and its helper
-    /// go once the loader asks for nothing more. A helper that cannot
-    /// start leaves vtium's own pictures.
-    ///
-    /// References:
-    /// - ADR-1309 D5: the compiled-in pictures draw until the font helper answers.
-    fn pointer_turn(&mut self, now: Instant) {
-        if !self.pointer_file_started {
-            self.pointer_file_started = true;
-            let size = self
-                .config
-                .number(&crate::config::keys::POINTER_SIZE)
-                .and_then(|n| u32::try_from(n).ok());
-            if let Some(path) = self.config.text(&crate::config::keys::POINTER_THEME) {
-                let path = PathBuf::from(path);
-                if let Some(loader) =
-                    crate::pointer_file::Loader::start(&path, size, &self.pointer_store)
-                {
-                    match self
-                        .launcher
-                        .clone()
-                        .and_then(|l| self.helper_wake().map(|w| (l, w)))
-                    {
-                        Ok((launcher, wake)) => {
-                            self.pointer_store.set_wake(std::sync::Arc::clone(&wake));
-                            let helper = Helper::for_pointers(launcher, wake, self.epoch);
-                            self.pointer_file = Some((loader, helper));
-                        }
-                        Err(why) => log::warn!("{}", crate::pointer_file::lost_line(&path, &why)),
-                    }
-                }
-            }
-        }
-        let Some((loader, helper)) = &mut self.pointer_file else {
-            return;
-        };
-        helper.poll(now);
-        loop {
-            if let Some(answer) = helper.pointer_answer() {
-                loader.take(answer);
-            }
-            if helper.busy() {
-                break;
-            }
-            match loader.next_ask() {
-                Some(ask) => helper.pointer(&ask, now),
-                None => break,
-            }
-        }
-        loader.emit();
-        if !helper.busy() && loader.publish() {
-            for head in &mut self.heads {
-                head.draw_now = true;
-            }
-        }
-        if loader.ended() && !helper.busy() {
-            self.pointer_file = None;
-        }
-    }
-
     /// Takes each helper's answers: each display at a set's cell, of every
     /// head drawing the frit, forgets the glyphs it cached for the set's
     /// characters, so none draws the built-in font once the frit sent it
@@ -2244,11 +2211,15 @@ impl App {
             }
         }
         let mut late = Vec::new();
+        let mut blamed = Vec::new();
         for (name, frit) in &mut self.frits {
             let Some(helper) = &mut frit.helper else {
                 continue;
             };
             let answers = helper.poll(now);
+            if helper.take_blamed() {
+                blamed.push(name.clone());
+            }
             late.extend(
                 helper
                     .late_cells()
@@ -2298,8 +2269,93 @@ impl App {
                 }
             }
         }
+        for name in blamed {
+            self.ask_cells_again(&name, now);
+        }
         for (name, height, answer) in late {
             self.late_cell(&name, height, answer);
+        }
+        self.end_cell_waits();
+    }
+
+    /// Whether head `h` draws a font set whose cell at the head's height
+    /// the font helper has yet to give: the helper gave no answer in time,
+    /// it still runs or starts again, and no later answer has come. The
+    /// head draws in the cell it kept until the answer comes.
+    fn waits_for_cell(&self, h: usize) -> bool {
+        let Some(head) = self.heads.get(h) else {
+            return false;
+        };
+        let at = draw_height(head, self.dpi(h), &self.locale);
+        let wants = head
+            .font
+            .as_ref()
+            .is_some_and(|f| f.wants_own_cell(at, head.sized()));
+        let Some(frit) = head.frit().and_then(|name| self.frits.get(name)) else {
+            return false;
+        };
+        if !wants || frit.helper.as_ref().is_none_or(|h| h.failed().is_some()) {
+            return false;
+        }
+        let known = if head.chosen().struck() {
+            frit.own.get(&at).cloned()
+        } else {
+            frit.answer_at(at, head.chosen().outline())
+        };
+        known.is_some_and(|k| k.is_err_and(|no| no.late))
+    }
+
+    /// Sends the shown console of each head the replies it held since its
+    /// font switch, once the head waits no more for the new font set's
+    /// cell: the helper's late answer laid the head out in the new cell,
+    /// or the helper failed and the head keeps its cell. A zoom or a new
+    /// font that leaves nothing to wait for ends the wait too. The terminal
+    /// answers the held size reports from the cell and the grid the head
+    /// has now, so once the program has the new font set's name, every
+    /// size it is told is the new cell's. The state alone ends the wait,
+    /// never a timer.
+    ///
+    /// A hidden console keeps its own grid and cell until it is shown, so
+    /// the late cell does not lay it out. Its hold therefore goes on until
+    /// the head shows it. Every switch of the console shown lays the head
+    /// out again before this turn's end, so the console sends its replies
+    /// from the new cell.
+    ///
+    /// References:
+    /// - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    fn end_cell_waits(&mut self) {
+        for h in 0..self.heads.len() {
+            let held = self
+                .heads
+                .get(h)
+                .is_some_and(|head| head.console.term.terminal.replies_held());
+            if !held || self.waits_for_cell(h) {
+                continue;
+            }
+            if let Some(head) = self.heads.get_mut(h) {
+                head.console.send_held_replies();
+            }
+        }
+    }
+
+    /// Frit `name` left out a source that made its helper fail. That source
+    /// may be the one that gave the frit's cell, so the console forgets
+    /// every cell the helper answered and asks for each again without
+    /// waiting. The late answers decide the cell ([`App::late_cell`]).
+    ///
+    /// References:
+    /// - ADR-1200 D14: a font that makes the helper fail is left out, and
+    ///   the font set's other fonts go on drawing.
+    /// - ADR-1200 D17: an answer that comes after the wait takes the place
+    ///   of the missing one.
+    fn ask_cells_again(&mut self, name: &str, now: Instant) {
+        let Some(frit) = self.frits.get_mut(name) else {
+            return;
+        };
+        let heights: Vec<u32> = frit.own.keys().copied().collect();
+        frit.own.clear();
+        if let Some(helper) = &mut frit.helper {
+            helper.ask_cells_again(&heights, now);
         }
     }
 
@@ -2354,11 +2410,13 @@ impl App {
                 cell.width,
                 cell.height
             ),
-            Err(why) => log::info!(
-                "the helper refused the frit {name}'s own cell after the wait ({why}): it keeps the cell it draws in"
-            ),
+            Err(_) => {}
         }
+        let refused = answer.as_ref().err().map(ToString::to_string);
         frit.own.insert(height, answer);
+        if let Some(why) = refused {
+            return self.late_refusal(name, height, &why);
+        }
         let Some(outline) = outline else {
             return;
         };
@@ -2381,6 +2439,70 @@ impl App {
                 }
                 self.relayout(h);
             }
+        }
+    }
+
+    /// The helper refused frit `name`'s cell at `height` after the wait,
+    /// for `why`. A head that draws in a cell the frit gave it earlier at
+    /// that height stops drawing in it: the frit is chosen afresh for the
+    /// head and laid out again, so the head draws in the display's cell, or
+    /// as wide as the built-in font, as after a refusal in time. This
+    /// happens when vtium left out the font that gave the cell, after the
+    /// font made the font helper fail, and asked for the cell again. A
+    /// head that drew in no such cell keeps the cell it draws in.
+    ///
+    /// References:
+    /// - ADR-1200 D14: a font that makes the helper fail is left out, and
+    ///   the font set's other fonts go on drawing.
+    /// - ADR-1204 D5: a missing text font leaves the cell to the
+    ///   configuration.
+    fn late_refusal(&mut self, name: &str, height: u32, why: &str) {
+        let mut drawing = Vec::new();
+        for h in 0..self.heads.len() {
+            let dpi = self.dpi(h);
+            let Some(head) = self.heads.get(h) else {
+                continue;
+            };
+            let at = draw_height(head, dpi, &self.locale);
+            let took = match &head.font {
+                Some(Chosen::Frit {
+                    name: drawn,
+                    own,
+                    heights,
+                    ..
+                }) if drawn == name => own.is_some() || (at == height && heights.contains_key(&at)),
+                _ => false,
+            };
+            if took {
+                drawing.push(h);
+            }
+        }
+        if drawing.is_empty() {
+            log::info!(
+                "the helper refused the frit {name}'s own cell after the wait ({why}): it keeps the cell it draws in"
+            );
+            return;
+        }
+        log::info!(
+            "the helper refused the frit {name}'s own cell after the wait ({why}): it no longer draws in the cell the frit gave earlier, from the next frame"
+        );
+        for h in drawing {
+            let Some(head) = self.heads.get_mut(h) else {
+                continue;
+            };
+            let fresh = match &head.font {
+                Some(Chosen::Frit { frit, .. }) => {
+                    Chosen::frit(frit.clone(), head.sized(), head.look_cell()).ok()
+                }
+                _ => None,
+            };
+            let Some(fresh) = fresh else {
+                continue;
+            };
+            head.font = Some(fresh);
+            head.refont = true;
+            self.share(h);
+            self.relayout(h);
         }
     }
 
@@ -4030,6 +4152,9 @@ impl App {
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
+        // What the displays show before the key, so that the key draws a
+        // frame only when it changed that (`KeyShown`).
+        let before = KeyShown::now(head);
         // A press of Ctrl shows the hovered link's URI, and a key pressed
         // without Ctrl hides it; letting go of Ctrl sends no key.
         head.hover(key.mods.contains(InputMods::CTRL));
@@ -4081,44 +4206,53 @@ impl App {
             }
             return;
         }
-        if key.repeat
-            && (!head.console.term.terminal.auto_repeat()
-                || !self.held.delivered(node, key.keycode))
-        {
-            return;
-        }
-        let event = if key.repeat {
-            TermKeyEvent::Repeat
-        } else {
-            TermKeyEvent::Press
-        };
-        let Some(pressed) = term_key(key, event) else {
-            return;
-        };
-        if !key.repeat {
-            let to = held::Console {
-                head: h,
-                id: head.console.id,
+        // The key has already cleared the selection and changed the hovered
+        // link, so each way out of this block reaches the frame decision
+        // below, even when vtium drops the key itself: a repeat whose press
+        // it never delivered, or a key with no keysym.
+        'send: {
+            if key.repeat
+                && (!head.console.term.terminal.auto_repeat()
+                    || !self.held.delivered(node, key.keycode))
+            {
+                break 'send;
+            }
+            let event = if key.repeat {
+                TermKeyEvent::Repeat
+            } else {
+                TermKeyEvent::Press
             };
-            self.held.pressed(node, key.keycode, to, pressed);
-        }
-        if head.console.term.terminal.key(&pressed) {
-            // The key opens a window on each display: the program's
-            // output draws at once until the display's next flip
-            // completes (ADR-1401 D2).
-            head.console.term.key_sent();
-            head.send_user_bytes();
-            head.console.term.terminal.screen_mut().reset_view();
-            if self.hide_while_typing {
-                head.hide_pointer();
+            let Some(pressed) = term_key(key, event) else {
+                break 'send;
+            };
+            if !key.repeat {
+                let to = held::Console {
+                    head: h,
+                    id: head.console.id,
+                };
+                self.held.pressed(node, key.keycode, to, pressed);
+            }
+            if head.console.term.terminal.key(&pressed) {
+                // The key opens a window on each display: the program's
+                // output draws at once until the display's next flip
+                // completes.
+                //
+                // References:
+                // - ADR-1401 D2: the key's window and when it closes.
+                head.console.term.key_sent();
+                head.send_user_bytes();
+                head.console.term.terminal.screen_mut().reset_view();
+                if self.hide_while_typing {
+                    head.hide_pointer();
+                }
+            }
+            let rate = crate::blink::cursor_period(&head.console.term.terminal);
+            let blinks = head.console.term.terminal.cursor_blinks();
+            if let Some(arm) = head.console.term.blink.key(rate, blinks) {
+                head.cursor_due = Some((after(now, arm.first), arm.every));
             }
         }
-        let rate = crate::blink::cursor_period(&head.console.term.terminal);
-        let blinks = head.console.term.terminal.cursor_blinks();
-        if let Some(arm) = head.console.term.blink.key(rate, blinks) {
-            head.cursor_due = Some((after(now, arm.first), arm.every));
-        }
-        head.draw_now = true;
+        head.draw_now |= before.changed(head);
     }
 
     /// A head's chord (ADR-1401 D1, D5): a console chord shows another of
@@ -5379,7 +5513,7 @@ impl App {
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
         }
-        due.extend(self.pointer_file.as_ref().and_then(|(_, h)| h.deadline()));
+        due.extend(self.pointer_deadlines());
         // A notice's time runs out while the displays draw, and its screen
         // has no other timer, since its cursor is hidden (ADR-1401 D3).
         if self.awake {
@@ -5479,6 +5613,42 @@ struct KeyFrom {
     vt_keys: bool,
     /// It roams, so it takes the roaming chord.
     roaming: bool,
+}
+
+/// What a head's displays show before a key, to tell whether the key
+/// changed it. A key can clear the selection, return the view from the
+/// scrollback, change the link the pointer hovers, hide the pointer and
+/// show a blinking cursor again, and each of these needs a frame. A key
+/// that changes none of them draws no frame of its own: the program's
+/// echo draws the next one. A frame drawn for such a key would still have
+/// damage on a display with two or three buffers, because the buffer it
+/// goes into lacks the frames drawn since that buffer was last shown. The
+/// display would then present the same picture again, a frame early, and
+/// the echo would wait for that frame's flip.
+struct KeyShown {
+    /// The screen's cells, its cursor and the pointer's shape.
+    screen: crate::term::Shown,
+    /// Whether the pointer shows.
+    pointer: bool,
+    /// Whether the cursor is in the shown phase of its blink.
+    cursor: bool,
+}
+
+impl KeyShown {
+    fn now(head: &mut Head) -> KeyShown {
+        KeyShown {
+            screen: crate::term::Shown::now(&mut head.console.term.terminal),
+            pointer: head.pointer.visible,
+            cursor: head.console.term.blink.cursor_shown(),
+        }
+    }
+
+    /// Whether the key changed what `head`'s displays show.
+    fn changed(&self, head: &Head) -> bool {
+        self.screen.changed(&head.console.term.terminal)
+            || self.pointer != head.pointer.visible
+            || self.cursor != head.console.term.blink.cursor_shown()
+    }
 }
 
 /// What the screens of `heads` show, merged variant by variant: each
@@ -5973,6 +6143,15 @@ mod tests {
         /// The swaps, each a frame composed, and the frames a commit sent.
         swaps: u32,
         committed: u32,
+        /// The damage each swap brought, in order, as drm2d receives it: a
+        /// swap with no damage presents nothing there.
+        pub(super) damage: Vec<Vec<Rect>>,
+        /// The buffers it takes turns with, as drm2d does: with 2, each
+        /// buffer it lends once two frames have gone out is 2 frames old, so
+        /// the renderer draws into it the cells the last two frames changed.
+        /// A swap with no damage presents nothing and ages no buffer. With
+        /// 0, every buffer is new and every frame is drawn whole.
+        pub(super) buffers: u32,
         /// The kernel removes it at the next commit, which answers as
         /// drm2d does when that commit finds the card gone.
         unplug_at_commit: bool,
@@ -6018,6 +6197,8 @@ mod tests {
                 kept: false,
                 swaps: 0,
                 committed: 0,
+                damage: Vec::new(),
+                buffers: 0,
                 unplug_at_commit: false,
                 waits_for_flip: false,
                 hotplugs: 0,
@@ -6090,17 +6271,22 @@ mod tests {
                 return None;
             }
             let memory: Arc<Memory> = self.pixels.clone();
+            let presented = self.damage.iter().filter(|d| !d.is_empty()).count();
+            let age = u32::try_from(presented)
+                .unwrap_or(u32::MAX)
+                .min(self.buffers);
             Some(Token::new(
                 id,
                 self.size,
                 self.size.0.saturating_mul(4),
-                0,
+                age,
                 memory,
             ))
         }
         fn give_back(&mut self, _: Token) {}
-        fn swap(&mut self, _: Token, _: &[Rect]) -> Result<Swapped, SwapError> {
+        fn swap(&mut self, _: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
             self.swaps = self.swaps.saturating_add(1);
+            self.damage.push(damage.to_vec());
             if self.flipping {
                 self.kept = true;
                 return Err(SwapError::Busy);
@@ -6247,7 +6433,7 @@ mod tests {
     }
 
     /// What the start runs for a trusted head file holding `text`.
-    fn start(text: &str) -> Start {
+    pub(super) fn start(text: &str) -> Start {
         Start::trusted(Path::new("heads.conf"), text.as_bytes())
     }
 
@@ -6304,13 +6490,13 @@ mod tests {
     #[test]
     fn a_display_asks_the_consoles_pointer_file_store_for_its_height() {
         let (_lp, mut app) = seat(None, no_fonts());
-        app.pointer_store.take_heights();
+        app.top_pointer_store().take_heights();
         app.add_video(
             PathBuf::from("/dev/mem0"),
             Box::new(Still::new(&[(1, "A")])),
         );
         shown(&mut app);
-        assert_eq!(app.pointer_store.asked(), [16]);
+        assert_eq!(app.top_pointer_store().asked(), [16]);
     }
 
     // A display that joins a head takes the color table of the head's
@@ -7559,6 +7745,67 @@ mod tests {
         assert_eq!(now, asked, "no other height asked");
     }
 
+    // ADR-1200 D14: once vtium leaves out a font of a frit, here its text
+    // font, after the font made the helper fail, the console forgets the
+    // cells the helper answered and asks for each again. The helper now
+    // refuses the cell, so the head that drew in the text font's cell goes
+    // back to the cell it drew in before the frit gave it one.
+    #[test]
+    fn a_font_left_out_asks_for_the_cells_again_and_a_refusal_drops_the_cell() {
+        let (_lp, mut app, _dir) = late_seat("late-left-out");
+        let at = app.heads.first().map(|h| h.font_size).unwrap();
+        let drawn = |app: &App| {
+            let head = app.heads.first().unwrap();
+            (head.cell, head.cells(), head.grid())
+        };
+        let before = drawn(&app);
+        let (width, height) = before.0;
+        let own = vtium_font::Cell {
+            width: width + 2,
+            height,
+        };
+        app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(own)));
+        assert_eq!(drawn(&app).0, (own.width, own.height), "the frit's cell");
+        app.ask_cells_again("t", (app.clock)());
+        assert!(
+            app.frits.get("t").unwrap().own.is_empty(),
+            "the cells are forgotten"
+        );
+        let refusal = Err(helper::NoCell {
+            why: "vtium left out the text font source=kbd:x after it made the font helper fail, so the built-in font draws the text in its place".to_owned(),
+            late: false,
+            from_frit: true,
+        });
+        app.late_cell("t", at, refusal);
+        assert_eq!(drawn(&app), before, "the head draws in its earlier cell");
+    }
+
+    // The console's turn of the helpers asks for the frit's cells again
+    // when its helper says it left a source out: the turn forgets the cell
+    // the frit held, and the running helper is asked for it once more.
+    #[test]
+    fn a_turn_after_a_font_was_left_out_asks_for_the_cells_again() {
+        let (_lp, mut app, _dir) = late_seat("late-turn-blamed");
+        let at = app.heads.first().map(|h| h.font_size).unwrap();
+        let (width, height) = app.heads.first().unwrap().cell;
+        let own = vtium_font::Cell {
+            width: width + 2,
+            height,
+        };
+        app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(own)));
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(frit.own.contains_key(&at), "the frit's cell");
+        let helper = frit.helper.as_mut().unwrap();
+        let mut asked = helper.asked_late();
+        helper.set_blamed();
+        app.helper_turn((app.clock)());
+        let frit = app.frits.get("t").unwrap();
+        assert!(frit.own.is_empty(), "the cells are forgotten");
+        asked.push(at);
+        let helper = frit.helper.as_ref().unwrap();
+        assert_eq!(helper.asked_late(), asked, "the cell is asked again");
+    }
+
     fn late_seat(test: &str) -> (Loop<App>, App, Scratch) {
         let dir = Scratch::new(&format!("app-{test}"));
         std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
@@ -7581,6 +7828,488 @@ mod tests {
         );
         shown(&mut app);
         (lp, app, dir)
+    }
+
+    /// A program on one display, 320×160 pixels and drawing the built-in
+    /// font in its 8×8 cell, switches with OSC 50 to the bitmap frit `t`,
+    /// whose helper never answers in time. The program then asks for the
+    /// font's name and, with XTWINOPS 16, 14 and 18, for the cell, the text
+    /// area and the grid, and writes `hi`. `settle` makes the state change
+    /// that ends the wait for the cell. Returns the replies the program got
+    /// and the screen's first row before `settle` ran, and all the replies
+    /// it got.
+    fn late_switch(test: &str, settle: impl FnOnce(&mut App)) -> (String, String, String) {
+        let dir = Scratch::new(&format!("app-{test}"));
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let (_lp, mut app) = seat_with(&[], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        assert_eq!(app.heads.first().unwrap().cell, (8, 8), "the built-in cell");
+        let program = b"\x1b]50;t\x07\x1b]50;?\x07\x1b[16t\x1b[14t\x1b[18thi";
+        let mut replies = Vec::new();
+        let mut fed = 0;
+        let mut feed = |app: &mut App, replies: &mut Vec<u8>| {
+            let term = app.term_mut().unwrap();
+            let rest = program.get(fed..).unwrap_or_default();
+            fed = fed.saturating_add(term.parse(rest, &mut |r| replies.extend_from_slice(r)));
+            fed
+        };
+        // The terminal stops after the switch's request, and the turn
+        // switches the font, whose cell is not known in time.
+        feed(&mut app, &mut replies);
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().frit(), Some("t"), "switched");
+        assert_eq!(app.heads.first().unwrap().cell, (8, 8), "in the old cell");
+        // The terminal reads the rest of the program's output and draws
+        // it in the old cell.
+        let read = feed(&mut app, &mut replies);
+        assert_eq!(read, program.len(), "the program's output is all read");
+        app.turn(Instant::now());
+        let early = String::from_utf8(replies.clone()).unwrap();
+        let row = app.screen_text().first().cloned().unwrap_or_default();
+        settle(&mut app);
+        app.turn(Instant::now());
+        feed(&mut app, &mut replies);
+        (early, row, String::from_utf8(replies).unwrap())
+    }
+
+    // A program that switches to a bitmap font set whose cell comes after
+    // the wait, then asks for the set's name and its cell, and then writes
+    // text, sees its text drawn at once. The answers wait until the cell is
+    // known. Every answer after the new name then reports the new 10×8
+    // cell, on the grid of 32×20 cells it lays out, in the order the
+    // program asked.
+    //
+    // References:
+    // - ADR-1200 D5: OSC 50's query names the font set in use.
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // covers: text.font-change
+    #[test]
+    fn a_switch_answers_once_its_late_cell_is_known() {
+        let (early, row, replies) = late_switch("late-switch-cell", |app| {
+            let own = vtium_font::Cell {
+                width: 10,
+                height: 8,
+            };
+            let frit = app.frits.get_mut("t").unwrap();
+            let running = frit.helper.as_mut().unwrap();
+            assert!(running.answer_late(Ok(helper::OwnCell::Bitmap(own))));
+        });
+        assert_eq!(row.trim_end(), "hi", "the text is drawn during the wait");
+        assert_eq!(early, "", "nothing is answered while the cell is not known");
+        assert_eq!(
+            replies,
+            "\x1b]50;t\x07\x1b[6;8;10t\x1b[4;160;320t\x1b[8;20;32t"
+        );
+    }
+
+    // When the font helper fails before the cell comes, the console stops
+    // waiting for it. The program's text is drawn during the wait, and the
+    // program then gets the answers in the 8×8 cell the head keeps, in the
+    // order it asked.
+    // covers: text.font-change
+    #[test]
+    fn a_switch_answers_in_the_kept_cell_once_the_helper_fails() {
+        let (early, row, replies) = late_switch("late-switch-failed", |app| {
+            let frit = app.frits.get_mut("t").unwrap();
+            frit.helper.as_mut().unwrap().give_up("the helper failed");
+        });
+        assert_eq!(row.trim_end(), "hi", "the text is drawn during the wait");
+        assert_eq!(early, "", "nothing is answered while the cell is not known");
+        assert_eq!(
+            replies,
+            "\x1b]50;t\x07\x1b[6;8;8t\x1b[4;160;320t\x1b[8;20;40t"
+        );
+    }
+
+    // A font set's helper crashed on its second font, so vtium used one of
+    // the helper's three chances and left that font out. A program then
+    // switches with OSC 50 to the built-in font and back. No head draws the
+    // font set in between, so vtium drops it and its helper. The helper
+    // that vtium starts when the program switches back still has one
+    // chance used, and it leaves the same font out. Otherwise each round
+    // trip would give the helper three new chances, and a program could
+    // make vtium start the helper as often as it likes.
+    //
+    // References:
+    // - ADR-1200 D15, "Restarted after a failure": three chances a boot.
+    #[test]
+    fn a_font_set_switched_away_and_back_keeps_its_chances_and_left_out_fonts() {
+        let dir = Scratch::new("app-failures-kept");
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\nsource=kbd:y\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let (_lp, mut app) = seat_with(&[], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let osc50 = |app: &mut App, name: &str| {
+            let request = format!("\x1b]50;{name}\x07");
+            app.term_mut()
+                .unwrap()
+                .parse(request.as_bytes(), &mut |_| {});
+            app.turn(Instant::now());
+        };
+        osc50(&mut app, "t");
+        let helper = app.helper("t").unwrap();
+        helper.crashed_on(1, Instant::now());
+        assert_eq!(helper.used(), (1, 0b10));
+        osc50(&mut app, "unifont");
+        assert!(!app.frits.contains_key("t"), "no head draws the font set");
+        osc50(&mut app, "t");
+        assert_eq!(app.font_name(), "t");
+        let helper = app.helper("t").unwrap();
+        assert_eq!(
+            helper.used(),
+            (1, 0b10),
+            "the chance and the font stay used"
+        );
+    }
+
+    // A program on console 1 switches to a bitmap font set whose cell comes
+    // after the wait, and asks for the set's name and its cell. The user
+    // opens console 2 before the cell comes, which hides console 1. The
+    // late 10×8 cell lays out the shown console alone, so console 1 keeps
+    // its 8×8 fit while it is hidden and goes on holding its replies.
+    // Shown again, console 1 is laid out in the new cell, and only then
+    // does it answer, with the new name and the new cell together.
+    //
+    // References:
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_console_hidden_during_the_wait_answers_once_shown_in_the_new_cell() {
+        let dir = Scratch::new("app-late-hidden");
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let (_lp, mut app) = seat_with(&[], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let mut replies = Vec::new();
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;t\x07", &mut |r| replies.extend_from_slice(r));
+        app.turn(Instant::now());
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;?\x07\x1b[16t", &mut |r| {
+            replies.extend_from_slice(r)
+        });
+        app.turn(Instant::now());
+        assert_eq!(replies, b"", "the replies wait for the cell");
+        let first = app.heads.first().unwrap().console.id;
+        let now = Instant::now();
+        assert!(app.open_console(0, now), "a second console opens");
+        app.turn(now);
+        let own = vtium_font::Cell {
+            width: 10,
+            height: 8,
+        };
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(
+            frit.helper
+                .as_mut()
+                .unwrap()
+                .answer_late(Ok(helper::OwnCell::Bitmap(own)))
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.cell, (10, 8), "the shown console takes the new cell");
+        let hidden = head.hidden.iter_mut().find(|c| c.id == first).unwrap();
+        assert_eq!(hidden.fit.cell, (8, 8), "the hidden console keeps its fit");
+        assert!(hidden.term.terminal.replies_held(), "and its hold");
+        assert_eq!(hidden.term.terminal.take_replies(), b"", "nothing went out");
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.console.id, first, "console 1 is shown again");
+        assert_eq!(head.cell, (10, 8), "in the new cell");
+        assert!(!head.console.term.terminal.replies_held(), "the hold ended");
+        assert_eq!(
+            String::from_utf8(head.console.term.terminal.take_replies()).unwrap(),
+            "\x1b]50;t\x07\x1b[6;8;10t"
+        );
+    }
+
+    /// The OSC 50 and XTWINOPS 16 replies that the console `id` of head 0
+    /// gives at once to a query of the font set's name and of its cell.
+    fn name_and_cell(app: &mut App, id: u64) -> String {
+        let head = app.heads.first_mut().unwrap();
+        let console = head.consoles_mut().find(|c| c.id == id).unwrap();
+        let mut replies = Vec::new();
+        console.term.parse(b"\x1b]50;?\x07\x1b[16t", &mut |r| {
+            replies.extend_from_slice(r)
+        });
+        String::from_utf8(replies).unwrap()
+    }
+
+    /// Frits `a` and `b`, which state their cells of 10×20 and 16×32, and
+    /// `t`, whose cell the stand-in helper never gives in time.
+    fn two_cells_and_a_late_one(dir: &Scratch) -> font::Sources {
+        std::fs::write(dir.join("a.vtfrit"), "source=kbd:x\ncell=10x20\n").unwrap();
+        std::fs::write(dir.join("b.vtfrit"), "source=kbd:x\ncell=16x32\n").unwrap();
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
+        font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        }
+    }
+
+    // Head 0 draws frit a and has two consoles; console 2 is hidden. A
+    // program on console 1 switches the head to frit b. While console 2 is
+    // hidden it keeps the grid and the 10×20 cell it last drew in, so it
+    // goes on naming a, and its name and its cell agree. Once shown, the
+    // head lays console 2 out in b, and its name and its cell change
+    // together.
+    //
+    // References:
+    // - ADR-1200 D5: the name OSC 50's query reports.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_hidden_console_names_the_font_it_last_drew_in_until_shown() {
+        let dir = Scratch::new("app-hidden-name");
+        let fonts = two_cells_and_a_late_one(&dir);
+        let (_lp, mut app) = seat_with(&["--font-name=a", "--font-size=0"], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let first = app.heads.first().unwrap().console.id;
+        assert!(
+            app.open_console(0, Instant::now()),
+            "a second console opens"
+        );
+        app.turn(Instant::now());
+        let second = app.heads.first().unwrap().console.id;
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, first);
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t"
+        );
+        let mut replies = Vec::new();
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;b\x07", &mut |r| replies.extend_from_slice(r));
+        app.turn(Instant::now());
+        assert_eq!(
+            app.heads.first().unwrap().cell,
+            (16, 32),
+            "the head draws b"
+        );
+        assert_eq!(name_and_cell(&mut app, first), "\x1b]50;b\x07\x1b[6;32;16t");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t",
+            "console 2, hidden, keeps the font it last drew in"
+        );
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, second, "shown");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;b\x07\x1b[6;32;16t"
+        );
+    }
+
+    // Head 0 draws frit a and has two consoles; console 2 is hidden. A
+    // program on console 1 switches the head to frit t, whose cell comes
+    // after the wait. Console 2, hidden, names a and its 10×20 cell during
+    // the wait and after the late 12×24 cell lays console 1 out. Once
+    // shown, console 2 is laid out in t's cell, and names t with that cell.
+    //
+    // References:
+    // - ADR-1200 D5: the name OSC 50's query reports.
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_hidden_console_takes_the_late_cell_and_its_name_together_once_shown() {
+        let dir = Scratch::new("app-hidden-late-name");
+        let fonts = two_cells_and_a_late_one(&dir);
+        let (_lp, mut app) = seat_with(&["--font-name=a", "--font-size=0"], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let first = app.heads.first().unwrap().console.id;
+        assert!(
+            app.open_console(0, Instant::now()),
+            "a second console opens"
+        );
+        app.turn(Instant::now());
+        let second = app.heads.first().unwrap().console.id;
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, first);
+        let mut replies = Vec::new();
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;t\x07", &mut |r| replies.extend_from_slice(r));
+        app.turn(Instant::now());
+        assert!(
+            app.heads
+                .first()
+                .unwrap()
+                .console
+                .term
+                .terminal
+                .replies_held(),
+            "console 1 waits for t's cell"
+        );
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t",
+            "console 2, hidden during the wait"
+        );
+        let own = vtium_font::Cell {
+            width: 12,
+            height: 24,
+        };
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(
+            frit.helper
+                .as_mut()
+                .unwrap()
+                .answer_late(Ok(helper::OwnCell::Bitmap(own)))
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.cell, (12, 24), "the late cell");
+        assert_eq!(
+            String::from_utf8(head.console.term.terminal.take_replies()).unwrap(),
+            "",
+            "console 1 asked nothing"
+        );
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t",
+            "console 2, hidden after the late cell"
+        );
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, second, "shown");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;t\x07\x1b[6;24;12t"
+        );
+    }
+
+    // A program on console 1 switches head 0 from frit a to frit t, whose
+    // cell comes late. The user opens console 2 during the wait, and a
+    // program there asks for the font set's name and for the cell at once.
+    // Console 2 holds its replies, as console 1 does, so it never reports
+    // t's name with the 8×8 cell the head keeps during the wait. The user goes back to
+    // console 1 before the late 12×24 cell comes. Console 2 is hidden and
+    // keeps its hold. Once shown, it is laid out in t's cell, it sends its
+    // held replies, and it answers with t's name and t's cell together.
+    //
+    // References:
+    // - ADR-1200 D5: the name OSC 50's query reports.
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_console_shown_during_the_wait_holds_its_replies_until_the_new_cell() {
+        let dir = Scratch::new("app-shown-during-wait");
+        let fonts = two_cells_and_a_late_one(&dir);
+        let (_lp, mut app) = seat_with(&["--font-name=a", "--font-size=0"], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let first = app.heads.first().unwrap().console.id;
+        app.term_mut().unwrap().parse(b"\x1b]50;t\x07", &mut |_| {});
+        app.turn(Instant::now());
+        assert!(
+            app.open_console(0, Instant::now()),
+            "a second console opens"
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first().unwrap();
+        let second = head.console.id;
+        assert_eq!(head.cell, (8, 8), "the cell the head keeps during the wait");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "",
+            "console 2 holds its replies"
+        );
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, first);
+        let own = vtium_font::Cell {
+            width: 12,
+            height: 24,
+        };
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(
+            frit.helper
+                .as_mut()
+                .unwrap()
+                .answer_late(Ok(helper::OwnCell::Bitmap(own)))
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.cell, (12, 24), "the late cell");
+        let hidden = head.hidden.iter_mut().find(|c| c.id == second).unwrap();
+        assert!(
+            hidden.term.terminal.replies_held(),
+            "hidden console 2 keeps its hold"
+        );
+        assert_eq!(hidden.term.terminal.take_replies(), b"", "nothing went out");
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.console.id, second, "console 2 is shown again");
+        assert_eq!(head.cell, (12, 24), "in t's cell");
+        assert!(!head.console.term.terminal.replies_held(), "the hold ended");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;t\x07\x1b[6;24;12t"
+        );
     }
 
     // ADR-1200 D17: a late outline answer at the height the head draws at
@@ -9012,6 +9741,327 @@ mod tests {
             .iter()
             .all(|h| h.frames_out() == 0)));
         assert_eq!(swaps(&mut app), first + 60, "one frame for each update");
+    }
+
+    // A key that a program echoes presents one frame on a display with two
+    // buffers: the frame that shows the echo. The key itself changes nothing
+    // on the screen, so vtium draws no frame for it. A frame drawn there
+    // would still have damage, because the buffer it goes into is two frames
+    // old and lacks the last echo, and the display would present it as a
+    // second frame with the same picture. The program here is the test,
+    // which reads each key from the pty in raw mode and writes it back, as
+    // tier 3's key-echo case does with dd.
+    //
+    // References:
+    // - ADR-1401 D2: a key's window, inside which the echo draws at once.
+    #[test]
+    fn an_echoed_key_presents_one_frame_on_a_double_buffered_display() {
+        use std::io::{Read, Write};
+        let args: Vec<OsString> = [
+            "--font-size=16",
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "exec sleep 30",
+        ]
+        .iter()
+        .map(OsString::from)
+        .collect();
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
+        let mut lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            vec![("PATH".into(), "/usr/bin:/bin".into())],
+        );
+        app.set_font_sources(no_fonts());
+        let mut still = Still::new(&[(1, "A")]);
+        still.buffers = 2;
+        app.add_video(PathBuf::from("/dev/mem0"), Box::new(still));
+        shown(&mut app);
+        app.focus = Some(0);
+        app.start();
+        // Turns the loop as `main` does, waiting at most 50 ms, until
+        // `done` holds, for at most 5 s.
+        fn turn_until(lp: &mut Loop<App>, app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
+            let end = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < end {
+                if done(app) {
+                    return true;
+                }
+                let wait = app
+                    .next_wake(Instant::now())
+                    .map_or(Duration::from_millis(50), |w| {
+                        w.min(Duration::from_millis(50))
+                    });
+                lp.dispatch(Some(wait), app).unwrap();
+                app.turn(Instant::now());
+            }
+            done(app)
+        }
+        // The frames the display presented: its swaps that brought damage.
+        fn presented(app: &mut App) -> usize {
+            let video = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            let still = video.as_any().downcast_mut::<Still>().unwrap();
+            still.damage.iter().filter(|d| !d.is_empty()).count()
+        }
+        let idle = |app: &mut App| app.heads.iter().all(|h| h.frames_out() == 0);
+        assert!(
+            turn_until(&mut lp, &mut app, |app| app.pty().is_some()),
+            "the session starts"
+        );
+        let name = rustix::pty::ptsname(app.pty().unwrap().master(), Vec::new()).unwrap();
+        let flags = rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY;
+        let slave = rustix::fs::open(name.as_c_str(), flags, rustix::fs::Mode::empty()).unwrap();
+        // Raw and with no echo, so the test's writes are the only echo. A
+        // read returns as soon as a byte is there, and returns nothing after
+        // 5 s, so a key that never reaches the pty fails the test instead of
+        // hanging it. Each read comes after the key's turn has written the
+        // key, so the 5 s only bounds a failure.
+        let mut termios = rustix::termios::tcgetattr(&slave).unwrap();
+        termios.make_raw();
+        termios.special_codes[rustix::termios::SpecialCodeIndex::VMIN] = 0;
+        termios.special_codes[rustix::termios::SpecialCodeIndex::VTIME] = 50;
+        rustix::termios::tcsetattr(&slave, rustix::termios::OptionalActions::Now, &termios)
+            .unwrap();
+        let mut slave = std::fs::File::from(slave);
+        assert!(
+            turn_until(&mut lp, &mut app, |app| presented(app) > 0 && idle(app)),
+            "the first frame goes out"
+        );
+        for c in ['a', 'b', 'c', 'd'] {
+            let before = presented(&mut app);
+            let key = InputEvent::Key(KeyEvent {
+                keycode: 30,
+                ascii: u32::from(c),
+                unshifted: u32::from(c),
+                shifted: u32::from(c),
+                base: None,
+                mods: InputMods::empty(),
+                keysyms: vec![u32::from(c)],
+                codepoints: vec![Some(c)],
+                repeat: false,
+            });
+            app.input_event(key, Instant::now());
+            app.turn(Instant::now());
+            assert!(
+                turn_until(&mut lp, &mut app, idle),
+                "{c}: the key's turn ends"
+            );
+            let mut read = [0u8; 8];
+            let n = slave.read(&mut read).unwrap();
+            assert_ne!(n, 0, "{c}: the key reaches the pty within 5 s");
+            let echo = read.get(..n).unwrap();
+            assert_eq!(echo, [c as u8], "{c} reached the program");
+            slave.write_all(echo).unwrap();
+            let want = app.term_mut().unwrap().parsed + n as u64;
+            assert!(
+                turn_until(&mut lp, &mut app, |app| {
+                    app.term_mut().unwrap().parsed >= want && idle(app)
+                }),
+                "{c}: the echo is parsed and drawn"
+            );
+            // A few more turns, in which no other frame may go out.
+            for _ in 0..4 {
+                lp.dispatch(Some(Duration::ZERO), &mut app).unwrap();
+                app.turn(Instant::now());
+            }
+            assert!(turn_until(&mut lp, &mut app, idle), "{c}: nothing is out");
+            assert_eq!(
+                presented(&mut app) - before,
+                1,
+                "{c}: one frame for the key and its echo"
+            );
+        }
+        let row = app.screen_text().first().cloned().unwrap_or_default();
+        assert!(row.starts_with("abcd"), "the echoes show: {row:?}");
+    }
+
+    // A key that changes what the displays show draws a frame at once,
+    // before the program answers: it clears the selection, returns the view
+    // from the scrollback, hides the pointer under
+    // `pointer-hide-while-typing`, or shows a blinking cursor again in its
+    // hidden phase. A key that changes none of these draws no frame of its
+    // own, and the program's echo draws the next one.
+    #[test]
+    fn a_key_draws_a_frame_only_when_it_changes_what_shows() {
+        let key = |app: &mut App, c: char| {
+            app.heads.first_mut().unwrap().draw_now = false;
+            app.input_event(
+                InputEvent::Key(KeyEvent {
+                    keycode: 46,
+                    ascii: u32::from(c),
+                    unshifted: u32::from(c),
+                    shifted: u32::from(c),
+                    base: None,
+                    mods: InputMods::empty(),
+                    keysyms: vec![u32::from(c)],
+                    codepoints: vec![Some(c)],
+                    repeat: false,
+                }),
+                Instant::now(),
+            );
+            let head = app.heads.first().unwrap();
+            assert!(
+                head.views.values().all(|v| v.after_key(&head.console.term)),
+                "{c} went to the program"
+            );
+            head.draw_now
+        };
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        app.focus = Some(0);
+        app.hide_while_typing = true;
+        app.turn(Instant::now());
+        let lines = b"line\r\n".repeat(40);
+        let term = app.term_mut().unwrap();
+        assert_eq!(term.parse(&lines, &mut |_| {}), lines.len());
+        app.heads.first_mut().unwrap().pointer.visible = false;
+        key(&mut app, 'c');
+        assert!(
+            !key(&mut app, 'c'),
+            "a key that changes nothing draws nothing"
+        );
+        // The selection.
+        let screen = app.term_mut().unwrap().terminal.screen_mut();
+        screen.select_start(0, 0);
+        screen.select_to(3, 0);
+        assert!(screen.has_selection());
+        assert!(key(&mut app, 'c'), "the key cleared the selection");
+        assert!(!app.term_mut().unwrap().terminal.screen().has_selection());
+        // The scrollback.
+        app.term_mut()
+            .unwrap()
+            .terminal
+            .screen_mut()
+            .scroll_view_up(3);
+        assert!(key(&mut app, 'c'), "the key returned the view");
+        assert_eq!(app.term_mut().unwrap().terminal.screen().scrolled_back(), 0);
+        // The pointer.
+        app.heads.first_mut().unwrap().pointer.visible = true;
+        assert!(key(&mut app, 'c'), "the key hid the pointer");
+        assert!(!app.heads.first().unwrap().pointer.visible);
+        // The cursor's hidden phase.
+        let blink = &mut app.term_mut().unwrap().blink;
+        blink.fired(Timer::Cursor, true);
+        assert!(!blink.cursor_shown(), "the cursor's hidden phase");
+        assert!(key(&mut app, 'c'), "the key showed the cursor");
+        assert!(!key(&mut app, 'c'), "and the next key changes nothing");
+    }
+
+    // A key that vtium drops still clears the selection, and the selection
+    // it cleared draws a frame. vtium drops a repeat whose press it never
+    // delivered, and a key with no keysym, which no program can be sent.
+    #[test]
+    fn a_key_vtium_drops_draws_the_selection_it_cleared() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        app.focus = Some(0);
+        app.hide_while_typing = false;
+        app.turn(Instant::now());
+        let c = u32::from('c');
+        let repeat = KeyEvent {
+            keycode: 46,
+            ascii: c,
+            unshifted: c,
+            shifted: c,
+            base: None,
+            mods: InputMods::empty(),
+            keysyms: vec![c],
+            codepoints: vec![Some('c')],
+            repeat: true,
+        };
+        let no_keysym = KeyEvent {
+            keysyms: Vec::new(),
+            codepoints: Vec::new(),
+            repeat: false,
+            ..repeat.clone()
+        };
+        for (what, key) in [
+            ("a dropped repeat", repeat),
+            ("a key with no keysym", no_keysym),
+        ] {
+            let screen = app.term_mut().unwrap().terminal.screen_mut();
+            screen.select_start(0, 0);
+            screen.select_to(3, 0);
+            assert!(screen.has_selection());
+            app.heads.first_mut().unwrap().draw_now = false;
+            app.input_event(InputEvent::Key(key), Instant::now());
+            let head = app.heads.first().unwrap();
+            assert!(
+                !head.views.values().any(|v| v.after_key(&head.console.term)),
+                "{what} does not reach the program"
+            );
+            assert!(
+                !head.console.term.terminal.screen().has_selection(),
+                "{what} clears the selection"
+            );
+            assert!(head.draw_now, "{what} draws the cleared selection");
+        }
+    }
+
+    // A key pressed with Ctrl while the pointer is over a link shows the
+    // link's URI on the overlay row, and that draws a frame before the
+    // program answers the key.
+    //
+    // References:
+    // - ADR-1002, "What a link does": Ctrl shows the hovered link's URI.
+    #[test]
+    fn a_ctrl_key_over_a_link_draws_the_uri_it_shows() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        app.focus = Some(0);
+        app.hide_while_typing = false;
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        head.console
+            .term
+            .terminal
+            .input(b"\x1b]8;;x:there\x1b\\link\x1b]8;;\x1b\\");
+        head.pointer.visible = true;
+        head.pointer.x = head.cell.0 / 2;
+        head.pointer.y = head.cell.1 / 2;
+        head.hover(false);
+        assert_eq!(head.link_overlay(), None, "no URI shows without Ctrl");
+        head.draw_now = false;
+        let e = u32::from('e');
+        app.input_event(
+            InputEvent::Key(KeyEvent {
+                keycode: 18,
+                ascii: e,
+                unshifted: e,
+                shifted: e,
+                base: None,
+                mods: InputMods::CTRL,
+                keysyms: vec![e],
+                codepoints: vec![Some('e')],
+                repeat: false,
+            }),
+            Instant::now(),
+        );
+        let head = app.heads.first().unwrap();
+        assert!(
+            head.views.values().all(|v| v.after_key(&head.console.term)),
+            "Ctrl+e went to the program"
+        );
+        assert_eq!(head.link_overlay().as_deref(), Some("x:there"));
+        assert!(head.draw_now, "the key draws the URI it shows");
     }
 
     // ADR-1401 D2: a synchronized update's end stops the terminal only

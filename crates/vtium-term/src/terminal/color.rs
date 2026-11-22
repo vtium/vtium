@@ -283,7 +283,7 @@ impl State {
                 continue;
             };
             if spec == b"?" {
-                if self.out.len() >= REPLIES_PENDING_MAX {
+                if self.pending() >= REPLIES_PENDING_MAX {
                     continue;
                 }
                 let rgb = self.colors.color(i);
@@ -422,7 +422,7 @@ impl State {
     fn osc_kitty(&mut self, list: &[u8], end: StringEnd) {
         let mut reply = String::new();
         for field in list.split(|&b| b == b';') {
-            let full = self.out.len().saturating_add(reply.len()) >= REPLIES_PENDING_MAX;
+            let full = self.pending().saturating_add(reply.len()) >= REPLIES_PENDING_MAX;
             let (key, value) = match field.iter().position(|&b| b == b'=') {
                 Some(at) => (
                     field.get(..at).unwrap_or_default(),

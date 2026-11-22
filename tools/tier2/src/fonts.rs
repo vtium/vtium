@@ -209,7 +209,7 @@ pub const SCRIPTS_HEIGHT: u32 = 40;
 
 /// A font set vtium ships for a script that needs room above and below its
 /// letters (vtium/vtium#204): its name and its text, as
-/// `tools/specimens/frits` holds it. It names its fonts by family, and the
+/// `crates/vtium-config/frits/scripts/` holds it. It names its fonts by family, and the
 /// engine finds each family in the cache, its only font directory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ShippedFrit {

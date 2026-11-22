@@ -712,7 +712,7 @@ mod draft_flow {
         assert!(status.contains("· no changes · no problems"), "{status}");
         assert!(!status.contains(words::NO_HOTPLUG), "{status}");
         let screen = ran.screen();
-        for want in ["desk", "panel", "proof", "kbd"] {
+        for want in ["desk", "panel", "look big", "kbd"] {
             assert!(screen.contains(want), "{want}: {screen}");
         }
     }
@@ -778,6 +778,114 @@ mod draft_flow {
             "{screen}"
         );
         assert!(flat(screen).contains(words::SUBFLOW_REQUIRES), "{screen}");
+    }
+
+    // vtium draws a terminal that names no look with the draft's
+    // `[look default]` section, so panel's subflow shows that look's font
+    // set and not vtium.conf's
+    //
+    // References:
+    // - ADR-1403 D7, "The terminal's subflow: font set and effects".
+    #[test]
+    fn a_terminal_with_no_look_shows_the_font_set_of_look_default() {
+        const DOWN: &[u8] = b"\x1b[B";
+        let b = bench("subflow-default");
+        let text = INSTALLED.replace(
+            "[head desk]\n",
+            "[look default]\nfont-name = unifont\n[head desk]\n",
+        );
+        assert_ne!(text, INSTALLED);
+        std::fs::write(b.root.join("etc/vtium.conf"), &text).expect("vtium.conf");
+        let ran = run_at(
+            &b,
+            (120, 32),
+            vec![present(vec![keyboard()], true)],
+            true,
+            &[b"\x1b[H", RIGHT, DOWN, b"\r"],
+        );
+        let screen = ran.screen();
+        assert!(screen.contains("TERMINAL panel"), "{screen}");
+        assert!(
+            screen.contains("Font set unifont  →  default look  →  no display"),
+            "{screen}"
+        );
+    }
+
+    // A head whose look line names a look the draft lacks: the card's Look
+    // line offers that name, marked as missing, after the draft's looks, and
+    // starts on it. The line's note says what vtium draws instead. Enter on
+    // the missing name changes nothing, and the subflow marks it too.
+    #[test]
+    fn a_terminal_that_names_a_missing_look_shows_it_as_missing() {
+        const DOWN: &[u8] = b"\x1b[B";
+        let b = bench("card-look-missing");
+        let text = INSTALLED.replace("[head panel]\n", "[head panel]\nlook = gone\n");
+        assert_ne!(text, INSTALLED);
+        std::fs::write(b.root.join("etc/vtium.conf"), &text).expect("vtium.conf");
+        let panel = [b"\x1b[H", RIGHT, DOWN, b"\r", DOWN];
+        let ran = run_at(
+            &b,
+            (120, 32),
+            vec![present(vec![keyboard()], true)],
+            true,
+            &panel,
+        );
+        let screen = ran.screen();
+        assert!(screen.contains("TERMINAL panel"), "{screen}");
+        assert!(
+            screen.contains("○ default look   ○ big   ● gone (missing)"),
+            "{screen}"
+        );
+        assert!(
+            flat(screen).contains(&words::look_missing_about("gone")),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("Font set from vtium.conf  →  look gone (missing)  →  no display"),
+            "{screen}"
+        );
+        let ran = run(&b, &[&panel[..], &[b"\r", ESC, b"s"]].concat());
+        assert_eq!(b.draft(), text, "{}", ran.screen());
+    }
+
+    /// A terminal's card picks one of the draft's looks, and Save writes
+    /// only the head's `look =` line. Desk's card steps its look from big
+    /// to the default look and back: the first writes desk's head with no
+    /// look line and keeps the look big, which panel can still take; the
+    /// second puts the installed file back. Panel's card then takes big.
+    ///
+    /// References:
+    /// - ADR-1205 D1: a terminal takes a look from the Looks tab, and the
+    ///   Flow view makes no look itself.
+    /// - ADR-1403 D8: the head's `look =` line is the one line a path's
+    ///   look writes, and a path with no look leaves it out.
+    #[test]
+    fn a_terminal_s_card_picks_a_look_and_writes_only_its_look_line() {
+        const DOWN: &[u8] = b"\x1b[B";
+        // desk's card, its Look line, one choice to the left
+        let desk = [b"\x1b[H", RIGHT, b"\r", DOWN, LEFT, b"\r", ESC];
+        let b = bench("card-look");
+        run(&b, &[&desk[..], &[b"s"]].concat());
+        let want = INSTALLED.replace("[head desk]\nlook = big\n", "[head desk]\n");
+        assert_ne!(want, INSTALLED, "the fixture's desk names big");
+        assert_eq!(b.draft(), want);
+        // and back to big, which leaves the installed file as it was
+        let b = bench("card-look-back");
+        let back = [
+            b"\x1b[H", RIGHT, b"\r", DOWN, LEFT, b"\r", RIGHT, b"\r", ESC,
+        ];
+        let ran = run(&b, &[&back[..], &[b"s"]].concat());
+        assert_eq!(b.draft(), INSTALLED, "{}", ran.screen());
+        // panel's card, one terminal down, takes big
+        let panel = [b"\x1b[H", RIGHT, DOWN, b"\r", DOWN, RIGHT, b"\r", ESC];
+        let b = bench("card-look-panel");
+        let ran = run(&b, &[&panel[..], &[b"s"]].concat());
+        assert_eq!(
+            b.draft(),
+            INSTALLED.replace("[head panel]\n", "[head panel]\nlook = big\n"),
+            "{}",
+            ran.screen()
+        );
     }
 
     #[test]
@@ -1209,14 +1317,22 @@ mod draft_flow {
                 TO_LOOKS,
                 DOWN,
                 b"n",
-                b"quiet",
+                // the text font typed after Other…, at the end of its list
+                b"\r",
+                b"\x1b[F",
                 b"\r",
                 b"builtin:unscii-8",
                 b"\r",
+                // from box drawing, five rows down to the name
+                DOWN,
+                DOWN,
+                DOWN,
+                DOWN,
+                DOWN,
                 b"\r",
+                b"quiet",
                 b"\r",
-                b"\r",
-                b"\r",
+                // the add row
                 b"\r",
                 b"i",
                 b"y",

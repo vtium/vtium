@@ -13,5 +13,5 @@
 # the shrunk sequence each line records after "shrinks to", so keep that
 # comment on every line.
 cc 2cdf988a3c614a7ba59b85b616fe4bbcc7ec9bf2fc59da02975c9a5efa44c6dd # shrinks to (initial_state, transitions, seen_counter) = (RefState { term: Vtium, node: "fonts", tab: "fonts", under: [], left: None }, ["4", "o", "Esc"], None)
-cc ebd6f858638273b6ac9800d736e1ddd245b4e8f0ed08d566b3447f05dd7fc2fc # shrinks to (initial_state, transitions, seen_counter) = (RefState { term: Vtium, node: "fonts", tab: "fonts", under: [], left: None }, ["3", "Down", "n", "Grow", "Tab", "n", "Tab"], None)
-cc 6d86a4ff543c4965c7b41f9b4f7a5b844962b7ef4a51e4531c2139cd19dd3e92 # shrinks to (initial_state, transitions, seen_counter) = (RefState { term: Vtium, node: "fonts", tab: "fonts", under: [], left: None }, ["3", "Down", "n", "3"], None)
+cc ebd6f858638273b6ac9800d736e1ddd245b4e8f0ed08d566b3447f05dd7fc2fc # shrinks to (initial_state, transitions, seen_counter) = (RefState { term: Vtium, node: "fonts", tab: "fonts", under: [], left: None }, ["3", "Down", "n", "Grow", "Tab", "Esc", "Tab"], None)
+cc 6d86a4ff543c4965c7b41f9b4f7a5b844962b7ef4a51e4531c2139cd19dd3e92 # shrinks to (initial_state, transitions, seen_counter) = (RefState { term: Vtium, node: "fonts", tab: "fonts", under: [], left: None }, ["3", "Down", "n", "Shift-Tab", "Esc", "4"], None)

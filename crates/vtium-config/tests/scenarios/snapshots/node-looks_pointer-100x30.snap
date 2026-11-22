@@ -11,10 +11,10 @@ description: "looks.pointer at 100×30, keys: 3 End Enter"
  This pointer theme fails the trust rule, so vtium treats it as missing. The rule asks that the
  file and each folder above it belong to root, and that nobody else can write them.
  /usr/share/icons/stray/cursors/left_ptr: this symbolic link leaves the theme's folder.
- No look uses it. Every look uses the pointer theme that vtium.conf's pointer-theme names, because
- a look cannot pick one of its own yet.
+ No look uses it.
 
  Up and Down scroll the detail, and Esc goes back to the list.
+
 
 
 

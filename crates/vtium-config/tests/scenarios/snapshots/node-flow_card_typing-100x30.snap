@@ -8,8 +8,7 @@ description: "flow.card.typing at 100×30, keys: 4 Down Enter Enter"
  TERMINAL panel · every VT
 
    Name                            panel_
-   Font set                       default font set
-   Size                           automatic
+   Look                           default look
    Consoles                       1
    Login                          Default: /bin/login -p
    When its screen is unplugged   keep the sessions running
@@ -18,9 +17,10 @@ description: "flow.card.typing at 100×30, keys: 4 Down Enter Enter"
    Which displays and inputs this path joins change only when you revise it: press e.
 
  WHAT THIS TERMINAL DRAWS
-   Font set default font set  →  default look (built in)  →  no display
+   Font set from vtium.conf  →  default look (built in)  →  no display
    Filters and requirements: vtium-config does not read a look's vtlook file yet, so this card
    names the look and shows no filters.
+
 
 
 

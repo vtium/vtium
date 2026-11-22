@@ -239,12 +239,16 @@ This decision amends ADR-1302 D7 and ADR-1300 D5.
 The renderer still composes one row of cells at a time in the row scratch, and copies each pixel line out to the display's buffer, which it never reads. To compose a pixel, it reads from the frame and the drawn-glyph cache the glyphs of the three rows around the pixel's row whose reach covers the pixel. Each pixel of a composed run is drawn in this order:
 
 1. The background of the cell the pixel lies in.
-2. That cell's underline.
+2. That cell's underline, which skips the ink of the cell's own glyph with a gap of one pixel, as ADR-1302 D7's step 2 says.
 3. The ink of the glyphs in the row above whose reach covers the pixel, from the cell before the pixel's column to the cell after it in the cell's direction.
 4. The ink of the glyphs in the row below whose reach covers the pixel, in the same order.
 5. The ink of the glyphs beside the cell in its own row, as ADR-1302 D7's step 3 orders them.
 6. That cell's own glyph.
 7. That cell's strike-through.
+
+> Edited 2026-11-21: the maintainer decided on 2026-11-20 that the ink of a neighbouring cell's glyph, from the rows above and below as well as from the cell's own row, draws over a cell's underline and opens no gap in it (ADR-1302 D7). Only the cell's own glyph opens a gap, so the underline goes back to step 2, under every glyph's ink. The steps read: the background, the ink of the row above, the ink of the row below, the ink of the cells beside, the cell's own glyph, "That cell's underline, on top of the glyph, with a gap of one pixel around the glyph's ink, as ADR-1302 D7's step 4 says.", and the strike-through. The bullet on the maintainer's two passes named step 5 and steps 2 to 4.
+
+> Edited 2026-11-20: the maintainer decided on 2026-11-20 that the underline draws after the glyph and leaves a gap of one pixel around the glyph's ink (ADR-1302 D7, `considered` there). The underline was step 2, after the background, and the steps of the rows above and below and of the row's own neighbours were steps 3 to 5.
 
 - **No row's background paints over another row's ink,** because the only background a pixel ever takes is its own cell's, drawn first. This is the order Alacritty, WezTerm and Ghostty reach by drawing every background of the frame before any glyph; vtium reaches it pixel by pixel, so it needs neither a second pass over the frame nor a read of the display's buffer.
 - **These are the maintainer's two passes, folded into one walk over each pixel** (the maintainer's design input of 2026-11-06, `considered`). The first pass, every cell's glyph inside its own cell, is step 6; the second, the parts of glyphs that fall outside their cells, is steps 3 to 5. The second pass's buffer is the drawn-glyph cache: the parts of a glyph outside its cell are its ink box (D3), which the helper works out once when it draws the glyph and the cache stores with it, so the renderer reads them from there for each cell they land in. A buffer of overflow ink kept for the whole frame would cost 4 MiB at 1366x768 for a color and a coverage per pixel, and would have to be kept current through every change, where the cache already holds each glyph once.

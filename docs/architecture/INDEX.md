@@ -78,6 +78,7 @@ _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
 | [ADR-1401](./platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) | Heads: a terminal per physical display, placed by a first-match ruleset | accepted |
 | [ADR-1402](./platform/ADR-1402-vtium-s-own-text-is-translated-through-gettext-catalogs-in-the-system-s-language.md) | vtium's own text is translated through gettext catalogs in the system's language | accepted |
 | [ADR-1403](./platform/ADR-1403-vtium-conf-holds-the-configuration-as-one-flow-from-the-displays-to-the-input-devices-and-vtium-config-draws-it.md) | vtium.conf holds the configuration as one flow from the displays to the input devices, and vtium-config draws it | accepted |
+| [ADR-1404](./platform/ADR-1404-a-head-can-join-its-displays-into-one-larger-terminal-stacked-or-side-by-side-and-mirroring-stays-the-default.md) | A head can join its displays into one larger terminal, stacked or side by side, and mirroring stays the default | proposed |
 
 ## Project
 _Process, harness and contributions - how vtium is built, tested and judged_
@@ -94,3 +95,4 @@ _Process, harness and contributions - how vtium is built, tested and judged_
 | [ADR-1507](./project/ADR-1507-the-reference-pages-for-escape-sequences-and-the-man-pages-are-generated-from-vtium-s-tables-and-code-and-a-test-fails-when-one-is-stale.md) | The reference pages for escape sequences and the man pages are generated from vtium's tables and code, and a test fails when one is stale | accepted |
 | [ADR-1508](./project/ADR-1508-the-site-publishes-the-crates-interfaces-under-api-and-a-page-for-each-release-and-each-release-s-notes-are-written-once.md) | The site publishes the crates' interfaces under /api/ and a page for each release, and each release's notes are written once | accepted |
 | [ADR-1509](./project/ADR-1509-vtium-is-the-terminal-a-linux-machine-boots-into-and-its-front-pages-tell-what-it-does-there-in-its-own-terms.md) | vtium is the terminal a Linux machine boots into, and its front pages tell what it does there in its own terms | accepted |
+| [ADR-1510](./project/ADR-1510-vtium-s-formats-and-interfaces-are-provisional-and-each-says-what-an-older-vtium-does-with-a-newer-file.md) | vtium's formats and interfaces are provisional, and each says what an older vtium does with a newer file | proposed |

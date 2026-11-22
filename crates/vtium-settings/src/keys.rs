@@ -1265,10 +1265,11 @@ pub const POINTER_THEME: Key = Key {
     kind: Kind::Path,
     default: Default::Unset,
     scope: Scope::Anywhere,
-    levels: TOP,
+    levels: TOP_LOOK,
     what: "The SVG file or cursor theme folder whose pictures the pointer takes.\n\n\
            [docs] The value is an SVG file in vtium's pointer file format, or the folder of a desktop cursor theme, such as `/usr/share/icons/Adwaita`. vtium installs its own pictures as `/usr/share/vtium/pointers.svg`, which you can copy and edit. The format is described in [the pointer file reference](https://vtium.github.io/vtium/reference/pointer-file/).\n\n\
-           [docs] When unset, vtium draws its own pictures. A shape the file lacks keeps vtium's own picture, and `pointer-char` keeps the default shape. The font helper draws the pictures in its sandbox, so the console never reads a pointer file's contents. vtium searches no icon folder and follows no `Inherits=` line, so name the folder that holds the `cursors` folder.",
+           [docs] When unset, vtium draws its own pictures. A shape the file lacks keeps vtium's own picture, and `pointer-char` keeps the default shape. The font helper draws the pictures in its sandbox, so the console never reads a pointer file's contents. vtium searches no icon folder and follows no `Inherits=` line, so name the folder that holds the `cursors` folder.\n\n\
+           [docs] A look's own `pointer-theme` wins over this one.",
 };
 
 pub const POINTER_SIZE: Key = Key {
@@ -1341,7 +1342,7 @@ pub const FONT_NAME: Key = Key {
     levels: TOP_LOOK,
     what: "The console's font.\n\n\
            The value is the name of a font set (a frit file, `NAME.vtfrit` in `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with `font-engine = psf` the path of a PSF font; vtium then uses that one font.\n\n\
-           When unset, vtium uses the font from vconsole.conf. If there is none, or vtium cannot find the font, vtium uses its built-in font and logs why.",
+           When unset, vtium uses the font from vconsole.conf, or else the font set `terminus`. If vtium cannot find the font, it uses its built-in font and logs why.",
 };
 
 pub const FONT_FRITS: Key = Key {
@@ -1477,7 +1478,7 @@ pub const ALLOW_WINDOW_OPS: Key = Key {
            vtium meets the request by changing the font size. It draws at the largest font size at which the displays hold that many rows and columns, and the console's grid becomes exactly that size. When the displays cannot hold the size even at the smallest font size, the grid gets as many rows and columns as they hold there. A number left out keeps that side as it is, and 0 fills the display on that side.\n\n\
            The grid is exact, but a display may draw it in larger character cells than that font size gives, to fill more of the screen. A program that asks for the cell size, as with `CSI 16 t`, is told the cell of that font size.\n\n\
            The size lasts until the session of the program that asked for it ends, or until you zoom. Then vtium returns to the size that `font-size` sets.\n\n\
-           When off, vtium ignores the request and changes nothing. It is off by default, as xterm's `allowWindowOps` is. A program can ask for the size in any case, with `CSI 18 t`.",
+           When off, vtium ignores the request. It is off by default, as xterm's `allowWindowOps` is. A program can ask for the size in any case, with `CSI 18 t`.",
 };
 
 pub const ALLOW_DISPLAY_OPS: Key = Key {
@@ -1586,7 +1587,7 @@ pub const TEXT_DIRECTION: Key = Key {
     what: "Which way a paragraph of text runs when the program that writes it does not say.\n\n\
            A paragraph is the text between two line ends. `ltr`, the default, runs each paragraph left to right, from the left edge. `rtl` runs it right to left, from the right edge. `auto` takes each paragraph's direction from its first letter. A paragraph that starts with an Arabic or Hebrew letter runs right to left, and any other paragraph runs left to right.\n\n\
            [docs] A paragraph keeps its direction however many rows it wraps across. `rtl` suits a console used mostly in Arabic, Hebrew or another right-to-left language.\n\n\
-           vtium reads this key when it starts, so a change takes effect when vtium restarts. The key never changes text that is already on the screen.\n\n\
+           A change takes effect when vtium restarts. The key never changes text that is already on the screen.\n\n\
            [docs] A program can change the direction with escape sequences, and a terminal reset returns it to this setting.\n\n\
            A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it.",
 };
@@ -1602,7 +1603,7 @@ pub const CLUSTER_WIDTH: Key = Key {
            `double`, the default, gives such a syllable two cells, so கொ takes two. `single` gives it one cell and squeezes it to fit.\n\n\
            [docs] For example, the Tamil syllable கொ is the letter க with the vowel sign ொ. Under `double` it is drawn at full size, and the shell's line editor counts it as two cells too. `single` suits programs that count one cell for each syllable, such as Neovim.\n\n\
            [docs] The choice comes from each character's Unicode properties, never from the font. A syllable takes two cells when a spacing vowel sign (General_Category Mc) follows its first letter, or when a virama joins a consonant to it, as Python wcwidth's specification counts them. No syllable takes more than two cells. A program that resets mode 2027 gives each character its own cells under either value.\n\n\
-           vtium reads this key when it starts, so a change takes effect when vtium restarts.",
+           A change takes effect when vtium restarts.",
 };
 
 pub const GLYPH_CACHE: Key = Key {
@@ -2741,6 +2742,7 @@ mod tests {
         assert!(key.what.contains("கொ"), "{}", key.what);
         assert!(
             key.what
+                .to_lowercase()
                 .contains("a change takes effect when vtium restarts"),
             "{}",
             key.what
@@ -2810,6 +2812,7 @@ mod tests {
             names(Level::Look),
             [
                 "palette",
+                "pointer-theme",
                 "font-engine",
                 "font-name",
                 "font-size",

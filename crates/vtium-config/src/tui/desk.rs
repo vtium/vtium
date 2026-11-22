@@ -1,6 +1,6 @@
 //! The TUI's desk (ADR-1403 D7, D8): the draft the Flow view shows and
-//! changes, the check it runs after each change, the installed history,
-//! and the devices present. The state machine asks for each of these with
+//! changes, the font sets kept in the folder beside it, the check it runs
+//! after each change, the installed history, and the devices present. The state machine asks for each of these with
 //! an [`Op`], and the loop hands the op to a [`Desk`] and the answer back
 //! as an event, so the state machine itself reads and writes no file.
 //!
@@ -54,12 +54,37 @@ pub enum Op {
         path: std::path::PathBuf,
         change: crate::batch::Change,
     },
+    /// Keeps `edit`, a change to the font set `frit`, in the current
+    /// draft's folder at once, then checks `text`, the current draft with
+    /// the TUI's unsaved changes, as [`Op::Check`] does. A new font set or
+    /// a removal waits there for the install, and leaving the TUI loses
+    /// neither.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "A draft's font set changes": the folder, and that quitting loses nothing.
+    FontSet {
+        frit: String,
+        edit: FontSetEdit,
+        text: String,
+    },
     /// Readies the install of the font file at `path`, one in the
     /// person's own folder, as a system font: reads the file once into a
     /// draft of its own, has the font helper check that the draft's copy
     /// is a font, and gives the command [`Desk::install_font`] runs. A
     /// file already installed with the same bytes needs no install.
     SystemFont(std::path::PathBuf),
+}
+
+/// A change to one font set that [`Op::FontSet`] keeps in the draft's
+/// folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FontSetEdit {
+    /// The draft adds or replaces the font set, with this text.
+    Keep(String),
+    /// The draft removes the installed font set.
+    Remove,
+    /// The draft no longer changes the font set.
+    Forget,
 }
 
 /// The current draft as the desk read or wrote it.
@@ -83,6 +108,15 @@ pub struct Opened {
     /// deactivates, with its state, so the tabs' marks follow the draft
     /// after every answer that changes the draft or its batch.
     pub resources: Vec<(std::path::PathBuf, crate::batch::State)>,
+    /// The font sets the draft's folder adds, replaces and removes, which
+    /// the install writes and removes with the draft.
+    pub frits: crate::store::FritChanges,
+    /// The font set changes the install makes, by name, in the order of
+    /// their names, as `flow --json` lists them under `"frits"`: the
+    /// folder's changes less a frit with the installed text and a removal
+    /// that removes nothing ([`crate::drafts::frit_changes`]). The status
+    /// line counts them.
+    pub frit_changes: Vec<(String, crate::drafts::FritEdit)>,
 }
 
 /// One file of the installed history.
@@ -328,7 +362,7 @@ impl Store {
     fn opened(&self, name: &str, text: &str) -> Result<Opened, Fail> {
         let session = self.session();
         let state = session.state(name, text)?;
-        let checked = session.check(text, &self.store.draft_path(name)?)?;
+        let checked = session.check(name, text, &self.store.draft_path(name)?)?;
         let (added, removed) = state.counts();
         Ok(Opened {
             name: name.to_owned(),
@@ -340,6 +374,13 @@ impl Store {
             problems: checked.problems,
             batch: self.store.batch_changes(name)?.len(),
             resources: crate::batch::Resources::open(&session)?.list(),
+            frits: self.store.frit_changes(name)?,
+            frit_changes: session
+                .frit_changes(name)?
+                .0
+                .iter()
+                .map(|c| (c.name.clone(), c.edit()))
+                .collect(),
         })
     }
 
@@ -378,6 +419,15 @@ impl Store {
             Op::Write(text) => self.write(text),
             Op::Check(text) => {
                 let (name, _) = session.current()?;
+                Ok(Done::Draft(self.opened(&name, text)?, None))
+            }
+            Op::FontSet { frit, edit, text } => {
+                let (name, _) = session.current()?;
+                match edit {
+                    FontSetEdit::Keep(frit_text) => self.store.keep_frit(&name, frit, frit_text)?,
+                    FontSetEdit::Remove => self.store.keep_removal(&name, frit)?,
+                    FontSetEdit::Forget => self.store.forget_frit(&name, frit)?,
+                }
                 Ok(Done::Draft(self.opened(&name, text)?, None))
             }
             Op::Prepare => {
@@ -421,14 +471,17 @@ impl Store {
                 self.store
                     .set_base(&name, installed.as_deref().map(str::as_bytes))?;
                 // the draft starts over, so its changes to the active
-                // resources go, as the command line's revert drops them
+                // resources and its font sets go, as the command line's
+                // revert drops them
                 session.drop_batch(&name)?;
+                self.store.drop_frits(&name)?;
                 self.store.write_draft(&name, &text)?;
                 Ok(Done::Draft(self.opened(&name, &text)?, None))
             }
             Op::New => {
                 let (name, _) = session.current()?;
                 session.drop_batch(&name)?;
+                self.store.drop_frits(&name)?;
                 self.write(&crate::ops::new_text(HEADER))
             }
             Op::Delete => {

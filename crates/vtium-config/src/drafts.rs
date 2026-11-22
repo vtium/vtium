@@ -311,6 +311,10 @@ impl Session<'_> {
     /// current; returns its text.
     pub fn make(&self, name: &str, from: From) -> Result<String, Fail> {
         let installed = self.installed()?;
+        let from_draft = match &from {
+            From::Draft(other) => Some(other.clone()),
+            _ => None,
+        };
         // a copy of a draft takes its changes to the active resources
         // along, and any other new draft has none
         let (text, changes) = match from {
@@ -331,6 +335,11 @@ impl Session<'_> {
         };
         self.store.write_draft(name, &text)?;
         self.store.set_batch_changes(name, &changes)?;
+        // a copy of a draft takes its font set changes along too
+        match &from_draft {
+            Some(other) => self.store.copy_frits(other, name)?,
+            None => self.store.drop_frits(name)?,
+        }
         self.store
             .set_base(name, installed.as_deref().map(str::as_bytes))?;
         self.store.set_current(Some(name))?;
@@ -442,15 +451,102 @@ impl Session<'_> {
             .set_batch_changes(name, &crate::batch::Changes::default())
     }
 
-    /// Runs `vtium check-config` on `text`, a copy of the draft at `shown`,
-    /// against the configuration directory; each line it prints names
-    /// `shown`. A console that cannot be started is exit 5's failure.
-    pub fn check(&self, text: &str, shown: &Path) -> Result<Checked, Fail> {
+    /// The draft `name`'s font set changes against the frits installed in
+    /// the frits' directory, as [`frit_changes`] counts them.
+    pub fn frit_changes(&self, name: &str) -> Result<(Vec<FritChange>, Vec<String>), Fail> {
+        let folder = self.store.frit_changes(name)?;
+        if folder.kept.is_empty() && folder.removed.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let frits = self
+            .paths
+            .frits
+            .as_ref()
+            .map_err(|e| Fail::File(e.clone()))?;
+        Ok(frit_changes(name, &folder, frits, |path| {
+            std::fs::read(path).ok()
+        }))
+    }
+
+    /// The problems of the draft `name`'s font set folder: each entry that
+    /// is no font set change, and each frit there that the frit reader
+    /// refuses, by its path, as the glyph helper reads it. Install refuses
+    /// the draft while one is there.
+    pub fn frit_problems(&self, name: &str) -> Result<Vec<String>, Fail> {
+        let folder = self.store.frit_changes(name)?;
+        let dir = self.store.frits_path(name)?;
+        let mut problems = folder.problems;
+        for (frit, text) in &folder.kept {
+            let path = dir.join(format!("{frit}.vtfrit"));
+            if let Err(e) = crate::frit::Frit::parse(text.as_bytes(), &path, frit) {
+                problems.push(match e.line {
+                    0 => format!("{}: {}", path.display(), e.why),
+                    n => format!("{}:{n}: {}", path.display(), e.why),
+                });
+            }
+        }
+        Ok(problems)
+    }
+
+    /// Takes out of the draft `name`'s folder each font set change that the
+    /// system now matches, as after an install: what is left is what an
+    /// install still has to do.
+    pub fn settle_frits(&self, name: &str) -> Result<(), Fail> {
+        let folder = self.store.frit_changes(name)?;
+        if folder.kept.is_empty() && folder.removed.is_empty() {
+            return Ok(());
+        }
+        let Ok(frits) = &self.paths.frits else {
+            return Ok(());
+        };
+        for (frit, text) in &folder.kept {
+            if std::fs::read(frits.join(format!("{frit}.vtfrit")))
+                .ok()
+                .as_deref()
+                == Some(text.as_bytes())
+            {
+                self.store.forget_frit(name, frit)?;
+            }
+        }
+        for frit in &folder.removed {
+            if !frits.join(format!("{frit}.vtfrit")).exists() {
+                self.store.forget_frit(name, frit)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Runs `vtium check-config` on `text`, a copy of the draft `name` at
+    /// `shown`, against the configuration directory, with the font set
+    /// changes the install makes ([`Session::frit_changes`]); each line it
+    /// prints names `shown`. A frit the folder adds or replaces is passed
+    /// as its file in the folder, so the check reads the draft's text. A
+    /// removal that removes nothing, and a frit whose text is the installed
+    /// one's, are no change and pass nothing, so the check's verdict on
+    /// them is the verdict on the installed frits. A console that cannot be
+    /// started is exit 5's failure.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "A draft's font set changes": one `--with-frit` for each frit the folder adds or replaces, and one `--without-frit` for each frit it removes.
+    pub fn check(&self, name: &str, text: &str, shown: &Path) -> Result<Checked, Fail> {
         let copy = crate::apply::Copy::new("vtium.conf", text.as_bytes()).map_err(Fail::File)?;
-        let ran = std::process::Command::new(&self.paths.vtium)
+        let (changes, _) = self.frit_changes(name)?;
+        let dir = self.store.frits_path(name)?;
+        let mut command = std::process::Command::new(&self.paths.vtium);
+        command
             .arg("check-config")
             .arg("--configdir")
-            .arg(&self.paths.configdir)
+            .arg(&self.paths.configdir);
+        for change in &changes {
+            if change.new.is_some() {
+                command
+                    .arg("--with-frit")
+                    .arg(dir.join(format!("{}.vtfrit", change.name)));
+            } else {
+                command.arg("--without-frit").arg(&change.name);
+            }
+        }
+        let ran = command
             .arg(&copy.path)
             .stdin(std::process::Stdio::null())
             .output()
@@ -502,9 +598,18 @@ impl Session<'_> {
             )));
         }
         let shown = self.store.draft_path(name)?;
-        let checked = self.check(text, &shown)?;
+        let checked = self.check(name, text, &shown)?;
         for line in checked.problems.iter().chain(&checked.notes) {
             let _ = writeln!(out, "{line}");
+        }
+        let folder = self.frit_problems(name)?;
+        for line in &folder {
+            let _ = writeln!(out, "{line}");
+        }
+        if !folder.is_empty() {
+            return Err(Fail::Check(format!(
+                "nothing installed: the font set folder of draft {name} holds files that are no font set change, or font sets that cannot be read. The draft keeps your changes."
+            )));
         }
         let no_route = checked.no_route_only(&shown.to_string_lossy());
         if !checked.clears() && !no_route {
@@ -521,18 +626,67 @@ impl Session<'_> {
                 "{why} The install replaces it with the list of a fresh install and the changes of draft {name}."
             );
         }
+        let (frits, notes) = self.frit_changes(name)?;
+        for line in &notes {
+            let _ = writeln!(out, "{line}");
+        }
+        // the frits' paths come from the installed frits' directory, so a
+        // draft that also moves that directory installs the move first
+        let key = vtium_settings::keys::FONT_FRITS.name;
+        if !frits.is_empty()
+            && vtium_settings::setting(text, key)
+                != installed
+                    .as_deref()
+                    .and_then(|i| vtium_settings::setting(i, key))
+        {
+            return Err(Fail::Check(format!(
+                "nothing installed: {} The draft keeps your changes.",
+                crate::apply::FRITS_MOVE_FIRST
+            )));
+        }
+        // the privileged step refuses to remove a frit that the vtium.conf
+        // it installs still names. The check above catches a look's
+        // font-name, but not the top level's, which the console reads as a
+        // font family once no frit has that name, so the install refuses
+        // that removal here, in the privileged step's own words, before
+        // anything runs as root
+        for removal in frits.iter().filter(|c| c.new.is_none()) {
+            if let Some(by) = crate::apply::naming(&removal.name, Some(text)) {
+                return Err(Fail::Check(format!(
+                    "nothing installed: {} is not removed: {by} uses it. The draft keeps your changes.",
+                    removal.path.display()
+                )));
+            }
+        }
         let same = installed.as_deref() == Some(text);
-        if same && batch.is_none() {
+        if same && batch.is_none() && frits.is_empty() {
             let _ = writeln!(
                 out,
                 "Nothing to install: draft {name} is the same as the installed vtium.conf."
             );
             self.store.set_base(name, Some(text.as_bytes()))?;
             self.settle_batch(name)?;
+            self.settle_frits(name)?;
             return Ok(None);
         }
-        // the batch file goes first, so the vtium.conf that follows it
-        // never names a resource that is not active yet
+        // the frits and the batch file go first, so the vtium.conf that
+        // follows them never names a frit or a resource that is not there
+        // yet, and the removals go last, once vtium.conf no longer needs
+        // them
+        let (kept, removed): (Vec<FritChange>, Vec<FritChange>) =
+            frits.into_iter().partition(|c| c.new.is_some());
+        let kept = kept.into_iter().map(|c| FileEdit {
+            path: c.path,
+            old: c.old.map(|b| String::from_utf8_lossy(&b).into_owned()),
+            new: c.new.unwrap_or_default(),
+        });
+        let removals = removed
+            .into_iter()
+            .map(|c| crate::draft::Removal {
+                path: c.path,
+                old: c.old.unwrap_or_default(),
+            })
+            .collect();
         let conf = (!same).then(|| FileEdit {
             path: self.installed_path(),
             old: installed.clone(),
@@ -540,8 +694,8 @@ impl Session<'_> {
         });
         Ok(Some(Ready {
             plan: Plan {
-                files: batch.into_iter().chain(conf).collect(),
-                removals: Vec::new(),
+                files: kept.chain(batch).chain(conf).collect(),
+                removals,
                 no_route,
             },
             replaced: if same { None } else { installed },
@@ -609,6 +763,7 @@ impl Session<'_> {
         }
         self.store.set_base(name, Some(text.as_bytes()))?;
         self.settle_batch(name)?;
+        self.settle_frits(name)?;
         let _ = writeln!(out, "installed draft {name}");
         Ok(())
     }
@@ -695,6 +850,115 @@ impl Session<'_> {
         self.finish(name, text, ready.replaced.as_deref(), out)?;
         self.after(text, run, ask, out);
         Ok(())
+    }
+}
+
+/// One font set change of a draft against the installed frits
+/// ([`Session::frit_changes`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FritChange {
+    /// The frit's name.
+    pub name: String,
+    /// Its file in the frits' directory, which the install writes or
+    /// removes.
+    pub path: PathBuf,
+    /// The installed frit's bytes, `None` for a frit the draft adds.
+    pub old: Option<Vec<u8>>,
+    /// The frit's text after the install, `None` for a removal.
+    pub new: Option<String>,
+}
+
+impl FritChange {
+    /// What the change does to the installed frits.
+    pub const fn edit(&self) -> FritEdit {
+        match (&self.old, &self.new) {
+            (_, None) => FritEdit::Remove,
+            (None, Some(_)) => FritEdit::Add,
+            (Some(_), Some(_)) => FritEdit::Replace,
+        }
+    }
+}
+
+/// What a font set change does to the installed frits: adds a frit,
+/// replaces one, or removes one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FritEdit {
+    Add,
+    Replace,
+    Remove,
+}
+
+impl FritEdit {
+    /// The change's word, as `flow --json` lists it under `"frits"`.
+    pub const fn word(self) -> &'static str {
+        match self {
+            FritEdit::Add => "add",
+            FritEdit::Replace => "replace",
+            FritEdit::Remove => "remove",
+        }
+    }
+}
+
+/// The font set changes that the folder `folder` of the draft `name` makes
+/// against the frits installed in the frits' directory `frits`, in the
+/// order of their names. This one function decides what counts as a
+/// change for the check's options, `flow`, `diff`, install and the TUI's
+/// status line. `read` gives the bytes of the installed file at a path,
+/// `None` when there is none. A frit the folder adds or replaces counts
+/// when its text differs from the installed frit's. A removal counts when
+/// the frits' directory itself holds the frit, since an install removes
+/// nothing from the catalog's category folders. Also the notes on what the
+/// folder holds that is no change: each removal that removes nothing.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": a frit with the installed text is no change, and a removal of a frit the machine lacks removes nothing.
+pub fn frit_changes(
+    name: &str,
+    folder: &crate::store::FritChanges,
+    frits: &Path,
+    read: impl Fn(&Path) -> Option<Vec<u8>>,
+) -> (Vec<FritChange>, Vec<String>) {
+    let installed = |frit: &str| {
+        let path = frits.join(format!("{frit}.vtfrit"));
+        let old = read(&path);
+        (path, old)
+    };
+    let mut changes = Vec::new();
+    let mut notes = Vec::new();
+    for (frit, text) in &folder.kept {
+        let (path, old) = installed(frit);
+        if old.as_deref() == Some(text.as_bytes()) {
+            continue;
+        }
+        changes.push(FritChange {
+            name: frit.clone(),
+            path,
+            old,
+            new: Some(text.clone()),
+        });
+    }
+    for frit in &folder.removed {
+        match installed(frit) {
+            (path, Some(old)) => changes.push(FritChange {
+                name: frit.clone(),
+                path,
+                old: Some(old),
+                new: None,
+            }),
+            (_, None) => notes.push(format!(
+                "Draft {name} removes the font set {frit}, but no installed font set is named {frit}, so the removal removes nothing."
+            )),
+        }
+    }
+    changes.sort_by(|a, b| a.name.cmp(&b.name));
+    (changes, notes)
+}
+
+/// `2 font set changes`, as the state line counts them.
+pub fn frit_count(n: usize) -> String {
+    match n {
+        1 => "1 font set change".to_owned(),
+        n => format!("{n} font set changes"),
     }
 }
 

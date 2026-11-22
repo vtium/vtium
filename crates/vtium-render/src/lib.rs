@@ -63,6 +63,7 @@
 //! [`RENDER_TIMER_SAMPLES`].
 
 mod arrow;
+mod beside;
 mod blend;
 mod bounds;
 mod cache;

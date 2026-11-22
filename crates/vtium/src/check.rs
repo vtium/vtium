@@ -43,6 +43,88 @@ pub const SUBCOMMAND: &str = "check-config";
 /// devices present (ADR-1403 D3).
 pub const NO_DEVICES: &str = "--no-devices";
 
+/// The subcommand's option that counts the font set file it names,
+/// `NAME.vtfrit`, as the installed font set NAME.
+pub const WITH_FRIT: &str = "--with-frit";
+
+/// The subcommand's option that counts the font set it names as not
+/// installed.
+pub const WITHOUT_FRIT: &str = "--without-frit";
+
+/// The font sets a draft adds, replaces and removes, as the subcommand's
+/// [`WITH_FRIT`] and [`WITHOUT_FRIT`] give them. vtium-config keeps a
+/// draft's font sets in a folder beside the draft until the install, and
+/// passes them here, so the check judges the draft against the frits the
+/// install leaves. A frit named here takes the place of the one of its
+/// name in the frits' directory, and a removed frit counts as missing.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": the two options, and that the check counts a frit as installed when the directory holds it or `--with-frit` names it, and not when `--without-frit` names it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DraftFrits {
+    /// Each frit the draft adds or replaces: its name and its file.
+    pub with: Vec<(String, PathBuf)>,
+    /// Each installed frit the draft removes, by name.
+    pub without: Vec<String>,
+}
+
+/// Where the check finds a frit by its name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Found {
+    file: PathBuf,
+    /// The file is the draft's, which the install copies into the frits'
+    /// directory as root's.
+    draft: bool,
+}
+
+impl DraftFrits {
+    /// Takes `name`'s file as a frit the draft adds or replaces, in place
+    /// of any earlier option for that name.
+    pub fn add(&mut self, name: String, file: PathBuf) {
+        self.forget(&name);
+        self.with.push((name, file));
+    }
+
+    /// Takes `name` as a frit the draft removes, in place of any earlier
+    /// option for that name.
+    pub fn remove(&mut self, name: String) {
+        self.forget(&name);
+        self.without.push(name);
+    }
+
+    fn forget(&mut self, name: &str) {
+        self.with.retain(|(n, _)| n != name);
+        self.without.retain(|n| n != name);
+    }
+
+    /// The frit `name` as the check sees it in `frits` with the draft's
+    /// changes: the draft's file for a frit it adds or replaces, nothing
+    /// for one it removes, and otherwise [`font::frit`]'s lookup.
+    fn find(&self, frits: &Path, name: &str) -> Option<Found> {
+        if self.without.iter().any(|n| n == name) {
+            return None;
+        }
+        if let Some((_, file)) = self.with.iter().find(|(n, _)| n == name) {
+            return Some(Found {
+                file: file.clone(),
+                draft: true,
+            });
+        }
+        font::frit(frits, name).map(|file| Found { file, draft: false })
+    }
+}
+
+/// The frit name of the font set file `path` that [`WITH_FRIT`] names:
+/// its file name without `.vtfrit`, when that is a name a frit can have
+/// and `path` is a regular file. The frits' own lookup decides both, in
+/// the folder that holds `path`, so a name the lookup refuses, such as
+/// one that reaches outside a folder, never names a draft's frit.
+pub fn with_frit_name(path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_str()?.strip_suffix(".vtfrit")?;
+    let folder = path.parent()?;
+    (font::frit(folder, name)? == folder.join(format!("{name}.vtfrit"))).then(|| name.to_owned())
+}
+
 /// Whether a rule sending input to a head by `id` or `name` alone counts
 /// against the file. ADR-1401's probe 4 is the operator's, and its
 /// recommendation, a note outside the status, stands until the operator
@@ -76,19 +158,21 @@ pub fn semantics(config: &Config) -> Vec<String> {
 /// the font-name frit and every look's alike, and check-config reports it
 /// with [`font_name_frit`] and [`look_frits`].
 fn frit(config: &Config, frits: &Path, trust: &Trust) -> Vec<String> {
-    let Some((name, path)) = named_frit(config, frits) else {
+    let Some((name, Found { file: path, .. })) = named_frit(config, frits, &DraftFrits::default())
+    else {
         return Vec::new();
     };
     font::frit_text(&path, trust)
         .map_or_else(|_| Vec::new(), |text| font::frit_warnings(&name, &text))
 }
 
-/// The name of the frit `font-name` names in `frits`, and its file; none
-/// when the name is no frit's there.
-fn named_frit(config: &Config, frits: &Path) -> Option<(String, PathBuf)> {
+/// The name of the frit `font-name` names in `frits` with the draft's
+/// changes `draft`, and where it is; none when the name is no frit's
+/// there.
+fn named_frit(config: &Config, frits: &Path, draft: &DraftFrits) -> Option<(String, Found)> {
     let wanted = font::wanted(config, "", "").filter(|w| w.came == font::Came::Config)?;
-    let path = font::frit(frits, &wanted.name)?;
-    Some((wanted.name, path))
+    let found = draft.find(frits, &wanted.name)?;
+    Some((wanted.name, found))
 }
 
 /// What check-config finds of a frit's file read under `trust`, the
@@ -105,12 +189,16 @@ enum Judged {
     RootRefuses(String),
 }
 
-/// How the frit at `file` reads under `trust`, and, where `trust` is not
-/// root's, under root's too, as `helper_note` judges the font helper.
-fn judge(file: &Path, trust: &Trust) -> Judged {
+/// How the frit `found` reads under `trust`, and, where `trust` is not
+/// root's, under root's too, as `helper_note` judges the font helper. A
+/// draft's frit is read under `trust` alone: the install copies it into
+/// the frits' directory as root's, so who owns the draft's file says
+/// nothing of the start.
+fn judge(found: &Found, trust: &Trust) -> Judged {
+    let file = &found.file;
     match font::frit_text(file, trust) {
         Err(why) => Judged::Refused(why),
-        Ok(_) if *trust == Trust::ROOT => Judged::Read,
+        Ok(_) if *trust == Trust::ROOT || found.draft => Judged::Read,
         Ok(_) => font::frit_text(file, &Trust::ROOT)
             .err()
             .map_or(Judged::Read, Judged::RootRefuses),
@@ -142,19 +230,18 @@ fn font_name_frit(
     config: &Config,
     frits: &Path,
     trust: &Trust,
+    draft: &DraftFrits,
 ) -> (Option<String>, Option<String>) {
-    let Some((name, file)) = named_frit(config, frits) else {
+    let Some((name, found)) = named_frit(config, frits, draft) else {
         return (None, None);
     };
-    match judge(&file, trust) {
+    let file = &found.file;
+    match judge(&found, trust) {
         Judged::Read => (None, None),
-        Judged::Refused(why) => (
-            Some(check_config::frit_unreadable(&name, &file, &why)),
-            None,
-        ),
+        Judged::Refused(why) => (Some(check_config::frit_unreadable(&name, file, &why)), None),
         Judged::RootRefuses(why) => (
             None,
-            Some(check_config::frit_refused_as_root(&name, &file, &why)),
+            Some(check_config::frit_refused_as_root(&name, file, &why)),
         ),
     }
 }
@@ -590,6 +677,7 @@ fn outcome_with(
         squeeze,
         sources,
         gate: Some(&gate),
+        draft: loaded.draft_frits.clone(),
         ..Settings::of(&loaded.config, &host.frits, host.frit_trust.clone())
     };
     // a candidate that is the installed file is checked as the start
@@ -612,22 +700,30 @@ fn outcome_with(
         .filter(|r| !counts(r) && !(heads.refused && from_file(r)))
         .map(ToString::to_string);
     // the font-name frit, which at the start the font's own read reports
-    let (refused, root_refuses) = font_name_frit(&loaded.config, settings.frits, &settings.trust);
-    let layers = named_frit(&loaded.config, settings.frits)
-        .map(|(name, file)| frit_layers(&name, &file, settings.frits, &settings.trust))
+    let (refused, root_refuses) = font_name_frit(
+        &loaded.config,
+        settings.frits,
+        &settings.trust,
+        &settings.draft,
+    );
+    let font_name = named_frit(&loaded.config, settings.frits, &settings.draft);
+    let layers = font_name
+        .as_ref()
+        .map(|(name, found)| frit_layers(name, &found.file, settings.frits, &settings.trust))
         .unwrap_or_default();
     // the fonts the font-name frit needs and this machine lacks: a missing
     // font is a warning, and an older one a note
-    let mut needs = named_frit(&loaded.config, settings.frits)
-        .map(|(name, file)| font_needs(&name, &file, &settings))
+    let mut needs = font_name
+        .as_ref()
+        .map(|(name, found)| font_needs(name, &found.file, &settings))
         .unwrap_or_default();
     // the font files the font-name frit names by path that a start would
     // treat as missing; each line names the font set's file and line, so a
     // line a look's check already holds, for a font set the top level and
     // a look share, is said once
-    if let Some((_, file)) = named_frit(&loaded.config, settings.frits) {
+    if let Some((_, found)) = &font_name {
         needs.warnings.extend(
-            font_files(&file, &settings)
+            font_files(&found.file, &settings)
                 .into_iter()
                 .filter(|said| !heads.counted.contains(said)),
         );
@@ -662,7 +758,7 @@ fn outcome_with(
         .zip(loaded.config.origin(&keys::POINTER_THEME))
         .filter(|(_, origin)| !(heads.refused && matches!(origin, Origin::File { .. })))
         .map(|(value, origin)| (value, origin.to_string()));
-    let pointers = pointer_findings(top_pointer, &gate);
+    let pointers = pointer_findings(top_pointer, path, &heads.pointers, &gate);
     let folders = vtium_settings::palette::FOLDERS.map(Path::new);
     let (schemes, scheme_notes) =
         palette_findings(top_palette, path, &heads.palettes, &folders, &gate);
@@ -800,6 +896,10 @@ pub struct HeadCheck {
     /// other than a built-in palette: the look's name, the palette's and
     /// the line of its `palette`, for check-config to read.
     pub palettes: Vec<(String, String, usize)>,
+    /// The pointer file each look of the file that a start runs names:
+    /// the look's name, the file's path and the line of its
+    /// `pointer-theme`, for check-config to read.
+    pub pointers: Vec<(String, String, usize)>,
 }
 
 /// Whether `a` and `b` name one file, by its device and inode once
@@ -835,6 +935,9 @@ pub struct Settings<'a> {
     /// The trust rule, the mount table and the batch that a font file a
     /// font set names by its path passes; `None` checks no font file.
     pub gate: Option<&'a vtium_settings::cullet::Gate>,
+    /// The font sets the draft adds, replaces and removes, which a look's
+    /// frit is looked up with.
+    pub draft: DraftFrits,
 }
 
 /// How the check asks the glyph helper of a font set for the lines of its
@@ -892,6 +995,7 @@ impl Settings<'_> {
             squeeze: None,
             sources: None,
             gate: None,
+            draft: DraftFrits::default(),
         }
     }
 }
@@ -1036,11 +1140,12 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
         else {
             continue;
         };
-        let Some(file) = font::frit(settings.frits, &named.value) else {
+        let Some(found) = settings.draft.find(settings.frits, &named.value) else {
             continue;
         };
         let line = Some(named.line);
-        let judged = judge(&file, &settings.trust);
+        let judged = judge(&found, &settings.trust);
+        let file = found.file;
         // a font set the account reads is checked for its layers and for
         // the locale's letters
         if matches!(judged, Judged::Read | Judged::RootRefuses(_)) {
@@ -1141,7 +1246,7 @@ fn findings(
     settings: &Settings,
     runs: Runs,
 ) {
-    let has_frit = |name: &str| font::frit(settings.frits, name).is_some();
+    let has_frit = |name: &str| settings.draft.find(settings.frits, name).is_some();
     let against = Against {
         head_cap: settings.head_cap,
         total: settings.total,
@@ -1173,6 +1278,18 @@ fn findings(
                     .find(|s| s.key.name == keys::PALETTE.name)?;
                 let file = !vtium_settings::palette::built_in(&s.value);
                 file.then(|| (l.name.clone(), s.value.clone(), s.line))
+            })
+            .collect();
+        out.pointers = parsed
+            .config
+            .looks
+            .iter()
+            .filter_map(|l| {
+                let s = l
+                    .settings
+                    .iter()
+                    .find(|s| s.key.name == keys::POINTER_THEME.name)?;
+                Some((l.name.clone(), s.value.clone(), s.line))
             })
             .collect();
     }
@@ -1640,7 +1757,12 @@ mod tests {
         let _ = std::os::unix::fs::symlink("../../outside/left_ptr", cursors.join("hand2"));
         let at = || "/etc/vtium/vtium.conf:2".to_owned();
         let said_through = |value: &Path, gate: &vtium_settings::cullet::Gate| {
-            pointer_findings(Some((value.to_str().unwrap_or(""), at())), gate)
+            pointer_findings(
+                Some((value.to_str().unwrap_or(""), at())),
+                Path::new("/etc/vtium/vtium.conf"),
+                &[],
+                gate,
+            )
         };
         let said = |value: &Path| said_through(value, &gate);
         assert_eq!(said(&svg), Vec::<String>::new());
@@ -1675,7 +1797,65 @@ mod tests {
                 b = vtium_settings::batch::BATCH_FILE
             )]
         );
-        assert_eq!(pointer_findings(None, &gate), Vec::<String>::new());
+        assert_eq!(
+            pointer_findings(None, Path::new("/etc/vtium/vtium.conf"), &[], &gate),
+            Vec::<String>::new()
+        );
+    }
+
+    // A look's pointer theme is checked as the top level's is: a theme the
+    // batch does not list says so, and a path that names neither an SVG
+    // file nor a theme's folder is reported on the look's own line. A
+    // theme that the top level and a look both name is said once.
+    //
+    // References:
+    // - ADR-1205 D6: each look picks its pointer theme, which passes the same trust rule as the top level's.
+    #[test]
+    fn check_config_checks_each_look_s_pointer_theme_as_the_top_level_s() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("check-look-pointers");
+        let me = rustix::process::geteuid().as_raw();
+        let rule = vtium_settings::cullet::Rule::new(Trust::owner(me)).below(&dir);
+        let mounts = vtium_settings::mounts::Mounts::system().unwrap_or_default();
+        let theme = dir.join("theme");
+        for d in [&*dir, &theme, &theme.join("cursors")] {
+            let _ = std::fs::create_dir_all(d);
+            let _ = std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755));
+        }
+        let nothing = dir.join("nothing");
+        let unlisted = vtium_settings::cullet::Gate::new(
+            rule,
+            Some(mounts),
+            vtium_settings::batch::Batch::default(),
+        );
+        let conf = Path::new("/etc/vtium/vtium.conf");
+        let t = theme.display().to_string();
+        let looks = [
+            ("arrows".to_owned(), t.clone(), 5),
+            ("lost".to_owned(), nothing.display().to_string(), 8),
+        ];
+        let inactive = format!(
+            "{t}: vtium treats this pointer theme as missing, because it is not active: {b} does not list it. So vtium draws its own pointer pictures.",
+            b = vtium_settings::batch::BATCH_FILE
+        );
+        let unusable = format!(
+            "/etc/vtium/vtium.conf:8: The pointer file {} is neither an SVG file nor a folder that holds a cursors folder, so vtium draws its own pointer pictures.",
+            nothing.display()
+        );
+        assert_eq!(
+            pointer_findings(None, conf, &looks, &unlisted),
+            [inactive.clone(), unusable.clone()]
+        );
+        assert_eq!(
+            pointer_findings(
+                Some((t.as_str(), "/etc/vtium/vtium.conf:1".to_owned())),
+                conf,
+                &looks,
+                &unlisted
+            ),
+            [inactive, unusable],
+            "the theme both name is said once"
+        );
     }
 
     // check-config names each font file a font set names by its path that
@@ -2219,10 +2399,10 @@ mod tests {
         let uid = std::fs::metadata(&dir).unwrap().uid();
         let mine = font::trust().below(&dir);
         let results = [
-            font_name_frit(&config("t"), &dir, &mine),
-            font_name_frit(&config("g"), &dir, &mine),
-            font_name_frit(&config("t"), &open, &mine),
-            font_name_frit(&config("ter-v16n"), &dir, &mine),
+            font_name_frit(&config("t"), &dir, &mine, &DraftFrits::default()),
+            font_name_frit(&config("g"), &dir, &mine, &DraftFrits::default()),
+            font_name_frit(&config("t"), &open, &mine, &DraftFrits::default()),
+            font_name_frit(&config("ter-v16n"), &dir, &mine, &DraftFrits::default()),
         ];
         let at_start = [
             frit(&config("g"), &dir, &mine),
@@ -2531,6 +2711,7 @@ mod tests {
             squeeze: None,
             sources: None,
             gate: None,
+            draft: DraftFrits::default(),
         }
     }
 
@@ -3798,6 +3979,7 @@ mod tests {
                 missing_fonts: 0,
                 vtlooks: Vec::new(),
                 palettes: Vec::new(),
+                pointers: Vec::new(),
             }
         );
         assert_eq!(
@@ -3809,6 +3991,7 @@ mod tests {
                 missing_fonts: 0,
                 vtlooks: Vec::new(),
                 palettes: Vec::new(),
+                pointers: Vec::new(),
             }
         );
     }
@@ -3933,6 +4116,7 @@ mod tests {
             missing_fonts: 0,
             vtlooks: Vec::new(),
             palettes: Vec::new(),
+            pointers: Vec::new(),
         };
         assert_eq!(
             conf_file(&file, false, &trust, &machine(true), &caps(4)),
@@ -4118,6 +4302,139 @@ mod tests {
             "{:#?}",
             out.stdout
         );
+    }
+
+    // ADR-1403 D8: the check counts a frit the draft adds as installed and
+    // one it removes as missing, so a look that names a font set only the
+    // draft holds passes, and a look that names one the draft removes gets
+    // the warning on a missing font set
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn the_drafts_font_sets_count_in_place_of_the_installed_ones() {
+        let text = "version = 1\n[look big]\nfont-name = desk\n[look small]\nfont-name = old\n[head a]\nlook = big\n[head b]\nlook = small\n[rules]\ndisplay * -> a\n";
+        let (dir, file, _) = heads_fixture("draft-frits", text, 0o644);
+        let f = file.display().to_string();
+        let frits = dir.join("frits");
+        let folder = dir.join("mine.frits");
+        std::fs::create_dir_all(&frits).unwrap();
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(frits.join("old.vtfrit"), "source=builtin:unifont\n").unwrap();
+        let desk = folder.join("desk.vtfrit");
+        std::fs::write(&desk, "source=builtin:unscii-8\n").unwrap();
+        let host = Host {
+            conf_file: file.with_file_name("installed.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: frits.clone(),
+            frit_trust: font::trust().below(&dir),
+            systemd_root: dir.join("root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
+        };
+        let missing = |name: &str, line: usize| {
+            format!(
+                "{f}:{line}: Look \"{}\" uses the font set \"{name}\", but \"{}\" has no \"{name}\".vtfrit. vtium then looks for a kbd font named \"{name}\", and uses its built-in font if there is none. Put the font set in \"{}\", or change the look's `font-name`.",
+                if name == "desk" { "big" } else { "small" },
+                frits.display(),
+                frits.display()
+            )
+        };
+        let frit_lines = |out: &Outcome| -> Vec<String> {
+            out.stderr
+                .iter()
+                .filter(|l| l.contains(".vtfrit"))
+                .cloned()
+                .collect()
+        };
+        let out = outcome_on(&["--no-devices", f.as_str()], &host);
+        assert_eq!(frit_lines(&out), [missing("desk", 3)]);
+        let with = desk.display().to_string();
+        let out = outcome_on(&["--no-devices", "--with-frit", &with, f.as_str()], &host);
+        assert_eq!(frit_lines(&out), [] as [String; 0]);
+        assert_eq!(out.status, 0, "{:#?}", out.stderr);
+        let out = outcome_on(
+            &[
+                "--no-devices",
+                &format!("--with-frit={with}"),
+                "--without-frit",
+                "old",
+                f.as_str(),
+            ],
+            &host,
+        );
+        assert_eq!(frit_lines(&out), [missing("old", 5)]);
+        // a later option for the same font set takes the place of the
+        // earlier one
+        let out = outcome_on(
+            &[
+                "--no-devices",
+                "--without-frit=desk",
+                "--with-frit",
+                &with,
+                f.as_str(),
+            ],
+            &host,
+        );
+        assert_eq!(frit_lines(&out), [] as [String; 0]);
+    }
+
+    // ADR-1403 D8: the two options belong to the subcommand, `--with-frit`
+    // names a font set file, `NAME.vtfrit`, and each needs a value
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn the_font_set_options_belong_to_check_config_and_name_a_font_set_file() {
+        let dir = Scratch::new("with-frit-words");
+        let good = dir.join("desk.vtfrit");
+        std::fs::write(&good, "source=builtin:unifont\n").unwrap();
+        std::fs::create_dir_all(dir.join("folder.vtfrit")).unwrap();
+        let load = |args: &[&str]| {
+            let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+            config::load(&args, &mut |_: &Path| Ok(None))
+        };
+        let reported = |l: &config::Loaded| -> Vec<String> {
+            l.reports.iter().map(|r| r.problem.to_string()).collect()
+        };
+        let good = good.display().to_string();
+        let l = load(&[SUBCOMMAND, WITH_FRIT, &good, WITHOUT_FRIT, "old"]);
+        assert_eq!(reported(&l), [] as [String; 0]);
+        assert_eq!(
+            l.draft_frits,
+            DraftFrits {
+                with: vec![("desk".to_owned(), PathBuf::from(&good))],
+                without: vec!["old".to_owned()],
+            }
+        );
+        let l = load(&[WITH_FRIT, &good, "--without-frit=old"]);
+        assert_eq!(
+            reported(&l),
+            ["unknown key \"--with-frit\", ignored"],
+            "the first of the options is the one reported"
+        );
+        assert_eq!(l.draft_frits, DraftFrits::default());
+        // without the subcommand, vtium reads no file the option names: a
+        // plain start reports the unknown option once, and nothing more
+        let absent = dir.join("absent.vtfrit").display().to_string();
+        let l = load(&[WITH_FRIT, &absent]);
+        assert_eq!(reported(&l), ["unknown key \"--with-frit\", ignored"]);
+        for bad in [
+            dir.join("desk.conf"),
+            dir.join("absent.vtfrit"),
+            dir.join("folder.vtfrit"),
+            dir.join(".hidden.vtfrit"),
+        ] {
+            let bad = bad.display().to_string();
+            let l = load(&[SUBCOMMAND, WITH_FRIT, &bad]);
+            assert_eq!(
+                reported(&l),
+                [format!(
+                    "--with-frit \"{}\" is not a font set file. It needs a regular file named NAME.vtfrit, where NAME is a font set's name. Because of this error, check-config ignores this option.",
+                    bad.escape_debug()
+                )],
+                "{bad}"
+            );
+            assert_eq!(l.draft_frits, DraftFrits::default(), "{bad}");
+        }
+        let l = load(&[SUBCOMMAND, WITHOUT_FRIT]);
+        assert_eq!(reported(&l), ["--without-frit needs a value, ignored"]);
     }
 
     // ADR-1005 D10: a vtium.conf written for an earlier release binds its
@@ -4844,6 +5161,51 @@ mod tests {
         assert!(
             HELP.replace('\n', " ")
                 .contains("It opens nothing under /dev and changes nothing.")
+        );
+    }
+
+    // check-config reports a look's pointer theme it would not read on the
+    // look's own line of the file it checks, and the line counts.
+    #[test]
+    fn check_config_reports_a_look_s_pointer_theme_on_the_look_s_line() {
+        let (dir, file, _) = heads_fixture(
+            "look-pointer",
+            "version = 1\n[look lost]\npointer-theme = /nonexistent/vtium/pointers\n[head console]\nlook = lost\n[rules]\ndisplay * -> console\ninput * -> roaming\n",
+            0o644,
+        );
+        let host = Host {
+            conf_file: file.with_file_name("installed.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: PathBuf::from("/nonexistent/vtium/frits"),
+            frit_trust: font::trust().below(&dir),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: dir.join("batch.conf"),
+        };
+        let f = file.display().to_string();
+        let out = outcome_on(&["--no-devices", f.as_str()], &host);
+        assert_eq!(
+            out.stderr,
+            [format!(
+                "{f}:3: The pointer file /nonexistent/vtium/pointers is neither an SVG file nor a folder that holds a cursors folder, so vtium draws its own pointer pictures."
+            )]
+        );
+        assert_eq!(out.status, 1);
+    }
+
+    // The looks of a file that runs each name their pointer file for the
+    // check to read, and a look that names none is not listed.
+    #[test]
+    fn each_look_s_pointer_theme_is_listed_for_the_check() {
+        let text = "version = 1\n[look arrows]\npointer-theme = /usr/share/icons/Adwaita\n[look none]\n[head desk]\nlook = arrows\n[rules]\ndisplay * -> desk\ninput * -> desk\n";
+        let (out, _) = checked("pointers", text, true);
+        assert_eq!(
+            out.pointers,
+            [(
+                "arrows".to_owned(),
+                "/usr/share/icons/Adwaita".to_owned(),
+                3
+            )]
         );
     }
 

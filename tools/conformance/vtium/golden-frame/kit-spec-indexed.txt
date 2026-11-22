@@ -30,23 +30,26 @@ row 0 ||
 row 1 ||
 row 2 ||
 row 3 ||
-placement 0 row 0 col 0 box 1x1 at 0,0 size 4x1 src 0,0 4x1 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 0 row 0 col 0 box 1x1 at 0,0 size 4x1 src 0,0 4x1 cell 8x16 z 0 above-text kitty image 0 opaque changed
 placement 1 row 0 col 2 box 1x1 at 0,0 size 4x1 src 0,0 4x1 cell 8x16 z 0 above-text kitty image 1 opaque
 placement 2 row 0 col 4 box 1x1 at 0,0 size 2x1 src 0,0 2x1 cell 8x16 z 0 above-text kitty image 2
-placement 3 row 0 col 6 box 1x1 at 0,0 size 4x1 src 0,0 4x1 cell 8x16 z 0 above-text kitty image 3 opaque
+placement 3 row 0 col 6 box 1x1 at 0,0 size 4x1 src 0,0 4x1 cell 8x16 z 0 above-text kitty image 3 opaque changed
 placement 4 row 0 col 8 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 4 opaque changed
 placement 5 row 1 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 5 opaque changed
-image 0 4x1 digest 993b3d52
+image 0 4x1 digest 23e8ede1
 image 1 4x1 digest 703a3b24
 image 2 2x1 digest 2505bf8b
-image 3 4x1 digest 3dc5c045
+image 3 4x1 digest 0d01df23
 image 4 1x1 digest a41e77bd
 image 5 1x1 digest 524bc942
 checkpoint 525
 size 12x4
 cursor 0,1
 flags AUTO_WRAP
-reply 1b5f47693d383b45494e56414c3a696e76616c696420617267756d656e741b5c1b5f47693d393b45494e56414c3a696e76616c696420617267756d656e741b5c1b5f47693d31303b45494e56414c3a5a65726f2077696474682f686569676874206e6f7420616c6c6f7765641b5c1b5f47693d323b45494e56414c3a416e696d6174696f6e206973206e6f7420737570706f7274656420666f7220696e646578656420636f6c6f7220696d616765731b5c1b5f47693d31313b4f4b1b5c1b5f47693d31313b45494e56414c3a416e696d6174696f6e206973206e6f7420737570706f7274656420666f7220696e646578656420636f6c6f7220696d616765731b5c1b5f47693d323b45494e56414c3a436f6d706f736974696f6e206973206e6f7420737570706f7274656420666f7220696e646578656420636f6c6f7220696d616765731b5c
+host: 1 t=d flags=inflate O=0 max=0 min=1 name= len=9
+reply 1b5f47693d383b45494e56414c3a696e76616c696420617267756d656e741b5c
+host: 2 t=f flags=- O=0 max=0 min=2 name=/tmp/pixels len=0
+reply 1b5f47693d393b45424144463a4661696c656420746f207265616420696d6167652066696c651b5c1b5f47693d31303b45494e56414c3a5a65726f2077696474682f686569676874206e6f7420616c6c6f7765641b5c1b5f47693d323b45494e56414c3a416e696d6174696f6e206973206e6f7420737570706f7274656420666f7220696e646578656420636f6c6f7220696d616765731b5c1b5f47693d31313b4f4b1b5c1b5f47693d31313b45494e56414c3a416e696d6174696f6e206973206e6f7420737570706f7274656420666f7220696e646578656420636f6c6f7220696d616765731b5c1b5f47693d323b45494e56414c3a436f6d706f736974696f6e206973206e6f7420737570706f7274656420666f7220696e646578656420636f6c6f7220696d616765731b5c
 palette legacy fg=#e5e5e5 bg=#000000
 changed 0
 frame-cursor 0,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
@@ -60,9 +63,9 @@ placement 2 row 0 col 4 box 1x1 at 0,0 size 2x1 src 0,0 2x1 cell 8x16 z 0 above-
 placement 3 row 0 col 6 box 1x1 at 0,0 size 4x1 src 0,0 4x1 cell 8x16 z 0 above-text kitty image 3 opaque
 placement 4 row 0 col 8 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 4 opaque
 placement 5 row 1 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 5 opaque
-image 0 4x1 digest 993b3d52
+image 0 4x1 digest 23e8ede1
 image 1 4x1 digest 703a3b24
 image 2 2x1 digest 2505bf8b
-image 3 4x1 digest 3dc5c045
+image 3 4x1 digest 0d01df23
 image 4 1x1 digest a41e77bd
 image 5 1x1 digest 524bc942

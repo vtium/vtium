@@ -12,8 +12,7 @@ description: "any.too-small at 80×25, keys: 3 n Shrink"
                   console's own font.
    Color scheme   legacy, from vtium.conf
    vtlook         No filter
-   Pointer theme  vtium's own pictures, from vtium.conf. A look cannot pick a
-                  pointer theme of its own yet.
+   Pointer theme  vtium's own pictures, from vtium.conf
 
  Type the look's name, then press Enter. Esc keeps the name it had.
  Its fonts, by role:
@@ -21,6 +20,7 @@ description: "any.too-small at 80×25, keys: 3 n Shrink"
  Box drawing: vtium's own lines, unless the text font has them all
  What it still misses:
  Nothing: this machine has every font it names.
+
 
 
 

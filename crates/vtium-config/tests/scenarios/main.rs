@@ -632,35 +632,102 @@ fn set_font_name(sim: &mut Sim, font: &str) {
     press(sim, &["Enter", "Esc"]);
 }
 
-/// The leave question of #411: with a font set marked for removal and a
-/// change not saved, `q` asks the leave question, which names the change.
-/// `y` saves the change and installs before the TUI quits, `n` saves the
-/// change and quits without installing, Esc and Ctrl-C cancel the
-/// question, and every other key, `l` and `i` among them, leaves it open.
+/// On the Look line of a terminal whose look the draft does not hold, the
+/// card offers that look as one more choice, after the draft's looks, and
+/// Right and Left step through all of them as the walk's check of Right
+/// expects. The walk's fixture names no missing look, so this test opens
+/// such a card: the fixture with the look proof taken out, which the head
+/// desk still names.
+///
+/// References:
+/// - ADR-1403 D7, "The same keys in every view": Left and Right step a card line's choice.
+#[test]
+fn right_on_a_missing_look_s_line_reaches_the_missing_look() {
+    use vtium_config::tui::flowlayout;
+    use vtium_config::tui::flowlayout::CardLine;
+    let start = (Term::Vtium, 100, 30);
+    let mut sim = Sim::start_on(start.0, start.1, start.2, |i| {
+        let conf = i.conf.as_mut().expect("the fixture's vtium.conf");
+        *conf = conf.replace("[look proof]\nfont-name = proof\nvtlook = sepia\n", "");
+        assert!(!conf.contains("[look"), "{conf}");
+    });
+    let mut keys = vec!["4", "Home", "Right", "Enter"];
+    press(&mut sim, &keys);
+    let (_, path, _) = checks::Seen::card(&sim).expect("desk's card");
+    assert_eq!(path.look.as_deref(), Some("proof"), "{path:?}");
+    let look = flowlayout::card_lines(&path, false)
+        .iter()
+        .position(|l| *l == CardLine::Look)
+        .expect("a Look line");
+    let downs = vec!["Down"; look];
+    press(&mut sim, &downs);
+    keys.extend(downs);
+    let choices = flowlayout::path_choices(&sim.app.shared, &path, &CardLine::Look);
+    assert_eq!(
+        choices.last().map(|(_, v)| v.as_str()),
+        Some("proof"),
+        "{choices:?}"
+    );
+    // the line starts on the missing look, the last choice
+    assert_eq!(sim.app.flow.state().pick, choices.len() - 1);
+    let mut checks = Checks::new();
+    for key in ["Left", "Right", "Right"] {
+        let mut after = sim.clone();
+        let did = after.press(press_of(key));
+        let step = explore::Step {
+            from: state::of(&sim),
+            key,
+            to: state::of(&after),
+            did,
+            path: keys.clone(),
+            start,
+        };
+        checks.see(&step, &sim, &after);
+        keys.push(key);
+        sim = after;
+    }
+    assert_eq!(sim.app.flow.state().pick, choices.len() - 1);
+    assert!(
+        checks.found.failures.is_empty(),
+        "{}",
+        checks.found.failures.join("\n")
+    );
+}
+
+/// With a font set marked for removal and a change not saved, `q` asks
+/// only the quit question, which names no font set, since the draft's
+/// folder keeps the removal whatever the answer. `y` saves the change and
+/// quits, `n` quits without it, neither installs, and the folder keeps the
+/// removal. Esc and Ctrl-C cancel the question, and every other key, `l`
+/// and `i` among them, leaves it open.
 ///
 /// References:
 /// - ADR-1403 D7, "The same keys in every view": the answer keys of every
-///   question, and the leave question's `y` and `n`.
+///   question.
+/// - ADR-1403 D8, "A draft's font set changes": the folder keeps the font
+///   set changes, so quitting loses nothing.
 #[test]
-fn the_leave_question_names_the_unsaved_change_and_both_answers_save_it() {
+fn with_a_font_set_waiting_q_asks_only_the_quit_question() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     // proof as the font, one change; tiny5 marked for removal in Looks
     set_font_name(&mut sim, "proof");
     press(&mut sim, &TO_TINY5);
     press(&mut sim, &["r", "q"]);
     assert_eq!(sim.app.shared.unsaved, 1);
-    assert_eq!(sim.app.shared.pending.removals, ["tiny5"]);
-    let question = sim
-        .app
-        .nav
-        .confirm
-        .clone()
-        .expect("the leave question")
-        .question;
-    assert!(question.contains("the removal of tiny5"), "{question}");
     assert!(
-        question.contains("the 1 change that is not saved"),
-        "{question}"
+        sim.desk.frits.removed.iter().eq(["tiny5"]),
+        "{:?}",
+        sim.desk.frits
+    );
+    let confirm = sim.app.nav.confirm.clone().expect("the quit question");
+    assert!(
+        matches!(confirm.then, vtium_config::tui::model::Then::Quit(0)),
+        "{confirm:?}"
+    );
+    assert_eq!(
+        confirm.question,
+        vtium_config::tui::words::quit_question(1),
+        "{confirm:?}"
     );
     for stray in ["l", "i", "z", "Tab"] {
         let mut asked = sim.clone();
@@ -687,13 +754,25 @@ fn the_leave_question_names_the_unsaved_change_and_both_answers_save_it() {
         );
     }
     let mut n = sim.clone();
-    n.press(press_of("n"));
-    assert_eq!((n.exited, n.desk.writes), (Some(0), 1));
-    assert_eq!(n.desk.installed, sim.desk.installed, "n installed");
-    sim.press(press_of("y"));
+    let did = n.press(press_of("n"));
+    assert_eq!((n.exited, n.desk.writes), (Some(0), 0));
+    assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
+    assert!(
+        n.desk.frits.removed.iter().eq(["tiny5"]),
+        "{:?}",
+        n.desk.frits
+    );
+    let did = sim.press(press_of("y"));
     assert_eq!((sim.exited, sim.desk.writes), (Some(0), 1));
-    let font = vtium_settings::setting(&sim.desk.installed, "font-name");
-    assert_eq!(font.as_deref(), Some("proof"), "{}", sim.desk.installed);
+    assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
+    assert!(
+        sim.desk.frits.removed.iter().eq(["tiny5"]),
+        "{:?}",
+        sim.desk.frits
+    );
+    let font = vtium_settings::setting(&sim.desk.draft, "font-name");
+    assert_eq!(font.as_deref(), Some("proof"), "{}", sim.desk.draft);
+    assert_eq!(sim.desk.installed, n.desk.installed, "y installed");
 }
 
 /// On the Effects tab, `o` does nothing, as the key table's `o.view` row
@@ -717,25 +796,27 @@ fn o_does_nothing_on_the_effects_tab() {
     assert_eq!(sim.screen(), before);
 }
 
-/// Without a change waiting, the leave question's `y` installs the font
-/// set's removal and quits, and saves nothing.
+/// Without a change waiting, `q` leaves at once while a font set's
+/// removal waits in the draft's folder: it asks nothing, saves nothing,
+/// installs nothing, and the folder keeps the removal.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": quitting loses nothing.
 #[test]
-fn the_leave_question_with_nothing_unsaved_installs_on_y() {
+fn with_a_font_set_waiting_and_nothing_unsaved_q_leaves_at_once() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     press(&mut sim, &TO_TINY5);
-    press(&mut sim, &["r", "q"]);
-    let question = sim
-        .app
-        .nav
-        .confirm
-        .clone()
-        .expect("the leave question")
-        .question;
-    assert!(!question.contains("not saved"), "{question}");
-    let did = sim.press(press_of("y"));
+    press(&mut sim, &["r"]);
+    let did = sim.press(press_of("q"));
     assert_eq!(sim.exited, Some(0));
+    assert!(sim.app.nav.confirm.is_none());
     assert_eq!(sim.desk.writes, 0);
-    assert!(did.effects.iter().any(|e| e == "install"), "{did:?}");
+    assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
+    assert!(
+        sim.desk.frits.removed.iter().eq(["tiny5"]),
+        "{:?}",
+        sim.desk.frits
+    );
 }
 
 /// Below the minimum size, `q` with a change not saved asks the quit
@@ -768,38 +849,42 @@ fn below_the_minimum_size_q_asks_the_quit_question_on_one_row() {
     assert_eq!((sim.exited, sim.desk.writes), (Some(0), 1));
 }
 
-/// While a field of the new-frit form is typed, only Enter and Esc act:
-/// the moving keys leave the field as it is, Enter keeps it and moves to
-/// the next field, and Esc closes the form.
+/// While the new-frit form's name is typed, only Enter and Esc act: the
+/// moving keys leave the name as it is, Enter keeps it and moves to the
+/// next row, and Esc drops it and goes back to the form's rows. Esc there
+/// goes back to the Looks tab.
 ///
 /// References:
 /// - ADR-1403 D7, "The same keys in every view": a value being typed takes
 ///   Enter and Esc, as in the Settings view, and the moving keys do
 ///   nothing.
 #[test]
-fn a_typed_field_of_the_new_frit_form_takes_only_enter_and_esc() {
+fn a_typed_name_in_the_new_frit_form_takes_only_enter_and_esc() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     press(&mut sim, &walk::TO_FORM);
-    press(&mut sim, &["x"]);
+    // the name is the row above the add row
+    press(&mut sim, &["End", "Up", "Enter", "x"]);
     assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::New);
-    assert_eq!(
-        sim.app.looks.form().fields.first().map(String::as_str),
-        Some("x")
-    );
+    assert_eq!(sim.app.looks.new_frit().typed(), Some("x"));
     for moving in ["Up", "Down", "Home", "End", "PgUp", "PgDn", "Left", "Right"] {
         let mut typed = sim.clone();
         let did = typed.press(press_of(moving));
         assert_eq!(
-            typed.app.looks.form(),
-            sim.app.looks.form(),
+            typed.app.looks.new_frit(),
+            sim.app.looks.new_frit(),
             "{moving} moved"
         );
         assert!(did.effects.is_empty(), "{moving}: {did:?}");
     }
     let mut kept = sim.clone();
     press(&mut kept, &["Enter"]);
-    assert_eq!(kept.app.looks.form().at, 1);
-    // the form belongs to the Looks tab, so Esc goes back there
+    assert_eq!(kept.app.looks.form().name, "x");
+    assert_eq!(kept.app.looks.form().at, 7);
+    // Esc drops the name, and Esc on the rows goes back to the Looks tab,
+    // which the form belongs to
+    press(&mut sim, &["Esc"]);
+    assert_eq!(sim.app.looks.form().name, "");
+    assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::New);
     press(&mut sim, &["Esc"]);
     assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::Looks);
 }
@@ -853,20 +938,19 @@ fn a_value_list_opens_on_the_value_now_and_esc_keeps_the_section() {
     assert_eq!(sim.app.settings.section_at(), 2);
 }
 
-/// The leave question's `y` installs a draft that wires no complete route
-/// only after the person answers the question that says so, and quits
-/// once that install ends well. Esc at that question keeps the TUI, and a
-/// later `i` asks before it installs.
+/// `i` installs a font set's removal from a draft that wires no complete
+/// route only after the person answers the question that says so. Esc at
+/// that question keeps the TUI, and a later `i` asks again.
 ///
 /// References:
 /// - ADR-1403 D7: a draft with no complete route installs only on yes.
 #[test]
-fn the_leave_question_asks_before_it_installs_a_draft_with_no_complete_route() {
+fn i_asks_before_it_installs_a_draft_with_no_complete_route() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     sim.desk.no_route = true;
     press(&mut sim, &TO_TINY5);
-    press(&mut sim, &["r", "q"]);
-    let did = sim.press(press_of("y"));
+    press(&mut sim, &["r"]);
+    let did = sim.press(press_of("i"));
     assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
     assert_eq!(sim.exited, None);
     let question = sim
@@ -884,44 +968,40 @@ fn the_leave_question_asks_before_it_installs_a_draft_with_no_complete_route() {
     assert!(back.app.nav.confirm.is_some(), "i installed without asking");
     let did = sim.press(press_of("y"));
     assert!(did.effects.iter().any(|e| e == "install"), "{did:?}");
-    assert_eq!(sim.exited, Some(0));
+    assert_eq!(sim.exited, None);
 }
 
-/// With no draft, `y` at the leave question installs nothing and stays,
-/// and once a draft opens, `i` asks before it installs, as it always does.
+/// With no draft, no folder can keep a font set's removal, so `r` keeps
+/// none and says why. Once a draft opens, nothing waits for an install:
+/// the draft is the installed file and its folder is empty, so `i` says
+/// there is nothing to install and asks nothing.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": the TUI keeps no font set change in memory.
 #[test]
-fn the_leave_question_without_a_draft_leaves_no_install_waiting() {
+fn without_a_draft_r_keeps_no_removal_and_no_install_waits() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     let draft = sim.app.shared.draft.take();
     press(&mut sim, &TO_TINY5);
-    press(&mut sim, &["r", "q", "y"]);
-    assert_eq!(sim.exited, None);
+    press(&mut sim, &["r"]);
+    assert_eq!(
+        sim.app.shared.message.as_deref(),
+        Some(vtium_config::tui::words::NO_DESK)
+    );
+    assert!(sim.app.shared.frits().is_empty());
+    assert!(sim.desk.frits.is_empty(), "{:?}", sim.desk.frits);
     sim.app.shared.draft = draft;
     let did = sim.press(press_of("i"));
     assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
     assert_eq!(sim.exited, None);
-    assert!(sim.app.nav.confirm.is_some(), "i installed without asking");
-}
-
-/// Below the minimum size, the leave question says what quitting loses
-/// and that both answers save the change that is not saved, above its
-/// keys.
-#[test]
-fn below_the_minimum_size_the_leave_question_says_what_it_does() {
-    let mut sim = Sim::start(Term::Vtium, 80, 25);
-    set_font_name(&mut sim, "proof");
-    press(&mut sim, &TO_TINY5);
-    press(&mut sim, &["r", "Shrink", "q"]);
-    let screen = sim.screen();
-    let top = screen
-        .iter()
-        .take(2)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(top.contains("Font sets wait to be installed"), "{top}");
-    assert!(top.contains("1 change"), "{top}");
-    assert!(top.contains("y install and quit"), "{top}");
+    assert!(
+        sim.app.nav.confirm.is_none(),
+        "i asked with nothing to install"
+    );
+    assert_eq!(
+        sim.app.shared.message.as_deref(),
+        Some(vtium_config::tui::words::NOTHING_TO_INSTALL)
+    );
 }
 
 /// The screen's rows joined with single spaces, so a line that wraps
@@ -952,24 +1032,19 @@ fn below_the_minimum_size_a_question_wraps_and_keeps_its_keys() {
         "n quit without saving",
         "Esc Ctrl-C cancel",
     ];
-    let leave = [
-        "Font sets wait to be installed; y and n save 1 change first.",
-        "y install and quit",
-        "n quit without installing",
-        "Esc Ctrl-C cancel",
-    ];
-    // one change, then for the leave question tiny5 marked for removal
-    fn quit_keys(sim: &mut Sim) {
+    // one change, and again with tiny5 marked for removal as well, which
+    // the quit question does not name
+    fn changed(sim: &mut Sim) {
         set_font_name(sim, "tiny5");
     }
-    fn leave_keys(sim: &mut Sim) {
+    fn changed_and_removed(sim: &mut Sim) {
         set_font_name(sim, "proof");
         press(sim, &TO_TINY5);
         press(sim, &["r"]);
     }
     let cases = [
-        ("quit", quit_keys as fn(&mut Sim), quit),
-        ("leave", leave_keys, leave),
+        ("quit", changed as fn(&mut Sim), quit),
+        ("quit with a removal", changed_and_removed, quit),
     ];
     for (name, keys, said) in cases {
         for (cols, rows) in [

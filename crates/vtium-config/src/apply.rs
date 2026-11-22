@@ -28,22 +28,33 @@
 //!    with names it knows, and bounds each file's size, since root is
 //!    reading a directory the user owns;
 //! 2. refuses the draft, writing nothing, when a file it replaces has
-//!    changed since the draft was made, naming the file;
+//!    changed since the draft was made, naming the file. When the draft
+//!    writes or removes a frit, `apply` first checks the frits' directory
+//!    with the walk the console reads a frit through, and holds it open
+//!    (`FritsDir`). It then reads each installed frit through that
+//!    descriptor, only as a regular file and never through a link;
 //! 3. checks every file before it writes any: each frit with the helper's
 //!    frit reader, strictly; the batch file with vtium's own reader, every
 //!    line that the installed batch file does not already hold, and each
 //!    resource it activates against the trust rule, as the user `apply`
 //!    runs as; the edited vtium.conf, both its parts in one run, with the
-//!    console's own `vtium check-config`, so the verdict before writing is
-//!    the verdict at the next start; and a system font with the font
-//!    helper, which must describe a copy root made of the font's bytes
-//!    ([`SystemFont`]). A system font's draft that holds any other file
-//!    is refused, so that draft runs no `check-config`;
+//!    console's own `vtium check-config`, or the installed vtium.conf when
+//!    the draft changes font sets and holds no vtium.conf, so the verdict
+//!    before writing is the verdict at the next start, with the frits the
+//!    draft writes and removes counted as installed and removed, each frit
+//!    read from a copy in a private folder under `/run`, or under the
+//!    user's runtime folder when `apply` runs as a user (`frit_copies`);
+//!    and a system font with the font helper, which must describe a copy
+//!    root made of the font's bytes ([`SystemFont`]). A system font's draft
+//!    that holds any other file is refused, so that draft runs no
+//!    `check-config`;
 //! 4. writes the frits, then the batch file, then vtium.conf, so
 //!    vtium.conf never names a frit or a resource that is not yet there,
 //!    and removes frits last. Each file goes in through
 //!    [`vtium_settings::install_file`], in one rename, mode 0644, with the
-//!    old one kept as `NAME.bak`. A system font is written the same way,
+//!    old one kept as `NAME.bak`. A frit goes in the same way, but through
+//!    the descriptor step 2 holds on the frits' directory, with
+//!    [`vtium_settings::install_file_at`]. A system font is written the same way,
 //!    but the file it replaces is not kept, because fontconfig would read
 //!    the copy as one more font;
 //! 5. prints one line a file, `wrote PATH`, `removed PATH`, `failed PATH`
@@ -74,7 +85,7 @@ use crate::draft::Plan;
 use crate::drafts::Verdict;
 use crate::frit::{FRIT_BYTES_MAX, Frit, valid_name};
 use crate::specimen::Helper;
-use crate::tui::{CONF_MAX, Paths};
+use crate::tui::CONF_MAX;
 
 /// What `apply` says of a file that changed after the draft was made.
 /// `install` finds these words in `apply`'s output to choose its exit code.
@@ -93,7 +104,7 @@ pub const MANIFEST: &str = "MANIFEST";
 
 /// Why a change that moves the frits' directory and also writes or
 /// removes a frit is refused, by the TUI's save and by `apply`.
-pub const FRITS_MOVE_FIRST: &str = "this install changes font-frits and also adds or removes font sets, which would go to the old directory. Install the font-frits change first, then change the font sets.";
+pub const FRITS_MOVE_FIRST: &str = "this install changes font-frits and also adds, replaces or removes font sets, which would go to the old directory. Install the font-frits change first, then change the font sets.";
 
 /// The manifest line's words that accept a vtium.conf that wires no
 /// complete route (ADR-1403 D8).
@@ -807,15 +818,30 @@ fn summarize(stderr: &str, copies: &[(PathBuf, &str)]) -> String {
     out.join("\n")
 }
 
-/// Runs the console's `vtium check-config` on the draft's vtium.conf,
-/// `file`, both its parts in one run, against the installed configuration
-/// directory `configdir`, or on the installed vtium.conf where the draft
-/// holds none: what its exit status says of the draft, and what it wrote
-/// to standard error. When the check fails, [`summarize`] says that as
-/// root may say it.
+/// The font sets a bundle adds, replaces and removes, as `apply` hands
+/// them to the console's check: each copy root wrote of a frit the bundle
+/// writes, and each frit's name that the bundle removes.
+#[derive(Default)]
+struct CheckFrits {
+    with: Vec<PathBuf>,
+    without: Vec<String>,
+}
+
+/// Runs the console's `vtium check-config` on the vtium.conf `file`, both
+/// its parts in one run, against the installed configuration directory
+/// `configdir`, or on the built-in configuration when there is no `file`:
+/// what its exit status says of the draft, and what it wrote to standard
+/// error. The check counts the bundle's font sets `frits` as installed or
+/// removed, with one `--with-frit` or `--without-frit` each, so a look
+/// that names a font set the bundle adds passes. When the check fails,
+/// [`summarize`] says that as root may say it.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets, so its verdict is the draft's.
 fn check_config(
     vtium: &OsString,
     configdir: &Path,
+    frits: &CheckFrits,
     file: Option<&Path>,
 ) -> Result<(Verdict, String), String> {
     let mut command = std::process::Command::new(vtium);
@@ -823,6 +849,12 @@ fn check_config(
         .arg("check-config")
         .arg("--configdir")
         .arg(configdir);
+    for copy in &frits.with {
+        command.arg("--with-frit").arg(copy);
+    }
+    for name in &frits.without {
+        command.arg("--without-frit").arg(name);
+    }
     if let Some(file) = file {
         command.arg(file);
     }
@@ -852,7 +884,7 @@ pub fn command(
         );
         return 2;
     };
-    match apply(Path::new(dir), targets, helper, out) {
+    match apply(Path::new(dir), targets, helper, &runtime_dir(), out) {
         Ok(true) => 0,
         Ok(false) => 1,
         Err(why) => {
@@ -860,56 +892,6 @@ pub fn command(
             1
         }
     }
-}
-
-/// Makes `plan`, the change a command computed (ADR-1201 D2), writing to
-/// `out` and `err`; returns the exit status. Run as root, it installs the
-/// change at once through the steps `apply` takes, from a draft root makes
-/// in a directory of its own. Run as a user, it writes the change as a
-/// draft under `paths.drafts` and prints each file the draft writes or
-/// removes, the draft's directory, and the command that installs it.
-pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
-    if plan.is_empty() {
-        let _ = writeln!(out, "unchanged");
-        return 0;
-    }
-    let targets = paths.targets();
-    if rustix::process::geteuid().is_root() {
-        return match install_now(plan, &targets, &paths.helper, out) {
-            Ok(true) => 0,
-            Ok(false) => 1,
-            Err(why) => {
-                let _ = writeln!(err, "vtium-config: {why}\nNothing was installed.");
-                1
-            }
-        };
-    }
-    let draft = match write_draft(&paths.drafts, plan, &targets) {
-        Ok(draft) => draft,
-        Err(e) => {
-            let _ = writeln!(
-                err,
-                "vtium-config: the draft under {}: {e}",
-                paths.drafts.display()
-            );
-            return 1;
-        }
-    };
-    for file in &plan.files {
-        let _ = writeln!(out, "write\t{}", file.path.display());
-    }
-    for removal in &plan.removals {
-        let _ = writeln!(out, "remove\t{}", removal.path.display());
-    }
-    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
-    let argv = save_argv(&route(&targets, &paths.sudo), &program, &targets, &draft);
-    let shown: Vec<String> = argv
-        .iter()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect();
-    let _ = writeln!(out, "draft\t{}", draft.display());
-    let _ = writeln!(out, "run\t{}", shown.join(" "));
-    0
 }
 
 /// Installs `plan` at once, as root: the draft written into a directory of
@@ -921,21 +903,30 @@ pub fn install_now(
     helper: &Helper,
     out: &mut dyn Write,
 ) -> Result<bool, String> {
-    install_under(Scratch::system()?, plan, targets, helper, out)
+    install_under(
+        Scratch::system()?,
+        plan,
+        targets,
+        helper,
+        &runtime_dir(),
+        out,
+    )
 }
 
 /// [`install_now`] with its draft in `scratch`, which goes when it is
-/// dropped, whatever the apply did.
+/// dropped, whatever the apply did, and the private folder for the
+/// check's copies made under `runtime`.
 fn install_under(
     scratch: Scratch,
     plan: &Plan,
     targets: &Targets,
     helper: &Helper,
+    runtime: &Result<PathBuf, String>,
     out: &mut dyn Write,
 ) -> Result<bool, String> {
     let draft = write_draft(&scratch.path, plan, targets)
         .map_err(|e| format!("the draft under {}: {e}", scratch.path.display()))?;
-    apply(&draft, targets, helper, out)
+    apply(&draft, targets, helper, runtime, out)
 }
 
 /// A copy of `bytes`, named `name`, in a directory of this process's own
@@ -988,19 +979,25 @@ pub fn naming(name: &str, conf: Option<&str>) -> Option<String> {
     })
 }
 
-/// A file read from the draft, checked, waiting to be written.
+/// A file read from the draft, checked, waiting to be written, or a frit
+/// waiting to be removed when `bytes` is `None`. `frit` says that the file
+/// goes into the frits' directory, through the descriptor apply holds on it.
 struct Staged {
     target: PathBuf,
     bytes: Option<Vec<u8>>,
+    frit: bool,
 }
 
 /// Checks the draft in `dir` and installs it: `Ok(true)` when every file
 /// was written, `Ok(false)` when a write failed after the checks, and the
-/// reason when the draft was refused before anything was written.
+/// reason when the draft was refused before anything was written. The
+/// private folder for the check's copies of the draft's frits goes under
+/// `runtime` ([`runtime_dir`]).
 fn apply(
     dir: &Path,
     targets: &Targets,
     helper: &Helper,
+    runtime: &Result<PathBuf, String>,
     out: &mut dyn Write,
 ) -> Result<bool, String> {
     // a trailing slash makes the kernel follow a link whatever O_NOFOLLOW
@@ -1041,6 +1038,19 @@ fn apply(
             "{MANIFEST}: a draft that installs a system font holds that one font and nothing else"
         ));
     }
+    // the frits' directory passes the console's own walk before apply
+    // reads anything in it, step 2's look at an installed frit included,
+    // and whether or not the bundle holds vtium.conf
+    let frits_dir = if entries.iter().any(|e| match e {
+        Entry::Write { name, .. } | Entry::Remove { name, .. } => name.starts_with("fonts/"),
+        Entry::AcceptNoRoute => false,
+    }) {
+        Some(FritsDir::open(
+            targets.frits.as_ref().map_err(Clone::clone)?,
+        )?)
+    } else {
+        None
+    };
     for entry in &entries {
         let (name, was) = match entry {
             Entry::Write { name, was } => (name, was.clone()),
@@ -1049,7 +1059,11 @@ fn apply(
         };
         let path = target(targets, name)?;
         // step 2: a file changed since the draft was made is never lost
-        if installed(&path)? != was {
+        let now = match (&frits_dir, name.starts_with("fonts/")) {
+            (Some(held), true) => held.installed(&path)?,
+            _ => installed(&path)?,
+        };
+        if now != was {
             return Err(format!(
                 "{} {CHANGED}, so installing the draft would undo that change. Make your change again in a new draft.",
                 path.display()
@@ -1074,14 +1088,18 @@ fn apply(
             system_font = Some(Staged {
                 target: path,
                 bytes: Some(bytes),
+                frit: false,
             });
             continue;
         }
         let bytes = match name.strip_prefix("fonts/") {
             Some(file) => {
-                // a set of the catalog's name is never installed beside it
-                if let (Ok(frits), Some(stem)) = (&targets.frits, file.strip_suffix(".vtfrit")) {
-                    crate::switch::unheld(frits, stem)?;
+                // a set of the catalog's name is never installed beside it,
+                // and the name is looked up through the checked directory,
+                // never by its path, which a link in a category folder
+                // could lead elsewhere
+                if let (Some(held), Some(stem)) = (&frits_dir, file.strip_suffix(".vtfrit")) {
+                    crate::switch::unheld_at(&held.dir, &held.path, stem)?;
                 }
                 let fonts = rustix::fs::openat(
                     &draft,
@@ -1120,6 +1138,7 @@ fn apply(
         let staged = Staged {
             target: path,
             bytes: Some(bytes),
+            frit: name.starts_with("fonts/"),
         };
         match name.as_str() {
             "vtium.conf" => conf = Some(staged),
@@ -1147,49 +1166,21 @@ fn apply(
             return Err(FRITS_MOVE_FIRST.to_owned());
         }
     }
-    // step 3: the console's own check, on a copy root made, so what is
-    // checked is what is written
-    if let Some(c) = &conf {
-        let scratch = Scratch::system()?;
-        let file = scratch.write("vtium.conf", c.bytes.as_deref().unwrap_or_default())?;
-        let copies = [
-            (file.clone(), "vtium.conf"),
-            (
-                targets.configdir.join("vtium.conf"),
-                "the installed vtium.conf",
-            ),
-        ];
-        let checked = check_config(&targets.vtium, &targets.configdir, Some(&file));
-        drop(scratch);
-        match checked {
-            Ok((Verdict::Passed, _)) => {}
-            // check-config's own status for a draft whose only problems
-            // are missing fonts: the warnings are shown, and the draft
-            // installs
-            Ok((Verdict::MissingFonts, said)) => {
-                for line in said.lines() {
-                    let _ = writeln!(out, "{line}");
-                }
-            }
-            // the one problem the person may accept, and only that one
-            // (ADR-1403 D8)
-            Ok((Verdict::Failed, said))
-                if accept_no_route
-                    && crate::drafts::only_no_route(
-                        &said.lines().collect::<Vec<_>>(),
-                        &file.to_string_lossy(),
-                    ) =>
-            {
-                let _ = writeln!(out, "{ACCEPTED_NO_ROUTE}");
-            }
-            Ok((Verdict::Failed, said)) | Err(said) => {
-                return Err(format!(
-                    "vtium check-config refused the draft:\n{}\nTo see the full report, run vtium check-config --configdir {} as yourself.",
-                    summarize(&said, &copies),
-                    dir.display()
-                ));
-            }
-        }
+    // step 3: the console's own check, on copies root made, so what is
+    // checked is what is written. A bundle that changes font sets but
+    // holds no vtium.conf is checked too, with the installed vtium.conf,
+    // since a font set it adds, replaces or removes can change the verdict
+    if conf.is_some() || !(frits.is_empty() && removals.is_empty()) {
+        console_check(
+            dir,
+            targets,
+            runtime,
+            &frits,
+            &removals,
+            conf.as_ref(),
+            accept_no_route,
+            out,
+        )?;
     }
     // a frit vtium.conf names after the save is never removed
     let conf_text = match &conf {
@@ -1213,6 +1204,7 @@ fn apply(
         .chain(removals.into_iter().map(|target| Staged {
             target,
             bytes: None,
+            frit: true,
         }))
         .collect();
     let mut failed = false;
@@ -1222,14 +1214,18 @@ fn apply(
             let _ = writeln!(out, "not written\t{path}");
             continue;
         }
-        let result = match &staged.bytes {
-            Some(bytes) => {
+        let result = match (&staged.bytes, staged.frit.then_some(frits_dir.as_ref())) {
+            (Some(bytes), None) => {
                 vtium_settings::install_file(&staged.target, bytes, 0o644).map(|()| "wrote")
             }
-            None => {
-                let mut bak = staged.target.clone().into_os_string();
-                bak.push(".bak");
-                std::fs::rename(&staged.target, bak).map(|()| "removed")
+            (Some(bytes), Some(Some(held))) => {
+                held.install(&staged.target, bytes).map(|()| "wrote")
+            }
+            (None, Some(Some(held))) => held.remove(&staged.target).map(|()| "removed"),
+            // apply holds the frits' directory whenever it writes or
+            // removes a frit, so neither of these happens
+            (None, None) | (_, Some(None)) => {
+                Err(io::Error::other("the frits' directory is not open"))
             }
         };
         match result {
@@ -1243,6 +1239,440 @@ fn apply(
         }
     }
     Ok(!failed)
+}
+
+/// Step 3's run of the console's own `vtium check-config`, as root.
+/// The check reads the bundle's vtium.conf, `conf`, from a copy root
+/// made. When the bundle holds none, because the draft's vtium.conf is the
+/// installed one, the check reads a copy root makes of the installed
+/// vtium.conf, as the check of the draft read a copy of that same text. So
+/// the verdict is the draft's. It counts
+/// the bundle's font sets `frits` as installed and `removals` as removed,
+/// each frit read from a copy in a private folder ([`frit_copies`]). So
+/// the verdict before writing is the verdict at the next start. `Ok` lets
+/// the install go on: the check passed, or found only missing fonts, whose
+/// warnings go to `out`, or found only the missing complete route that the
+/// person accepted (`accept_no_route`). `Err` is the refusal, which ends
+/// with the command that gives the same verdict when the person runs it
+/// on the bundle in `dir`.
+///
+/// References:
+/// - ADR-1403 D3: the console's own check judges vtium.conf before `apply` writes it.
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets, so its verdict is the draft's; the one problem the person may accept.
+#[allow(clippy::too_many_arguments)]
+fn console_check(
+    dir: &Path,
+    targets: &Targets,
+    runtime: &Result<PathBuf, String>,
+    frits: &[Staged],
+    removals: &[PathBuf],
+    conf: Option<&Staged>,
+    accept_no_route: bool,
+    out: &mut dyn Write,
+) -> Result<(), String> {
+    let installed = targets.configdir.join("vtium.conf");
+    // the text the check reads as vtium.conf, and the file the person names
+    // to get the same verdict. With no vtium.conf installed, the check reads
+    // the built-in configuration, as the console does at its next start
+    let (text, theirs) = match conf {
+        Some(c) => (
+            Some(c.bytes.clone().unwrap_or_default()),
+            Some(dir.join("vtium.conf")),
+        ),
+        None => match installed_conf(&installed)? {
+            Some(text) => (Some(text), Some(installed.clone())),
+            None => (None, None),
+        },
+    };
+    let scratch = text.as_ref().map(|_| Scratch::system()).transpose()?;
+    let file = match (&scratch, &text) {
+        (Some(scratch), Some(text)) => Some(scratch.write("vtium.conf", text)?),
+        _ => None,
+    };
+    let shown = if conf.is_some() {
+        "vtium.conf"
+    } else {
+        "the installed vtium.conf"
+    };
+    let mut copies = vec![(installed.clone(), "the installed vtium.conf")];
+    if let Some(copy) = &file {
+        copies.insert(0, (copy.clone(), shown));
+    }
+    let (held, check_frits) = frit_copies(runtime, frits, removals)?;
+    let checked = check_config(
+        &targets.vtium,
+        &targets.configdir,
+        &check_frits,
+        file.as_deref(),
+    );
+    drop(held);
+    drop(scratch);
+    let checked_path = file.as_ref().unwrap_or(&installed);
+    match checked {
+        Ok((Verdict::Passed, _)) => Ok(()),
+        // check-config's own status for a draft whose only problems are
+        // missing fonts: the warnings are shown, and the draft installs
+        Ok((Verdict::MissingFonts, said)) => {
+            for line in said.lines() {
+                let _ = writeln!(out, "{line}");
+            }
+            Ok(())
+        }
+        // the one problem the person may accept, and only that one
+        Ok((Verdict::Failed, said))
+            if accept_no_route
+                && crate::drafts::only_no_route(
+                    &said.lines().collect::<Vec<_>>(),
+                    &checked_path.to_string_lossy(),
+                ) =>
+        {
+            let _ = writeln!(out, "{ACCEPTED_NO_ROUTE}");
+            Ok(())
+        }
+        Ok((Verdict::Failed, said)) | Err(said) => Err(format!(
+            "vtium check-config refused the draft:\n{}\nTo see the full report, run {} as yourself.",
+            summarize(&said, &copies),
+            same_check(dir, targets, frits, removals, theirs.as_deref())
+        )),
+    }
+}
+
+/// The installed vtium.conf at `path`, read for step 3's check of a bundle
+/// that holds no vtium.conf of its own; `None` when there is none. A file
+/// larger than vtium-config reads is refused, since no draft could have
+/// been made from it.
+fn installed_conf(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut text = Vec::new();
+    file.take(CONF_MAX.saturating_add(1))
+        .read_to_end(&mut text)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    if u64::try_from(text.len()).unwrap_or(u64::MAX) > CONF_MAX {
+        return Err(format!(
+            "{} is larger than {CONF_MAX} bytes, so the install cannot check it.",
+            path.display()
+        ));
+    }
+    Ok(Some(text))
+}
+
+/// The `vtium check-config` command that a person runs as themselves to
+/// get the verdict of [`console_check`] on the bundle in `dir`. The command
+/// passes the same options, with the bundle's own files in place of the
+/// copies root made of them: `--with-frit DIR/fonts/NAME.vtfrit` for each
+/// frit the bundle writes, `--without-frit NAME` for each frit it removes,
+/// and `file`, the vtium.conf to check: `DIR/vtium.conf` when the bundle
+/// holds one, else the installed one. Each word is quoted for a shell
+/// where it needs it.
+fn same_check(
+    dir: &Path,
+    targets: &Targets,
+    frits: &[Staged],
+    removals: &[PathBuf],
+    file: Option<&Path>,
+) -> String {
+    let path = |p: &Path| crate::tui::edit::shell(&p.to_string_lossy());
+    let name = |p: &Path, of: fn(&Path) -> Option<&std::ffi::OsStr>| {
+        of(p)
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    let mut words = vec![
+        "vtium".to_owned(),
+        "check-config".to_owned(),
+        "--configdir".to_owned(),
+        path(&targets.configdir),
+    ];
+    for frit in frits {
+        words.push("--with-frit".to_owned());
+        words.push(path(
+            &dir.join("fonts").join(name(&frit.target, Path::file_name)),
+        ));
+    }
+    for removal in removals {
+        words.push("--without-frit".to_owned());
+        words.push(crate::tui::edit::shell(&name(removal, Path::file_stem)));
+    }
+    if let Some(file) = file {
+        words.push(path(file));
+    }
+    words.join(" ")
+}
+
+/// Where apply makes the private folder for the check's copies of the
+/// draft's frits: `/run` when apply runs as root, and the user's own
+/// runtime folder, `$XDG_RUNTIME_DIR`, when apply runs as an ordinary
+/// user. Root owns `/run` and nobody else can write it, so root's copies
+/// there pass the ownership check that the console makes of every font
+/// set, and the system empties `/run` at boot. Root never takes the folder
+/// from the environment, which the user who ran sudo may have chosen.
+/// `Err` says why apply has no such folder, for the install to refuse with
+/// when the draft holds a frit.
+fn runtime_dir() -> Result<PathBuf, String> {
+    if rustix::process::geteuid().is_root() {
+        return Ok(PathBuf::from("/run"));
+    }
+    match std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from) {
+        Some(dir) if dir.is_absolute() => Ok(dir),
+        _ => Err(format!(
+            "{NO_PRIVATE_FOLDER} XDG_RUNTIME_DIR is not set to an absolute path."
+        )),
+    }
+}
+
+/// The start of each refusal when apply has no private folder for the
+/// check's copies of the draft's frits.
+const NO_PRIVATE_FOLDER: &str = "The install has no private folder for its check of the draft's font sets. As root it makes one under /run, and as a user under XDG_RUNTIME_DIR.";
+
+/// The copies of the bundle's frits `frits` that the console's check reads,
+/// and the names of the frits `removals` removes. Apply writes each copy
+/// from the bytes it already read and checked, the bytes step 4 writes,
+/// into a new private folder under `runtime` ([`runtime_dir`]): mode 0700,
+/// made in one step under a random name that nobody holds yet, held open,
+/// each copy made with O_CREAT, O_EXCL and O_NOFOLLOW, mode 0600. So the
+/// check judges the file the install writes, and the user who made the
+/// draft cannot change the copy after the check reads it. A copy under
+/// `/tmp` would fail the console's ownership check, because others can
+/// write `/tmp`.
+///
+/// The console looks a frit up only by its name, in the frits' directory
+/// and its category folders, so it never reads a copy except through
+/// `--with-frit`. The folder goes when the returned [`Scratch`] is
+/// dropped, whatever the check said; `None` when the bundle writes no
+/// frit.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets, and reads root's copies from a private folder under /run.
+/// - ADR-1401 D10: the ownership check that every installed frit passes.
+fn frit_copies(
+    runtime: &Result<PathBuf, String>,
+    frits: &[Staged],
+    removals: &[PathBuf],
+) -> Result<(Option<Scratch>, CheckFrits), String> {
+    let stem = |path: &Path| {
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let mut check = CheckFrits {
+        with: Vec::new(),
+        without: removals.iter().map(|p| stem(p)).collect(),
+    };
+    if frits.is_empty() {
+        return Ok((None, check));
+    }
+    let base = runtime.as_ref().map_err(Clone::clone)?;
+    let euid = rustix::process::geteuid().as_raw();
+    // the console refuses a copy in a folder that it would refuse a font
+    // set in, so apply checks the folder the same way first, and says so
+    // in its own words instead of leaving the console to refuse the line
+    // of vtium.conf that names the set
+    match vtium_settings::folder(base, &vtium_settings::Trust::running_as(euid)) {
+        Ok(Some(walked)) => walked.trusted.map_err(|why| {
+            format!(
+                "{NO_PRIVATE_FOLDER} vtium reads no font set in {}, so the install makes no copies there: {}",
+                base.display(),
+                why.reason()
+            )
+        })?,
+        Ok(None) => {
+            return Err(format!(
+                "{NO_PRIVATE_FOLDER} The folder {} does not exist.",
+                base.display()
+            ));
+        }
+        Err(rejected) => {
+            return Err(format!(
+                "{NO_PRIVATE_FOLDER} The install cannot use {}: {}",
+                base.display(),
+                walk_problem(&rejected)
+            ));
+        }
+    }
+    let scratch = Scratch::new(base, &mut scratch_name, euid)
+        .map_err(|why| format!("{NO_PRIVATE_FOLDER} {why}"))?;
+    for frit in frits {
+        let name = frit
+            .target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        let copy = scratch
+            .copy(name, frit.bytes.as_deref().unwrap_or_default())
+            .map_err(|e| {
+                format!(
+                    "The install could not write its copy of {name} for the check into {}: {e}",
+                    scratch.path.display()
+                )
+            })?;
+        check.with.push(copy);
+    }
+    Ok((Some(scratch), check))
+}
+
+/// Why [`vtium_settings::folder`] could not walk to a folder, as the end
+/// of a refusal: the folder is not a folder, or reading it failed.
+fn walk_problem(rejected: &vtium_settings::Rejected) -> String {
+    match rejected.errors.first().map(|e| &e.problem) {
+        Some(vtium_settings::Problem::NotAFile) => "it is not a folder.".to_owned(),
+        Some(vtium_settings::Problem::Unreadable(kind)) => {
+            format!("reading it failed ({}).", io::Error::from(*kind))
+        }
+        _ => "it cannot be read.".to_owned(),
+    }
+}
+
+/// The frits' directory, checked and held open, so that step 4 writes and
+/// removes each frit in the folder the check approved. A link on the path
+/// that someone swaps after the check cannot lead those writes elsewhere,
+/// because none of them goes by the path again.
+struct FritsDir {
+    /// The configured path, as the install's lines name it.
+    path: PathBuf,
+    /// The folder, opened for reading.
+    dir: OwnedFd,
+}
+
+impl FritsDir {
+    /// Checks the frits' directory at `path` with the walk the console
+    /// reads a frit through ([`vtium_settings::folder`]), under the trust
+    /// of the user apply runs as, root's own when it runs as root. The walk
+    /// checks every folder it crosses, the directory itself and each folder
+    /// that holds a symbolic link on the way included, so apply approves
+    /// exactly the folders the console reads font sets from. The install
+    /// is refused when one fails, since the console would refuse every
+    /// font set there, and when the directory does not exist.
+    ///
+    /// References:
+    /// - ADR-1401 D10: the ownership check that every installed frit and the folders above it pass.
+    /// - ADR-1403 D8, "What `install` does": apply checks the frits' directory with the console's own rule before it writes there.
+    fn open(path: &Path) -> Result<FritsDir, String> {
+        let trust = vtium_settings::Trust::running_as(rustix::process::geteuid().as_raw());
+        let refused = |why: &dyn std::fmt::Display| {
+            format!(
+                "vtium reads no font set in {}, so the install writes none there: {why}",
+                path.display()
+            )
+        };
+        let walked = match vtium_settings::folder(path, &trust) {
+            Ok(Some(walked)) => walked,
+            Ok(None) => {
+                return Err(format!(
+                    "The folder for font sets, {}, does not exist, so the install cannot write or remove font sets there.",
+                    path.display()
+                ));
+            }
+            Err(rejected) => return Err(refused(&walk_problem(&rejected))),
+        };
+        walked.trusted.map_err(|why| refused(&why.reason()))?;
+        let dir = rustix::fs::openat(
+            &walked.fd,
+            ".",
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(FritsDir {
+            path: path.to_owned(),
+            dir,
+        })
+    }
+
+    /// The name of `target`, a path in the frits' directory, in that
+    /// directory.
+    fn name(target: &Path) -> io::Result<&std::ffi::OsStr> {
+        target
+            .file_name()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))
+    }
+
+    /// The hash of the frit at `target` as it is now, read through the
+    /// held folder, or `None` when there is none. apply reads it only as a
+    /// regular file of at most [`FRIT_BYTES_MAX`] bytes, never through a
+    /// symbolic link and without waiting on a FIFO, so a frit that someone
+    /// replaced with a link to another file tells nothing about that file,
+    /// and a FIFO or a device in its place cannot stall or fill the
+    /// install.
+    fn installed(&self, target: &Path) -> Result<Option<String>, String> {
+        self.installed_after(target, || {})
+    }
+
+    /// [`FritsDir::installed`], with `between` run after the look at the
+    /// name and before its open, where a test changes what is there.
+    fn installed_after(
+        &self,
+        target: &Path,
+        between: impl FnOnce(),
+    ) -> Result<Option<String>, String> {
+        let name = Self::name(target).map_err(|e| format!("{}: {e}", target.display()))?;
+        let shown = self.path.join(name);
+        let not_regular = || {
+            format!(
+                "{} is not a regular file, so the install does not read or replace it",
+                shown.display()
+            )
+        };
+        match rustix::fs::statat(&self.dir, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(st) if FileType::from_raw_mode(st.st_mode) == FileType::RegularFile => {}
+            Ok(_) => return Err(not_regular()),
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(e) => return Err(format!("{}: {e}", shown.display())),
+        }
+        between();
+        let fd = rustix::fs::openat(
+            &self.dir,
+            name,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|e| match e {
+            rustix::io::Errno::LOOP => not_regular(),
+            e => format!("{}: {e}", shown.display()),
+        })?;
+        // the name may have changed between the look and the open
+        let st = rustix::fs::fstat(&fd).map_err(|e| format!("{}: {e}", shown.display()))?;
+        if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile {
+            return Err(not_regular());
+        }
+        let max = u64::try_from(FRIT_BYTES_MAX).unwrap_or(0);
+        let mut bytes = Vec::new();
+        File::from(fd)
+            .take(max.saturating_add(1))
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("{}: {e}", shown.display()))?;
+        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > max {
+            return Err(format!(
+                "{} is larger than a font set may be, {max} bytes, so the install does not replace it",
+                shown.display()
+            ));
+        }
+        Ok(Some(hash(&bytes)))
+    }
+
+    /// Replaces the frit at `target` with `bytes`, mode 0644, in one
+    /// rename relative to the held folder, and keeps the frit it replaces
+    /// as `NAME.bak`. [`vtium_settings::install_file_at`] takes the steps:
+    /// anything at `NAME` but a regular file is refused and left, and a
+    /// failure before the rename leaves the old frit as it was. A refusal
+    /// names the frit's full path in the frits' directory.
+    fn install(&self, target: &Path, bytes: &[u8]) -> io::Result<()> {
+        let name = Self::name(target)?;
+        vtium_settings::install_file_at(&self.dir, name, &self.path.join(name), bytes, 0o644)
+    }
+
+    /// Removes the frit at `target` by renaming it to `NAME.bak` in the
+    /// held folder, as apply keeps every file it replaces.
+    fn remove(&self, target: &Path) -> io::Result<()> {
+        let name = Self::name(target)?;
+        let mut bak = name.to_owned();
+        bak.push(".bak");
+        rustix::fs::renameat(&self.dir, name, &self.dir, &bak).map_err(io::Error::from)
+    }
 }
 
 /// Writes a font that a draft installs as a system font: the system fonts
@@ -1481,7 +1911,7 @@ impl Scratch {
     fn new(base: &Path, names: &mut dyn FnMut() -> String, owner: u32) -> Result<Scratch, String> {
         use std::os::unix::fs::DirBuilderExt;
         for _ in 0..100u32 {
-            let path = base.join(format!("vtium-config-apply-{}", names()));
+            let path = base.join(format!("{SCRATCH_PREFIX}{}", names()));
             match std::fs::DirBuilder::new().mode(0o700).create(&path) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -1490,9 +1920,11 @@ impl Scratch {
             // From here the directory is this process's, and `Drop` removes
             // it. One this process makes but cannot hold is removed here;
             // remove_dir takes only an empty directory and follows no link.
-            // A panic, which aborts a release build, or a Ctrl-C leaves it
-            // behind, empty or holding the copies, at mode 0700, where no
-            // other user can read it.
+            // A panic, which aborts a release build, a Ctrl-C or a kill
+            // leaves it behind, empty or holding the copies, at mode 0700,
+            // where no other user can read it, and the system empties
+            // `/tmp` and `/run` at boot, and the user's runtime folder when
+            // the user's last session ends.
             return match Scratch::hold(&path, owner) {
                 Ok(dir) => Ok(Scratch { path, dir }),
                 Err(why) => {
@@ -1542,21 +1974,26 @@ impl Scratch {
             .map_err(|e| format!("{}: {e}", self.path.display()))
     }
 
-    /// Writes `bytes` as the new file `name` in the directory.
-    fn write(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    /// Writes `bytes` as the new file `name` in the directory, mode 0600.
+    fn copy(&self, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
         let fd = rustix::fs::openat(
             &self.dir,
             name,
             OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
             Mode::from_raw_mode(0o600),
-        )
-        .map_err(|e| format!("{name}: {e}"))?;
-        File::from(fd)
-            .write_all(bytes)
-            .map_err(|e| format!("{name}: {e}"))?;
+        )?;
+        File::from(fd).write_all(bytes)?;
         Ok(self.path.join(name))
     }
+
+    /// [`Scratch::copy`], with a failure named by the file `name`.
+    fn write(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+        self.copy(name, bytes).map_err(|e| format!("{name}: {e}"))
+    }
 }
+
+/// The start of the name of each directory for the check's copies.
+const SCRATCH_PREFIX: &str = "vtium-config-apply-";
 
 /// A name for the check's directory that no other user can tell in
 /// advance: 16 hex digits of a hash keyed by a fresh `RandomState`, whose
@@ -1605,6 +2042,21 @@ mod tests {
 
     fn base(test: &str) -> Base {
         let base = std::env::temp_dir().join(format!(
+            "vtium-config-scratch-{test}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir(&base).unwrap();
+        Base(base)
+    }
+
+    /// [`base`] for a test whose frits' directory must pass the ownership
+    /// check that apply makes of it before it writes the check's copies
+    /// there: beside the test's own binary, in the build's target
+    /// directory, since others can write the system's temporary directory.
+    fn trusted_base(test: &str) -> Base {
+        let exe = std::env::current_exe().unwrap();
+        let base = exe.parent().unwrap().join(format!(
             "vtium-config-scratch-{test}-{}",
             std::process::id()
         ));
@@ -1843,14 +2295,28 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::os::unix::fs::symlink(&elsewhere, dir.join("system-font")).unwrap();
         std::fs::write(dir.join(MANIFEST), "write\tsystem-font/A.ttf\tnew\n").unwrap();
-        let why = apply(&dir, &targets_in(&base), &no_helper(), &mut Vec::new()).unwrap_err();
+        let why = apply(
+            &dir,
+            &targets_in(&base),
+            &no_helper(),
+            &runtime_dir(),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
         assert!(why.starts_with("system-font: "), "{why}");
         // the font is a link
         let dir = base.join("draft-file");
         std::fs::create_dir_all(dir.join("system-font")).unwrap();
         std::os::unix::fs::symlink(elsewhere.join("A.ttf"), dir.join("system-font/A.ttf")).unwrap();
         std::fs::write(dir.join(MANIFEST), "write\tsystem-font/A.ttf\tnew\n").unwrap();
-        let why = apply(&dir, &targets_in(&base), &no_helper(), &mut Vec::new()).unwrap_err();
+        let why = apply(
+            &dir,
+            &targets_in(&base),
+            &no_helper(),
+            &runtime_dir(),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
         assert!(why.starts_with("system-font/A.ttf"), "{why}");
         assert!(!base.join("local-fonts").exists());
     }
@@ -1869,7 +2335,14 @@ mod tests {
             "write\tsystem-font/A.ttf\tnew\nwrite\tvtium.conf\tnew\n",
         )
         .unwrap();
-        let why = apply(&dir, &targets_in(&base), &no_helper(), &mut Vec::new()).unwrap_err();
+        let why = apply(
+            &dir,
+            &targets_in(&base),
+            &no_helper(),
+            &runtime_dir(),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
         assert!(
             why.contains("holds that one font and nothing else"),
             "{why}"
@@ -1893,7 +2366,14 @@ mod tests {
         std::fs::create_dir_all(dir.join("system-font")).unwrap();
         std::fs::write(dir.join("system-font/A.ttf"), b"OTTO").unwrap();
         std::fs::write(dir.join(MANIFEST), "write\tsystem-font/A.ttf\tnew\n").unwrap();
-        let why = apply(&dir, &targets_in(&base), &no_helper(), &mut Vec::new()).unwrap_err();
+        let why = apply(
+            &dir,
+            &targets_in(&base),
+            &no_helper(),
+            &runtime_dir(),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
         assert!(
             why.starts_with("system-font/A.ttf: vtium-config does not install this file as a system font, because the font helper gave no description of it: cannot start the font helper /nonexistent/vtium-config: "),
             "{why}"
@@ -1986,13 +2466,16 @@ mod tests {
     #[test]
     fn root_s_change_installs_through_a_draft_of_its_own_and_leaves_nothing_behind() {
         use crate::draft::FileEdit;
-        let base = base("install-now");
+        let base = trusted_base("install-now");
         let etc = base.join("etc");
         let fonts = etc.join("fonts");
         std::fs::create_dir_all(&fonts).unwrap();
         std::fs::write(etc.join("vtium.conf"), "font-size=12\n").unwrap();
         let drafts = base.join("drafts");
         std::fs::create_dir(&drafts).unwrap();
+        let run = base.join("run");
+        std::fs::DirBuilder::new().mode(0o700).create(&run).unwrap();
+        let runtime = Ok(run.clone());
         let targets = |vtium: &str| Targets {
             configdir: etc.clone(),
             frits: Ok(fonts.clone()),
@@ -2023,6 +2506,7 @@ mod tests {
             &plan("source=builtin:unifont\n", "font-size=13\n"),
             &targets("/bin/false"),
             &no_helper(),
+            &runtime,
             &mut out,
         );
         assert!(refused.is_err(), "{refused:?}");
@@ -2031,6 +2515,7 @@ mod tests {
             &plan("colour=red\n", "font-size=13\n"),
             &targets("/bin/true"),
             &no_helper(),
+            &runtime,
             &mut out,
         );
         assert!(refused.is_err(), "{refused:?}");
@@ -2051,6 +2536,7 @@ mod tests {
             &plan("source=builtin:unifont\n", "font-size=13\n"),
             &targets("/bin/true"),
             &no_helper(),
+            &runtime,
             &mut out,
         );
         let why = refused.unwrap_err();
@@ -2063,6 +2549,7 @@ mod tests {
             &plan("source=builtin:unifont\n", "font-size=13\n"),
             &targets("/bin/true"),
             &no_helper(),
+            &runtime,
             &mut out,
         );
         assert_eq!(written, Ok(true), "{}", String::from_utf8_lossy(&out));
@@ -2075,6 +2562,308 @@ mod tests {
             "font-size=13\n"
         );
         assert!(entries_of(&drafts).is_empty(), "{:?}", entries_of(&drafts));
+        assert!(entries_of(&run).is_empty(), "{:?}", entries_of(&run));
+    }
+
+    /// The review's case: the frits' directory `open/l/fonts` is reached
+    /// through a link `l` in a folder `open` that others can write, so
+    /// whoever can write `open` can point `l` elsewhere. The console refuses
+    /// every font set there, and apply refuses the directory the same way,
+    /// naming `open`. Once `open` is closed to others, apply holds the
+    /// directory, and a frit it installs and one it removes after `l` moves
+    /// still act in the folder it checked.
+    #[test]
+    fn a_frits_directory_reached_through_a_link_in_an_open_folder_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let trust = vtium_settings::Trust::running_as(euid());
+        let base = trusted_base("link-in-open");
+        let open = base.join("open");
+        std::fs::create_dir(&open).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o777)).unwrap();
+        for d in ["real/fonts", "evil/fonts"] {
+            std::fs::create_dir_all(base.join(d)).unwrap();
+        }
+        std::os::unix::fs::symlink(base.join("real"), open.join("l")).unwrap();
+        let path = open.join("l/fonts");
+        std::fs::write(
+            base.join("real/fonts/old.vtfrit"),
+            "source=builtin:unifont\n",
+        )
+        .unwrap();
+        std::fs::write(
+            base.join("evil/fonts/old.vtfrit"),
+            "source=builtin:unifont\n",
+        )
+        .unwrap();
+        let console = vtium_settings::inspect(&path.join("old.vtfrit"), &trust)
+            .unwrap()
+            .unwrap();
+        assert!(console.trusted.is_err(), "the console refuses the frit");
+        let why = FritsDir::open(&path)
+            .err()
+            .expect("apply refuses the directory");
+        assert!(
+            why.contains("so the install writes none there: other users can change")
+                && why.contains(&format!("{:?}", open.display().to_string())),
+            "{why}"
+        );
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let held = FritsDir::open(&path).unwrap();
+        // the link moves after the check
+        std::fs::remove_file(open.join("l")).unwrap();
+        std::os::unix::fs::symlink(base.join("evil"), open.join("l")).unwrap();
+        held.install(&path.join("new.vtfrit"), b"source=builtin:unscii-8\n")
+            .unwrap();
+        held.remove(&path.join("old.vtfrit")).unwrap();
+        assert_eq!(
+            entries_of(&base.join("real/fonts")),
+            ["new.vtfrit", "old.vtfrit.bak"]
+        );
+        assert_eq!(entries_of(&base.join("evil/fonts")), ["old.vtfrit"]);
+        // a frit replaced keeps the one it replaces as NAME.bak
+        held.install(&path.join("new.vtfrit"), b"source=builtin:unifont\n")
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(base.join("real/fonts/new.vtfrit.bak")).unwrap(),
+            "source=builtin:unscii-8\n"
+        );
+        let mode = std::fs::metadata(base.join("real/fonts/new.vtfrit"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o7777, 0o644);
+        // anything at the name but a regular file is refused and left
+        std::os::unix::fs::symlink(
+            base.join("evil/fonts/old.vtfrit"),
+            base.join("real/fonts/link.vtfrit"),
+        )
+        .unwrap();
+        let why = held
+            .install(&path.join("link.vtfrit"), b"x\n")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            why,
+            format!(
+                "{} is not a regular file, so it cannot be replaced",
+                path.join("link.vtfrit").display()
+            )
+        );
+        assert!(base.join("real/fonts/link.vtfrit").is_symlink());
+        assert_eq!(
+            std::fs::read_to_string(base.join("evil/fonts/old.vtfrit")).unwrap(),
+            "source=builtin:unifont\n"
+        );
+    }
+
+    /// The security review's probe of step 2: apply checks the frits'
+    /// directory before it reads an installed frit there. With the
+    /// directory open to others, a link at `old.vtfrit` to a file outside
+    /// is refused in the walk's words whether the manifest's hash of that
+    /// file is right or wrong, so the refusal tells nothing about the
+    /// file, and a FIFO at the name is refused at once. In a directory the
+    /// walk approves, a link, a FIFO and a file larger than a font set may
+    /// be are each refused as they are found, the same way for a right
+    /// and a wrong hash, and apply never waits on the FIFO.
+    #[test]
+    fn step_two_reads_an_installed_frit_only_through_the_checked_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = trusted_base("step-two");
+        let fonts = base.join("fonts");
+        std::fs::create_dir(&fonts).unwrap();
+        std::fs::create_dir(base.join("etc")).unwrap();
+        let secret = base.join("secret");
+        std::fs::write(&secret, "the secret\n").unwrap();
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let targets = Targets {
+            configdir: base.join("etc"),
+            frits: Ok(fonts.clone()),
+            vtium: "/bin/true".into(),
+        };
+        let draft = base.join("draft");
+        std::fs::create_dir(&draft).unwrap();
+        let runtime = Ok(base.to_path_buf());
+        // apply in a thread of its own, so a read that blocks fails the
+        // test instead of hanging it
+        let run = |was: &str| {
+            std::fs::write(
+                draft.join(MANIFEST),
+                format!("remove\tfonts/old.vtfrit\t{was}\n"),
+            )
+            .unwrap();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let (d, t, r) = (draft.clone(), targets.clone(), runtime.clone());
+            std::thread::spawn(move || {
+                let _ = tx.send(apply(&d, &t, &no_helper(), &r, &mut Vec::new()));
+            });
+            rx.recv_timeout(std::time::Duration::from_secs(10))
+                .expect("apply returns without waiting on the frit")
+        };
+        let right = hash(b"the secret\n");
+        let wrong = hash(b"a guess\n");
+        let open_to_others = format!(
+            "vtium reads no font set in {}, so the install writes none there: other users can change",
+            fonts.display()
+        );
+        let not_regular = format!(
+            "{} is not a regular file, so the install does not read or replace it",
+            fonts.join("old.vtfrit").display()
+        );
+        let release = |fifo: &Path| {
+            // a reader stuck on the FIFO returns once a writer opens it
+            drop(rustix::fs::open(
+                fifo,
+                OFlags::WRONLY | OFlags::NONBLOCK,
+                Mode::empty(),
+            ));
+        };
+        for mode in [0o777, 0o755] {
+            std::fs::set_permissions(&fonts, std::fs::Permissions::from_mode(mode)).unwrap();
+            let expected = if mode == 0o777 {
+                &open_to_others
+            } else {
+                &not_regular
+            };
+            std::os::unix::fs::symlink(&secret, fonts.join("old.vtfrit")).unwrap();
+            let (a, b) = (run(&right), run(&wrong));
+            assert_eq!(a, b, "a right and a wrong hash read alike");
+            let why = a.unwrap_err();
+            assert!(why.starts_with(expected.as_str()), "{why}");
+            std::fs::remove_file(fonts.join("old.vtfrit")).unwrap();
+            let fifo = fonts.join("old.vtfrit");
+            rustix::fs::mknodat(
+                rustix::fs::CWD,
+                &fifo,
+                FileType::Fifo,
+                Mode::from_raw_mode(0o644),
+                0,
+            )
+            .unwrap();
+            let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&right)));
+            release(&fifo);
+            let why = got.unwrap().unwrap_err();
+            assert!(why.starts_with(expected.as_str()), "{why}");
+            std::fs::remove_file(&fifo).unwrap();
+        }
+        // a file larger than a font set may be is not read whole
+        let big = vec![b'#'; FRIT_BYTES_MAX + 1];
+        std::fs::write(fonts.join("old.vtfrit"), &big).unwrap();
+        let why = run(&hash(&big)).unwrap_err();
+        assert!(why.contains("is larger than a font set may be"), "{why}");
+        assert_eq!(entries_of(&fonts), ["old.vtfrit"]);
+    }
+
+    /// A frit that becomes a FIFO between apply's look at the name and its
+    /// open is refused once it is open, so apply never hashes what the
+    /// FIFO gives as if it were the frit.
+    #[test]
+    fn a_frit_replaced_between_the_look_and_the_open_is_refused() {
+        let base = trusted_base("look-then-open");
+        let fonts = base.join("fonts");
+        std::fs::create_dir(&fonts).unwrap();
+        let old = fonts.join("old.vtfrit");
+        std::fs::write(&old, "source=builtin:unifont\n").unwrap();
+        let held = FritsDir::open(&fonts).unwrap();
+        let swapped = held.installed_after(&old, || {
+            std::fs::remove_file(&old).unwrap();
+            rustix::fs::mknodat(
+                rustix::fs::CWD,
+                &old,
+                FileType::Fifo,
+                Mode::from_raw_mode(0o644),
+                0,
+            )
+            .unwrap();
+        });
+        assert_eq!(
+            swapped,
+            Err(format!(
+                "{} is not a regular file, so the install does not read or replace it",
+                old.display()
+            ))
+        );
+    }
+
+    /// The re-review's probe of a new frit's name: apply looks the name up
+    /// in the catalog's folders through the frits' directory it holds
+    /// open, without following a link. A link at `console/probe.vtfrit`
+    /// gives the same refusal whether the file it points to exists or not,
+    /// and so does a category folder that is itself a link, whether or not
+    /// the folder behind it holds the name. Nothing is installed.
+    #[test]
+    fn a_new_frit_s_name_is_looked_up_in_the_catalog_without_following_a_link() {
+        use std::os::unix::fs::symlink;
+        let base = trusted_base("unheld");
+        let fonts = base.join("fonts");
+        std::fs::create_dir_all(fonts.join("console")).unwrap();
+        std::fs::create_dir(base.join("etc")).unwrap();
+        let secret = base.join("secret");
+        std::fs::write(&secret, "the secret\n").unwrap();
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir(&elsewhere).unwrap();
+        let targets = Targets {
+            configdir: base.join("etc"),
+            frits: Ok(fonts.clone()),
+            vtium: "/bin/true".into(),
+        };
+        let draft = base.join("draft");
+        std::fs::create_dir_all(draft.join("fonts")).unwrap();
+        std::fs::write(
+            draft.join("fonts/probe.vtfrit"),
+            "source=builtin:unscii-8\n",
+        )
+        .unwrap();
+        std::fs::write(draft.join(MANIFEST), "write\tfonts/probe.vtfrit\tnew\n").unwrap();
+        let run = || {
+            let got = apply(
+                &draft,
+                &targets,
+                &no_helper(),
+                &Ok(base.to_path_buf()),
+                &mut Vec::new(),
+            );
+            let installed = fonts.join("probe.vtfrit").exists();
+            let _ = std::fs::remove_file(fonts.join("probe.vtfrit"));
+            (got, installed)
+        };
+        let link = fonts.join("console/probe.vtfrit");
+        symlink(&secret, &link).unwrap();
+        let to_a_file = run();
+        std::fs::remove_file(&link).unwrap();
+        symlink(base.join("missing"), &link).unwrap();
+        let to_nothing = run();
+        assert_eq!(to_a_file, to_nothing, "a link's target changes nothing");
+        let why = to_a_file.0.unwrap_err();
+        assert_eq!(
+            why,
+            format!(
+                "The font set probe is already installed as {}, a set of vtium's catalog. Give your font set another name.",
+                link.display()
+            )
+        );
+        assert!(!to_a_file.1);
+        std::fs::remove_file(&link).unwrap();
+        // a category folder that is a link, to a folder that holds the
+        // name and to one that does not
+        let code = fonts.join("code");
+        symlink(&elsewhere, &code).unwrap();
+        std::fs::write(elsewhere.join("probe.vtfrit"), "source=builtin:unifont\n").unwrap();
+        let holding = run();
+        std::fs::remove_file(elsewhere.join("probe.vtfrit")).unwrap();
+        let empty = run();
+        assert_eq!(
+            holding, empty,
+            "what the linked folder holds changes nothing"
+        );
+        let why = holding.0.unwrap_err();
+        assert!(
+            why.starts_with(&format!(
+                "The catalog folder {} is a symbolic link.",
+                code.display()
+            )),
+            "{why}"
+        );
+        assert!(!holding.1);
     }
 
     /// The system's names cannot be told in advance from the process's id

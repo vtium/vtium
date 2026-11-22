@@ -1,9 +1,10 @@
 //! The Looks tab: one list in four groups, the looks of the draft, the
 //! font sets, the color schemes and the installed pointer themes, with a
 //! preview of the highlighted look, font set or color scheme. Enter on a
-//! look opens its card, and Enter on any other item opens its detail. `n`
-//! makes a new look among the looks and opens the form for a new font set
-//! among the font sets. `r` deletes a look after a question and marks a
+//! look opens its card, and Enter on any other item opens its detail. The
+//! card's list of sizes shows the preview of the highlighted size below
+//! it. `n` makes a new look among the looks and opens the form for a new
+//! font set among the font sets. `r` deletes a look after a question and marks a
 //! font set for removal at the next install. `t` tries the look's font set
 //! or the font set on the console, and `p` switches the preview between
 //! sample characters and a picture of the console. Space activates or
@@ -40,10 +41,11 @@ pub mod newfrit;
 pub mod palettes;
 pub mod pointers;
 
+use super::super::canvas::Row;
 use super::super::color::Style;
 use super::super::edit::Change as DraftChange;
 use super::super::input::Key;
-use super::super::layout::{PICTURE_COL, PICTURE_ROW};
+use super::super::layout::{MESSAGE_ROWS, PICTURE_COL, PICTURE_ROW};
 use super::super::listbox::{Body, Item, ListBox, Marks, plain, prose, rows, step, tail};
 use super::super::model::{DpiFrom, Font, FontState, Shared, Size, Then, View};
 use super::super::resources;
@@ -60,7 +62,8 @@ pub enum Entry {
     Look(String),
     /// The looks group's one row while the draft has no look.
     NoLooks,
-    /// A font set, by its place in the list of fonts.
+    /// A font set, by its place among the font sets the draft sees
+    /// ([`fontsets::all`]).
     FontSet(usize),
     /// A color scheme, built in or a file.
     Palette(palettes::Scheme),
@@ -121,7 +124,7 @@ impl Looks {
         if out.is_empty() {
             out.push(Entry::NoLooks);
         }
-        out.extend((0..shared.inputs.fonts.len()).map(Entry::FontSet));
+        out.extend((0..fontsets::all(shared).len()).map(Entry::FontSet));
         out.extend(palettes::entries(shared).into_iter().map(Entry::Palette));
         out.extend((0..shared.inputs.effects.pointers.len()).map(Entry::Pointer));
         out
@@ -147,7 +150,7 @@ impl Looks {
     /// nothing open over the list, as Enter on a font set in the Flow tab
     /// asks. A name the list does not hold leaves the highlight as it was.
     pub fn show_font_set(&mut self, shared: &Shared, name: &str) {
-        let Some(font) = shared.inputs.fonts.iter().position(|f| f.name == name) else {
+        let Some(font) = fontsets::place(shared, name) else {
             return;
         };
         if let Some(at) = Self::entries(shared)
@@ -177,11 +180,11 @@ impl Looks {
     }
 
     /// Where the highlight and an open font set's detail are. The list
-    /// holds each font set by its place among the fonts, which an install
-    /// that adds or removes a font set moves, so the spot names the font
-    /// set instead.
+    /// holds each font set by its place among the font sets, which an
+    /// install that adds or removes a font set moves, so the spot names
+    /// the font set instead.
     pub fn spot(&self, shared: &Shared) -> Spot {
-        let name = |at: usize| shared.inputs.fonts.get(at).map(|f| f.name.clone());
+        let name = |at: usize| fontsets::font(shared, at).map(|f| f.name);
         let entry = self.highlighted(shared);
         Spot {
             font_set: match entry {
@@ -201,7 +204,7 @@ impl Looks {
     /// font set that left the list closes its detail, and a highlight
     /// whose item left the list stays at its place.
     pub fn restore(&mut self, shared: &Shared, spot: Spot) {
-        let place = |name: &str| shared.inputs.fonts.iter().position(|f| f.name == name);
+        let place = |name: &str| fontsets::place(shared, name);
         let entry = match (spot.entry, spot.font_set) {
             (Some(Entry::FontSet(_)), Some(name)) => place(&name).map(Entry::FontSet),
             (entry, _) => entry,
@@ -271,7 +274,7 @@ impl Looks {
     /// else vtium.conf's, or the highlighted or opened font set.
     fn font_set(&self, shared: &Shared) -> Option<String> {
         if let Some(Open::FontSet { at, .. }) = self.open {
-            return shared.inputs.fonts.get(at).map(|f| f.name.clone());
+            return fontsets::font(shared, at).map(|f| f.name);
         }
         if let Some(name) = self.look_shown(shared) {
             return list::look(shared, &name)
@@ -279,7 +282,7 @@ impl Looks {
                 .or_else(|| shared.drafted("font-name"));
         }
         match self.highlighted(shared) {
-            Some(Entry::FontSet(at)) => shared.inputs.fonts.get(at).map(|f| f.name.clone()),
+            Some(Entry::FontSet(at)) => fontsets::font(shared, at).map(|f| f.name),
             _ => shared.drafted("font-name"),
         }
     }
@@ -368,29 +371,11 @@ impl Looks {
             };
         }
         let preview = Tab::preview(self, shared, size);
-        let line = preview.preview_line();
-        // a picture says the density it is drawn at, and automatic has
-        // none, since vtium picks the size for each display
-        if shared.graphics && !shared.text_preview() && !self.picture {
+        for words in preview_words(shared, &preview, self.points(shared), !self.picture) {
             sentence.push(' ');
-            if self.points(shared) == 0 {
-                sentence.push_str(words::AUTOMATIC_PICTURE);
-            } else {
-                let (dpi, from) = shared.inputs.dpi;
-                sentence.push_str(&words::density(
-                    dpi,
-                    match from {
-                        DpiFrom::Conf => words::DPI_FROM_CONF,
-                        DpiFrom::Edid => words::DPI_FROM_EDID,
-                        DpiFrom::Assumed => words::DPI_ASSUMED,
-                    },
-                ));
-            }
+            sentence.push_str(&words);
         }
-        if let Some(line) = line {
-            sentence.push(' ');
-            sentence.push_str(&line);
-        }
+
         // the console's own preview draws its text beside the names, so the
         // sentences keep to the names' column there; a picture leaves the
         // cells under it alone, and a written description has nothing
@@ -405,6 +390,104 @@ impl Looks {
             keep,
             tail: tail(&sentence, cols),
         }
+    }
+
+    /// A look card's size list with the preview of the highlighted size
+    /// under it, or `None` where the size list is not open or the screen
+    /// leaves the preview no row. The list takes the rows it needs, up to
+    /// half the body's rows, and scrolls in that window to keep the
+    /// highlight in view. Under it come the sentence that says what the
+    /// keys do and the line that describes the preview, then a blank row,
+    /// then the rows of a picture or of the console's own text, from the
+    /// left edge. A written description is the whole preview, so it needs
+    /// no rows of its own. Where the sentences are long, the list's window
+    /// gives up rows to them, down to [`SIZE_LIST_MIN`] rows, so a long
+    /// reason why a size cannot be used still shows.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "Sizes, live on a vtium console": the preview
+    ///   follows the highlight over the sizes, and its note of 2026-11-21
+    ///   puts it below the card's size list.
+    fn size_view(&self, shared: &Shared, size: Size) -> Option<SizeView> {
+        let (list, keep, points) = self.card()?.size_list(shared, size.cols)?;
+        let room = body_rows(size);
+        let mut sentence = words::CARD_LIST_HINT.to_owned();
+        // in a vtium console the preview is the console's own text, at the
+        // size the console draws now, so the caption says what Enter does
+        // to that size; elsewhere the caption describes the preview
+        let parts = if shared.text_preview() {
+            vec![
+                if shared.window_ops() {
+                    words::CARD_CONSOLE_SIZE_TRY
+                } else {
+                    words::CARD_CONSOLE_SIZE_FIXED
+                }
+                .to_owned(),
+            ]
+        } else {
+            preview_words(
+                shared,
+                &self.size_preview(shared, size, points),
+                points,
+                true,
+            )
+        };
+        for part in parts {
+            sentence.push(' ');
+            sentence.push_str(&part);
+        }
+        let tail = tail(&sentence, size.cols);
+        // a picture or the console's text needs a blank row and one row of
+        // its own below the sentences; a written description needs none
+        let drawn = shared.text_preview() || shared.graphics;
+        let below = tail.len().saturating_add(usize::from(drawn));
+        let fits = room.saturating_sub(below).saturating_sub(1);
+        // the window keeps to the rows the sentences leave, so where they
+        // leave fewer than SIZE_LIST_MIN the card gives up the preview and
+        // shows its list and hint; a larger window would push the hint and
+        // the sentences off the screen
+        let window = list.len().min(room / 2).min(fits);
+        if window < list.len().min(SIZE_LIST_MIN) {
+            return None;
+        }
+        let first = keep.saturating_add(1).saturating_sub(window);
+        let list: Vec<Row> = list.into_iter().skip(first).take(window).collect();
+        let keep = keep.saturating_sub(first);
+        let used = list.len().saturating_add(tail.len());
+        Some(SizeView {
+            body: Body { list, keep, tail },
+            at: (PICTURE_ROW.saturating_add(used).saturating_add(1), 2),
+            points,
+        })
+    }
+
+    /// The preview of the look card's font set at `points`, on the
+    /// sample screen. The font helper draws only installed font sets, so
+    /// a font set that only the draft adds has no picture until the
+    /// install.
+    fn size_preview<'a>(&self, shared: &'a Shared, size: Size, points: u32) -> Preview<'a> {
+        let font = self
+            .font_set(shared)
+            .and_then(|name| shared.inputs.fonts.iter().find(|f| f.name == name));
+        Preview::of(shared, size, Source::Size { font, points })
+    }
+
+    /// The font set `t` would try, where only the draft adds it: the
+    /// console reads font sets only from the frits' directory, so `t` can
+    /// try it once the draft is installed.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "The live trial": on a frit only the draft holds, the TUI says that the font set can be tried once it is installed.
+    pub fn in_draft<'a>(&self, shared: &'a Shared) -> Option<&'a str> {
+        let name = self.font_set(shared)?;
+        if !fontsets::only_drafted(shared, &name) {
+            return None;
+        }
+        shared
+            .frits()
+            .kept
+            .get_key_value(&name)
+            .map(|(k, _)| k.as_str())
     }
 
     /// `n` among the looks: a new look, with No filter and every other key
@@ -443,15 +526,23 @@ impl Looks {
     }
 
     /// `t`: tries the font set `font` on the console, or says why it
-    /// cannot: there is none, the console does not read it, or this
-    /// machine does not have it. The live trial switches the console's
-    /// font alone, so a look's size, color scheme and vtlook take effect
-    /// only once vtium starts with them.
+    /// cannot: there is none, the console does not read it, only the
+    /// draft adds it, or this machine does not have it. The console reads
+    /// font sets only from the frits' directory, so a font set the draft
+    /// adds can be tried once it is installed. The live trial switches the
+    /// console's font alone, so a look's size, color scheme and vtlook
+    /// take effect only once vtium starts with them.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "The live trial": `t` on a frit only the draft holds says it can be tried once installed.
     fn try_font(shared: &Shared, font: Option<String>) -> Vec<Command> {
         let say = |line: String| vec![Command::Change(Change::Say(line))];
         let Some(name) = font else {
             return say(words::TRY_NO_FONT.to_owned());
         };
+        if fontsets::only_drafted(shared, &name) {
+            return say(words::try_in_draft(&name));
+        }
         match shared.inputs.fonts.iter().find(|f| f.name == name) {
             Some(f) if fontsets::usable(shared, f) => vec![Command::Change(Change::Try(name))],
             Some(Font {
@@ -461,6 +552,30 @@ impl Looks {
             Some(_) => say(words::try_refused(&name, words::KEPT)),
             None => say(words::try_absent(&name)),
         }
+    }
+
+    /// `w`: asks whether to let programs resize the console's grid, and
+    /// on `y` writes `allow-window-ops = on` into the draft. Where the
+    /// draft already turns it on, the question says so, and `y` leaves the
+    /// draft as it is.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "Sizes, live on a vtium console": the notice line
+    ///   shows `w`, which asks `Let programs resize the grid?`, and only
+    ///   `y` writes the key.
+    fn window_ops(shared: &Shared) -> Vec<Command> {
+        let question = if shared.window_ops_drafted() {
+            format!("{} {}", words::WINDOW_OPS_ON, words::WINDOW_OPS_QUESTION)
+        } else {
+            words::WINDOW_OPS_QUESTION.to_owned()
+        };
+        vec![Command::Request(Request::Ask {
+            question,
+            then: Then::Change(DraftChange::Top {
+                key: vtium_settings::keys::ALLOW_WINDOW_OPS.name,
+                value: Some("on".to_owned()),
+            }),
+        })]
     }
 
     /// A key while nothing is open over the list.
@@ -501,6 +616,9 @@ impl Looks {
             (Key::Char('n' | 'r' | 't' | 'p'), Some(Entry::Palette(_) | Entry::Pointer(_))) => {
                 Vec::new()
             }
+            (Key::Char('w'), Some(Entry::Look(_) | Entry::NoLooks | Entry::FontSet(_))) => {
+                Self::window_ops(shared)
+            }
             (Key::Char('n'), Some(Entry::Look(_) | Entry::NoLooks)) => self.new_look(shared),
             (Key::Char('n'), Some(Entry::FontSet(_))) => {
                 vec![Command::Request(Request::Go(View::New))]
@@ -512,10 +630,7 @@ impl Looks {
                     then: Then::Change(DraftChange::LookRm(name)),
                 })]
             }
-            (Key::Char('r'), Some(Entry::FontSet(at))) => shared
-                .inputs
-                .fonts
-                .get(at)
+            (Key::Char('r'), Some(Entry::FontSet(at))) => fontsets::font(shared, at)
                 .map(|f| fontsets::remove(shared, &f.name))
                 .unwrap_or_default(),
             (Key::Char('t'), Some(Entry::Look(_))) => Self::try_font(shared, self.font_set(shared)),
@@ -523,7 +638,7 @@ impl Looks {
                 vec![Command::Change(Change::Say(words::TRY_NO_LOOK.to_owned()))]
             }
             (Key::Char('t'), Some(Entry::FontSet(at))) => {
-                Self::try_font(shared, shared.inputs.fonts.get(at).map(|f| f.name.clone()))
+                Self::try_font(shared, fontsets::font(shared, at).map(|f| f.name))
             }
             (Key::Char('p'), entry) => {
                 self.picture = !self.picture;
@@ -531,11 +646,8 @@ impl Looks {
                 // switch would show nothing new; the tab says so
                 match entry {
                     Some(Entry::FontSet(at))
-                        if shared
-                            .inputs
-                            .fonts
-                            .get(at)
-                            .is_some_and(|f| !fontsets::usable(shared, f)) =>
+                        if fontsets::font(shared, at)
+                            .is_some_and(|f| !fontsets::usable(shared, &f)) =>
                     {
                         vec![Command::Change(Change::Say(
                             words::NO_PREVIEW_TO_SWITCH.to_owned(),
@@ -574,6 +686,9 @@ impl Tab for Looks {
     }
 
     fn body(&self, shared: &Shared, size: Size) -> Body {
+        if let Some(view) = self.size_view(shared, size) {
+            return view.body;
+        }
         match &self.open {
             None => self.list_body(shared, size),
             Some(Open::Card(c)) => c.body(shared, size),
@@ -606,15 +721,23 @@ impl Tab for Looks {
     /// Beside the list of names, two rows below the looks group's
     /// heading. The preview's area keeps the size it had beside the list of
     /// sizes this tab held before it held looks, so a picture drawn for it
-    /// keeps its size too.
-    fn picture_at(&self, _shared: &Shared, _size: Size) -> (usize, usize) {
-        (PICTURE_ROW.saturating_add(2), PICTURE_COL)
+    /// keeps its size too. Under a look card's size list, below the list
+    /// and its sentences, from the left edge.
+    fn picture_at(&self, shared: &Shared, size: Size) -> (usize, usize) {
+        match self.size_view(shared, size) {
+            Some(view) => view.at,
+            None => (PICTURE_ROW.saturating_add(2), PICTURE_COL),
+        }
     }
 
     /// The previewed font set: sample characters at the look's size, or a
-    /// picture of the console in it. A card or a detail fills the screen
-    /// with its lines, so the preview waits for the list.
+    /// picture of the console in it. Under a look card's size list, the
+    /// sample characters at the highlighted size. Any other card or detail
+    /// fills the screen with its lines, so the preview waits for the list.
     fn preview<'a>(&self, shared: &'a Shared, size: Size) -> Preview<'a> {
+        if let Some(view) = self.size_view(shared, size) {
+            return self.size_preview(shared, size, view.points);
+        }
         if self.open.is_some()
             || matches!(
                 self.highlighted(shared),
@@ -623,6 +746,7 @@ impl Tab for Looks {
         {
             return Preview::nothing(shared, size);
         }
+        // the font helper draws only installed font sets, as for a size
         let font = self
             .font_set(shared)
             .and_then(|name| shared.inputs.fonts.iter().find(|f| f.name == name));
@@ -637,13 +761,25 @@ impl Tab for Looks {
                 points: self.points(shared),
             }
         };
-        Preview::of(shared, size, source)
+        Preview::of(shared, size, source).in_draft(self.in_draft(shared))
     }
 
     /// In a vtium console, the sample screen's lines, or with `p` the
-    /// detailed specimen's lines for the locale; none while a card or a
-    /// detail is open.
-    fn console_lines(&self, shared: &Shared) -> Vec<Vec<(&'static str, Style)>> {
+    /// detailed specimen's lines for the locale. Under a look card's size
+    /// list, the sample screen's lines where the screen leaves the preview
+    /// a row, as the layout of the list and its sentences decides; none
+    /// while another card or a detail is open, or where the size list
+    /// leaves no row.
+    fn console_lines(&self, shared: &Shared, size: Size) -> Vec<Vec<(&'static str, Style)>> {
+        if self
+            .card()
+            .is_some_and(|c| c.size_list(shared, 0).is_some())
+        {
+            return match self.size_view(shared, size) {
+                Some(_) => super::super::shot::sample_rows(),
+                None => Vec::new(),
+            };
+        }
         if self.open.is_some()
             || matches!(
                 self.highlighted(shared),
@@ -671,14 +807,12 @@ impl Tab for Looks {
         }
     }
 
-    /// The action keys act while nothing is open over the list, and `o`
-    /// does nothing, since it opens Restore in the Flow view alone.
+    /// The action keys act while nothing is open over the list.
     ///
     /// References:
-    /// - ADR-1403 D7: the action keys do nothing while a layer is open, and
-    ///   the `o.view` row.
-    fn takes_action(&self, action: char) -> bool {
-        self.open.is_none() && action != 'o'
+    /// - ADR-1403 D7: the action keys do nothing while a layer is open.
+    fn takes_action(&self, _action: char) -> bool {
+        self.open.is_none()
     }
 
     fn update(&mut self, shared: &Shared, room: Room, key: Key) -> Vec<Command> {
@@ -753,6 +887,53 @@ impl Looks {
             }
         }
     }
+}
+
+/// The fewest rows a look card's size list keeps when the sentences under
+/// it are long. With fewer rows than this, the card shows its whole list
+/// and no preview.
+const SIZE_LIST_MIN: usize = 3;
+
+/// A look card's size list laid out with the preview under it: the body,
+/// where the picture or the console's own text goes, row and column from
+/// 1, and the highlighted size in points.
+struct SizeView {
+    body: Body,
+    at: (usize, usize),
+    points: u32,
+}
+
+/// The rows a tab's body has on a screen of `size` when the message is at
+/// its longest: the screen less the tab bar, the status line, the two
+/// rules, a key line of one row and the message's rows.
+fn body_rows(size: Size) -> usize {
+    size.rows.saturating_sub(5).saturating_sub(MESSAGE_ROWS)
+}
+
+/// What a preview at `points` adds to the sentences under a list. Where
+/// the preview is a picture of a size, which `sized` says, the density it
+/// is drawn at comes first, or that automatic has no preview, since vtium
+/// picks the size for each display. Then comes the line that describes
+/// the preview.
+fn preview_words(shared: &Shared, preview: &Preview<'_>, points: u32, sized: bool) -> Vec<String> {
+    let mut out = Vec::new();
+    if sized && shared.graphics && !shared.text_preview() {
+        if points == 0 {
+            out.push(words::AUTOMATIC_PICTURE.to_owned());
+        } else {
+            let (dpi, from) = shared.inputs.dpi;
+            out.push(words::density(
+                dpi,
+                match from {
+                    DpiFrom::Conf => words::DPI_FROM_CONF,
+                    DpiFrom::Edid => words::DPI_FROM_EDID,
+                    DpiFrom::Assumed => words::DPI_ASSUMED,
+                },
+            ));
+        }
+    }
+    out.extend(preview.preview_line());
+    out
 }
 
 /// The rows of a detail of `lines` under its title, each paragraph

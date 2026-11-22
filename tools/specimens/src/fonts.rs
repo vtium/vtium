@@ -1,15 +1,18 @@
 //! The fonts the catalog sets jetbrains-mono and tiny5 name, and their glyphs.
 //!
-//! vtium ships no third-party font bytes, so the profiles' fonts are
-//! pinned here by URL and SHA-256 and fetched into a cache outside the
-//! tree, as tier 3 pins its guest images: `$XDG_CACHE_HOME/vtium/specimens/fonts`.
+//! Every build of vtium installs Terminus, Unifont and Cullet Mono. The
+//! profiles use other fonts too, which vtium's tree does not hold, so they
+//! are pinned here by URL and SHA-256 and fetched into a cache outside the
+//! tree, as tier 3 pins its guest images:
+//! `$XDG_CACHE_HOME/vtium/specimens/fonts`. The profiles' Unifont file is
+//! in the cache too, and `fetch` copies it there from vtium's tree.
 //! The glyphs of the catalog set `jetbrains-mono` are generated from the outline
 //! fonts by vtium-config's engine, the one the helper runs, in this
 //! process, with the cache as its only font directory, at each outline
 //! profile's cell. The glyphs of the shipped frit `tiny5` are generated the
 //! same way from Tiny5 Mono's BDF file in the cache, its `source=` line
 //! pointed there. Both sets add the catalog's layers, the fallback layer
-//! `unifont` among them, whose BDF file the cache also holds, so the
+//! `unifont` among them, whose `.hex` file the cache also holds, so the
 //! specimens show each set as it looks once the fonts it names are
 //! installed. A profile whose glyphs cannot be generated, for want of a
 //! font, is skipped, and says why.

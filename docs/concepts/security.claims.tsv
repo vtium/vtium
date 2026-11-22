@@ -38,6 +38,7 @@ a frit name is a name, never a path	crates/vtium/src/font.rs	frit_name
 allow-window-ops, off by default	crates/vtium-settings/src/keys.rs	key allow-window-ops
 a link is copied, never opened	crates/vtium/src/head.rs	copy_link
 clipboard-write, on by default, with no system clipboard	crates/vtium-settings/src/keys.rs	key clipboard-write
+a program hands the display over with setBackground and setForeground, behind allow-display-ops, on by default	crates/vtium-settings/src/keys.rs	key allow-display-ops
 vtium.conf is trusted only when root owns it and its directories	crates/vtium-settings/src/file.rs	Trust::check
 the trust check covers every folder above the file, through each link, on descriptors	crates/vtium-settings/src/file.rs	walk
 the console reads vtium.conf through the trust check	crates/vtium/src/config/mod.rs	read_file

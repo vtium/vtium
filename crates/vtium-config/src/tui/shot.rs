@@ -167,12 +167,62 @@ fn sample_screen((cols, rows): (usize, usize)) -> Vec<super::canvas::Row> {
 pub const GRID_MAX: (usize, usize) = (1024, 1024);
 
 /// The live trial: the font tried, the font it puts back, and the ticks
-/// left before it does.
+/// left before it does. A trial of a size leaves the font as it is, so
+/// its font and the font it puts back are the same, and `grid` holds the
+/// grid it asked the console for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Trial {
     pub font: String,
     pub back: String,
     pub left: u32,
+    pub grid: Option<GridTrial>,
+}
+
+/// The live trial's countdown for the font set `font` with `left` seconds
+/// to go. The console reads only installed font sets, so on a font set the
+/// draft replaces the countdown also says that the console shows the
+/// installed version.
+///
+/// References:
+/// - ADR-1403 D8, "The live trial": `t` tries an installed frit, since the console reads frits only from the frits' directory.
+fn countdown(shared: &Shared, font: &str, left: u32) -> String {
+    if super::tabs::looks::fontsets::replaced(shared, font) {
+        words::trial_countdown_installed(font, left)
+    } else {
+        words::trial_countdown(font, left)
+    }
+}
+
+/// A size tried on the console: the size in points, the grid it gives on
+/// the display, and the grid the console had before, which the trial puts
+/// back. Each grid is columns by rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GridTrial {
+    pub points: u32,
+    pub to: (usize, usize),
+    pub back: (usize, usize),
+}
+
+/// The size a trial waits for the font helper to measure: the font set,
+/// the pixel height and the size in points.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SizeAsked {
+    pub font: String,
+    pub height: u32,
+    pub points: u32,
+}
+
+/// The grid request, `CSI 8 ; rows ; cols t`, which asks the console for a
+/// grid of `cols` by `rows`. vtium meets it by changing the font size, and
+/// only while `allow-window-ops` is on.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the Looks tab changes
+///   the console's size with the grid request.
+/// - ADR-1000, the row `window.resize`: vtium honours the request under
+///   `allow-window-ops`.
+pub fn grid_request((cols, rows): (usize, usize)) -> Vec<u8> {
+    format!("\x1b[8;{rows};{cols}t").into_bytes()
 }
 
 /// What a picture of the console shows: the font, its size in points, and
@@ -391,6 +441,10 @@ pub struct Preview<'a> {
     pub shared: &'a Shared,
     pub size: Size,
     pub source: Source<'a>,
+    /// The font set the preview stands for, where only the draft adds it.
+    /// The console reads only installed font sets, so the caption of the
+    /// console's own preview says that `t` can try it after the install.
+    pub in_draft: Option<&'a str>,
 }
 
 impl<'a> Preview<'a> {
@@ -400,6 +454,16 @@ impl<'a> Preview<'a> {
             shared,
             size,
             source,
+            in_draft: None,
+        }
+    }
+
+    /// This preview, standing for `name`, a font set that only the draft
+    /// adds, where `name` is given.
+    pub fn in_draft(self, name: Option<&'a str>) -> Preview<'a> {
+        Preview {
+            in_draft: name,
+            ..self
         }
     }
 
@@ -564,12 +628,18 @@ impl<'a> Preview<'a> {
             && !self.pictured_in_console()
             && !super::layout::too_small(self.size)
         {
-            return match self.source {
-                Source::Font { .. } => Some(words::console_font_caption(
+            return match (self.source, self.in_draft) {
+                (Source::Font { .. }, Some(name)) => {
+                    Some(words::console_caption_in_draft(name, false))
+                }
+                (Source::Size { .. }, Some(name)) => {
+                    Some(words::console_caption_in_draft(name, true))
+                }
+                (Source::Font { .. }, None) => Some(words::console_font_caption(
                     self.shared.shown_font.as_deref(),
                 )),
-                Source::Size { .. } => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
-                Source::Effect { .. } | Source::Nothing => None,
+                (Source::Size { .. }, None) => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
+                (Source::Effect { .. } | Source::Nothing, _) => None,
             };
         }
         let wanted = self.wanted()?;
@@ -999,9 +1069,10 @@ impl App {
             font: name.clone(),
             back,
             left: TRIAL_TICKS,
+            grid: None,
         });
         self.shared.want = Some(name.clone());
-        self.shared.message = Some(words::trial_countdown(&name, TRIAL_TICKS));
+        self.shared.message = Some(countdown(&self.shared, &name, TRIAL_TICKS));
         let mut out = self.follow();
         out.push(Effect::Wait(TICK));
         out
@@ -1013,7 +1084,10 @@ impl App {
         match key {
             Key::Char('k') => {
                 if let Some(t) = self.nav.trial.take() {
-                    self.shared.message = Some(words::trial_kept(&t.font));
+                    self.shared.message = Some(match t.grid {
+                        Some(g) => words::size_kept(g.points),
+                        None => words::trial_kept(&t.font),
+                    });
                 }
                 Vec::new()
             }
@@ -1022,14 +1096,117 @@ impl App {
     }
 
     /// Ends the live trial and switches the console back to the font it
-    /// drew before it.
+    /// drew before it, or for a trial of a size, asks the console for the
+    /// grid it had before.
     pub(crate) fn put_back(&mut self) -> Vec<Effect> {
         let Some(t) = self.nav.trial.take() else {
             return Vec::new();
         };
+        if let Some(g) = t.grid {
+            // a console back at its starting grid needs nothing more when
+            // the TUI leaves
+            self.shared.grid_moved = g.back != self.shared.start_grid;
+            self.shared.message = Some(words::size_back(g.back));
+            return vec![Effect::Write(grid_request(g.back))];
+        }
         self.shared.message = Some(words::trial_back(&t.back));
         self.shared.want = Some(t.back);
         self.follow()
+    }
+
+    /// Enter on a size in the shared list of a look's card: in a vtium
+    /// console that lets programs resize its grid, tries the size on the
+    /// console as a timed trial. The font helper measures the cell of the
+    /// font set `font` at the size first, and [`App::size_measured`] sends
+    /// the grid request once the cell comes. An automatic size has no grid
+    /// of its own, so it is not tried. Outside a vtium console the size
+    /// shows only in the preview. With `allow-window-ops` off the tab says
+    /// why: with the live trial on, the preview is the console's own text
+    /// at its current size, so the size takes effect when vtium starts
+    /// again; with it off, the size shows only in the preview.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
+    ///   highlighted size as a timed trial, and the grid is the one the
+    ///   size gives on the display.
+    /// - ADR-1201 D4, its note of 2026-11-21: with the live trial on and
+    ///   `allow-window-ops` off, the preview is the console's own text.
+    pub(crate) fn try_size(&mut self, font: Option<String>, points: u32) -> Vec<Effect> {
+        if !self.shared.in_vtium() || points == 0 {
+            return Vec::new();
+        }
+        if !self.shared.window_ops() {
+            self.shared.message = Some(
+                if self.shared.text_preview() {
+                    words::SIZE_AT_NEXT_START
+                } else {
+                    words::SIZE_PICTURE_ONLY
+                }
+                .to_owned(),
+            );
+            return Vec::new();
+        }
+        let Some(font) = font.or_else(|| self.shared.shown_font.clone()) else {
+            return Vec::new();
+        };
+        let height = crate::specimen::pixel_height(points, self.shared.inputs.dpi.0);
+        self.shared.size_asked = Some(SizeAsked {
+            font: font.clone(),
+            height,
+            points,
+        });
+        vec![Effect::Cell { font, height }]
+    }
+
+    /// The cell of a size that [`App::try_size`] asked for has come, or
+    /// `None` when the cell came for something else: the grid the cell
+    /// gives on the display goes to the console as the grid request, and
+    /// the trial's countdown starts. A size whose grid is the console's
+    /// grid now changes nothing.
+    pub(crate) fn size_measured(
+        &mut self,
+        font: &str,
+        height: u32,
+        cell: &Result<(Cell, u32), String>,
+    ) -> Option<Vec<Effect>> {
+        let asked = self.shared.size_asked.as_ref()?;
+        if asked.font != font || asked.height != height {
+            return None;
+        }
+        let points = asked.points;
+        self.shared.size_asked = None;
+        if self.shared.leaving.is_some() || self.nav.trial.is_some() {
+            return Some(Vec::new());
+        }
+        let cell = match cell {
+            Ok((cell, _)) => *cell,
+            Err(why) => {
+                self.shared.message = Some(words::size_unmeasured(why));
+                return Some(Vec::new());
+            }
+        };
+        let (display, _) = display(&self.shared);
+        let across =
+            |px: u32, side: u32| usize::try_from(px.checked_div(side).unwrap_or(0)).unwrap_or(0);
+        let to = (
+            across(display.0, cell.width).clamp(1, GRID_MAX.0),
+            across(display.1, cell.height).clamp(1, GRID_MAX.1),
+        );
+        let back = (self.size.cols, self.size.rows);
+        if to == back {
+            self.shared.message = Some(words::size_same(points));
+            return Some(Vec::new());
+        }
+        let font = self.shared.shown_font.clone().unwrap_or_default();
+        self.nav.trial = Some(Trial {
+            font: font.clone(),
+            back: font,
+            left: TRIAL_TICKS,
+            grid: Some(GridTrial { points, to, back }),
+        });
+        self.shared.grid_moved = true;
+        self.shared.message = Some(words::size_countdown(points, TRIAL_TICKS));
+        Some(vec![Effect::Write(grid_request(to)), Effect::Wait(TICK)])
     }
 
     /// One tick of the live trial's countdown: the next wait, or, at its
@@ -1042,8 +1219,10 @@ impl App {
         if t.left == 0 {
             return self.put_back();
         }
-        let (font, left) = (t.font.clone(), t.left);
-        self.shared.message = Some(words::trial_countdown(&font, left));
+        self.shared.message = Some(match t.grid {
+            Some(g) => words::size_countdown(g.points, t.left),
+            None => countdown(&self.shared, &t.font, t.left),
+        });
         vec![Effect::Wait(TICK)]
     }
 }

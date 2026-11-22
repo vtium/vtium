@@ -229,6 +229,10 @@ pub enum Problem {
     /// value vtium cannot read: vtium runs as `osd = off`, so its notices
     /// still show.
     NotSilent,
+    /// `check-config --with-frit` names a file that is not a font set
+    /// file: no regular file, or one whose name is not `NAME.vtfrit` for
+    /// a name a font set can have.
+    NotAFritFile(String),
     /// This many reports more were not kept.
     More(usize),
 }
@@ -253,6 +257,7 @@ impl Problem {
             | Problem::BoundTwice { then: k, .. }
             | Problem::Renamed { new: k, .. } => Some(k),
             Problem::NotSilent => Some(keys::OSD.name),
+            Problem::NotAFritFile(_) => Some(crate::check::WITH_FRIT),
             Problem::NoKey
             | Problem::Nul
             | Problem::NotUtf8
@@ -365,6 +370,12 @@ impl fmt::Display for Problem {
             Problem::NotSilent => write!(
                 f,
                 "osd=silent does not apply, because another osd line has a value vtium cannot read. vtium runs as osd=off instead, so its notices still show. Correct the other osd line to hide them."
+            ),
+            Problem::NotAFritFile(path) => write!(
+                f,
+                "{} {} is not a font set file. It needs a regular file named NAME.vtfrit, where NAME is a font set's name. Because of this error, check-config ignores this option.",
+                crate::check::WITH_FRIT,
+                quote(path)
             ),
             Problem::More(n) => write!(f, "{n} more warnings"),
         }
@@ -750,6 +761,10 @@ pub struct Loaded {
     /// `check-config --no-devices`: the rules are judged alone, without
     /// the devices present (ADR-1403 D3).
     pub no_devices: bool,
+    /// `check-config --with-frit` and `--without-frit`: the font sets a
+    /// draft adds, replaces and removes, which the check counts in place
+    /// of the frits' directory's (ADR-1403 D8).
+    pub draft_frits: crate::check::DraftFrits,
     /// The vtium.conf read: the candidate, else `vtium.conf` in the
     /// configuration directory.
     pub path: PathBuf,
@@ -804,6 +819,7 @@ pub fn load(
         check,
         candidate,
         no_devices,
+        draft_frits,
     } = cmdline::parse(args, &mut reports);
 
     let mut config = Config::default();
@@ -862,6 +878,7 @@ pub fn load(
         check,
         candidate,
         no_devices,
+        draft_frits,
         path,
         file: found,
     }

@@ -411,6 +411,40 @@ fn flags_at_0_send_xterms_bytes() {
     assert_eq!(char_key(&mut t, 'a', Mods::ALT), "\x1ba");
 }
 
+// The protocol's legacy section gives five combinations bytes of their own,
+// which vtium sends under flag 2 alone: Ctrl+Shift+I is `CSI 105 ; 6 u`,
+// Ctrl+` a backtick, Ctrl+Backspace DEL where Backspace sends BS and BS
+// where Backspace sends DEL, Alt+Shift+Tab `ESC CSI Z`, and Shift+F3
+// `CSI 13 ; 2 ~`. A program that never asks for the protocol keeps xterm's
+// bytes for all five, in a new session and after a program pops its flags
+// back to 0: Ctrl+Shift+I is Ctrl+I's tab, Ctrl+` is NUL, Ctrl+Backspace
+// is Backspace's own byte under either Backspace setting, Shift+Tab stays
+// `CSI Z` with Alt, and Shift+F3 is ctlseqs' `CSI 1 ; 2 R`.
+//
+// References:
+// - ADR-1005 D6: while the flags are 0, every key sends xterm's bytes, by
+//   the maintainer's answer of 2026-11-14.
+// covers: input.kitty-keyboard
+#[test]
+fn flags_at_0_keep_xterms_bytes_where_the_legacy_section_differs() {
+    let ctrl_shift = mods(&[Mods::CTRL, Mods::SHIFT]);
+    let shift_alt = mods(&[Mods::SHIFT, Mods::ALT]);
+    for setup in [&b""[..], b"\x1b[>2u\x1b[<u", b"\x1b[>2u\x1b[=0u"] {
+        let mut t = term(80, 4, setup);
+        let context = String::from_utf8_lossy(setup).into_owned();
+        let i = text_key(0x49, 0x69, ctrl_shift, 'I');
+        assert_eq!(press(&mut t, i), "\t", "{context}");
+        assert_eq!(char_key(&mut t, '`', Mods::CTRL), "\0", "{context}");
+        assert_eq!(sym(&mut t, BACKSPACE, Mods::CTRL), "\x08", "{context}");
+        t.set_backspace_sends_delete(true);
+        assert_eq!(sym(&mut t, BACKSPACE, Mods::CTRL), "\x7f", "{context}");
+        t.set_backspace_sends_delete(false);
+        assert_eq!(sym(&mut t, ISO_LEFT_TAB, shift_alt), "\x1b[Z", "{context}");
+        let f3 = Key::press(F3, 0, Mods::SHIFT, None);
+        assert_eq!(press(&mut t, f3), "\x1b[1;2R", "{context}");
+    }
+}
+
 // ADR-1005, D6: modifyOtherKeys keeps its level while the flags are not
 // 0, which XTQMODKEYS reports, and is consulted again once they are 0.
 // covers: input.kitty-keyboard

@@ -6,6 +6,7 @@ vtium-image handles inline images. It is the one pipeline that sixel, the kitty 
 - the protocol tag and its rules;
 - the handler trait that the protocol front ends implement;
 - the decode request and reply types that the image helper answers;
+- the login picture, which fits a decoded picture to a login prompt as a background or a banner;
 - the crate's bounds.
 
 The crate forbids unsafe code. It denies the arithmetic, cast and indexing lints that `docs/architecture.md` lists, and it uses no `HashMap`. It depends on `vtium-parse` alone. It names a line by an opaque 64-bit key, so it never depends on `vtium-term`. vtium-term takes this crate behind its `images` feature. The minspec build, vtium's default and smallest build, carries none of it.
@@ -19,6 +20,8 @@ The crate forbids unsafe code. It denies the arithmetic, cast and indexing lints
 | `src/store/events.rs` | What each screen event does to placements: cuts, scrolls, the scrollback's oldest line dropped, freed lines, ED 2, and the anchors a rewrap carries (D3, D8). |
 | `src/store/frame.rs` | The frame's placement list, in draw order (D9). |
 | `src/store/edit.rs` | `Edit`, the one way a handler changes the store: the store's own operations for a handler, with both buffers' screen rows bound, and none of the screen events (D6). |
+| `src/store/reserve.rs` | Reservations and the other requests a handler makes of the store beside storing and placing (D5, D6). A handler reserves an image's bytes before it allocates them, and the store's ledger of reservations makes sure each one is spent once. |
+| `src/store/margins.rs` | A region scroll between left and right margins while DECLRMM is set (D3, D6): what it does to a placement that its rules split, and to one they move whole. |
 | `src/store/iterm2.rs` | The room the frame allowance could give an animated GIF's frames, and the reservation of the allowance made before its image exists, split into one reservation for each frame once it does (ADR-1103, D2). |
 | `src/store/sixel.rs` | A new sixel over older ones, cell by cell (D3): the cells it covers fully with opaque pixels cut them, and the pieces under it that draw nothing go. A picture with frames is read frame by frame (ADR-1103, D4). |
 | `src/store/kitty.rs` | The store operations only kitty makes: its delete command with every selector, a put of a relative or virtual placement, and an image's kitty id for a put's reply. |
@@ -35,6 +38,7 @@ The crate forbids unsafe code. It denies the arithmetic, cast and indexing lints
 | `src/decode/wire.rs` | The packets between vtium and the image helper, encoded and decoded here alone since both ends link it: the hello, the request field for field, and the reply, little-endian behind a kind and a length, with every refusal of the request's version 2 and of the pixel description (ADR-1101 D7). |
 | `src/decode/sixel.rs` | The sixel decoder: a string's data taken as it arrives and drawn into premultiplied pixels, never held whole, with the color registers, HLS and RGB, repeats, raster attributes and the work it does (D7). |
 | `src/decode/base64.rs`, `src/decode/raw.rs` | The base64 decoder a kitty payload goes through as it streams, and the conversion of raw RGB and RGBA into premultiplied pixels as they arrive (D7). |
+| `src/login.rs` | The login picture: `make` fits a decoded picture to the form the settings give, a background beneath the text or a banner above or below the prompt. It scales the picture once into the pixels the screen shows, and says where the placement goes, so every display path draws the same stored pixels. |
 | `fuzz/` | The handlers' cargo-fuzz targets, in their own workspace ([fuzz/README.md](fuzz/README.md)). |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source, and the `auto` budget's rule. |
 

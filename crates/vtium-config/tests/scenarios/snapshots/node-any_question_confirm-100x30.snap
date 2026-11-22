@@ -9,12 +9,12 @@ description: "any.question.confirm at 100×30, keys: 4 n"
  DISPLAYS                     TERMINALS                                  INPUTS
  ┏━━━━━━━━━━━━━━━━━━┓         ┌──────────────────────────────┐
  ┃ All displays     ┃━━━━━━━━▶│ desk                         │
- ┃ Every display, … ┃         │ font set proof · every VT    │
+ ┃ Every display, … ┃         │ look proof · every VT        │
  ┗━━━━━━━━━━━━━━━━━━┛         └──────────────────────────────┘
 
                               ┌──────────────────────────────┐
                               │ panel                        │
-                              │ default font set · every VT  │
+                              │ default look · every VT      │
                               └──────────────────────────────┘
 
  ──────────────────────────────────────────────────────────────────────────────────────────────────

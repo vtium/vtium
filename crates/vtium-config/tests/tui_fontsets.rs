@@ -25,6 +25,27 @@ fn on_set(n: usize, more: &[&'static [u8]]) -> Vec<&'static [u8]> {
     keys
 }
 
+const ENTER: &[u8] = b"\r";
+const END: &[u8] = b"\x1b[F";
+
+/// The keys that fill the highlighted role of the new-frit form with the
+/// typed `font`: Enter opens the role's list, End reaches Other… at its
+/// end, Enter types, and the last Enter keeps the font and moves to the
+/// next row.
+fn other(font: &'static [u8]) -> [&'static [u8]; 5] {
+    [ENTER, END, ENTER, font, ENTER]
+}
+
+/// The keys from the text font row of the new-frit form that type `name`
+/// and add the font set: Down five times reaches the name from box
+/// drawing, Enter types the name and Enter keeps it, and Enter on the add
+/// row adds the font set.
+fn named(name: &'static [u8]) -> Vec<&'static [u8]> {
+    let mut keys = vec![DOWN; 5];
+    keys.extend([ENTER, name, ENTER, ENTER]);
+    keys
+}
+
 /// `t` switches the console to the highlighted font, one switch at a
 /// time: a key that puts the font back while the trial's switch is still
 /// in flight sends the switch back only once the console has replied.
@@ -71,38 +92,129 @@ fn the_refusal_mark_is_on_the_screen() {
     assert!(screen.contains("The console refused tiny5"), "{screen}");
 }
 
+/// The new-frit form writes a font set from its roles: a text font and a
+/// fallback, each typed after Other…, named in the name row, in the order
+/// of the roles.
 #[test]
-fn a_new_frit_is_typed_in_its_view_and_installed_into_the_frits() {
-    let mut c = console().keys(&on_set(
-        1,
-        &[
-            b"n",
-            b"quiet",
-            b"\r",
-            b"builtin:unscii-8",
-            b"\r",
-            b"Some Family",
-            b"\r",
-            b"\r",
-            b"\r",
-            b"\r",
-            b"\r",
-            b"i",
-            b"y",
-            b"q",
-        ],
-    ));
+fn a_new_frit_is_built_by_role_and_installed_into_the_frits() {
+    let mut keys = on_set(1, &[b"n"]);
+    keys.extend(other(b"builtin:unscii-8"));
+    // from box drawing, four rows down to the fallback
+    keys.extend([DOWN; 4]);
+    keys.extend(other(b"Some Family"));
+    keys.extend([ENTER, b"quiet", ENTER, ENTER, b"i", b"y", b"q"]);
+    let mut c = console().keys(&keys);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     let plan = d.plans.first().expect("an install");
     assert_eq!(plan.files.len(), 1);
     assert_eq!(
         plan.files[0].path,
-        PathBuf::from("/etc/vtium/fonts/quiet.vtfrit")
+        PathBuf::from("/nonexistent/vtium/fonts/quiet.vtfrit")
     );
     assert_eq!(
         plan.files[0].new,
         "# quiet: made by vtium-config new-frit\nname=quiet\nsource=builtin:unscii-8\nsource=font:Some Family\n"
+    );
+}
+
+/// Enter on a role lists what can fill it: the layers of its role, then
+/// the active fonts whose faces fit it, as the font helper described them.
+/// A font that is not active, fails the trust rule or sits in the
+/// person's own folder is not offered. The text font's list adds the
+/// built-in fonts, and every list ends with Other….
+#[test]
+fn each_role_lists_its_layers_and_the_active_fonts_that_fit_it() {
+    let shown = |rows: usize| {
+        let mut keys = on_set(1, &[b"n"]);
+        keys.extend(std::iter::repeat_n(DOWN, rows));
+        keys.push(ENTER);
+        let mut c = console().keys(&keys);
+        run(&mut c);
+        c.seen.clone().expect("the screen")
+    };
+    let has = |screen: &str, names: &[&str], not: &[&str]| {
+        for name in names {
+            assert!(screen.contains(name), "{name} is not offered: {screen}");
+        }
+        for name in not {
+            assert!(!screen.contains(name), "{name} is offered: {screen}");
+        }
+    };
+    let gone = ["Terminus", "Mine", "Noto Color Emoji"];
+    let text = shown(0);
+    has(
+        &text,
+        &[
+            "DejaVu Sans Mono",
+            "Cullet Mono",
+            "unifont",
+            "unscii-8",
+            "Other…",
+        ],
+        &gone,
+    );
+    has(&text, &[], &["arabic", "None"]);
+    has(
+        &shown(2),
+        &["None", "arabic", "cjk-jp", "Other…"],
+        &[&gone[..], &["nerd-symbols", "DejaVu Sans Mono"]].concat(),
+    );
+    has(
+        &shown(3),
+        &["nerd-symbols", "DejaVu Sans Mono", "Cullet Mono"],
+        &[&gone[..], &["arabic"]].concat(),
+    );
+    has(
+        &shown(4),
+        &["noto-emoji"],
+        &[&gone[..], &["Cullet Mono"]].concat(),
+    );
+    has(
+        &shown(5),
+        &["unifont", "DejaVu Sans Mono", "Cullet Mono"],
+        &gone,
+    );
+}
+
+/// Picks from the lists go into the font set in the order of the roles:
+/// the text font, the scripts in the order they were picked, the symbols,
+/// the emoji, the fallback, and box drawing on its own line. Enter on a
+/// script already picked takes it out again, and picking it once more puts
+/// it after the others.
+#[test]
+fn picks_from_the_lists_go_into_the_font_set_in_the_order_of_the_roles() {
+    let mut keys = on_set(1, &[b"n"]);
+    keys.extend([
+        // the text font: DejaVu Sans Mono, the list's first
+        ENTER, ENTER, // box drawing: the text font's own lines, the third choice
+        DOWN, ENTER, DOWN, DOWN, ENTER,
+        // the scripts: arabic, then cjk-jp, then arabic out and in again
+        DOWN, ENTER, DOWN, ENTER, ENTER, DOWN, ENTER, ENTER, ENTER, ENTER, UP, ENTER,
+        // the symbols, the emoji and the fallback: each role's layer
+        DOWN, ENTER, DOWN, ENTER, DOWN, ENTER, DOWN, ENTER, DOWN, ENTER, DOWN, ENTER,
+        // past the name to the add row
+        DOWN, DOWN, ENTER, b"i", b"y", b"q",
+    ]);
+    let mut c = console().keys(&keys);
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0, "{:?}", c.seen);
+    let plan = d.plans.first().expect("an install");
+    assert_eq!(
+        plan.files[0].path,
+        PathBuf::from("/nonexistent/vtium/fonts/dejavu-sans-mono.vtfrit")
+    );
+    assert_eq!(
+        plan.files[0].new,
+        "# dejavu-sans-mono: made by vtium-config new-frit\n\
+         name=dejavu-sans-mono\n\
+         source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf\n\
+         layer=cjk-jp\n\
+         layer=arabic\n\
+         layer=nerd-symbols\n\
+         layer=noto-emoji\n\
+         layer=unifont\n\
+         glyph-source-box=font\n"
     );
 }
 
@@ -113,9 +225,8 @@ fn a_new_frit_is_typed_in_its_view_and_installed_into_the_frits() {
 fn a_new_frit_replaces_the_installed_one_of_its_name() {
     let to_new = on_set(1, &[b"n"]);
     let mut keys: Vec<&[u8]> = to_new.clone();
-    keys.extend([b"proof".as_slice(), b"\r", b"builtin:unifont"]);
-    // five fields to the add row, the add, and the install
-    keys.extend([b"\r".as_slice(); 6]);
+    keys.extend(other(b"builtin:unifont"));
+    keys.extend(named(b"proof"));
     keys.extend([b"i".as_slice(), b"y", b"q"]);
     let mut c = console().keys(&keys);
     let mut d = desk();
@@ -123,15 +234,15 @@ fn a_new_frit_replaces_the_installed_one_of_its_name() {
     let plan = d.plans.first().expect("an install");
     assert_eq!(
         plan.files[0].path,
-        PathBuf::from("/etc/vtium/fonts/proof.vtfrit")
+        PathBuf::from("/nonexistent/vtium/fonts/proof.vtfrit")
     );
     assert_eq!(
         plan.files[0].old.as_deref(),
         Some("source=font:JetBrains Mono\n")
     );
     let mut keys: Vec<&[u8]> = to_new;
-    keys.extend([b"latin1".as_slice(), b"\r", b"builtin:unifont"]);
-    keys.extend([b"\r".as_slice(); 6]);
+    keys.extend(other(b"builtin:unifont"));
+    keys.extend(named(b"latin1"));
     let mut c = console().keys(&keys);
     let mut d = desk();
     run_desk(&mut c, &mut d);
@@ -168,7 +279,7 @@ fn r_removes_the_highlighted_frit_at_the_next_install() {
     assert_eq!(
         plan.removals,
         [vtium_config::draft::Removal {
-            path: PathBuf::from("/etc/vtium/fonts/tiny5.vtfrit"),
+            path: PathBuf::from("/nonexistent/vtium/fonts/tiny5.vtfrit"),
             old: b"source=bdf:/x/Tiny5Mono.bdf\n".to_vec(),
         }]
     );
@@ -186,117 +297,63 @@ fn r_removes_the_highlighted_frit_at_the_next_install() {
     assert!(d.plans.is_empty());
 }
 
-/// The remove key refuses what `remove-frit` refuses, saying why, and
-/// adds nothing to the save: a built-in font, the frit vtium.conf's
-/// `font-name` names, as it is or as the save leaves it, and the frit a
-/// look's `font-name` names.
+/// The remove key does what `remove-frit` does. It keeps the removal of
+/// a font set that the draft's vtium.conf names, in a look or at its top
+/// level, in the draft's folder, so the check can list each line that
+/// names it. It refuses a built-in font, saying why, and keeps nothing.
+///
+/// References:
+/// - ADR-1403 D8, "Every font set change is kept at once": a removal is written even when the draft's looks name the frit.
 #[test]
-fn r_refuses_what_remove_frit_refuses() {
-    use vtium_config::tui::desk::Opened;
-    use vtium_config::tui::model::App;
+fn r_keeps_a_removal_the_draft_names_and_refuses_a_built_in_font() {
     let conf = inputs().conf.expect("the fixture");
     let names_minspec = conf.replace("font-name=unifont", "font-name=minspec-16");
-    for (keys, draft, says) in [
-        (on_set(5, &[b"r"]), conf.clone(), "built-in font"),
+    for (keys, draft, name) in [
         // proof is the frit look proof draws
-        (on_set(3, &[b"r"]), conf.clone(), "`[look proof]`"),
+        (on_set(3, &[b"r"]), conf.clone(), "proof"),
         // the draft names minspec-16 as vtium.conf's font-name
-        (on_set(2, &[b"r"]), names_minspec.clone(), "font-name"),
+        (on_set(2, &[b"r"]), names_minspec, "minspec-16"),
     ] {
-        let mut all = keys.clone();
-        all.extend([b"i".as_slice(), b"y", b"q"]);
         let mut c = console().keys(&keys);
-        let mut d = desk();
-        d.draft.clone_from(&draft);
-        run_desk(&mut c, &mut d);
-        let screen = c.seen.clone().expect("the screen");
-        let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(text.contains("cannot be removed:"), "{says}: {screen}");
-        assert!(text.contains(says), "{says}: {screen}");
-        let mut c = console().keys(&all);
         let mut d = desk();
         d.draft = draft;
         run_desk(&mut c, &mut d);
-        assert!(
-            d.plans.iter().all(|p| p.removals.is_empty()),
-            "{says}: {:?}",
-            d.plans
-        );
+        assert!(d.frits.removed.iter().eq([name]), "{name}: {:?}", d.frits);
+        let screen = c.seen.clone().expect("the screen");
+        let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(!text.contains("cannot be removed:"), "{name}: {screen}");
     }
-    // a frit marked for removal that the draft then names as font-name is
-    // not removed: the install says why and plans nothing
-    let (mut app, _) = App::new(inputs(), 80, 25);
-    app.shared.pending.removals.push("tiny5".to_owned());
-    app.shared.draft = Some(Opened {
-        name: "mine".into(),
-        text: conf.replace("font-name=unifont", "font-name=tiny5"),
-        ..Opened::default()
-    });
-    let why = app.frit_plan().expect_err("the draft names tiny5");
-    assert!(why.contains("font-name"), "{why}");
-}
-
-/// A save that changes font-frits and also writes or removes a frit is
-/// refused: the frits would go to the directory font-frits named before
-/// the save, so the user saves the new directory first. A save that
-/// changes only one of the two is planned.
-/// An install that moves font-frits and also writes or removes a frit is
-/// refused: the frits would go to the directory font-frits named before,
-/// so the user installs the new directory first. An install that changes
-/// only one of the two is planned.
-#[test]
-fn an_install_that_moves_the_frits_and_changes_a_frit_is_refused() {
-    use vtium_config::tui::desk::Opened;
-    use vtium_config::tui::model::App;
-    let conf = inputs().conf.expect("the fixture");
-    let drafted = |text: &str| Opened {
-        name: "mine".into(),
-        text: text.to_owned(),
-        ..Opened::default()
-    };
-    let moved = conf.replace(
-        "font-name=unifont\n",
-        "font-name=unifont\nfont-frits=/srv/frits\n",
-    );
-    let (mut app, _) = App::new(inputs(), 80, 25);
-    app.shared.draft = Some(drafted(&moved));
-    assert!(app.frit_plan().is_ok());
-    app.shared.pending.removals.push("tiny5".to_owned());
-    let why = app.frit_plan().expect_err("a removal and a new directory");
-    assert!(why.contains("font-frits"), "{why}");
-    app.shared.pending.removals.clear();
-    app.shared
-        .pending
-        .frits
-        .push(("made".to_owned(), "source=builtin:unifont\n".to_owned()));
-    let why = app.frit_plan().expect_err("a new frit and a new directory");
-    assert!(why.contains("font-frits"), "{why}");
-    // a draft that leaves font-frits alone is no move
-    let (mut app, _) = App::new(inputs(), 80, 25);
-    app.shared.draft = Some(drafted(
-        &conf.replace("font-name=unifont", "font-name=proof"),
-    ));
-    app.shared.pending.removals.push("tiny5".to_owned());
-    assert!(app.frit_plan().is_ok());
-    // nor is one that names the directory the installed file names
-    let mut named = inputs();
-    named.conf = Some(moved.clone());
-    let (mut app, _) = App::new(named, 80, 25);
-    app.shared.draft = Some(drafted(&moved));
-    app.shared.pending.removals.push("tiny5".to_owned());
-    assert!(app.frit_plan().is_ok(), "{:?}", app.frit_plan());
+    let mut c = console().keys(&on_set(5, &[b"r"]));
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(text.contains("cannot be removed:"), "{screen}");
+    assert!(text.contains("built-in font"), "{screen}");
+    assert!(d.frits.is_empty(), "{:?}", d.frits);
 }
 
 #[test]
 fn a_new_frit_the_reader_refuses_stays_in_its_view_and_says_why() {
-    let mut c = console().keys(&on_set(
-        1,
-        &[b"n", b"\r", b"\r", b"\r", b"\r", b"\r", b"\r", b"\r"],
-    ));
+    // the add row with no text font
+    let mut c = console().keys(&on_set(1, &[b"n", END, ENTER]));
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        text.contains("This font set cannot be read: A font set needs a text font."),
+        "{screen}"
+    );
+    assert!(screen.contains("Text font"), "{screen}");
+    // a text font the frit reader refuses, typed after Other…
+    let mut keys = on_set(1, &[b"n"]);
+    keys.extend(other(b"kbd:"));
+    keys.extend([END, ENTER]);
+    let mut c = console().keys(&keys);
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains("This font set cannot be read"), "{screen}");
-    assert!(screen.contains("Font 1"), "{screen}");
+    assert!(screen.contains("Text font"), "{screen}");
     assert!(c.saves.is_empty());
 }
 
@@ -313,59 +370,41 @@ fn new_opens_the_tui_at_its_new_frit_view() {
     );
 }
 
-/// Leaving while a frit's removal waits for an install asks first and
-/// names it; `y` installs the removal and leaves, `n` leaves without
-/// installing, a stray key such as `l` leaves the question open, and the
-/// top row counts the font set waiting.
+/// Leaving while a frit's removal waits in the draft's folder for an
+/// install asks nothing, since the folder keeps the removal: `q` quits at
+/// once, installs nothing, and the folder still holds the removal. The top
+/// row counts the font set waiting.
 #[test]
-fn leaving_with_a_frit_waiting_asks_and_y_installs_it() {
-    let mut c = console().keys(&on_set(4, &[b"r", b"q"]));
+fn leaving_with_a_frit_waiting_quits_at_once_and_the_folder_keeps_it() {
+    let mut c = console().keys(&on_set(4, &[b"r"]));
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        text.contains(
-            "Install before you quit? Quitting without installing loses the removal of tiny5."
-        ),
-        "{screen}"
-    );
     // the status line says the font set waiting; the next test checks
     // its words at each width
     let status = screen.lines().nth(1).unwrap_or_default();
     assert!(status.contains("· 1 to install"), "{screen}");
-    let mut c = console().keys(&on_set(4, &[b"r", b"q", b"y"]));
+    let mut c = console().keys(&on_set(4, &[b"r", b"q"]));
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
-    let plan = d.plans.first().expect("an install");
-    assert_eq!(plan.removals.len(), 1, "{plan:?}");
-    let mut c = console().keys(&on_set(4, &[b"r", b"q", b"n"]));
-    let mut d = desk();
-    assert_eq!(run_desk(&mut c, &mut d), 0);
-    assert!(d.plans.is_empty());
-    let mut c = console().keys(&on_set(4, &[b"r", b"q", b"l"]));
-    let mut d = desk();
-    run_desk(&mut c, &mut d);
-    let screen = c.seen.clone().expect("the screen");
-    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(text.contains("Install before you quit?"), "{screen}");
+    // the TUI left before the keys ran out, so no question kept it open
+    assert_eq!(c.seen, None);
+    assert!(d.plans.is_empty(), "{:?}", d.plans);
+    assert!(d.frits.removed.iter().eq(["tiny5"]), "{:?}", d.frits);
 }
 
-/// Esc goes back with the frit still waiting, after a stray `x` and `i`
-/// left the question open, and `i` in the view then installs it.
+/// `i` installs the frit's removal that waits in the draft's folder, after
+/// its question, and `q` then quits.
 #[test]
-fn leaving_with_a_frit_waiting_goes_back_or_installs() {
-    let mut c = console().keys(&on_set(
-        4,
-        &[b"r", b"q", b"x", b"i", b"\x1b", b"i", b"y", b"q"],
-    ));
+fn i_installs_a_frit_waiting_and_q_then_quits() {
+    let mut c = console().keys(&on_set(4, &[b"r", b"i", b"y", b"q"]));
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     let plan = d.plans.first().expect("an install");
     assert_eq!(
         plan.removals,
         [vtium_config::draft::Removal {
-            path: PathBuf::from("/etc/vtium/fonts/tiny5.vtfrit"),
+            path: PathBuf::from("/nonexistent/vtium/fonts/tiny5.vtfrit"),
             old: b"source=bdf:/x/Tiny5Mono.bdf\n".to_vec(),
         }]
     );
@@ -373,17 +412,27 @@ fn leaving_with_a_frit_waiting_goes_back_or_installs() {
 
 #[test]
 fn tab_does_nothing_in_the_new_frit_view_and_esc_goes_back_to_the_looks_tab() {
+    // the name row, typed
+    let typed: [&[u8]; 5] = [DOWN, b"n", END, UP, ENTER];
     for key in [TAB, BACKTAB] {
-        let (screen, _) = reach_from(model::View::Looks, 80, 25, &[DOWN, b"n", b"abc", key]);
-        assert_eq!(
-            foot(&screen, words::KEYS_NEW),
-            words::KEYS_NEW,
-            "{key:?}: {screen}"
-        );
-        assert!(screen.contains("abc"), "{screen}");
+        let keys = [&typed[..], &[b"abc", key]].concat();
+        let (screen, _) = reach_from(model::View::Looks, 80, 25, &keys);
+        let typing = keys_of("looks.new-frit.typing");
+        assert_eq!(foot(&screen, typing), typing, "{key:?}: {screen}");
+        assert!(screen.contains("abc_"), "{screen}");
     }
-    // the form belongs to the Looks tab, so Esc goes back there
-    let line = key_line(model::View::Looks, &[DOWN, b"n", b"abc", TAB, b"\x1b"]);
+    // Esc drops the name typed and goes back to the form's rows, and Esc
+    // there goes back to the Looks tab, which the form belongs to
+    let line = key_line(
+        model::View::Looks,
+        &[&typed[..], &[b"abc", TAB, b"\x1b"]].concat(),
+    );
+    let rows = keys_of("looks.new-frit");
+    assert_eq!(foot(&line, rows), rows);
+    let line = key_line(
+        model::View::Looks,
+        &[&typed[..], &[b"abc", TAB, b"\x1b", b"\x1b"]].concat(),
+    );
     assert_eq!(foot(&line, keys_of("looks")), keys_of("looks"));
 }
 
@@ -456,10 +505,13 @@ fn a_font_set_installed_joins_the_font_sets_at_once() {
     use vtium_config::tui::desk::{Done, Opened};
     use vtium_config::tui::model::{App, Event};
     let (mut app, _) = App::new(inputs(), 100, 30);
-    app.shared
-        .pending
-        .frits
-        .push(("fresh".to_owned(), "source=builtin:unifont\n".to_owned()));
+    app.shared.draft = Some(Opened {
+        frits: vtium_config::store::FritChanges {
+            kept: [("fresh".to_owned(), "source=builtin:unifont\n".to_owned())].into(),
+            ..Default::default()
+        },
+        ..Opened::default()
+    });
     app.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
     let fresh = app
         .shared
@@ -469,4 +521,31 @@ fn a_font_set_installed_joins_the_font_sets_at_once() {
         .find(|f| f.name == "fresh")
         .expect("the new font set among the font sets");
     assert_eq!(fresh.state, vtium_config::tui::model::FontState::Reads);
+}
+
+/// A font set that only the draft adds keeps the highlight through the
+/// install that puts it in place: the Looks tab lists it after the
+/// installed font sets until then, and the install moves it among them.
+#[test]
+fn the_highlight_stays_on_a_font_set_the_install_puts_in_place() {
+    use vtium_config::tui::desk::{Done, Opened};
+    use vtium_config::tui::model::{App, Event};
+    use vtium_config::tui::tabs::looks::{Entry, fontsets};
+    let (mut app, _) = App::new(inputs(), 100, 30);
+    app.shared.draft = Some(Opened {
+        frits: vtium_config::store::FritChanges {
+            // a name that sorts among the installed font sets
+            kept: [("pale".to_owned(), "source=builtin:unifont\n".to_owned())].into(),
+            ..Default::default()
+        },
+        ..Opened::default()
+    });
+    app.looks.show_font_set(&app.shared, "pale");
+    let name = |app: &App| match app.looks.highlighted(&app.shared) {
+        Some(Entry::FontSet(at)) => fontsets::font(&app.shared, at).map(|f| f.name),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(name(&app).as_deref(), Some("pale"));
+    app.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
+    assert_eq!(name(&app).as_deref(), Some("pale"));
 }

@@ -1,11 +1,15 @@
 //! The configuration as paths, for the Flow view ([`super::flowview`]).
 //! A path joins input parts and display parts through one terminal (a
-//! head), with a font set, its size, and the terminal's settings. The
-//! person composes a new path from parts in the editor, adds it to the
-//! configuration, and revises a path to change which parts it joins:
-//! revising moves the path out of the configuration and back into the
-//! editor. What allocates nothing, its name, font set, size and terminal
+//! head), with the look the terminal draws with, and the terminal's
+//! settings. The person composes a new path from parts in the editor, adds
+//! it to the configuration, and revises a path to change which parts it
+//! joins: revising moves the path out of the configuration and back into
+//! the editor. What allocates nothing, its name, look and terminal
 //! settings, can change in place.
+//!
+//! A path names one of the draft's looks, which the Looks tab makes and
+//! deletes. So the Flow view writes only the head's `look =` line, and
+//! makes or removes no `[look NAME]` section itself.
 //!
 //! An input that roams types into whichever terminal is active, among
 //! every terminal of the configuration, so the configuration holds the
@@ -19,9 +23,15 @@
 //! writes one back as the draft's changes: a head per path, a rule per
 //! part, and the rules placed most specific first. Every change goes
 //! through [`super::edit::Change`], so through `src/ops.rs`.
+//!
+//! References:
+//! - ADR-1205 D1: a terminal takes a look from the Looks tab, and the
+//!   Flow view makes no look itself.
+//! - ADR-1403 D8: the head's `look =` line is the one look line a path
+//!   writes, and a path with no look leaves it out.
 
 use super::edit::Change;
-use super::flow::{Device, Flow, Kind, Look, Rule, Special, Target};
+use super::flow::{Device, Flow, Kind, Rule, Special, Target};
 use super::flowview::{Sort, port_words, sort};
 use super::words;
 
@@ -136,8 +146,9 @@ pub fn check_login(typed: &str) -> Result<String, String> {
 pub enum Piece {
     Display(String),
     Input(String),
-    /// A font set, by its frit's name; `None` for the default font set.
-    Font(Option<String>),
+    /// A look, by the name of its `[look NAME]` section; `None` for the
+    /// default look, which a head that names no look draws with.
+    Look(Option<String>),
     /// The active terminal: a path with it in its terminal's place sends
     /// its inputs roaming, to whichever terminal is active.
     Active,
@@ -153,8 +164,8 @@ pub enum Piece {
     Terminal(String),
 }
 
-/// A path: its terminal's name once it has one, its parts, its font set
-/// and size, and its terminal's settings.
+/// A path: its terminal's name once it has one, its parts, its look, and
+/// its terminal's settings.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Path {
     /// The head's name: the draft's for a path read from it, kept when the
@@ -165,17 +176,14 @@ pub struct Path {
     /// The inputs sent to this terminal alone. In the editor, every input
     /// picked, some of which roam once the path is added.
     pub inputs: Vec<String>,
-    /// The frit the path's look draws with; `None` for the default.
-    pub font: Option<String>,
-    /// The size in points; `None` for the automatic size.
-    pub size: Option<u32>,
-    /// The vtlook the path's look names, `None` when it names none. A new
-    /// look made for a new font set or size names it too (ADR-1403 D8).
-    pub vtlook: Option<String>,
+    /// The look the path's terminal draws with, a look of the draft by
+    /// its name; `None` for the default look, so the head writes no
+    /// `look =` line.
+    pub look: Option<String>,
     /// The terminal's settings, each a key of [`SETTINGS`] and its value.
     pub settings: Vec<(String, String)>,
     /// The path's terminal is the active terminal: its inputs roam, and it
-    /// has no display, no name and no font set of its own.
+    /// has no display, no name and no look of its own.
     pub active: bool,
     /// The path has "no input" in its inputs' place: nothing types into
     /// its terminal.
@@ -192,7 +200,7 @@ pub enum Picked {
     /// `any keyboard` came in, and `any pointer` with it.
     AddedWithPointers,
     Removed,
-    /// Another font set took the place of this one.
+    /// Another look took the place of this one.
     Replaced(Option<String>),
 }
 
@@ -221,7 +229,7 @@ impl Path {
         match piece {
             Piece::Display(s) => self.displays.contains(s),
             Piece::Input(s) => self.inputs.contains(s),
-            Piece::Font(f) => self.font == *f && f.is_some(),
+            Piece::Look(l) => self.look == *l && l.is_some(),
             Piece::Active => self.active,
             Piece::NoInput => self.no_input,
             Piece::NoTerminal => self.none,
@@ -286,7 +294,7 @@ impl Path {
     }
 
     /// Picks `piece` into the path, or takes it out when it is there. A
-    /// second font set takes the first one's place.
+    /// second look takes the first one's place.
     pub fn pick(&mut self, piece: Piece) -> Picked {
         let toggle = |list: &mut Vec<String>, s: String| {
             if let Some(at) = list.iter().position(|x| *x == s) {
@@ -331,11 +339,11 @@ impl Path {
                     Some(_) => Picked::Replaced(None),
                 }
             }
-            Piece::Font(f) if self.font == f => {
-                self.font = None;
+            Piece::Look(l) if self.look == l => {
+                self.look = None;
                 Picked::Removed
             }
-            Piece::Font(f) => match std::mem::replace(&mut self.font, f) {
+            Piece::Look(l) => match std::mem::replace(&mut self.look, l) {
                 None => Picked::Added,
                 old => Picked::Replaced(old),
             },
@@ -383,7 +391,7 @@ impl Path {
         match (old, new) {
             (Piece::Display(o), Piece::Display(n)) => swap(&mut self.displays, o, n),
             (Piece::Input(o), Piece::Input(n)) => swap(&mut self.inputs, o, n),
-            (_, Piece::Font(f)) => self.font = f,
+            (_, Piece::Look(l)) => self.look = l,
             _ => {}
         }
     }
@@ -656,7 +664,6 @@ pub fn read(flow: &Flow) -> Doc {
         once(&mut inputs);
         collapse(&mut inputs, ANY_POINTER, &POINTER_CLASSES);
         collapse(&mut inputs, ANY_KEYBOARD, &KEYBOARD_CLASSES);
-        let look = flow.look_of(h).and_then(|l| flow.looks.get(l));
         let mut settings: Vec<(String, String)> = head
             .keys
             .iter()
@@ -676,9 +683,7 @@ pub fn read(flow: &Flow) -> Doc {
             name: Some(head.name.clone()),
             displays: of(Kind::Display),
             inputs,
-            font: look.map(|l| l.frit.clone()).filter(|f| !f.is_empty()),
-            size: look.map(|l| l.points).filter(|p| *p > 0),
-            vtlook: look.and_then(|l| l.vtlook.clone()),
+            look: (head.look != "default").then(|| head.look.clone()),
             settings,
             no_input,
             ..Path::default()
@@ -854,7 +859,7 @@ pub enum Adding {
 }
 
 /// Whether `new` may be added to the configuration `doc`, or why not. A
-/// path whose displays, font set and size a path of `doc` has, and whose
+/// path whose displays and look a path of `doc` has, and whose
 /// inputs that path or the roaming inputs all have, is already held, and
 /// adding it changes nothing.
 pub fn check_add(flow: &Flow, doc: &Doc, new: &Path) -> Result<Adding, String> {
@@ -912,10 +917,10 @@ pub fn check_add(flow: &Flow, doc: &Doc, new: &Path) -> Result<Adding, String> {
                 .all(|i| p.inputs.contains(i) || doc.roaming.contains(i))
     });
     if let Some(held) = held {
-        return if held.font == new.font && held.size == new.size {
+        return if held.look == new.look {
             Ok(Adding::Same(name(held)))
         } else {
-            Err(words::path_other_font(&name(held)))
+            Err(words::path_other_look(&name(held)))
         };
     }
     if let Some(n) = &new.name
@@ -937,66 +942,6 @@ pub fn valid_name(name: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'))
         && !Special::ALL.iter().any(|s| s.name() == name)
-}
-
-/// Whether the look `look` draws the path `p`'s font set at its size
-/// with its vtlook.
-fn draws(look: &Look, p: &Path) -> bool {
-    look.frit == p.font.as_deref().unwrap_or_default()
-        && look.points == p.size.unwrap_or(0)
-        && look.vtlook == p.vtlook
-}
-
-/// The look a path's font set, size and vtlook draw with: one of the
-/// draft's that names that frit at that size with that vtlook, else a new
-/// look of the frit's name, with the size after it when it has one, that
-/// names the vtlook too (ADR-1403 D8); `None` for the default font set at
-/// the automatic size with no vtlook. A name another look has takes a
-/// number after it, so a new look never takes the place of another.
-fn look_for(flow: &Flow, p: &Path, added: &mut Vec<Change>) -> Option<String> {
-    let (font, size) = (p.font.as_deref(), p.size);
-    if font.is_none() && size.is_none() && p.vtlook.is_none() {
-        return None;
-    }
-    if let Some(l) = flow.looks.iter().find(|l| draws(l, p)) {
-        return Some(l.name.clone());
-    }
-    let (frit, size_text) = (font.map(str::to_owned), size.map(|s| s.to_string()));
-    let same = added.iter().find_map(|c| match c {
-        Change::LookAdd {
-            name,
-            frit: f,
-            size: s,
-            vtlook: v,
-        } if *f == frit && *s == size_text && *v == p.vtlook => Some(name.clone()),
-        _ => None,
-    });
-    if same.is_some() {
-        return same;
-    }
-    let stem = match (font, size) {
-        (Some(f), None) => f.to_owned(),
-        (Some(f), Some(s)) => format!("{f}-{s}"),
-        (None, Some(s)) => format!("size-{s}"),
-        (None, None) => "look".to_owned(),
-    };
-    let taken = |n: &str| {
-        flow.looks.iter().any(|l| l.name == n)
-            || added
-                .iter()
-                .any(|c| matches!(c, Change::LookAdd { name, .. } if name == n))
-    };
-    let name = std::iter::once(stem.clone())
-        .chain((2_u32..).map(|i| format!("{stem}-{i}")))
-        .find(|n| !taken(n))
-        .unwrap_or(stem);
-    added.push(Change::LookAdd {
-        name: name.clone(),
-        frit,
-        size: size_text,
-        vtlook: p.vtlook.clone(),
-    });
-    Some(name)
 }
 
 /// One rule as [`plan`] writes it.
@@ -1033,32 +978,21 @@ impl Line {
     }
 }
 
-/// The heads and looks that make the draft's heads the paths of `doc`:
-/// the heads no path has go, and each path's head is added or has its
-/// look and settings set. A head whose font set, size and vtlook stay
-/// keeps its own look. A look that a head leaves and that no head of
-/// `doc` uses then goes, so trying one size after another leaves only the
-/// last one's look (ADR-1403 D8). The default look, and a look no head
-/// used before, stay.
+/// The heads that make the draft's heads the paths of `doc`: the heads no
+/// path has go, and each path's head is added or has its `look =` line
+/// and settings set. A path names a look the draft holds, so the plan
+/// makes no look and removes none: the Looks tab makes and deletes looks.
 fn heads_plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
-    let mut looks = Vec::new();
     let mut heads = Vec::new();
-    // each path's head and the look it draws with afterwards, `None` for
-    // the default look
-    let mut uses: Vec<Option<String>> = Vec::new();
-    // the looks the heads leave
-    let mut left: Vec<String> = Vec::new();
     for p in &doc.paths {
         let Some(name) = p.name.clone() else {
             continue;
         };
         match flow.heads.iter().find(|h| h.name == name) {
             None => {
-                let look = look_for(flow, p, &mut looks);
-                uses.push(look.clone());
                 heads.push(Change::HeadAdd {
                     name: name.clone(),
-                    look,
+                    look: p.look.clone(),
                 });
                 for key in SETTINGS {
                     let value = p.wanted(key);
@@ -1073,25 +1007,11 @@ fn heads_plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
             }
             Some(h) => {
                 let now = (h.look != "default").then(|| h.look.clone());
-                let own = flow.looks.iter().find(|l| l.name == h.look);
-                let keeps = own.map_or(
-                    p.font.is_none() && p.size.is_none() && p.vtlook.is_none(),
-                    |l| draws(l, p),
-                );
-                let look = if keeps {
-                    now.clone()
-                } else {
-                    look_for(flow, p, &mut looks)
-                };
-                uses.push(look.clone());
-                if now != look {
-                    if let Some(old) = &now {
-                        left.push(old.clone());
-                    }
+                if now != p.look {
                     heads.push(Change::HeadKey {
                         name: name.clone(),
                         key: "look",
-                        value: look,
+                        value: p.look.clone(),
                     });
                 }
                 // the settings the path changed in place
@@ -1118,22 +1038,11 @@ fn heads_plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
             }
         }
     }
-    let gone = flow
-        .heads
+    flow.heads
         .iter()
         .filter(|h| doc.path(&h.name).is_none())
-        .map(|h| Change::HeadRm(h.name.clone()));
-    // the looks left behind go once the heads no longer name them
-    let mut pruned: Vec<String> = Vec::new();
-    for old in left {
-        let unused = !uses.iter().flatten().any(|u| *u == old);
-        if unused && flow.looks.iter().any(|l| l.name == old) && !pruned.contains(&old) {
-            pruned.push(old);
-        }
-    }
-    gone.chain(looks)
+        .map(|h| Change::HeadRm(h.name.clone()))
         .chain(heads)
-        .chain(pruned.into_iter().map(Change::LookRm))
         .collect()
 }
 
@@ -1216,12 +1125,11 @@ fn rules_plan(flow: &Flow, doc: &Doc) -> Vec<(Line, bool)> {
     out
 }
 
-/// The draft's changes that make its heads, looks and rules the
-/// configuration `doc`: the rules `doc` no longer says go, the heads no
-/// path has go, each path's head is added or has its look set, the looks
-/// the heads leave and no head uses go, and each new rule is added where
-/// `rules_plan` puts it. A draft that already
-/// says all this is left as it is.
+/// The draft's changes that make its heads and rules the configuration
+/// `doc`: the rules `doc` no longer says go, the heads no path has go,
+/// each path's head is added or has its look set, and each new rule is
+/// added where `rules_plan` puts it. A draft that already says all this is
+/// left as it is.
 pub fn plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
     let mut out = Vec::new();
     let rules = rules_plan(flow, doc);
@@ -1453,7 +1361,7 @@ pub fn narrow(flow: &Flow, s: Sort) -> Vec<(String, String)> {
 pub fn sort_of(flow: &Flow, piece: &Piece) -> Sort {
     match piece {
         Piece::Display(_) => Sort::Screen,
-        Piece::Font(_)
+        Piece::Look(_)
         | Piece::Active
         | Piece::NoInput
         | Piece::NoTerminal
@@ -1622,19 +1530,14 @@ pub(crate) mod tests {
         }
     }
 
-    fn path(name: Option<&str>, displays: &[&str], inputs: &[&str], font: Option<&str>) -> Path {
+    fn path(name: Option<&str>, displays: &[&str], inputs: &[&str], look: Option<&str>) -> Path {
         Path {
             name: name.map(str::to_owned),
             displays: displays.iter().map(|s| (*s).to_owned()).collect(),
             inputs: inputs.iter().map(|s| (*s).to_owned()).collect(),
-            font: font.map(str::to_owned),
+            look: look.map(str::to_owned),
             ..Path::default()
         }
-    }
-
-    fn sized(mut p: Path, size: u32) -> Path {
-        p.size = Some(size);
-        p
     }
 
     #[test]
@@ -1643,14 +1546,11 @@ pub(crate) mod tests {
         assert_eq!(
             doc.paths,
             [
-                sized(
-                    path(
-                        Some("desk"),
-                        &[EDID_A],
-                        &["serial:046d:c52b:0"],
-                        Some("monoid")
-                    ),
-                    14
+                path(
+                    Some("desk"),
+                    &[EDID_A],
+                    &["serial:046d:c52b:0"],
+                    Some("big")
                 ),
                 path(Some("panel"), &[EDID_B], &[], None),
             ]
@@ -1680,16 +1580,16 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_second_font_set_takes_the_first_one_s_place() {
+    fn a_second_look_takes_the_first_one_s_place() {
         let mut p = Path::default();
-        assert_eq!(p.pick(Piece::Font(Some("monoid".into()))), Picked::Added);
+        assert_eq!(p.pick(Piece::Look(Some("big".into()))), Picked::Added);
         assert_eq!(
-            p.pick(Piece::Font(Some("dejavu".into()))),
-            Picked::Replaced(Some("monoid".into()))
+            p.pick(Piece::Look(Some("small".into()))),
+            Picked::Replaced(Some("big".into()))
         );
-        assert_eq!(p.font.as_deref(), Some("dejavu"));
-        assert_eq!(p.pick(Piece::Font(Some("dejavu".into()))), Picked::Removed);
-        assert_eq!(p.font, None);
+        assert_eq!(p.look.as_deref(), Some("small"));
+        assert_eq!(p.pick(Piece::Look(Some("small".into()))), Picked::Removed);
+        assert_eq!(p.look, None);
     }
 
     #[test]
@@ -1723,20 +1623,17 @@ pub(crate) mod tests {
         let f = flow();
         let doc = read(&f);
         // the same pieces in another order, the roaming receiver among them
-        let same = sized(
-            path(
-                None,
-                &[EDID_A],
-                &["id:046d:c31c", "serial:046d:c52b:0"],
-                Some("monoid"),
-            ),
-            14,
+        let same = path(
+            None,
+            &[EDID_A],
+            &["id:046d:c31c", "serial:046d:c52b:0"],
+            Some("big"),
         );
         assert_eq!(check_add(&f, &doc, &same), Ok(Adding::Same("desk".into())));
         // fewer inputs through the same display are held too
-        let fewer = sized(path(None, &[EDID_A], &["id:046d:c31c"], Some("monoid")), 14);
+        let fewer = path(None, &[EDID_A], &["id:046d:c31c"], Some("big"));
         assert_eq!(check_add(&f, &doc, &fewer), Ok(Adding::Same("desk".into())));
-        // the same pieces with another font set conflict
+        // the same pieces with another look conflict
         let other = path(
             None,
             &[EDID_A],
@@ -1852,7 +1749,7 @@ pub(crate) mod tests {
             Some(&name),
             &["*"],
             &[ANY_KEYBOARD, PORT_33, "serial:2dc8:5200:9", ANY_POINTER],
-            Some("dejavu"),
+            Some("big"),
         );
         let doc = doc.with(new.clone());
         let text = apply(TEXT, &plan(&f, &doc));
@@ -1895,14 +1792,9 @@ pub(crate) mod tests {
                 .collect();
             assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "{kind}{ranks:?}");
         }
-        assert!(
-            text.contains("[head terminal-1]\nlook = dejavu\n"),
-            "{text}"
-        );
-        assert!(
-            text.contains("[look dejavu]\nfont-name = dejavu\n"),
-            "{text}"
-        );
+        // the new terminal names the draft's look, and no look is made
+        assert!(text.contains("[head terminal-1]\nlook = big\n"), "{text}");
+        assert_eq!(look_names(&text), ["big"], "{text}");
         // read back, the draft is the same configuration
         let back = build(&text);
         let read_back = read(&back);
@@ -1912,7 +1804,7 @@ pub(crate) mod tests {
             ["serial:2dc8:5200:9", PORT_33, ANY_KEYBOARD, ANY_POINTER]
         );
         assert_eq!(read_back.roaming, doc.roaming);
-        assert_eq!(read_back.paths[2].font.as_deref(), Some("dejavu"));
+        assert_eq!(read_back.paths[2].look.as_deref(), Some("big"));
         // and writing it again changes nothing
         assert_eq!(plan(&back, &read_back), []);
     }
@@ -2053,26 +1945,23 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_added_path_s_name_size_and_settings_change_in_place() {
+    fn an_added_path_s_name_look_and_settings_change_in_place() {
         let f = build(TEXT);
         let mut doc = read(&f);
-        doc.paths[0].size = Some(16);
         doc.paths[0].set("consoles", "3");
+        doc.paths[1].look = Some("big".into());
         doc.paths[1].name = Some("small".into());
         let text = apply(TEXT, &plan(&f, &doc));
         let back = build(&text);
         let read_back = read(&back);
-        assert_eq!(read_back.paths[0].size, Some(16));
-        assert_eq!(read_back.paths[0].font.as_deref(), Some("monoid"));
+        assert_eq!(read_back.paths[0].look.as_deref(), Some("big"));
         assert_eq!(read_back.paths[0].setting("consoles"), "3");
-        assert!(
-            text.contains("[look monoid-16]\nfont-name = monoid\nfont-size = 16\n"),
-            "{text}"
-        );
-        // a size alone moves no rule
-        let mut sized_only = read(&f);
-        sized_only.paths[1].size = Some(10);
-        let changes = plan(&f, &sized_only);
+        assert_eq!(read_back.paths[1].look.as_deref(), Some("big"));
+        assert_eq!(look_names(&text), ["big"], "{text}");
+        // a look alone moves no rule
+        let mut look_only = read(&f);
+        look_only.paths[1].look = Some("big".into());
+        let changes = plan(&f, &look_only);
         assert!(
             changes.iter().all(|c| !matches!(
                 c,
@@ -2116,7 +2005,7 @@ pub(crate) mod tests {
 
     #[test]
     fn whatever_revise_takes_out_adds_straight_back_unchanged() {
-        // one display, a font set and size, a roaming input
+        // one display, a look, a roaming input
         let multi = TEXT.replace(
             "display edid:BBB:0x0002:SMALL00001 -> panel\n",
             "display edid:BBB:0x0002:SMALL00001 -> panel\ndisplay connector:card1/DP-9 -> panel\n",
@@ -2518,14 +2407,14 @@ pub(crate) mod tests {
         assert_eq!(apply(&less, &plan(&build(&less), &fewer)), TEXT);
     }
 
-    /// `text` with the first terminal's size tried at each of `sizes` in
-    /// turn, each try planned from the draft the one before it left, as the
-    /// Flow view's terminal card does.
-    fn tried(text: &str, sizes: &[u32]) -> String {
-        sizes.iter().fold(text.to_owned(), |text, size| {
+    /// `text` with the first terminal's look set to each of `looks` in
+    /// turn, each planned from the draft the one before it left, as the
+    /// Flow view's terminal card does. `None` is the default look.
+    fn chosen(text: &str, looks: &[Option<&str>]) -> String {
+        looks.iter().fold(text.to_owned(), |text, look| {
             let f = build(&text);
             let mut doc = read(&f);
-            doc.paths[0].size = Some(*size);
+            doc.paths[0].look = look.map(str::to_owned);
             apply(&text, &plan(&f, &doc))
         })
     }
@@ -2535,122 +2424,73 @@ pub(crate) mod tests {
         build(text).looks.iter().map(|l| l.name.clone()).collect()
     }
 
-    // ADR-1403 D8: a look the change leaves unused by every head goes
-    #[test]
-    fn three_sizes_tried_in_a_row_leave_one_look() {
-        let text = tried(TEXT, &[16, 18, 20]);
-        assert_eq!(look_names(&text), ["monoid-20"], "{text}");
-        let back = read(&build(&text));
-        assert_eq!(back.paths[0].size, Some(20));
-        assert_eq!(back.paths[0].font.as_deref(), Some("monoid"));
-        assert!(text.contains("[head desk]\nlook = monoid-20\n"), "{text}");
-    }
-
-    #[test]
-    fn a_look_another_head_shares_stays() {
-        let shared = TEXT.replace("[head panel]\n", "[head panel]\nlook = big\n");
-        let text = tried(&shared, &[16, 18]);
-        assert_eq!(look_names(&text), ["big", "monoid-18"], "{text}");
-        assert!(text.contains("[head panel]\nlook = big\n"), "{text}");
-    }
-
-    #[test]
-    fn an_unused_look_the_person_wrote_stays() {
-        let spare = TEXT.replace(
+    /// `TEXT` with a second look, `small`.
+    fn two_looks() -> String {
+        TEXT.replace(
             "[head desk]\n",
-            "[look spare]\nfont-name = dejavu\nfont-size = 12\n[head desk]\n",
-        );
-        let text = tried(&spare, &[16, 18]);
-        assert_eq!(look_names(&text), ["spare", "monoid-18"], "{text}");
+            "[look small]\nfont-name = dejavu\nfont-size = 10\n[head desk]\n",
+        )
     }
 
+    // ADR-1205 D1: a terminal takes a look the Looks tab made, and the Flow
+    // view writes only the head's look line
     #[test]
-    fn a_removed_look_takes_its_comments_and_leaves_the_others() {
-        let commented = TEXT
-            .replace(
-                "[look big]\nfont-name = monoid\n",
-                "# the looks\n[look big]\n# big for the desk\nfont-name = monoid\n",
-            )
-            .replace(
-                "[head desk]\n",
-                "[look spare]\n# kept for later\nfont-name = dejavu\n[head desk]\n",
-            );
-        let text = tried(&commented, &[16]);
-        assert_eq!(look_names(&text), ["spare", "monoid-16"], "{text}");
-        assert!(!text.contains("big for the desk"), "{text}");
-        assert!(text.contains("# the looks\n"), "{text}");
-        assert!(text.contains("# kept for later\n"), "{text}");
-    }
-
-    #[test]
-    fn a_new_look_keeps_the_old_look_s_vtlook() {
-        // panel's look has desk's new frit and size and no vtlook, so desk
-        // cannot take it
-        let crt = TEXT
-            .replace("font-size = 14\n", "font-size = 14\nvtlook = crt\n")
-            .replace("[head panel]\n", "[head panel]\nlook = monoid-16\n")
-            .replace(
-                "[head desk]\n",
-                "[look monoid-16]\nfont-name = monoid\nfont-size = 16\n[head desk]\n",
-            );
-        let text = tried(&crt, &[16]);
+    fn a_path_s_look_writes_only_the_head_s_look_line() {
+        let two = two_looks();
+        let text = chosen(&two, &[Some("small")]);
+        let want = two.replace("[head desk]\nlook = big\n", "[head desk]\nlook = small\n");
+        assert_eq!(text, want);
         let f = build(&text);
-        let desk = f.heads.iter().find(|h| h.name == "desk").expect("desk");
-        assert_ne!(desk.look, "monoid-16", "{text}");
-        let look = f
-            .looks
-            .iter()
-            .find(|l| l.name == desk.look)
-            .expect("its look");
-        assert_eq!((look.frit.as_str(), look.points), ("monoid", 16), "{text}");
-        let section = text
-            .split(&format!("[look {}]\n", desk.look))
+        let changes = plan(&build(&two), &{
+            let mut doc = read(&build(&two));
+            doc.paths[0].look = Some("small".into());
+            doc
+        });
+        assert_eq!(
+            changes,
+            [Change::HeadKey {
+                name: "desk".into(),
+                key: "look",
+                value: Some("small".into()),
+            }]
+        );
+        assert_eq!(read(&f).paths[0].look.as_deref(), Some("small"));
+    }
+
+    // ADR-1403 D8: the Flow view prunes no look
+    #[test]
+    fn a_look_the_heads_leave_stays_in_the_draft() {
+        let text = chosen(&two_looks(), &[Some("small"), None]);
+        assert_eq!(look_names(&text), ["big", "small"], "{text}");
+        assert!(text.contains("[head desk]\n[head panel]"), "{text}");
+        assert_eq!(read(&build(&text)).paths[0].look, None);
+    }
+
+    #[test]
+    fn a_new_terminal_with_the_default_look_writes_no_look_line() {
+        let f = build(TEXT);
+        let new = path(Some("spare"), &["*"], &[KBD_PATH], None);
+        let text = apply(TEXT, &plan(&f, &read(&f).with(new)));
+        assert!(text.contains("[head spare]\n"), "{text}");
+        let spare = text
+            .split("[head spare]\n")
             .nth(1)
             .and_then(|rest| rest.split('[').next())
             .unwrap_or_default();
-        assert!(section.contains("vtlook = crt\n"), "{text}");
-        assert!(text.contains("[head panel]\nlook = monoid-16\n"), "{text}");
-        assert!(!look_names(&text).contains(&"big".to_owned()), "{text}");
+        assert!(!spare.contains("look"), "{text}");
+        assert_eq!(look_names(&text), ["big"], "{text}");
     }
 
     #[test]
-    fn a_look_is_matched_by_its_vtlook_too() {
-        let crt = TEXT
-            .replace("font-size = 14\n", "font-size = 14\nvtlook = crt\n")
-            .replace(
-                "[head desk]\n",
-                "[look plain]\nfont-name = monoid\nfont-size = 16\n[look glow]\nfont-name = monoid\nfont-size = 16\nvtlook = crt\n[head desk]\n",
-            );
-        let text = tried(&crt, &[16]);
-        assert!(text.contains("[head desk]\nlook = glow\n"), "{text}");
-        assert_eq!(look_names(&text), ["plain", "glow"], "{text}");
-    }
-
-    #[test]
-    fn a_head_keeps_its_own_look_while_its_font_set_and_size_stay() {
-        // two looks draw monoid at 14, and desk names the second
-        let twin = TEXT.replace(
-            "[head desk]\nlook = big\n",
-            "[look big2]\nfont-name = monoid\nfont-size = 14\n[head desk]\nlook = big2\n",
-        );
-        let f = build(&twin);
-        let mut doc = read(&f);
-        doc.paths[1].set("consoles", "2");
-        let text = apply(&twin, &plan(&f, &doc));
-        assert!(text.contains("[head desk]\nlook = big2\n"), "{text}");
-        assert_eq!(look_names(&text), ["big", "big2"], "{text}");
-    }
-
-    #[test]
-    fn the_draft_is_the_same_whatever_order_the_sizes_were_tried_in() {
-        let first = tried(TEXT, &[16, 18, 20]);
-        for sizes in [
-            &[18, 16, 20][..],
-            &[14, 18, 16, 20],
-            &[20, 16, 18, 20],
-            &[16, 14, 20],
+    fn the_draft_is_the_same_whatever_looks_were_chosen_before() {
+        let two = two_looks();
+        let first = chosen(&two, &[Some("small")]);
+        for looks in [
+            &[None, Some("small")][..],
+            &[Some("big"), Some("small")],
+            &[Some("small"), None, Some("big"), Some("small")],
         ] {
-            assert_eq!(tried(TEXT, sizes), first, "{sizes:?}");
+            assert_eq!(chosen(&two, looks), first, "{looks:?}");
         }
     }
 }

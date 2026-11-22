@@ -268,7 +268,7 @@ impl StandIn {
                 })
                 .unwrap_or_default()
         };
-        let [cw, ch, sprite_columns, _] = ivec4("cell");
+        let [cw, ch, sprite_columns, besides_across] = ivec4("cell");
         let [sw, sh, across, _] = ivec4("box_slot");
         let i = Inputs {
             masks: texture("masks"),
@@ -277,7 +277,9 @@ impl StandIn {
             boxes: texture("boxes"),
             ink: texture("ink"),
             color_boxes: texture("color_boxes"),
+            besides: texture("besides"),
             cell: (cw, ch),
+            besides_across,
             sprite_columns,
             box_slot: (sw, sh, across),
             bound,

@@ -219,14 +219,18 @@ impl Term {
     }
 
     /// Whether the terminal takes the child's output now: no finished
-    /// frame waits for a display, and no request waits for the turn that
-    /// carries it out. While the pty holds output and this is true, the
-    /// loop turns again at once.
+    /// frame waits for a display, no request waits for the turn that
+    /// carries it out, and the replies the console holds for a late cell
+    /// have not reached the bound on waiting replies. While the pty holds
+    /// output and this is true, the loop turns again at once. A full hold
+    /// stops the reading until the release, since the held replies reach
+    /// no pty and so nothing else stops the loop from turning at once.
     pub fn takes_input(&self) -> bool {
         !(self.unshown
             || self.terminal.font_requested()
             || self.terminal.grid_requested()
-            || self.terminal.display_requested())
+            || self.terminal.display_requested()
+            || (self.terminal.replies_held() && self.terminal.replies_full()))
     }
 
     /// The turn drew what it could of `views`, the head's displays: once
@@ -298,9 +302,9 @@ fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
     }
 }
 
-/// What a frame shows of the screen before an input call, to tell
-/// whether the call changed it.
-struct Shown {
+/// What a frame shows of the screen before an input call or a key, to
+/// tell whether the call or the key changed it.
+pub(crate) struct Shown {
     /// A checkpoint of the cells' damage: a cell marked after it changed,
     /// written, erased, scrolled, or under a picture added, moved or
     /// removed, or every cell at once, as a resize, a palette change or a
@@ -317,7 +321,7 @@ struct Shown {
 }
 
 impl Shown {
-    fn now(terminal: &mut Terminal) -> Shown {
+    pub(crate) fn now(terminal: &mut Terminal) -> Shown {
         Shown {
             since: terminal.screen_mut().checkpoint(),
             cursor: Shown::cursor(terminal),
@@ -336,7 +340,7 @@ impl Shown {
 
     /// Whether `terminal`'s screen changed since: a cell, the cursor or
     /// the pointer's shape.
-    fn changed(&self, terminal: &Terminal) -> bool {
+    pub(crate) fn changed(&self, terminal: &Terminal) -> bool {
         let damage = terminal.screen().damage();
         self.cursor != Shown::cursor(terminal)
             || self.pointer != terminal.pointer_shape()

@@ -256,7 +256,7 @@ fn enter_on_a_look_opens_its_card_with_its_lines_and_its_fonts_by_role() {
         "Size automatic, from vtium.conf.",
         "Color scheme legacy, from vtium.conf",
         "vtlook sepia",
-        "Pointer theme vtium's own pictures, from vtium.conf.",
+        "Pointer theme vtium's own pictures, from vtium.conf",
         "vtium-config offers its usual sizes, because it found no font file for the text font JetBrains Mono.",
         "Its fonts, by role:",
         "Text: the font family JetBrains Mono, not on this machine",
@@ -456,10 +456,15 @@ fn a_font_set_s_detail_shows_its_fonts_by_role_and_the_looks_that_use_it() {
     }
 }
 
-/// `r` on a font set marks it for removal at the next install.
+/// `r` on a font set marks it for removal at the next install, which the
+/// draft's folder keeps.
 #[test]
 fn r_on_a_font_set_marks_it_for_removal() {
-    let screen = reach(100, 30, &[TO_LOOKS, DOWN, DOWN, b"r"]);
+    let mut c = console().keys(&[TO_LOOKS, DOWN, DOWN, b"r"]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    assert!(d.frits.removed.contains("minspec-16"), "{:?}", d.frits);
+    let screen = c.seen.clone().expect("the screen");
     assert!(
         column(&screen).contains("minspec-16: reads, to remove."),
         "{screen}"
@@ -1504,7 +1509,7 @@ fn space_activates_a_pointer_theme_by_its_folder_and_its_detail_says_who_draws_i
         "Folder: /usr/share/icons/Adwaita. Every file in the folder is active while the folder is.",
         "State: activates on install",
         "This pointer theme passes the trust rule.",
-        "Every look uses it, because vtium.conf's pointer-theme names it.",
+        "Every look that names no pointer theme of its own uses it, because vtium.conf's pointer-theme names it.",
     ] {
         assert!(screen.contains(want), "{want}: {screen}");
     }
@@ -1735,18 +1740,24 @@ fn an_install_that_adds_a_font_set_keeps_the_highlight_on_its_font_set() {
         .position(|f| f.name == "tiny5")
         .expect("tiny5");
     to_entry(&mut a, &Entry::FontSet(at));
-    a.shared
-        .pending
-        .frits
-        .push(("aaa".to_owned(), "source=builtin:unifont\n".to_owned()));
+    a.shared.draft = Some(Opened {
+        frits: vtium_config::store::FritChanges {
+            kept: [("aaa".to_owned(), "source=builtin:unifont\n".to_owned())].into(),
+            ..Default::default()
+        },
+        ..Opened::default()
+    });
     a.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
     assert_eq!(name_of(&a), "tiny5");
     // the detail open over the list stays on its font set too
     press(&mut a, Key::Enter);
-    a.shared
-        .pending
-        .frits
-        .push(("aab".to_owned(), "source=builtin:unifont\n".to_owned()));
+    a.shared.draft = Some(Opened {
+        frits: vtium_config::store::FritChanges {
+            kept: [("aab".to_owned(), "source=builtin:unifont\n".to_owned())].into(),
+            ..Default::default()
+        },
+        ..Opened::default()
+    });
     a.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
     assert!(text(&a).contains("tiny5"), "{}", text(&a));
     press(&mut a, Key::Escape);
@@ -1770,4 +1781,492 @@ fn a_pointer_theme_s_name_shows_no_direction_override() {
     press(&mut a, Key::Enter);
     assert_eq!(vtium_config::tui::nav::node(&a), "looks.pointer");
     assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
+}
+
+/// The fixture's vtium.conf with `allow-window-ops` on, so the console
+/// lets programs resize its grid.
+fn window_ops_on() -> String {
+    format!(
+        "# mine\nfont-name=unifont\nallow-window-ops\n{}",
+        vtium_config::tui::fixture::SECTIONS
+    )
+}
+
+/// The console of [`console`], driven with the stand-in desk on `conf`,
+/// with what it wrote and the draft it left.
+fn run_on(conf: &str, keys: &[&[u8]]) -> (Console, String) {
+    let mut d = desk();
+    d.installed = conf.to_owned();
+    d.draft = conf.to_owned();
+    let mut c = console().keys(keys);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(conf), Some(&mut d)).expect("the loop");
+    (c, d.draft)
+}
+
+/// The keys that open the look proof's card, its size line's list, and
+/// pick 6 pt, the first size after vtium.conf's and automatic.
+const PICK_SIX: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r", DOWN, DOWN, b"\r"];
+
+/// `w` in the Looks tab asks whether to let programs resize the grid, and
+/// `y` writes `allow-window-ops = on` into the draft.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": `w` asks, and only `y`
+///   writes the key.
+#[test]
+fn w_asks_whether_to_let_programs_resize_the_grid_and_y_turns_it_on() {
+    let seen = reach(80, 25, &[TO_LOOKS, b"w"]);
+    assert!(seen.contains("Let programs resize the grid?"), "{seen}");
+    let draft = draft_after(
+        &inputs().conf.expect("the conf"),
+        &[TO_LOOKS, b"w", b"y", b"s"],
+    );
+    assert!(draft.contains("\nallow-window-ops\n"), "{draft}");
+}
+
+/// `n` and Esc answer the question with no, and write nothing.
+#[test]
+fn n_or_esc_at_the_resize_question_writes_nothing() {
+    let conf = inputs().conf.expect("the conf");
+    for no in [b"n".as_slice(), ESC] {
+        let draft = draft_after(&conf, &[TO_LOOKS, b"w", no, b"s"]);
+        assert!(!draft.contains("allow-window-ops"), "{draft}");
+    }
+}
+
+/// In a vtium console that does not let programs resize its grid, a look
+/// card's size line says so and names `w`, and Enter on a size says why
+/// the console stays as it is and sends no grid request. With the live
+/// trial on, the preview is the console's own text at its current size,
+/// so Enter says that the size takes effect when vtium starts again. With
+/// `allow-font-ops` off, the preview is a picture or a description, so
+/// Enter says that the size shows only in the preview.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console", its note of 2026-11-21: with the live trial on and `allow-window-ops` off, the preview is the console's own text and shows no picture.
+#[test]
+fn without_window_ops_the_tab_says_when_a_size_takes_effect() {
+    let seen = flat(&reach(100, 30, &[TO_LOOKS, b"\r", DOWN, DOWN]));
+    assert!(seen.contains(words::WINDOW_OPS_NOTICE_NEXT_START), "{seen}");
+    let conf = inputs().conf.expect("the conf");
+    let (c, _) = run_on(&conf, PICK_SIX);
+    assert_eq!(grid_requests(&c.written), Vec::<String>::new());
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(seen.contains(words::SIZE_AT_NEXT_START), "{seen}");
+    assert!(!seen.contains("shows only in the preview"), "{seen}");
+    // with allow-font-ops off the console answers no font query, so the
+    // live trial is off and the preview is a picture or a description
+    let mut c = Console::vtium(80, 25, false, "unifont").keys(PICK_SIX);
+    let mut d = desk();
+    vtium_config::tui::port::drive_with(&mut c, with_conf(&conf), Some(&mut d)).expect("the loop");
+    assert_eq!(grid_requests(&c.written), Vec::<String>::new());
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(seen.contains(words::SIZE_PICTURE_ONLY), "{seen}");
+    assert!(seen.contains(words::WINDOW_OPS_NOTICE), "{seen}");
+}
+
+/// Enter on a size in the look card's list tries it on the console: the
+/// font helper measures the font set's cell at that size, and the grid
+/// request asks for the grid that cell gives on the 640×480 display, 80×30
+/// for an 8×16 cell. Any key but `k` puts the grid of 80×25 back.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
+///   highlighted size as a timed trial, and any other key puts the grid
+///   back.
+#[test]
+fn enter_on_a_size_tries_its_grid_on_the_console_and_a_key_puts_it_back() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let (c, draft) = run_on(&window_ops_on(), &keys);
+    assert!(c.cells.contains(&("proof".to_owned(), 8)), "{:?}", c.cells);
+    // the trial's grid, then the grid put back, which is the starting
+    // grid, so leaving sends no other
+    assert_eq!(grid_requests(&c.written), ["30;80", "25;80"]);
+    // the pick is a change to the look like any other, kept for Save
+    assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
+}
+
+/// `k` keeps the size on the console, and quitting gives the console the
+/// grid it had when vtium-config started.
+///
+/// References:
+/// - ADR-1201 D4, "Giving the console back": leaving gives the console
+///   its starting grid back, with the grid request.
+#[test]
+fn k_keeps_a_tried_size_and_quitting_gives_the_starting_grid_back() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.extend_from_slice(&[b"k".as_slice(), ESC, ESC, b"q", b"n"]);
+    let (c, _) = run_on(&window_ops_on(), &keys);
+    let tried = find(&c.written, b"\x1b[8;30;80t").expect("the size's grid request");
+    let rest = &c.written[tried..];
+    // the keep sends nothing, and the leaving asks for the starting grid
+    assert!(
+        find(rest, b"\x1b[8;25;80t").is_some(),
+        "the starting grid given back"
+    );
+    assert_eq!(grid_requests(&c.written), ["30;80", "25;80"]);
+}
+
+/// Each grid request, `CSI 8 ; rows ; cols t`, in `bytes`, as its
+/// parameters.
+fn grid_requests(bytes: &[u8]) -> Vec<String> {
+    let text = String::from_utf8_lossy(bytes);
+    text.split("\x1b[8;")
+        .skip(1)
+        .filter_map(|rest| {
+            let end = rest.find(|c: char| !c.is_ascii_digit() && c != ';')?;
+            (rest[end..].starts_with('t')).then(|| rest[..end].to_owned())
+        })
+        .collect()
+}
+
+/// The position of `needle` in `haystack`.
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// The keys that open the look proof's card on its pointer theme line,
+/// the card's sixth.
+const TO_POINTER: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, DOWN, DOWN, DOWN, DOWN];
+
+/// The pointer theme line's list offers vtium.conf's theme first, then
+/// each active pointer theme: in the fixture, vtium's own pictures, while
+/// Adwaita, which is not active, and stray, which fails the trust rule,
+/// stay out.
+///
+/// References:
+/// - ADR-1205 D6: a look picks only an active pointer theme.
+/// - ADR-1403 D10, the row `list.pointer-themes`.
+#[test]
+fn the_pointer_theme_list_offers_vtium_conf_s_theme_then_the_active_ones() {
+    let mut keys = TO_POINTER.to_vec();
+    keys.push(b"\r");
+    let seen = flat(&reach(100, 30, &keys));
+    assert!(
+        seen.contains("The pointer theme vtium.conf sets (vtium's own pictures)"),
+        "{seen}"
+    );
+    assert!(seen.contains("pointers.svg active"), "{seen}");
+    assert!(!seen.contains("Adwaita"), "{seen}");
+    assert!(!seen.contains("stray"), "{seen}");
+}
+
+/// Picking a pointer theme writes the look's own `pointer-theme`, and the
+/// first choice takes it out again, so the look draws vtium.conf's theme.
+///
+/// References:
+/// - ADR-1205 D6: a look's choice takes priority over vtium.conf's
+///   `pointer-theme`, which stays the default for a look that picks none.
+#[test]
+fn picking_a_pointer_theme_writes_the_look_s_own_pointer_theme() {
+    let conf = inputs().conf.expect("the conf");
+    let mut keys = TO_POINTER.to_vec();
+    keys.extend_from_slice(&[b"\r".as_slice(), DOWN, b"\r", ESC, b"s"]);
+    let draft = draft_after(&conf, &keys);
+    assert!(
+        draft.contains("[look proof]\npointer-theme = /usr/share/vtium/pointers.svg\n"),
+        "{draft}"
+    );
+    let mut keys = TO_POINTER.to_vec();
+    keys.extend_from_slice(&[b"\r".as_slice(), DOWN, b"\r", b"\r", UP, b"\r", ESC, b"s"]);
+    let draft = draft_after(&conf, &keys);
+    assert!(!draft.contains("pointer-theme"), "{draft}");
+}
+
+/// The keys that open the card of the look seven, which draws unifont at
+/// 7 pt, and its size line's list, highlighted on 7 pt; then Down
+/// highlights 8 pt.
+const SEVEN_SIZES: &[&[u8]] = &[TO_LOOKS, DOWN, DOWN, b"\r", DOWN, DOWN, b"\r", DOWN];
+
+/// The pixel height of `points` at the fixture's 96 dpi.
+fn height(points: u32) -> u32 {
+    vtium_config::specimen::pixel_height(points, 96)
+}
+
+/// In a terminal that shows images, a look card's size list shows the
+/// picture of the highlighted size below the list, and moving the
+/// highlight draws the next size. Esc back to the card deletes the
+/// picture, since the card's other lines have no preview.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the preview follows the
+///   highlight over the sizes, and its note of 2026-11-21 puts it below the
+///   card's size list.
+#[test]
+fn a_look_card_s_size_list_shows_the_picture_of_the_highlighted_size_below_it() {
+    let mut keys = SEVEN_SIZES.to_vec();
+    keys.push(ESC);
+    let mut c = outside().keys(&keys);
+    c.graphics = true;
+    drive(&mut c, sized()).expect("the loop");
+    // below the list of 8 rows and its 5 rows of sentences, from the left
+    // edge: 79 columns by the 3 rows above the longest message, in the
+    // fixture's 8x16 cells
+    let area = (79 * 8, 3 * 16);
+    let below: Vec<(u32, (u32, u32))> = c
+        .pictures
+        .iter()
+        .filter(|(f, _, a)| f == "unifont" && *a == area)
+        .map(|(_, h, a)| (*h, *a))
+        .collect();
+    assert_eq!(
+        below,
+        [(height(7), area), (height(8), area)],
+        "{:?}",
+        c.pictures
+    );
+    let last_show = c
+        .written
+        .windows(shown().len())
+        .rposition(|w| w == shown())
+        .expect("shown");
+    let last_delete = c
+        .written
+        .windows(kitty::delete(kitty::IMAGE_ID).len())
+        .rposition(|w| w == kitty::delete(kitty::IMAGE_ID))
+        .expect("deleted");
+    assert!(last_delete > last_show, "Esc deletes the picture");
+}
+
+/// The screen a look card's size list shows at 80x25 in a terminal that
+/// shows images: the list, then what the keys do and the line beside the
+/// picture, which names the highlighted size.
+#[test]
+fn the_line_under_a_look_card_s_size_list_names_the_highlighted_size() {
+    let mut c = outside().keys(SEVEN_SIZES);
+    c.graphics = true;
+    drive(&mut c, sized()).expect("the loop");
+    let screen = c.seen.clone().expect("the screen");
+    let rows = body(&screen);
+    let last = rows
+        .iter()
+        .rposition(|r| r.starts_with("   ○ ") || r.starts_with("   ● "))
+        .expect("the list's rows");
+    let under = flat(&rows[last + 1..].join(" "));
+    assert!(under.starts_with(words::CARD_LIST_HINT), "{screen}");
+    assert!(under.contains("unifont at 8 pt"), "{screen}");
+}
+
+/// Where the terminal shows no images, a look card's size list describes
+/// the highlighted size under the list, and moving the highlight
+/// describes the next size.
+#[test]
+fn without_pictures_a_look_card_s_size_list_describes_the_highlighted_size() {
+    let mut c = outside().keys(SEVEN_SIZES);
+    drive(&mut c, sized()).expect("the loop");
+    let heights: Vec<u32> = c.summaries.iter().map(|(_, h)| *h).collect();
+    assert_eq!(heights.last(), Some(&height(8)), "{heights:?}");
+    assert!(heights.contains(&height(7)), "{heights:?}");
+    let screen = c.seen.clone().expect("the screen");
+    let rows = body(&screen);
+    let last = rows
+        .iter()
+        .rposition(|r| r.starts_with("   ○ ") || r.starts_with("   ● "))
+        .expect("the list's rows");
+    let under = flat(&rows[last + 1..].join(" "));
+    assert!(under.contains("With this font and size"), "{screen}");
+    assert!(c.pictures.is_empty(), "{:?}", c.pictures);
+}
+
+/// In a vtium console a look card's size list shows the console's own
+/// text below the list, at the console's current size, and the caption
+/// says what Enter does to the size: it tries the size where the console
+/// lets programs resize its grid, and otherwise the size waits for vtium's
+/// next start.
+///
+/// References:
+/// - ADR-1201 D4, "In a vtium console, the preview is the console's own
+///   text": no picture, and a chosen size changes the console's grid.
+#[test]
+fn in_a_vtium_console_a_look_card_s_size_list_prints_the_sample_below_it() {
+    let keys: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r"];
+    let conf = inputs().conf.expect("the conf");
+    for (conf, caption) in [
+        (conf, words::CARD_CONSOLE_SIZE_FIXED),
+        (window_ops_on(), words::CARD_CONSOLE_SIZE_TRY),
+    ] {
+        let (c, _) = run_on(&conf, keys);
+        let screen = c.seen.clone().expect("the screen");
+        let rows = body(&screen);
+        let last = rows
+            .iter()
+            .rposition(|r| r.starts_with("   ○ ") || r.starts_with("   ● "))
+            .expect("the list's rows");
+        let under = rows[last + 1..].join("\n");
+        assert!(flat(&under).contains(caption), "{screen}");
+        let sample: Vec<String> = vtium_config::tui::shot::sample_rows()
+            .iter()
+            .map(|line| line.iter().map(|(t, _)| *t).collect::<String>())
+            .collect();
+        let first = sample.first().expect("a sample row");
+        let printed = preview_rows(&under, first.trim());
+        assert!(printed.len() >= 3, "{screen}");
+        for (row, line) in printed.iter().take(3).zip(&sample) {
+            assert_eq!(row, line.trim(), "{screen}");
+        }
+        assert!(c.pictures.is_empty() && c.cells.is_empty());
+    }
+}
+
+/// A long written description keeps its place under a look card's size
+/// list: the list's window gives up rows first, so the sentence that says
+/// why a size cannot be used still shows at 80x25 when the font helper's
+/// reason names a path of 300 characters.
+#[test]
+fn a_long_reason_under_the_size_list_shrinks_the_list_before_it_goes() {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::{App, Effect, Event, Live, Size, View};
+    use vtium_config::tui::view;
+    let mut i = sized();
+    i.view = View::Looks;
+    let (mut app, _) = App::start(
+        i,
+        Size {
+            cols: 80,
+            rows: 25,
+            cell_px: Some((8, 16)),
+        },
+    );
+    app.shared.live = Live::OpsOff;
+    app.shared.graphics = false;
+    // the card of look seven, its size list, and Down to 8 pt
+    let mut asked = None;
+    for key in [
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+    ] {
+        for effect in app.event(Event::Input(Input::Key(key))) {
+            if let Effect::Summary { font, height } = effect {
+                asked = Some((font, height));
+            }
+        }
+        app.shared.drawing = false;
+    }
+    let (font, height) = asked.expect("the description of a size asked for");
+    let why = format!(
+        "cannot read /usr/share/fonts/{}/x.otb: No such file or directory",
+        "d".repeat(300)
+    );
+    app.event(Event::Summarized {
+        font,
+        height,
+        summary: Err(why),
+    });
+    let screen = view::as_text(&view::screen(&app));
+    let said = flat(&screen);
+    assert!(
+        said.contains("This size cannot be used: cannot read"),
+        "{screen}"
+    );
+    assert!(said.contains("No such file or directory"), "{screen}");
+    // the list still shows the highlighted size, in a window of at least
+    // three rows
+    let rows = body(&screen);
+    let listed = rows
+        .iter()
+        .filter(|r| r.starts_with("   ○ ") || r.starts_with("   ● "))
+        .count();
+    assert!(listed >= 3, "{screen}");
+}
+
+/// A written description too long to leave the size list three rows makes
+/// the card give up the preview under its size list: the card shows its
+/// list and the hint under it, as it does with no preview, rather than a
+/// window of the list over blank rows. The reason here names a path of 800
+/// characters, which leaves the list fewer than three rows at 80x25.
+#[test]
+fn a_reason_too_long_for_the_size_list_leaves_the_list_and_its_hint() {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::{App, Effect, Event, Live, Size, View};
+    use vtium_config::tui::view;
+    let mut i = sized();
+    i.view = View::Looks;
+    let (mut app, _) = App::start(
+        i,
+        Size {
+            cols: 80,
+            rows: 25,
+            cell_px: Some((8, 16)),
+        },
+    );
+    app.shared.live = Live::OpsOff;
+    app.shared.graphics = false;
+    // the card of look seven, its size list, and Down to 8 pt
+    let mut asked = None;
+    for key in [
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+    ] {
+        for effect in app.event(Event::Input(Input::Key(key))) {
+            if let Effect::Summary { font, height } = effect {
+                asked = Some((font, height));
+            }
+        }
+        app.shared.drawing = false;
+    }
+    let (font, height) = asked.expect("the description of a size asked for");
+    let why = format!(
+        "cannot read /usr/share/fonts/{}/x.otb: No such file or directory",
+        "d".repeat(800)
+    );
+    app.event(Event::Summarized {
+        font,
+        height,
+        summary: Err(why),
+    });
+    let screen = view::as_text(&view::screen(&app));
+    let said = flat(&screen);
+    assert!(
+        said.contains(
+            "Enter picks the highlighted choice, and Esc goes back to the card without a change."
+        ),
+        "{screen}"
+    );
+    assert!(!said.contains("dddd"), "{screen}");
+    assert!(body(&screen).iter().any(|r| r == "   ● 7 pt"), "{screen}");
+}
+
+/// In a vtium console, a look card's size list prints the sample screen
+/// as its preview only where the screen leaves the preview a row, as the
+/// layout of the list and its sentences decides. On a screen too short
+/// for that, the card shows its list alone, and no sample lines would
+/// print over the list.
+#[test]
+fn the_console_s_text_under_the_size_list_follows_the_layout() {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::{App, Event, Live, Size, View};
+    let mut i = sized();
+    i.view = View::Looks;
+    let size = |rows| Size {
+        cols: 80,
+        rows,
+        cell_px: Some((8, 16)),
+    };
+    let (mut app, _) = App::start(i, size(25));
+    app.shared.live = Live::On;
+    // the card of look seven and its size list
+    for key in [
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+    ] {
+        app.event(Event::Input(Input::Key(key)));
+    }
+    let sample = vtium_config::tui::shot::sample_rows();
+    assert_eq!(app.tab().console_lines(&app.shared, size(25)), sample);
+    assert!(app.tab().console_lines(&app.shared, size(12)).is_empty());
 }

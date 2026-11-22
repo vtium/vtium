@@ -115,6 +115,42 @@ pub fn run(
     }
 }
 
+/// A change to one font set that `new-frit` and `remove-frit` keep in the
+/// current draft's font set folder ([`font_set`]).
+pub enum FontSetChange {
+    /// The draft adds or replaces the frit, whose whole text this is.
+    Keep(String),
+    /// The draft removes the installed frit, or no longer adds the frit.
+    Remove,
+}
+
+/// Runs `new-frit` or `remove-frit` once the command has checked its
+/// words: keeps `change` to the frit `frit` in the current draft's font
+/// set folder; returns the exit status.
+pub fn font_set(
+    frit: &str,
+    change: FontSetChange,
+    paths: &Paths,
+    devices: &Devices,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let store = match Store::system() {
+        Ok(store) => store,
+        Err(fail) => return report(&fail, err),
+    };
+    let session = Session { store, paths };
+    let mut cmd = Command {
+        session: &session,
+        devices,
+        out,
+    };
+    match cmd.font_set(frit, change) {
+        Ok(()) => 0,
+        Err(fail) => report(&fail, err),
+    }
+}
+
 /// Prints `fail` and gives its exit code.
 fn report(fail: &Fail, err: &mut dyn Write) -> u8 {
     let _ = writeln!(err, "vtium-config: {}", fail.text());
@@ -169,7 +205,7 @@ impl Command<'_, '_> {
         let state = self.session.state(name, text)?;
         let checked = self
             .session
-            .check(text, &self.session.store.draft_path(name)?)?;
+            .check(name, text, &self.session.store.draft_path(name)?)?;
         let (added, removed) = state.counts();
         let draft = crate::tui::flow::Draft {
             name: name.to_owned(),
@@ -193,16 +229,12 @@ impl Command<'_, '_> {
         let (flow, state, checked) = self.judged(&name, &text)?;
         let missing = missing(&checked);
         let printed = if args.has("--json") {
-            flowmodel::json(&flow, &name, &state, &checked, &missing)
+            let (frits, _) = self.session.frit_changes(&name)?;
+            flowmodel::json(&flow, &name, &state, &checked, &missing, &frits)
         } else {
             flowmodel::text(
                 &flow,
-                &flowmodel::state_line(
-                    &name,
-                    &state,
-                    self.session.store.batch_changes(&name)?.len(),
-                    checked.count(),
-                ),
+                &flowmodel::state_line(&name, &state, self.beside(&name)?, checked.count()),
                 &missing,
             )
         };
@@ -242,7 +274,39 @@ impl Command<'_, '_> {
             );
             let _ = write!(self.out, "{shown}");
         }
+        // each font set change, under the frit's path in the frits'
+        // directory: a new frit as added lines, a replaced one as its
+        // difference from the installed frit, a removed one as removed
+        // lines
+        let (frits, notes) = self.session.frit_changes(&name)?;
+        for change in frits {
+            let path = change.path.to_string_lossy();
+            let old = change
+                .old
+                .as_deref()
+                .map(String::from_utf8_lossy)
+                .unwrap_or_default();
+            let shown = diff(
+                &path,
+                &old,
+                &format!("{path} (after install)"),
+                change.new.as_deref().unwrap_or_default(),
+            );
+            let _ = write!(self.out, "{shown}");
+        }
+        for note in notes {
+            let _ = writeln!(self.out, "{note}");
+        }
         Ok(())
+    }
+
+    /// What waits beside the draft `name`, as the state line counts it:
+    /// its changes to the active resources and its font set changes.
+    fn beside(&self, name: &str) -> Result<(usize, usize), Fail> {
+        Ok((
+            self.session.store.batch_changes(name)?.len(),
+            self.session.frit_changes(name)?.0.len(),
+        ))
     }
 
     /// `install [--force]`: installs the draft. A draft whose only problem
@@ -334,7 +398,7 @@ impl Command<'_, '_> {
                 "{}",
                 diff(&shown, old, &format!("{shown} (after)"), new)
             );
-            let checked = self.session.check(new, &path)?;
+            let checked = self.session.check(name, new, &path)?;
             self.print_check(&checked);
             self.say(if checked.verdict == Verdict::Passed {
                 "the check passes; nothing was saved (--dry-run)"
@@ -349,8 +413,18 @@ impl Command<'_, '_> {
             self.session.store.write_draft(name, new)?;
             self.say(&format!("wrote {}", path.display()));
         }
+        self.after_write(name, new, install)
+    }
+
+    /// After a change to the draft `name`, whose text is now `new`, was
+    /// written: prints what the check finds and the state line, and with
+    /// `install` installs the draft. A check that cannot run is printed
+    /// and fails nothing, since the change is written whatever the check
+    /// says, unless the draft is to be installed.
+    fn after_write(&mut self, name: &str, new: &str, install: bool) -> Result<(), Fail> {
+        let path = self.session.store.draft_path(name)?;
         let state = self.session.state(name, new)?;
-        let checked = match self.session.check(new, &path) {
+        let checked = match self.session.check(name, new, &path) {
             Ok(checked) => checked,
             // the draft is written whatever the check says, even when it
             // cannot run
@@ -361,13 +435,61 @@ impl Command<'_, '_> {
             Err(fail) => return Err(fail),
         };
         self.print_check(&checked);
-        let batch = self.session.store.batch_changes(name)?.len();
-        self.say(&flowmodel::state_line(name, &state, batch, checked.count()));
+        let beside = self.beside(name)?;
+        self.say(&flowmodel::state_line(
+            name,
+            &state,
+            beside,
+            checked.count(),
+        ));
         if install {
             self.session
                 .install(name, new, Unrouted::Refuse, &mut run_child, None, self.out)?;
         }
         Ok(())
+    }
+
+    /// `new-frit` and `remove-frit`: keeps `change` to the frit `frit` in
+    /// the current draft's font set folder, then prints what the check of
+    /// the draft finds and the state line. A removal of an installed frit
+    /// writes `FRIT.removed`, and a removal of a frit that only the draft
+    /// adds takes the addition back.
+    /// A removal of a frit that is neither installed nor in the folder is
+    /// refused, exit 1.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "Every font set change is kept at once": `new-frit` and `remove-frit` write the current draft's folder and install nothing.
+    fn font_set(&mut self, frit: &str, change: FontSetChange) -> Result<(), Fail> {
+        let (name, text) = self.session.current()?;
+        let store = &self.session.store;
+        let dir = store.frits_path(&name)?;
+        let file = |ending: &str| dir.join(format!("{frit}{ending}")).display().to_string();
+        match change {
+            FontSetChange::Keep(frit_text) => {
+                store.keep_frit(&name, frit, &frit_text)?;
+                self.say(&format!("wrote {}", file(".vtfrit")));
+            }
+            FontSetChange::Remove => {
+                let frits = self
+                    .session
+                    .paths
+                    .frits
+                    .as_ref()
+                    .map_err(|e| Fail::File(e.clone()))?;
+                if frits.join(format!("{frit}.vtfrit")).is_file() {
+                    store.keep_removal(&name, frit)?;
+                    self.say(&format!("wrote {}", file(".removed")));
+                } else if store.frit_changes(&name)?.kept.contains_key(frit) {
+                    store.forget_frit(&name, frit)?;
+                    self.say(&format!("removed {}", file(".vtfrit")));
+                } else {
+                    return Err(Fail::Check(format!(
+                        "There is no font set named {frit} to remove: no installed font set has that name, and draft {name} does not add one."
+                    )));
+                }
+            }
+        }
+        self.after_write(&name, &text, false)
     }
 
     fn print_check(&mut self, checked: &Checked) {
@@ -393,10 +515,16 @@ impl Command<'_, '_> {
         };
         if args.has("--dry-run") {
             let (added, removed) = crate::drafts::counts(&new, &text);
-            let batch = match self.session.store.batch_changes(&name)?.len() {
-                0 => String::new(),
-                n => format!(", and {}", crate::batch::resource_changes(n)),
-            };
+            let (batch, frits) = self.beside(&name)?;
+            let beside = [
+                (batch > 0).then(|| crate::batch::resource_changes(batch)),
+                (frits > 0).then(|| crate::drafts::frit_count(frits)),
+            ];
+            let batch: String = beside
+                .into_iter()
+                .flatten()
+                .map(|w| format!(", and {w}"))
+                .collect();
             self.say(&format!(
                 "{command} would lose {} of draft {name}{batch}",
                 crate::drafts::lines(added, removed)
@@ -408,8 +536,10 @@ impl Command<'_, '_> {
                 .store
                 .set_base(&name, installed.as_deref().map(str::as_bytes))?;
         }
-        // the draft starts over, so its changes to the active resources go
+        // the draft starts over, so its changes to the active resources
+        // and its font set changes go
         self.session.drop_batch(&name)?;
+        self.session.store.drop_frits(&name)?;
         self.write(&name, &text, &new, false, false)
     }
 
@@ -844,7 +974,7 @@ impl Command<'_, '_> {
             draft = edited;
             let path = self.session.store.draft_path(name)?;
             self.say(&format!("wrote {}", path.display()));
-            let checked = self.session.check(&draft, &path)?;
+            let checked = self.session.check(name, &draft, &path)?;
             self.print_check(&checked);
             // a missing font is shown, and never asks for another edit
             if checked.clears() {

@@ -113,10 +113,9 @@ fn status(app: &App) -> String {
         };
         let pending = app
             .shared
-            .pending
-            .frits
-            .len()
-            .saturating_add(app.shared.pending.removals.len());
+            .draft
+            .as_ref()
+            .map_or(0, |d| d.frit_changes.len());
         if pending > 0 {
             left = format!("{left} · {}", waiting(pending));
         }
@@ -147,11 +146,17 @@ fn status(app: &App) -> String {
                 (false, true) => words::PREVIEW_TEXT_SHORT,
             },
             // t tries a font set on a look or a font set of the Looks tab
-            // and in a look's card; elsewhere in the Looks tab t does
-            // nothing, and the other tabs say where the trial is
+            // and in a look's card, and on a font set only the draft adds
+            // the line says t can try it after the install; elsewhere in
+            // the Looks tab t does nothing, and the other tabs say where
+            // the trial is
             match (*live == Live::On, app.nav.view) {
                 (true, View::Looks) if matches!(trial_node, "looks" | "looks.look") => {
-                    words::TRIAL_KEY
+                    if app.looks.in_draft(&app.shared).is_some() {
+                        words::TRIAL_AFTER_INSTALL
+                    } else {
+                        words::TRIAL_KEY
+                    }
                 }
                 (true, View::Looks) => words::TRIAL_ON_FONT_SETS,
                 (true, _) => words::TRIAL_IN_LOOKS,
@@ -219,12 +224,6 @@ fn small(app: &App) -> Vec<String> {
             ),
             cols,
         ),
-        // the leave question's keys fill a row, so what it says goes on
-        // the row above them
-        Some(Then::Leave(_)) => wrap(&words::small_leave(app.shared.unsaved), cols, usize::MAX)
-            .into_iter()
-            .chain(item_rows(key_line(app), cols))
-            .collect(),
         Some(_) => item_rows(key_line(app), cols),
     };
     // the keys that stay on the screen however few its rows: the

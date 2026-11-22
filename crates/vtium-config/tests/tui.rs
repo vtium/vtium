@@ -99,7 +99,8 @@ fn is_flow_keys(screen: &str) -> bool {
 }
 
 /// The status line with a font set waiting to be installed, on a screen
-/// `cols` wide.
+/// `cols` wide: tiny5 marked for removal, and the screen read when the
+/// keys run out.
 fn status_with_a_font_set_waiting(cols: u16) -> String {
     let grid = (usize::from(cols), 25);
     let mut c = Console::vtium(usize::from(cols), 25, true, "unifont")
@@ -108,7 +109,7 @@ fn status_with_a_font_set_waiting(cols: u16) -> String {
         .takes("tiny5", grid)
         .takes("unifont", grid)
         .takes("unscii-8", grid)
-        .keys(&on_tiny5(&[b"r", b"q"]));
+        .keys(&on_tiny5(&[b"r"]));
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
@@ -232,19 +233,21 @@ fn with_font_operations_off_the_tui_says_so_and_offers_the_key() {
     );
 }
 
+/// `o` opens Restore in the Flow view alone. In the Settings and Help tabs
+/// of a vtium console with allow-font-ops off, `o` changes nothing, so `q`
+/// leaves without asking and nothing is installed. The Settings tab's own
+/// row for allow-font-ops turns it on.
+///
+/// References:
+/// - ADR-1403 D7, the `o.view` row: `o` does nothing outside the Flow view.
 #[test]
-fn turning_font_operations_on_is_a_change_installed_like_any_other() {
+fn o_changes_nothing_outside_the_flow_view() {
     let mut d = desk();
     let mut c =
-        Console::vtium(80, 25, false, "unifont").keys(&[TO_SETTINGS, b"o", b"i", b"y", b"q"]);
+        Console::vtium(80, 25, false, "unifont").keys(&[TO_SETTINGS, b"o", TO_HELP, b"o", b"q"]);
     assert_eq!(run_desk(&mut c, &mut d), 0);
-    let plan = d.plans.first().expect("an install");
-    assert_eq!(plan.files.len(), 1);
-    assert!(
-        plan.files[0].new.contains("\nallow-font-ops\n"),
-        "{:?}",
-        plan.files[0].new
-    );
+    assert!(d.plans.is_empty(), "{:?}", d.plans);
+    assert_eq!(d.draft, d.installed);
 }
 
 #[test]
@@ -575,27 +578,28 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
         "{screen}"
     );
     assert!(d.plans.is_empty());
-    // the question before leaving with a frit waiting: Tab leaves it
-    // open, and Esc goes back
-    let mut c = console().keys(&on_tiny5(&[b"r", b"q"]));
+    // the quit question, with the size kept on the card not saved: Tab
+    // leaves it open, and Esc goes back
+    let quit: Vec<&[u8]> = [&ask[..6], &[b"q"]].concat();
+    let mut c = console().keys(&quit);
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert_eq!(
-        foot(&screen, keys_of("any.question.leave")),
-        keys_of("any.question.leave"),
+        foot(&screen, keys_of("any.question.quit")),
+        keys_of("any.question.quit"),
         "{screen}"
     );
-    let mut c = console().keys(&on_tiny5(&[b"r", b"q", TAB]));
+    let mut c = console().keys(&[&quit[..], &[TAB]].concat());
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert_eq!(
-        foot(&screen, keys_of("any.question.leave")),
-        keys_of("any.question.leave"),
+        foot(&screen, keys_of("any.question.quit")),
+        keys_of("any.question.quit"),
         "{screen}"
     );
-    let mut c = console().keys(&on_tiny5(&[b"r", b"q", TAB, b"\x1b"]));
+    let mut c = console().keys(&[&quit[..], &[TAB, b"\x1b"]].concat());
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");

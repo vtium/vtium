@@ -10,11 +10,10 @@ A look is a `[look NAME]` section of vtium.conf. A head names its look with `loo
 - the other font settings, such as `font-hinting`, `font-line-spacing` and `font-ligatures`;
 - a color scheme, which `palette` names;
 - a vtlook, which `vtlook` names, the file that chooses the head's effects;
-- the login picture and the display settings `display-depth` and `display-dpi`.
+- the login picture and the display settings `display-depth` and `display-dpi`;
+- a pointer theme, which `pointer-theme` names, the pictures of the mouse pointer.
 
 A setting that a look leaves out comes from the top of vtium.conf. So you can set a color scheme once for every head, and give one look its own. For example, a head on a large monitor could take a look with a bigger font and an amber effect, while the laptop's panel keeps the default look.
-
-Every look draws the pointer theme that the top-level `pointer-theme` key names. A look cannot pick a pointer theme of its own yet. See [the pointer theme issue](https://github.com/vtium/vtium/issues/442).
 
 The fonts, the color scheme and the files a vtlook reads must be active, which [Active resources and the trust rule](resources.md) explains. [The sections of vtium.conf](../head-file.md#reading-the-sections) describes the look's section.
 

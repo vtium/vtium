@@ -108,8 +108,8 @@ const SB_MEMORY_MAX_BOUND: Bound = Bound {
 const REPLIES_PENDING: Bound = Bound {
     name: "REPLIES_PENDING_MAX",
     value: 65_536,
-    what: "Bytes of replies and input reports the terminal holds before the host takes them",
-    past: "The input call returns after the byte whose reply reached it, and takes nothing until the host has taken the replies, so a program that queries without reading cannot grow them",
+    what: "Bytes of replies and input reports the terminal holds before the host takes them, with the replies the host holds, each held XTWINOPS size report at 48 bytes",
+    past: "The input call returns after the byte whose reply reached it, and takes nothing until the host has released and taken the replies, so a program that queries without reading, or during a hold, cannot grow them",
     cite: "vtium's own, at vtium-platform's `REPLY_HIGH` (64 KiB), past which vtium stops reading a program that queries without reading",
 };
 

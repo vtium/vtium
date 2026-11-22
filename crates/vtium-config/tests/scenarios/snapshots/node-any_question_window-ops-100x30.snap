@@ -1,9 +1,10 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "any.question.leave at 100×30, keys: 3 Down r q"
+assertion_line: 117
+description: "any.question.window-ops at 100×30, keys: 3 w"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
- draft mine · no changes · no problems · 1 font set to install           text preview · t: try live
+ draft mine · no changes · no problems                                   text preview · t: try live
 ----------------------------------------------------------------------------------------------------
  Looks
    proof
@@ -16,19 +17,19 @@ description: "any.question.leave at 100×30, keys: 3 Down r q"
    unifont               grey red green yellow magenta cyan white
    unscii-8              Bold text and italic text beside plain text.
                          ┌──────────┬──────────┐
- Color schemes           │ name     │ size     │
-   legacy                ├──────────┼──────────┤
-                         │ plan.txt │ 1.8 KiB  │
- broken: cannot be       └──────────┴──────────┘
- read: line 2: unknown   Accents: café, naïve, Ångström, Straße, žluťoučký
- key colour, to remove.  user@desk:~/notes$
- The console draws this
+                         │ name     │ size     │
+ proof uses the font     ├──────────┼──────────┤
+ set proof at            │ plan.txt │ 1.8 KiB  │
+ vtium.conf's size.      └──────────┴──────────┘
+ Terminal desk uses it.  Accents: café, naïve, Ångström, Straße, žluťoučký
+ The console draws this  user@desk:~/notes$
  in its current font.
  Press t to try the
  font set. A size takes
  effect when vtium
  starts again.
- Install before you quit? Quitting without installing loses the removal of broken. y installs and
- quits, n quits without installing, and Esc goes back.
+ Let programs resize the grid? vtium-config writes allow-window-ops = on into the draft. Every
+ program in the console can then set its rows and columns, and the console changes its font size to
+ fit. y lets them, n or Esc does not.
 ----------------------------------------------------------------------------------------------------
- y install and quit  n quit without installing  Esc Ctrl-C cancel
+ y yes  n no  Esc Ctrl-C cancel

@@ -2,7 +2,7 @@
 
 ## The configuration
 
-vtium reads its settings once, when it starts. It reads one configuration file, `/etc/vtium/vtium.conf`, and then its command line. A setting on the command line overrides the same setting in the file.
+vtium reads its settings when it starts. It reads one configuration file, `/etc/vtium/vtium.conf`, and then its command line. At the end of each session, it reads the four font keys at the top of the file again. See [The file](../configure.md#the-file) for what vtium reads when. A setting on the command line overrides the same setting in the file.
 
 The settings at the top of the file accept the keys of `kmscon`'s configuration file, and vtium adds keys of its own. So you can copy a `kmscon` configuration to `/etc/vtium/vtium.conf`, and vtium reads it. [config.md](../config.md) lists every setting.
 
@@ -16,7 +16,7 @@ The console has no system clipboard. Instead, vtium holds one selection: the tex
 
 A program in the session can set the selection with the standard clipboard control sequence, OSC 52. That sequence passes through ssh, so a program on a remote machine can copy text to the console.
 
-A proposed tool, vtium-clipboard, would let scripts make the same copy from the command line, as `pbcopy` does on macOS. It writes its input to the selection by sending OSC 52 to its own terminal. See [the vtium-clipboard issue](https://github.com/vtium/vtium/issues/113). How vtium-clipboard would paste is not decided yet, because vtium refuses a program's request to read the selection. A decision record will choose between the options.
+`vtium-clipboard`, also installed as `vticlip`, lets a script make the same copy from the command line, as `pbcopy` does on macOS. It writes its input to the selection by sending OSC 52 to its own terminal. vtium-clipboard cannot paste yet, because vtium refuses a program's request to read the selection. How paste works is not decided yet. See [the paste issue](https://github.com/vtium/vtium/issues/415).
 
 ## Links and prompts
 

@@ -501,8 +501,9 @@ pub enum Through {
     Palette,
     /// The look's vtlook, of this name, names the color map or shader.
     Vtlook(String),
-    /// vtium.conf's top-level `pointer-theme` names the pointer theme,
-    /// which every head draws, because a look cannot pick one of its own.
+    /// The look's `pointer-theme` names the pointer theme, or for the top
+    /// level, vtium.conf's top-level `pointer-theme`, which every look that
+    /// names no theme of its own draws.
     PointerTheme,
 }
 
@@ -523,6 +524,9 @@ struct Drawn {
     frit: Option<String>,
     palette: Option<String>,
     vtlook: Option<String>,
+    /// The look's own `pointer-theme`, `None` where it takes the top
+    /// level's.
+    pointer: Option<String>,
 }
 
 /// What each look of vtium.conf's text `conf` draws with. A look takes
@@ -534,12 +538,13 @@ struct Drawn {
 /// References:
 /// - ADR-1304 D5: a head's vtlook comes from its look, else the top level, else the built-in one.
 fn looks_of(conf: &str) -> Vec<Drawn> {
-    use vtium_settings::keys::{FONT_NAME, PALETTE};
+    use vtium_settings::keys::{FONT_NAME, PALETTE, POINTER_THEME};
     let top = Drawn {
         look: None,
         frit: vtium_settings::setting(conf, FONT_NAME.name),
         palette: vtium_settings::setting(conf, PALETTE.name),
         vtlook: vtium_settings::setting(conf, "vtlook"),
+        pointer: None,
     };
     let Some(reading) = vtium_settings::sections(conf.as_bytes()) else {
         return vec![top];
@@ -558,6 +563,7 @@ fn looks_of(conf: &str) -> Vec<Drawn> {
             frit: top.frit.clone(),
             palette: top.palette.clone(),
             vtlook: top.vtlook.clone(),
+            pointer: None,
         });
     }
     for look in config.looks {
@@ -572,6 +578,7 @@ fn looks_of(conf: &str) -> Vec<Drawn> {
             frit: value(FONT_NAME.name).or_else(|| top.frit.clone()),
             palette: value(PALETTE.name).or_else(|| top.palette.clone()),
             vtlook: look.vtlook.clone().or_else(|| top.vtlook.clone()),
+            pointer: value(POINTER_THEME.name),
             look: Some(look.name),
         });
     }
@@ -614,6 +621,13 @@ pub fn uses(path: &Path, conf: &str, places: &Places<'_>) -> Vec<Use> {
             && (places.vtlook)(vtlook).iter().any(|f| f == path)
         {
             through = Some(Through::Vtlook(vtlook.clone()));
+        }
+        if drawn
+            .pointer
+            .as_deref()
+            .is_some_and(|t| Path::new(t) == path)
+        {
+            through = Some(Through::PointerTheme);
         }
         if let Some(through) = through {
             out.push(Use {
@@ -699,8 +713,14 @@ pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
     uses(path, conf, places)
         .into_iter()
         .map(|u| {
-            if u.through == Through::PointerTheme {
-                return "vtium.conf's pointer-theme names this pointer theme. From the next login after the install, every head shows vtium's own pointer pictures in its place.".to_owned();
+            match (&u.through, &u.look) {
+                (Through::PointerTheme, None) => {
+                    return "vtium.conf's pointer-theme names this pointer theme. From the next login after the install, each look that names no pointer theme of its own shows vtium's own pointer pictures in its place.".to_owned();
+                }
+                (Through::PointerTheme, Some(name)) => {
+                    return format!("Look {name} uses this pointer theme. From the next login after the install, look {name} shows vtium's own pointer pictures in its place.");
+                }
+                _ => {}
             }
             let (who, after) = match &u.look {
                 None => (

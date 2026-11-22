@@ -37,15 +37,23 @@ const PICTURE_OVER_INPUTS: [&str; 7] = [
     "under_at",
     "tables",
 ];
-const CELL_INPUTS: [&str; 5] = ["target_size", "masks", "colors", "sprites", "cell"];
-/// A cell's text layer or vtium's mark, drawn over a copy of the pixels
-/// beneath.
-const LAYER_INPUTS: [&str; 11] = [
+const CELL_INPUTS: [&str; 6] = [
     "target_size",
     "masks",
     "colors",
     "sprites",
     "cell",
+    "besides",
+];
+/// A cell's text layer or vtium's mark, drawn over a copy of the pixels
+/// beneath.
+const LAYER_INPUTS: [&str; 12] = [
+    "target_size",
+    "masks",
+    "colors",
+    "sprites",
+    "cell",
+    "besides",
     "boxes",
     "box_slot",
     "ink",

@@ -30,7 +30,7 @@ vtium's unit tests arrived with its first code. The tiers that judge the whole t
 
 Each tier compares vtium's output against its goldens. [How vtium is judged](how-vtium-is-judged.md) describes the tiers and the goldens that belong to them.
 
-The author of a change never rewrites the golden that judges it. A golden changes only in a commit of its own. The maintainer reviews that commit by looking at the old result, the new one, and the difference between them. Without that rule, an agent that cannot make its output match a golden can make the golden match its output instead, and every test passes.
+The author of a change never rewrites the golden that judges it. A golden changes only in a commit of its own. For a golden of pixels, the maintainer reviews that commit by looking at the old result, the new one, and the difference between them. For a golden of tier 1, a fresh reviewer checks the specification that the case cites. A fresh reviewer is a different agent, one that did not write the change. The maintainer answers the cases that no specification settles. Without that rule, an agent that cannot make its output match a golden can make the golden match its output instead, and every test passes.
 
 ## A test must be seen to fail
 
@@ -48,11 +48,11 @@ The steering session plans the work, writes the briefs, and merges the results. 
 
 The gates are the checks a change must pass before it reaches main: formatting, lints, the tests, the smallest build, the record checks, and the first two tiers. The author of a change does not run all of them. While it works, the author runs the formatter, the linter and the tests of the crates it touched. It watches each new test fail before the change and pass after it, and it plants defects. When the work is done, the author proves the capability that the change adds, once. It runs the change's new tests and scenarios, all of tier 1 when the change touched the terminal, and tier 2 when it changed drawing or fonts. It does not run the full set of gates. AGENTS.md calls these two levels V0 and V1. The author commits on its branch and does not push.
 
-The steering session merges the changes of a wave into one branch, the wave's candidate. It runs every gate once on the candidate, because two changes that each pass on their own can fail together. The candidate then merges into a branch called integration. The steering session runs every gate on the merged tree before it pushes integration.
+The steering session merges the changes of a wave into one branch, the wave's candidate. As each change merges, the steering session plants again the defects that the change claims to catch, and a fresh reviewer reads the change's riskiest code. The steering session runs every gate once on the candidate, because two changes that each pass on their own can fail together. The candidate then merges into a branch called integration. The steering session runs every gate on the merged tree before it pushes integration.
 
 The maintainer then judges each new capability by eye, on a step of the VT tour or on a page of pictures. The maintainer's answers become the fix list. Each accepted capability keeps tests that go on checking it.
 
-After the maintainer's verdict, a fresh reviewer reads each change: its code paths, how it is built, its safety and security, and its performance. A fresh reviewer is a different agent, one that did not write the change. It runs the tests of what the change touched, and plants the defects that the change claims to catch. The author gets one round to fix what the reviewer finds. The steering session checks that round by planting the defects again. If the change needs a second round, it goes to the maintainer, who judges it by looking at the result.
+After the maintainer's verdict, fresh reviewers read the whole wave's code as one change. They check its code paths and the places where one change meets another. They also check how it is built, its safety and security, and its performance. They run the tests of what the wave touched, and plant the defects that its changes claim to catch. Freshly briefed agents fix every finding in one round. The steering session checks that round by planting the defects again. If the wave needs a second round, it goes to the maintainer, who judges it by looking at the result.
 
 At a merge point, the steering session picks a commit of integration that passed the gates. It moves a branch called stage to that commit, and opens one pull request from stage to main. The maintainer reads a diff that does not move, while new work goes on in integration. The pull request merges only when every CI job passes, including the one that runs on ARM hardware. It also waits until every change in it has had its review.
 
@@ -75,7 +75,7 @@ The guidance that reaches an agent as it starts a kind of work comes from [agent
 The maintainer does four things:
 
 - decides direction and answers the decision records
-- reviews every golden that changes
+- reviews every golden of pixels that changes, and answers the tier 1 cases that no specification settles
 - checks builds by eye on a real VT, with a guide that walks through each step. See [The VT review](../vt-review.md).
 - reads each batch on stage before it reaches main
 

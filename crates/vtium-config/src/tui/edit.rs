@@ -77,7 +77,7 @@ pub enum Change {
 }
 
 /// `word` quoted for a shell where it needs it.
-fn shell(word: &str) -> String {
+pub(crate) fn shell(word: &str) -> String {
     if !word.is_empty()
         && word
             .chars()

@@ -38,6 +38,11 @@ fn fixture(name: &str, conf: Option<&str>) -> Fixture {
     let fonts = etc.join("fonts");
     std::fs::create_dir_all(&fonts).expect("the fixture");
     std::fs::write(fonts.join("tiny.vtfrit"), "source=builtin:unscii-8\n").expect("a frit");
+    // the runtime folder where apply, run as the user, makes the private
+    // folder for its check's copies of the draft's frits
+    std::fs::create_dir(root.join("run")).expect("the runtime folder");
+    std::fs::set_permissions(root.join("run"), std::fs::Permissions::from_mode(0o700))
+        .expect("the runtime folder's mode");
     if let Some(conf) = conf {
         std::fs::write(etc.join("vtium.conf"), conf).expect("vtium.conf");
     }
@@ -81,6 +86,7 @@ impl Fixture {
             .args(self.targets.options())
             .arg("apply")
             .arg(draft)
+            .env("XDG_RUNTIME_DIR", self.root.join("run"))
             .envs(env.iter().copied())
             .output()
             .expect("the binary runs");
@@ -431,15 +437,19 @@ fn a_draft_file_past_its_bound_is_refused() {
 
 /// A frit that vtium.conf's font-name names, at its top level or in a
 /// look's section, is never removed, so a hand-made or stale draft cannot
-/// take the font a console draws; and nothing is removed.
+/// take the font a console draws; and nothing is removed. The console's
+/// check refuses the removal of a look's frit, with that look's line, and
+/// apply's own words refuse the top level's, which the console would read
+/// as a font family once no frit has that name.
 #[test]
 fn a_frit_a_font_name_of_vtium_conf_names_is_not_removed() {
-    let f = fixture(
-        "named-frit",
-        Some(
-            "font-name=tiny\nversion = 1\n[look big]\nfont-name = desk\n[head desk]\nlook = big\n[rules]\ndisplay * -> desk\n",
-        ),
+    // font-frits names the fixture's frits' directory, so the console's
+    // check finds the frits there
+    let conf = format!(
+        "font-name=tiny\nfont-frits={}\nversion = 1\n[look big]\nfont-name = desk\n[head desk]\nlook = big\n[rules]\ndisplay * -> desk\n",
+        fixture_fonts("named-frit")
     );
+    let f = fixture("named-frit", Some(&conf));
     let fonts = f.fonts();
     std::fs::write(fonts.join("desk.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     std::fs::write(fonts.join("spare.vtfrit"), "source=builtin:unifont\n").expect("a frit");
@@ -453,7 +463,10 @@ fn a_frit_a_font_name_of_vtium_conf_names_is_not_removed() {
     };
     for (name, says) in [
         ("tiny", "font-name in vtium.conf uses it"),
-        ("desk", "`font-name` in `[look big]`, vtium.conf line 4,"),
+        (
+            "desk",
+            "vtium check-config refused the draft:\nthe installed vtium.conf line 5: vtium check-config refused",
+        ),
     ] {
         let (status, out, err) = f.apply(&f.draft(&removal(name)));
         assert_eq!(status, 1, "{name}: {out}{err}");
