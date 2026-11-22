@@ -1920,17 +1920,25 @@ impl Helper {
                         Some(asked) => (asked, true),
                         None => (height, false),
                     };
-                    match cell_answer(answer, asked) {
+                    let answered = cell_answer(answer, asked);
+                    if answered.is_ok() {
+                        if late && let Some(suspect) = &mut self.suspect {
+                            suspect.open.cell();
+                            // as poll does after each answer, so that a
+                            // search this answer ends is not left waiting
+                            // for an answer already taken
+                            self.settle();
+                        }
+                        // As poll does after each answer: the watchdog
+                        // runs from this answer while the helper still
+                        // owes work, and stops once it owes none. A late
+                        // answer taken here no longer arms it, so a helper
+                        // that answered every query is never ended as hung.
+                        self.due = (self.owes() || self.suspect.is_some())
+                            .then(|| after(clock(), self.answer));
+                    }
+                    match answered {
                         Ok(answer) if late => {
-                            if let Some(suspect) = &mut self.suspect {
-                                suspect.open.cell();
-                                // as poll does after each answer, so that
-                                // a search this answer ends is not left
-                                // waiting for an answer already taken
-                                self.settle();
-                                self.due = (self.owes() || self.suspect.is_some())
-                                    .then(|| after(now, self.answer));
-                            }
                             self.kept.push((asked, answer));
                             continue;
                         }
@@ -6678,6 +6686,50 @@ if [ $k -ge 6 ]; then cat \"$1\"; cat \"$1.done\"; exec cat >/dev/null; fi";
             .filter(|l| l.contains("gave no answer for 10 s"))
             .collect();
         assert_eq!(hung.len(), 1, "the hung helper is ended once: {hung:?}");
+    }
+
+    // A query at 16 pixels is answered late, as when a program switches
+    // with OSC 50 to a font set whose cell comes after the wait. The
+    // program switches back and to the same font set again within the
+    // answer's bound, which asks at 16 pixels again. The helper answers both
+    // while vtium waits for the second answer, so the helper owes nothing
+    // more. The watchdog is then off, and a poll at the time the first
+    // query's answer would have been due ends nothing and uses no chance.
+    //
+    // References:
+    // - ADR-1200 D14: a hung helper is ended and started again, and a boot
+    //   gives it three chances.
+    // - ADR-1200 D17: the answer that comes after the wait.
+    #[test]
+    fn a_late_answer_taken_while_vtium_waits_for_another_leaves_no_watchdog() {
+        let mut two = cell_frame(FRAME_OUTLINE_CELL, 9, 16);
+        two.extend(cell_frame(FRAME_OUTLINE_CELL, 9, 16));
+        let mut s = StandIn::new("cell-late-then-in-time", HELD, &two);
+        let short = Duration::from_millis(20);
+        assert!(s.helper.own_cell(16, short, &t0).unwrap_err().late);
+        let due = s.helper.deadline().unwrap();
+        std::fs::write(s.dir.join("answer.go"), b"").unwrap();
+        let nine = Cell {
+            width: 9,
+            height: 16,
+        };
+        assert_eq!(
+            s.helper.own_cell(16, Duration::from_secs(5), &t0),
+            Ok(OwnCell::Outline(nine)),
+            "the second query is answered in time"
+        );
+        assert!(!s.helper.owes(), "nothing is owed");
+        assert_eq!(s.helper.deadline(), None, "no watchdog");
+        crate::getty::tests::logged();
+        let _ = s.helper.poll(due);
+        let hung: Vec<String> = crate::getty::tests::logged()
+            .into_iter()
+            .filter(|l| l.contains("gave no answer"))
+            .collect();
+        assert_eq!(hung, Vec::<String>::new(), "the helper is not ended");
+        assert_eq!(s.helper.restarts, 0, "no chance is used");
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(s.helper.late_cells(), [(16, Ok(OwnCell::Outline(nine)))]);
     }
 
     // the operator's decision on #145, 2026-10-28: the console asks the
