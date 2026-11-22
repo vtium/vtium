@@ -76,12 +76,6 @@ fn monoid_shaped(glyphs: Vec<ttf::Glyph>, cmap: Vec<(u32, u16)>) -> Vec<u8> {
     .build()
 }
 
-/// The engine for DejaVu Sans Mono with the symbol font merged behind it,
-/// and `extra` lines after the symbol font's.
-fn engine(test: &str, extra: &str) -> Engine {
-    engine_with(test, &symbols(), extra)
-}
-
 /// The engine for DejaVu Sans Mono with the symbol font `font` merged
 /// behind it, and `extra` lines after the symbol font's.
 fn engine_with(test: &str, font: &[u8], extra: &str) -> Engine {
@@ -109,6 +103,20 @@ enum Size {
 /// `c` as the console reads it from `engine` at the text height `height`,
 /// with `band` added by line spacing, at `size`.
 fn drawn(engine: &Engine, height: u32, band: Band, size: Size, c: char) -> Glyph {
+    drawn_among(engine, height, band, size, &[c], c)
+}
+
+/// `c` as the console reads it from a set that `engine` draws with every
+/// character of `among` in one request, at the text height `height`, with
+/// `band` added by line spacing, at `size`.
+fn drawn_among(
+    engine: &Engine,
+    height: u32,
+    band: Band,
+    size: Size,
+    among: &[char],
+    c: char,
+) -> Glyph {
     let OwnCell::Outline(own) = engine.own_cell(height).expect("a cell") else {
         panic!("DejaVu Sans Mono gives an outline cell");
     };
@@ -119,7 +127,7 @@ fn drawn(engine: &Engine, height: u32, band: Band, size: Size, c: char) -> Glyph
         },
         band,
     };
-    let want = [u32::from(c)];
+    let want: Vec<u32> = among.iter().map(|&c| u32::from(c)).collect();
     let (bytes, strike) = match size {
         Size::Normal => (
             engine.draw_variant(at, Variant::default(), &want, (&[], false)),
@@ -140,15 +148,78 @@ fn drawn(engine: &Engine, height: u32, band: Band, size: Size, c: char) -> Glyph
         .unwrap_or_else(|| panic!("{c:?} is drawn"))
 }
 
+/// A symbol font's separators, as the checks need them: the font, and how
+/// far inside the 2048 units from its descent to its ascent the slanted
+/// sides of each solid triangle cross the cell's edge.
+struct Shape {
+    font: Vec<u8>,
+    corner: u32,
+}
+
+/// The Monoid-shaped font. Each triangle's flat side lies 62 units past
+/// the edge, and its slanted sides fall 1034 units over the 1085 units
+/// across, so at the edge they lie 59 units under its top and over its
+/// bottom. The triangle passes the ascent and the descent by 10 units, so
+/// its sides cross the edge 49 units inside the span.
+fn monoid() -> Shape {
+    Shape {
+        font: symbols(),
+        corner: 49,
+    }
+}
+
+/// A symbol font laid out as Symbols Nerd Font Mono lays out its Powerline
+/// separators: 2048 units to the em, an ascent of 1638 and a descent of
+/// 410, every glyph advancing a whole em, 2048 units. That advance is far
+/// wider than DejaVu Sans Mono's cell, and each solid triangle is drawn
+/// only about 0.65 em wide: U+E0B0 from 123 units left of the pen to 1325,
+/// and U+E0B2 from 723 to 2171, 123 units past the advance. Each passes
+/// the ascent and the descent by 11 units. The flat side lies 123 units
+/// past the edge, and the slanted sides fall 1035 units over the 1448
+/// units across, so at the edge they lie 88 units under the top, which is
+/// 77 units inside the span. The house sits in the middle of the advance, narrower than the cell.
+fn symbols_nerd_shaped() -> Shape {
+    let glyph = |contours| ttf::Glyph {
+        advance: 2048,
+        contours,
+    };
+    let glyphs = vec![
+        ttf::Glyph::empty(2048),
+        glyph(vec![vec![(-123, -421), (-123, 1649), (1325, 614)]]),
+        glyph(vec![vec![(2171, -421), (723, 614), (2171, 1649)]]),
+        glyph(vec![vec![
+            (850, 300),
+            (850, 1100),
+            (1198, 1100),
+            (1198, 300),
+        ]]),
+    ];
+    let font = ttf::Font {
+        family: "Separator Test".to_owned(),
+        upem: 2048,
+        ascent: 1638,
+        descent: -410,
+        glyphs,
+        cmap: vec![(0xe0b0, 1), (0xe0b2, 2), (0xf015, 3)],
+        colr: Vec::new(),
+        palette: Vec::new(),
+        cbdt: None,
+        gsub: Vec::new(),
+        gpos: Vec::new(),
+        underline: None,
+        os2: None,
+        empty_gpos: false,
+    }
+    .build();
+    Shape { font, corner: 77 }
+}
+
 /// The rows at each end of a separator `rows` rows tall where its flat
-/// side may hold no ink at its cell's edge. Each triangle's flat side lies
-/// 62 units past the edge, and its slanted sides fall 1034 units over the
-/// 1085 units across, so at the edge they lie 59 units under its top and
-/// over its bottom. The triangle passes the ascent and the descent by 10
-/// units, so its sides cross the edge 49 units inside the 2048 units from
-/// the descent to the ascent, which the font helper maps onto the rows.
-fn corner_rows(rows: usize) -> u32 {
-    (49.0 * rows as f32 / 2048.0).ceil() as u32
+/// side may hold no ink at its cell's edge: where its slanted sides cross
+/// the edge `corner` units inside the 2048 units from the descent to the
+/// ascent, which the font helper maps onto the rows.
+fn corner_rows(rows: usize, corner: u32) -> u32 {
+    (corner as f32 * rows as f32 / 2048.0).ceil() as u32
 }
 
 /// The coverage of column `x` of `glyph`, row by row.
@@ -158,11 +229,15 @@ fn column(glyph: &Glyph, x: u32) -> Vec<u8> {
         .collect()
 }
 
-/// Checks that each separator's flat side reaches its cell edge on `rows`, at every text height and every size, and that the house
-/// touches neither side of its cell.
+/// Checks that each separator's flat side reaches its cell edge on `rows`,
+/// at every text height and every size, that the ink its font draws past
+/// that edge lies in its ink box, that its point reaches the opposite
+/// edge, and that the house touches neither side of its cell.
+/// `corner` is the shape's [`Shape::corner`].
 fn separators_meet_their_segments(
     engine: &Engine,
     spacing: u32,
+    corner: u32,
     rows: impl Fn(u32, Band, u32) -> std::ops::Range<u32>,
 ) {
     let mut wrong = Vec::new();
@@ -184,18 +259,18 @@ fn separators_meet_their_segments(
             };
             for (c, side) in [(RIGHT, "left"), (LEFT, "right")] {
                 let g = drawn(engine, height, band, size, c);
-                let (edge, inner) = match side {
-                    "left" => (0, 1),
-                    _ => (g.width() - 1, g.width() - 2),
+                let (edge, inner, tip) = match side {
+                    "left" => (0, 1, g.width() - 1),
+                    _ => (g.width() - 1, g.width() - 2, 0),
                 };
-                let (edge, inner) = (column(&g, edge), column(&g, inner));
+                let (edge, inner, tip) = (column(&g, edge), column(&g, inner), column(&g, tip));
                 let want = rows(g.height(), band, scale);
                 // A triangle's ink grows toward its flat side, so on each
                 // row the edge column holds at least as much ink as the
                 // column beside it, and full ink where that column has it.
                 // The edge column holds ink on every row but the corners,
                 // where the slanted sides meet the flat side.
-                let corner = corner_rows(want.len());
+                let corner = corner_rows(want.len(), corner);
                 let inside = want.start + corner..want.end - corner;
                 let short: Vec<u32> = want
                     .clone()
@@ -204,10 +279,30 @@ fn separators_meet_their_segments(
                         (e == 0 && inside.contains(&y)) || e < i || (i == 255 && e != 255)
                     })
                     .collect();
-                let middle = edge[((want.start + want.end) / 2) as usize];
+                let mid = (want.start + want.end) / 2;
+                let middle = edge[mid as usize];
                 if !short.is_empty() || middle != 255 {
                     wrong.push(format!(
                         "height {height} {size:?}: {c:?} falls short of its {side} edge in rows {short:?} of {want:?}, {middle} in the middle row: {edge:?}"
+                    ));
+                }
+                // The point lies on the row's middle line, so it holds ink
+                // in the opposite edge column on one of the two rows that
+                // meet there, or on the row the line runs through.
+                if tip[mid as usize - 1].max(tip[mid as usize]) == 0 {
+                    wrong.push(format!(
+                        "height {height} {size:?}: the point of {c:?} stops short of the edge opposite its {side} edge: {tip:?}"
+                    ));
+                }
+                // The flat side lies past the font's pen or advance, and
+                // that overlap stays outside the cell, in the ink box.
+                let past = g.ink().is_some_and(|ink| match side {
+                    "left" => ink.left() < 0,
+                    _ => ink.left() + ink.width() as i32 > g.width() as i32,
+                });
+                if !past {
+                    wrong.push(format!(
+                        "height {height} {size:?}: the overlap of {c:?} past its {side} edge is not in its ink box"
                     ));
                 }
             }
@@ -231,16 +326,18 @@ fn separators_meet_their_segments(
 // spacing the whole cell is the text's rows.
 #[test]
 fn a_merged_separator_reaches_its_flat_edge_on_every_row() {
-    let engine = engine("plain", "");
-    separators_meet_their_segments(&engine, 0, |h, _, _| 0..h);
+    let shape = monoid();
+    let engine = engine_with("plain", &shape.font, "");
+    separators_meet_their_segments(&engine, 0, shape.corner, |h, _, _| 0..h);
 }
 
 // Line spacing adds rows above and below the text, and the default fit
 // stretches a separator over them too.
 #[test]
 fn a_merged_separator_fills_a_spaced_row_edge_to_edge() {
-    let engine = engine("spaced", "line-spacing=30\n");
-    separators_meet_their_segments(&engine, 30, |h, _, _| 0..h);
+    let shape = monoid();
+    let engine = engine_with("spaced", &shape.font, "line-spacing=30\n");
+    separators_meet_their_segments(&engine, 30, shape.corner, |h, _, _| 0..h);
 }
 
 // Under fit=natural a separator keeps the text's rows, with the added rows
@@ -248,10 +345,75 @@ fn a_merged_separator_fills_a_spaced_row_edge_to_edge() {
 // each of the text's rows.
 #[test]
 fn a_natural_separator_reaches_its_flat_edge_on_the_texts_rows() {
-    let engine = engine("natural", "fit=natural\nline-spacing=30\n");
-    separators_meet_their_segments(&engine, 30, |h, band, scale| {
+    let shape = monoid();
+    let engine = engine_with("natural", &shape.font, "fit=natural\nline-spacing=30\n");
+    separators_meet_their_segments(&engine, 30, shape.corner, |h, band, scale| {
         band.above * scale..h - band.below * scale
     });
+}
+
+// Symbols Nerd Font Mono advances a whole em and draws each solid triangle
+// about 0.65 em wide inside that advance. Its separators still fill their
+// cells from the flat side to the point, at normal size and on lines of
+// double width and double height.
+#[test]
+fn a_symbols_nerd_shaped_separator_fills_its_cell_to_its_point() {
+    let shape = symbols_nerd_shaped();
+    let engine = engine_with("symbols-nerd", &shape.font, "");
+    separators_meet_their_segments(&engine, 0, shape.corner, |h, _, _| 0..h);
+}
+
+// The same, with line spacing: the default fit stretches the separator
+// over the added rows too.
+#[test]
+fn a_symbols_nerd_shaped_separator_fills_a_spaced_cell_to_its_point() {
+    let shape = symbols_nerd_shaped();
+    let engine = engine_with("symbols-nerd-spaced", &shape.font, "line-spacing=30\n");
+    separators_meet_their_segments(&engine, 30, shape.corner, |h, _, _| 0..h);
+}
+
+// One glyph that a font maps from an icon before the separators' range,
+// U+E0A0, from a separator, U+E0B0, and from an icon after the range,
+// U+F015, is placed for each character as it is placed when that character
+// is drawn alone: the separator fills its cell, and the icons keep the
+// text's size. Drawn in one request, the characters share the glyph but
+// not its placement.
+#[test]
+fn a_glyph_shared_by_a_separator_and_icons_is_placed_for_each() {
+    let triangle = ttf::Glyph {
+        advance: 1024,
+        contours: vec![vec![(0, -384), (0, 1664), (1024, 640)]],
+    };
+    let font = monoid_shaped(
+        vec![ttf::Glyph::empty(1024), triangle],
+        vec![(0xe0a0, 1), (0xe0b0, 1), (0xf015, 1)],
+    );
+    let engine = engine_with("shared", &font, "");
+    let all = ['\u{e0a0}', RIGHT, HOUSE];
+    let mut wrong = Vec::new();
+    for height in [16, 24] {
+        for size in [
+            Size::Normal,
+            Size::Doubled(Doubled::Width),
+            Size::Doubled(Doubled::Height),
+        ] {
+            for c in all {
+                let alone = drawn(&engine, height, Band::NONE, size, c);
+                let together = drawn_among(&engine, height, Band::NONE, size, &all, c);
+                if alone != together {
+                    wrong.push(format!(
+                        "height {height} {size:?}: {c:?} drawn with the others differs from {c:?} drawn alone"
+                    ));
+                }
+            }
+            // the separator and the icon are placed differently, or the
+            // comparison above could not tell their placements apart
+            let separator = drawn(&engine, height, Band::NONE, size, RIGHT);
+            let icon = drawn(&engine, height, Band::NONE, size, HOUSE);
+            assert_ne!(separator, icon, "height {height} {size:?}");
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// The characters the non-separator test draws: letters from DejaVu Sans
