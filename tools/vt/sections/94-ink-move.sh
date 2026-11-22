@@ -22,8 +22,6 @@
 pictures_shown || cannot_show "vtium was built without pictures: its DA1 answer has no 4."
 kitty_shown || cannot_show "vtium was built without pictures: it does not answer a kitty query."
 top_row
-cell_size
-((cw > 0)) || { cw=10 ch=20; }
 reset=$'\033[0m'
 caps=$'\xc3\x81\xc3\x89\xc3\x8e\xc3\x95\xc3\x9c \xe1\xba\xaa\xe1\xba\xb6\xe1\xbb\x82' # ÁÉÎÕÜ ẪẶỂ
 ital=$'\033[3mH I E W m A O f\033[0m'
@@ -116,7 +114,13 @@ draw_step() {
 		at $((p + dy + 4)) $((c + dx + 3)); printf '%s' "$caps"
 	done
 	# two sixels, a frame with a clear middle and a solid bar, with text
-	# above, in the frame's middle and below
+	# above, in the frame's middle and below. Their size in pixels comes
+	# from the cell size the terminal reports now. vtium can take a font
+	# set's own cell some time after the walk switched to it, so a cell
+	# read once at the start can be stale by step 1, and a sixel sized in
+	# it would cover more rows and columns than the frame should.
+	cell_size
+	((cw > 0)) || { cw=10 ch=20; }
 	at $((s + dy - 1)) $((3 + dx)); printf '%s   %s' "$desc" "$desc"
 	at $((s + dy + 1)) $((4 + dx)); printf ' %s %s' "$caps" "$desc"
 	at $((s + dy + 3)) $((3 + dx)); printf '%s   %s' "$caps" "$caps"

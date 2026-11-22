@@ -983,6 +983,62 @@ def responder_run(page, answers, timeout=WAIT_BOUND):
     return os.waitstatus_to_exitcode(status), seen
 
 
+def ink_move_run(cells):
+    """Runs 94-ink-move on a pseudo-terminal that shows pictures and answers
+    XTWINOPS 16 with the cell of CELLS, a list of (width, height), that the
+    step being drawn has: CELLS[0] until step 0's sixels are drawn, then
+    CELLS[1] until step 1's, and so on. A key moves the page to its next
+    step once a step's two sixels are in. Returns the exit status and, for
+    each step in CELLS, the raster attributes and first color of the
+    step's sixels."""
+    page = os.path.join(SECTIONS, "94-ink-move.sh")
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execve("/bin/bash", ["/bin/bash", page], {"PATH": os.environ["PATH"], "TERM": "linux", "ACCEPT_TOP": "3"})
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 25, 80, 0, 0))
+    answers = [(KITTY_QUERY, b"\x1b_Gi=31;OK\x1b\\" + DA1_PICTURES), (b"\x1b[c", DA1_PICTURES)]
+    sixel = re.compile(rb'\x1bP0;1;0q("[0-9;]*#1;2;[0-9;]*)')
+    seen, answered, step, steps, sixels = b"", 0, 0, [], []
+    end = time.monotonic() + WAIT_BOUND
+    while time.monotonic() < end:
+        if not select.select([fd], [], [], 0.1)[0]:
+            continue
+        try:
+            data = os.read(fd, 65536)
+        except OSError:
+            data = b""
+        if not data:
+            break
+        seen += data
+        while True:
+            w, h = cells[min(step, len(cells) - 1)]
+            asks = answers + [(b"\x1b[16t", b"\x1b[6;%d;%dt" % (h, w))]
+            found = [(seen.find(q, answered), q, a) for q, a in asks if seen.find(q, answered) >= 0]
+            more = sixel.search(seen, answered)
+            if more and (not found or more.start() < min(found)[0]):
+                answered = more.end()
+                sixels.append(more.group(1))
+                if len(sixels) == 2:
+                    steps.append(sixels)
+                    sixels, step = [], step + 1
+                    # the next step, or the end of the page once the steps
+                    # asked for are in
+                    os.write(fd, b" " if step < len(cells) else b"q")
+                continue
+            if not found:
+                break
+            at, q, a = min(found)
+            answered = at + len(q)
+            os.write(fd, a)
+        if len(steps) == len(cells):
+            break
+    os.kill(pid, signal.SIGTERM)
+    _, status = os.waitpid(pid, 0)
+    os.close(fd)
+    code = os.waitstatus_to_exitcode(status)
+    return (0 if code in (0, -signal.SIGTERM) else code), steps
+
+
 PICTURES = ["69-kitty-spec.sh", "71-kitty-animation.sh", "72-kitty-placeholders.sh", "73-kitty-relative.sh", "95-sixel.sh",
             "96-kitty.sh", "97-kitty-layers.sh", "98-kitty-png.sh", "99-iterm2.sh"]
 KITTY_QUERY = b"\x1b_Gi=31,s=1,v=1,a=q,f=24;AAAA\x1b\\\x1b[c"
@@ -1102,6 +1158,22 @@ class Pages(Case):
                 rows, cols = extent(seen.decode(errors="replace"), top=3, cell=(10, 20))
                 self.assertLessEqual(rows, 3 + 17 - 1)
                 self.assertLessEqual(cols, 80)
+
+    def test_ink_move_sizes_each_steps_sixels_in_the_cell_the_terminal_has_then(self):
+        # vtium can take a font set's own cell after the walk switched to
+        # it, after the page asked for the cell size and drew its first
+        # step: the walk on 2026-11-22 drew step 0 in a 19x36 cell, and the
+        # cell became 16x32 before step 1. A sixel's raster attributes give
+        # its size in pixels, so each step's frame and bar cover 3 rows and
+        # as many columns as the page means only when the page sizes them in
+        # the cell the terminal has when the step is drawn.
+        status, sixels = ink_move_run([(19, 36), (16, 32), (16, 32)])
+        self.assertEqual(status, 0)
+        self.assertEqual(sixels, [
+            [b'"1;1;570;108#1;2;100;60;0', b'"1;1;228;108#1;2;0;60;100'],
+            [b'"1;1;480;96#1;2;100;60;0', b'"1;1;192;96#1;2;0;60;100'],
+            [b'"1;1;480;96#1;2;100;60;0', b'"1;1;192;96#1;2;0;60;100'],
+        ])
 
 
 def flat(text):
