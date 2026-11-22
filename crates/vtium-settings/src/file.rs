@@ -10,12 +10,16 @@
 //! file is opened in the last folder checked, so a link swapped during the
 //! walk cannot lead the read elsewhere ([`walk`]). [`folder`] walks to a
 //! folder the same way, for a program that writes files there for the
-//! console to read. A file that fails the ownership check is never read
-//! (D7). [`text`] checks a trusted file's bytes whole:
-//! bounded, UTF-8, and free of control characters but tab, newline and a
-//! carriage return ending a line, so nothing the parser quotes can carry
-//! one; [`reading`](crate::reading) checks them line by line instead, so a
-//! bad line drops what its scope takes.
+//! console to read. A file that fails the ownership check is never read.
+//! [`text`] checks a trusted file's bytes whole: bounded, UTF-8, and free
+//! of control characters but tab, newline and a carriage return ending a
+//! line, so nothing the parser quotes can carry one;
+//! [`reading`](crate::reading) checks them line by line instead, so a bad
+//! line drops what its scope takes.
+//!
+//! References:
+//! - ADR-1401 D7: a vtium.conf that fails the ownership check is never
+//!   read, not even its top-level keys.
 
 pub use crate::error::Untrusted;
 
@@ -341,9 +345,12 @@ fn read_up_to(path: &Path, trust: &Trust, limit: usize) -> Result<Option<Taken>,
 #[derive(Debug)]
 pub struct Folder {
     /// The folder, opened with `O_PATH`. It serves as the directory of
-    /// the `*at` calls that create, rename and remove entries in it, so
+    /// the `*at` calls that open, create, rename and remove entries in it,
+    /// and as the `dir` of [`install_file_at`](crate::install_file_at), so
     /// they act in the folder the walk checked, whatever happens to the
-    /// path afterwards.
+    /// path afterwards. Linux refuses to read the folder's entries or to
+    /// flush it through an `O_PATH` descriptor, so a caller that needs
+    /// either opens `.` in it for reading first.
     pub fd: rustix::fd::OwnedFd,
     /// The verdict on the folder and on every folder the walk crossed to
     /// reach it: the first one that fails, or `Ok`.
