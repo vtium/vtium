@@ -2275,28 +2275,35 @@ impl App {
         known.is_some_and(|k| k.is_err_and(|no| no.late))
     }
 
-    /// Sends each console the replies it held since its font switch, once
-    /// its head waits no more for the new font set's cell: the helper's
-    /// late answer laid the head out in the new cell, or the helper failed
-    /// and the head keeps its cell. A zoom or a new font that leaves
-    /// nothing to wait for ends the wait too. The terminal answers the
-    /// held size reports from the cell and the grid the head has now, so
-    /// once the program has the new font set's name, every size it is
-    /// told is the new cell's. The state alone ends the wait, never a
-    /// timer.
+    /// Sends the shown console of each head the replies it held since its
+    /// font switch, once the head waits no more for the new font set's
+    /// cell: the helper's late answer laid the head out in the new cell,
+    /// or the helper failed and the head keeps its cell. A zoom or a new
+    /// font that leaves nothing to wait for ends the wait too. The terminal
+    /// answers the held size reports from the cell and the grid the head
+    /// has now, so once the program has the new font set's name, every
+    /// size it is told is the new cell's. The state alone ends the wait,
+    /// never a timer.
+    ///
+    /// A hidden console keeps its own grid and cell until it is shown, so
+    /// the late cell does not lay it out. Its hold therefore goes on until
+    /// the head shows it. Every switch of the console shown lays the head
+    /// out again before this turn's end, so the console sends its replies
+    /// from the new cell.
+    ///
+    /// References:
+    /// - ADR-1401 D1: a hidden console keeps its own grid and cell.
     fn end_cell_waits(&mut self) {
         for h in 0..self.heads.len() {
             let held = self
                 .heads
                 .get(h)
-                .is_some_and(|head| head.consoles().any(|c| c.term.terminal.replies_held()));
+                .is_some_and(|head| head.console.term.terminal.replies_held());
             if !held || self.waits_for_cell(h) {
                 continue;
             }
             if let Some(head) = self.heads.get_mut(h) {
-                for console in head.consoles_mut() {
-                    console.send_held_replies();
-                }
+                head.console.send_held_replies();
             }
         }
     }
@@ -7895,6 +7902,82 @@ mod tests {
         assert_eq!(
             replies,
             "\x1b]50;t\x07\x1b[6;8;8t\x1b[4;160;320t\x1b[8;20;40t"
+        );
+    }
+
+    // A program on console 1 switches to a bitmap font set whose cell comes
+    // after the wait, and asks for the set's name and its cell. The user
+    // opens console 2 before the cell comes, which hides console 1. The
+    // late 10×8 cell lays out the shown console alone, so console 1 keeps
+    // its 8×8 fit while it is hidden and goes on holding its replies.
+    // Shown again, console 1 is laid out in the new cell, and only then
+    // does it answer, with the new name and the new cell together.
+    //
+    // References:
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_console_hidden_during_the_wait_answers_once_shown_in_the_new_cell() {
+        let dir = Scratch::new("app-late-hidden");
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let (_lp, mut app) = seat_with(&[], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let mut replies = Vec::new();
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;t\x07", &mut |r| replies.extend_from_slice(r));
+        app.turn(Instant::now());
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;?\x07\x1b[16t", &mut |r| {
+            replies.extend_from_slice(r)
+        });
+        app.turn(Instant::now());
+        assert_eq!(replies, b"", "the replies wait for the cell");
+        let first = app.heads.first().unwrap().console.id;
+        let now = Instant::now();
+        assert!(app.open_console(0, now), "a second console opens");
+        app.turn(now);
+        let own = vtium_font::Cell {
+            width: 10,
+            height: 8,
+        };
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(
+            frit.helper
+                .as_mut()
+                .unwrap()
+                .answer_late(Ok(helper::OwnCell::Bitmap(own)))
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.cell, (10, 8), "the shown console takes the new cell");
+        let hidden = head.hidden.iter_mut().find(|c| c.id == first).unwrap();
+        assert_eq!(hidden.fit.cell, (8, 8), "the hidden console keeps its fit");
+        assert!(hidden.term.terminal.replies_held(), "and its hold");
+        assert_eq!(hidden.term.terminal.take_replies(), b"", "nothing went out");
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.console.id, first, "console 1 is shown again");
+        assert_eq!(head.cell, (10, 8), "in the new cell");
+        assert!(!head.console.term.terminal.replies_held(), "the hold ended");
+        assert_eq!(
+            String::from_utf8(head.console.term.terminal.take_replies()).unwrap(),
+            "\x1b]50;t\x07\x1b[6;8;10t"
         );
     }
 

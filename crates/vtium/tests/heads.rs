@@ -1711,6 +1711,157 @@ display card:mem-small -> a
     );
 }
 
+/// A program switches with OSC 50 to frit `t`, whose cell the held helper
+/// gives late, and then sends 3,000 XTWINOPS 16 queries before it writes
+/// `flooded`. A background `cat` reads the replies, with echo off. vtium
+/// reads the flood until the held replies reach vtium-term's bound, and
+/// then stops reading the program until the release. While the hold is
+/// full, the loop waits for what it waits on and never wakes at once, so it
+/// does not spin. Once the test lets the helper answer, the hold ends, and
+/// vtium reads and draws the rest of the program's output.
+///
+/// References:
+/// - ADR-1200 D17: the cell that comes after the wait.
+/// - ADR-1401 D2: the loop wakes at once only for output the terminal takes.
+#[test]
+fn a_flood_of_queries_during_a_full_hold_stops_the_reading_until_the_release() {
+    let dir = scratch_dir("osc50-held-flood");
+    std::fs::write(dir.join("t.vtfrit"), "source=kbd:vtium-no-such-font\n").expect("the frit");
+    let (kinds, go) = (dir.join("kinds"), dir.join("go"));
+    rustix::fs::mknodat(
+        rustix::fs::CWD,
+        &go,
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        0,
+    )
+    .expect("the go FIFO");
+    let fonts = Sources {
+        frits: dir.to_path_buf(),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    let heads = "version = 1
+[head a]
+[rules]
+display card:mem-small -> a
+";
+    let script = "stty -echo -icanon min 1; cat <&0 >/dev/null & \
+                  printf '\\033]50;t\\007'; echo drawn; \
+                  printf '\\033[16t%.0s' $(seq 3000); echo flooded; read x";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&["--font-size=0"], Some(heads), [small], script, fonts);
+    let full = |a: &App| {
+        a.head("a").is_some_and(|h| {
+            let terminal = &h.term().terminal;
+            terminal.replies_held() && terminal.replies_full()
+        })
+    };
+    assert!(s.until(BOUND, full), "the held replies reach the bound");
+    assert!(head_shows(&s.app, "a", "drawn"), "drawn during the wait");
+    let mut at_once = 0;
+    s.until(Duration::from_millis(300), |a| {
+        if a.next_wake(now()) == Some(Duration::ZERO) {
+            at_once += 1;
+        }
+        false
+    });
+    assert_eq!(at_once, 0, "the loop does not spin while the hold is full");
+    assert!(full(&s.app), "the hold stays full");
+    assert!(!head_shows(&s.app, "a", "flooded"), "the rest waits");
+    // The helper waits on the FIFO with its answer, so an open to write
+    // succeeds once it does.
+    let open = |_: &App| {
+        rustix::fs::open(
+            &go,
+            rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        )
+        .is_ok()
+    };
+    assert!(s.until(BOUND, open), "the helper answers");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "a", "flooded")),
+        "vtium reads the rest once the hold ends: {:?}",
+        s.app.head("a").map(Head::screen_text)
+    );
+    assert!(
+        s.app
+            .head("a")
+            .is_some_and(|h| !h.term().terminal.replies_held()),
+        "the hold ended"
+    );
+}
+
+/// A program switches with OSC 50 to frit `t`, whose cell the held helper
+/// gives late, asks for the cursor's place and the cell, and exits before
+/// the cell comes. vtium starts the session again. The session's end drops
+/// the replies vtium held for the program that ended, so the next session
+/// reads none of them as typed input. The next session reads its input
+/// with echo off until a `q` that the test types once the hold has ended,
+/// and prints what it read before the `q`: nothing.
+///
+/// References:
+/// - ADR-1200 D17: the cell that comes after the wait.
+/// - ADR-1201 D11: an OSC 50 switch ends with the session that made it.
+#[test]
+fn a_session_that_ends_during_the_hold_leaves_the_next_session_no_replies() {
+    let dir = scratch_dir("osc50-held-exit");
+    std::fs::write(dir.join("t.vtfrit"), "source=kbd:vtium-no-such-font\n").expect("the frit");
+    let (kinds, go) = (dir.join("kinds"), dir.join("go"));
+    rustix::fs::mknodat(
+        rustix::fs::CWD,
+        &go,
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        0,
+    )
+    .expect("the go FIFO");
+    let fonts = Sources {
+        frits: dir.to_path_buf(),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    let heads = "version = 1
+[head a]
+[rules]
+display card:mem-small -> a
+";
+    let once = dir.join("once");
+    let script = format!(
+        "if [ ! -e {once} ]; then : > {once}; \
+         printf '\\033]50;t\\007\\033[6n\\033[16t'; echo asked; exit; fi; \
+         stty -echo -icanon min 1; echo second; r=; \
+         while c=$(dd bs=1 count=1 2>/dev/null); do \
+         [ \"$c\" = q ] && break; r=\"$r$c\"; done; \
+         printf 'got[%s]\\n' \"$r\" | tr -d '\\033'; read x",
+        once = once.display()
+    );
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&["--font-size=0"], Some(heads), [small], &script, fonts);
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "a", "second")),
+        "the next session starts: {:?}",
+        s.app.head("a").map(Head::screen_text)
+    );
+    let held = |a: &App| {
+        a.head("a")
+            .is_some_and(|h| h.term().terminal.replies_held())
+    };
+    assert!(s.until(BOUND, |a| !held(a)), "the hold ends");
+    s.type_str("q");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "a", "got[")),
+        "{:?}",
+        s.app.head("a").map(Head::screen_text)
+    );
+    assert!(
+        head_shows(&s.app, "a", "got[]"),
+        "the next session read no reply: {:?}",
+        s.app.head("a").map(Head::screen_text)
+    );
+}
+
 /// D6: with no head file the seat runs the compiled-in configuration,
 /// the parse of the template: its one `console` head.
 #[test]
