@@ -353,7 +353,7 @@ A display or an input can be in one path for each VT. So two paths can share a d
 
 #### A terminal's card
 
-Enter on a terminal's box opens its card. The card lists the terminal's settings: `Name`, `Font set`, `Size`, `Consoles`, `Login`, `When its screen is unplugged` and `Switch on Enter`. Up and Down move between the lines. Left and Right move between a line's choices. Enter sets the choice. On `Name`, Enter lets you type a new name.
+Enter on a terminal's box opens its card. The card lists the terminal's settings: `Name`, `Look`, `Consoles`, `Login`, `When its screen is unplugged` and `Switch on Enter`. The `Look` line picks one of the draft's looks, which brings its font set and size. Up and Down move between the lines. Left and Right move between a line's choices. Enter sets the choice. On `Name`, Enter lets you type a new name.
 
 The `Login` line sets the program that each console of the terminal starts. It has two choices:
 
