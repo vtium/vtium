@@ -7315,28 +7315,62 @@ fn second_consoles_reply(app: &App) -> Option<String> {
         .flatten()
 }
 
-/// vtium/vtium#384, ADR-1200 D5: the font is the head's, so every console
-/// of the head reports the font on screen. Console 1 switches the head to
-/// frit b. Only after that switch does console 2, which is hidden, ask
-/// which font is in use: it waits for the file `go`, which the test writes
-/// once the head draws b. vtium answers a hidden console's query at once,
-/// so console 2 is answered b while it is still hidden, not the font the
-/// head started in.
+/// The lines of console 2 of head small that show an OSC 50 reply, in
+/// order. The tty echoes each reply, so it appears on the console's screen.
+fn second_consoles_replies(app: &App) -> Vec<String> {
+    every_console(app, "small")
+        .get(1)
+        .map(|rows| {
+            rows.iter()
+                .filter(|l| l.starts_with("^[]50;"))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Console 1 switches the head from frit a, whose cell is 10×20, to frit
+/// b, whose cell is 16×32. Only after that switch does console 2, which is
+/// hidden, ask which font is in use and what its cell is: it waits for the
+/// file `go`, which the test writes once the head draws b. A hidden console
+/// keeps the grid and the cell it last drew in until it is shown, so vtium
+/// answers console 2 with a and a's cell, and the name and the cell agree.
+/// Once the test shows console 2, the head lays it out in b, and console 2
+/// asks again after the file `go2` appears: it is answered b and b's cell.
+///
+/// The maintainer decided on 2026-11-22 that a hidden console names the
+/// font it last drew in, not the font the head switched to, because a
+/// hidden console that named the new font while it reported the old cell
+/// gave a program a name and a cell that do not belong together.
+///
+/// References:
+/// - ADR-1200 D5: the name OSC 50's query reports.
+/// - ADR-1401 D1: a hidden console keeps its own grid and cell.
+// covers: text.font-change
 #[test]
-fn a_hidden_consoles_query_names_the_font_another_console_switched_to() {
+fn a_hidden_consoles_query_names_the_font_it_last_drew_in_until_shown() {
     let (dir, fonts) = reset_fixture("reset-hidden-query", "font-name=a\nfont-size=0\n");
     let script = format!(
         "d={d}; n=$VTIUM_CONSOLE; echo \"size:$(stty size)\"; \
          if [ $n = 1 ]; then printf '\\033]50;b\\007'; \
-         else while [ ! -e $d/go ]; do sleep 0.02; done; printf '\\033]50;?\\007'; fi; \
+         else while [ ! -e $d/go ]; do sleep 0.02; done; printf '\\033]50;?\\007\\033[16t'; \
+         while [ ! -e $d/go2 ]; do sleep 0.02; done; echo; printf '\\033]50;?\\007\\033[16t'; fi; \
          while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
         d = dir.display()
     );
     let (mut s, _) = seat_running(&dir, &small_consoles(2), fonts, &script);
     assert!(s.until(BOUND, |a| a.font_name() == "b"), "switched to b");
     std::fs::write(dir.join("go"), "").expect("the go mark");
+    let answered = |n: usize| {
+        move |a: &App| {
+            second_consoles_replies(a)
+                .last()
+                .is_some_and(|l| l.ends_with('t'))
+                && second_consoles_replies(a).len() == n
+        }
+    };
     assert!(
-        s.until(BOUND, |a| second_consoles_reply(a).is_some()),
+        s.until(BOUND, answered(1)),
         "{:?}",
         s.app.head("small").map(Head::consoles_text)
     );
@@ -7345,7 +7379,23 @@ fn a_hidden_consoles_query_names_the_font_another_console_switched_to() {
         Some(0),
         "console 2 hidden"
     );
-    assert_eq!(second_consoles_reply(&s.app).as_deref(), Some("^[]50;b^G"));
+    assert_eq!(second_consoles_replies(&s.app), ["^[]50;a^G^[[6;20;10t"]);
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert_eq!(
+        s.app.head("small").map(Head::shown_console),
+        Some(1),
+        "console 2 shown"
+    );
+    std::fs::write(dir.join("go2"), "").expect("the second go mark");
+    assert!(
+        s.until(BOUND, answered(2)),
+        "{:?}",
+        s.app.head("small").map(Head::consoles_text)
+    );
+    assert_eq!(
+        second_consoles_replies(&s.app),
+        ["^[]50;a^G^[[6;20;10t", "^[]50;b^G^[[6;32;16t"]
+    );
 }
 
 /// vtium/vtium#384, ADR-1200 D5: a head opens its second console after it

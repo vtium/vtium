@@ -7981,6 +7981,178 @@ mod tests {
         );
     }
 
+    /// The OSC 50 and XTWINOPS 16 replies that the console `id` of head 0
+    /// gives at once to a query of the font set's name and of its cell.
+    fn name_and_cell(app: &mut App, id: u64) -> String {
+        let head = app.heads.first_mut().unwrap();
+        let console = head.consoles_mut().find(|c| c.id == id).unwrap();
+        let mut replies = Vec::new();
+        console.term.parse(b"\x1b]50;?\x07\x1b[16t", &mut |r| {
+            replies.extend_from_slice(r)
+        });
+        String::from_utf8(replies).unwrap()
+    }
+
+    /// Frits `a` and `b`, which state their cells of 10×20 and 16×32, and
+    /// `t`, whose cell the stand-in helper never gives in time.
+    fn two_cells_and_a_late_one(dir: &Scratch) -> font::Sources {
+        std::fs::write(dir.join("a.vtfrit"), "source=kbd:x\ncell=10x20\n").unwrap();
+        std::fs::write(dir.join("b.vtfrit"), "source=kbd:x\ncell=16x32\n").unwrap();
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
+        font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        }
+    }
+
+    // Head 0 draws frit a and has two consoles; console 2 is hidden. A
+    // program on console 1 switches the head to frit b. While console 2 is
+    // hidden it keeps the grid and the 10×20 cell it last drew in, so it
+    // goes on naming a, and its name and its cell agree. Once shown, the
+    // head lays console 2 out in b, and its name and its cell change
+    // together.
+    //
+    // References:
+    // - ADR-1200 D5: the name OSC 50's query reports.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_hidden_console_names_the_font_it_last_drew_in_until_shown() {
+        let dir = Scratch::new("app-hidden-name");
+        let fonts = two_cells_and_a_late_one(&dir);
+        let (_lp, mut app) = seat_with(&["--font-name=a", "--font-size=0"], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let first = app.heads.first().unwrap().console.id;
+        assert!(
+            app.open_console(0, Instant::now()),
+            "a second console opens"
+        );
+        app.turn(Instant::now());
+        let second = app.heads.first().unwrap().console.id;
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, first);
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t"
+        );
+        let mut replies = Vec::new();
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;b\x07", &mut |r| replies.extend_from_slice(r));
+        app.turn(Instant::now());
+        assert_eq!(
+            app.heads.first().unwrap().cell,
+            (16, 32),
+            "the head draws b"
+        );
+        assert_eq!(name_and_cell(&mut app, first), "\x1b]50;b\x07\x1b[6;32;16t");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t",
+            "console 2, hidden, keeps the font it last drew in"
+        );
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, second, "shown");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;b\x07\x1b[6;32;16t"
+        );
+    }
+
+    // Head 0 draws frit a and has two consoles; console 2 is hidden. A
+    // program on console 1 switches the head to frit t, whose cell comes
+    // after the wait. Console 2, hidden, names a and its 10×20 cell during
+    // the wait and after the late 12×24 cell lays console 1 out. Once
+    // shown, console 2 is laid out in t's cell, and names t with that cell.
+    //
+    // References:
+    // - ADR-1200 D5: the name OSC 50's query reports.
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_hidden_console_takes_the_late_cell_and_its_name_together_once_shown() {
+        let dir = Scratch::new("app-hidden-late-name");
+        let fonts = two_cells_and_a_late_one(&dir);
+        let (_lp, mut app) = seat_with(&["--font-name=a", "--font-size=0"], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let first = app.heads.first().unwrap().console.id;
+        assert!(
+            app.open_console(0, Instant::now()),
+            "a second console opens"
+        );
+        app.turn(Instant::now());
+        let second = app.heads.first().unwrap().console.id;
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, first);
+        let mut replies = Vec::new();
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;t\x07", &mut |r| replies.extend_from_slice(r));
+        app.turn(Instant::now());
+        assert!(
+            app.heads
+                .first()
+                .unwrap()
+                .console
+                .term
+                .terminal
+                .replies_held(),
+            "console 1 waits for t's cell"
+        );
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t",
+            "console 2, hidden during the wait"
+        );
+        let own = vtium_font::Cell {
+            width: 12,
+            height: 24,
+        };
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(
+            frit.helper
+                .as_mut()
+                .unwrap()
+                .answer_late(Ok(helper::OwnCell::Bitmap(own)))
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.cell, (12, 24), "the late cell");
+        assert_eq!(
+            String::from_utf8(head.console.term.terminal.take_replies()).unwrap(),
+            "",
+            "console 1 asked nothing"
+        );
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t",
+            "console 2, hidden after the late cell"
+        );
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, second, "shown");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;t\x07\x1b[6;24;12t"
+        );
+    }
+
     // ADR-1200 D17: a late outline answer at the height the head draws at
     // changes the cell's width, and the head's grid and every one of its
     // views take the new cell together, so the next frame draws each cell

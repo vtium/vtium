@@ -284,7 +284,7 @@ pub struct Head {
     /// it by the name its query reported (D5).
     pub(crate) made: Option<crate::helper::FritText>,
     /// The name of the font on screen, as [`Head::name_font`] last gave
-    /// it to the head's consoles; `None` until the head first lays out its
+    /// it to the shown console; `None` until the head first lays out its
     /// font. A console the head opens later takes it too.
     named: Option<String>,
     /// The font changed: every display's renderer is rebuilt.
@@ -992,26 +992,40 @@ impl Head {
 
     /// A new console `id` of the head, on the terminal `term`, at a
     /// [`Head::fresh_fit`]. Its terminal takes the head's palette as the
-    /// one it is configured with. Its terminal names the font on screen, as
-    /// every other console of the head does, so its first OSC 50 query
-    /// reports that font even when it comes before the font next changes.
+    /// one it is configured with. Once the head has laid out its font, the
+    /// terminal also takes the name of the font on screen and the cell and
+    /// display size of the fit it starts in. A console that the head opens
+    /// hidden then answers OSC 50's query and the size reports in pixels
+    /// before it is first shown, and the name and the cell describe the
+    /// same font.
     pub(crate) fn fresh_console(&self, id: u64, mut term: Term) -> Console {
         term.terminal.set_palette(self.palette.clone());
+        let fit = self.fresh_fit();
         if let Some(name) = &self.named {
             name_terminal(&mut term.terminal, name);
+            let (w, h) = self.pixels(fit.grid);
+            term.terminal.set_cell_size(fit.cell.0, fit.cell.1);
+            term.terminal.set_display_size(w, h);
         }
-        Console::new(id, term, self.fresh_fit())
+        Console::new(id, term, fit)
     }
 
-    /// Names the font `name` that the head draws on every one of its
-    /// consoles, the hidden ones too, since the font is the head's, and on
-    /// each console it opens later. OSC 50's query reports the font by a
-    /// name OSC 50 takes, or by no name, as for a font file's path or a
-    /// family, and never by the name of a font no longer shown.
+    /// Names the font `name` that the head draws on the shown console and
+    /// on each console the head opens later. OSC 50's query reports the
+    /// font by a name OSC 50 takes, or by no name, as for a font file's
+    /// path or a family.
+    ///
+    /// A hidden console keeps the grid and the cell it last drew in, so it
+    /// keeps that font's name too, and its OSC 50 query and its cell-size
+    /// reports describe the same font. Every switch of the console shown
+    /// lays the head out again, which names the font on the console that
+    /// the switch shows, so its name and its cell change together.
+    ///
+    /// References:
+    /// - ADR-1200 D5: the name OSC 50's query reports.
+    /// - ADR-1401 D1: a hidden console keeps its own grid and cell.
     pub(crate) fn name_font(&mut self, name: &str) {
-        for console in self.consoles_mut() {
-            name_terminal(&mut console.term.terminal, name);
-        }
+        name_terminal(&mut self.console.term.terminal, name);
         self.named = Some(name.to_owned());
     }
 
