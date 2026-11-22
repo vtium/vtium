@@ -96,7 +96,7 @@ host: ID t=M flags=F O=OFFSET max=MAX min=MIN name=NAME len=LEN
 | F | The flags set, comma-separated in this order, or `-` for none: `inflate` (`o=z`), `png` (`f=100`), `exact` (direct PNG with `o=z` and a non-zero `S`: the inflated bytes must number exactly MIN), `discard`. |
 | OFFSET | Where a read starts: kitty's `O` for `f`, `t` and `s`, else 0. |
 | MAX | The most bytes to read: kitty's `S` for `f`, `t` and `s`, 0 meaning to the end; else 0. |
-| MIN | The fewest bytes the image needs after inflating: `s` times `v` times 3 for `f=24` or 4 for `f=32`; for PNG, `S` with `exact` and else 0; 0 for a discard. |
+| MIN | The fewest bytes the image needs after inflating: `s` times `v` times the bytes of one pixel, which are 1 for `f=8`, 2 for `f=16`, 3 for `f=24` and 4 for `f=32`; for PNG, `S` with `exact` and else 0; 0 for a discard. |
 | NAME | For `f`, `t` and `s`, the path or name the payload gives, each byte outside 0x21 to 0x7e, and the backslash, written `\xNN`; empty for `d`. |
 | LEN | For `d`, the payload's length after base64 decoding; else 0. |
 
@@ -110,7 +110,7 @@ The fixture a request names is the last `/`-separated part of its path or name a
 | `FIXTURE`, for a request with neither | The data, read from OFFSET for at most MAX bytes (0: to the end): OK with the first MIN of them; UNREADABLE for an OFFSET at or past the end; TOO_SHORT for fewer than MIN. |
 | none of these | UNREADABLE for `f`, `t` and `s`; CORRUPT for `d`. |
 
-A discard is answered OK, and the host deletes nothing. The outcomes are the host's terms. The terminal turns each into the kitty reply the goldens show.
+The host returns the pixels of `f=8` and `f=16` unconverted, as palette indices: each pixel's index with its alpha, which is 255 for `f=8`. The terminal looks each index up in its own palette. A discard is answered OK, and the host deletes nothing. The outcomes are the host's terms. The terminal turns each into the kitty reply the goldens show.
 
 ## Reference host
 
