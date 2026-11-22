@@ -99,6 +99,8 @@ const RECEIVES: u32 = 1;
 const MARKED: u32 = 2;
 const DOWN: u32 = 4;
 const GAP: u32 = 3;
+/// The first bit of `src[3]` that holds a dotted underline's dot width.
+const DOTS: u32 = 25;
 
 fn rgb(c: u32) -> Rgb {
     let [_, r, g, b] = c.to_be_bytes();
@@ -115,7 +117,8 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     let [dx, dy, dw, _] = q.dst.map(i64::from);
     let [sx, sy, col, row] = q.src.map(i64::from);
     let (col, entry) = (col & 0xffff, col >> 16);
-    let run = q.src[3] >> 16;
+    let run = q.src[3] >> 16 & 0x1ff;
+    let dots = q.src[3] >> DOTS;
     let row = row & 0xffff;
     let [p0, p1, p2, p3] = q.params;
     let local = (x.saturating_sub(dx), y.saturating_sub(dy));
@@ -179,6 +182,11 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     let mut p = 0;
     if ul != 0 {
         let mut a = sprite(ul);
+        // a dotted underline leaves out its gaps by the pixel's place
+        // along the grid's line
+        if a != 0 && crate::deco::in_gap(px.0, dots) {
+            a = 0;
+        }
         let gap = i64::from(flags >> GAP);
         if a != 0
             && gap != 0

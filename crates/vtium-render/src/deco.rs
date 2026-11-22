@@ -10,8 +10,8 @@
 //! - double: the single line and a second one a thickness below it;
 //! - curly: one sine period a cell, from its centre line and down first,
 //!   in the space from the single line's top downwards;
-//! - dotted: square dots a thickness wide, as many a cell as fit with a gap
-//!   of the same size, centred in their slots;
+//! - dotted: the font's underline, full width, which the cell leaves out
+//!   in each gap between the dots as it draws ([`in_gap`]);
 //! - dashed: one dash a cell, from its left edge for five eighths of it;
 //! - strike: the font's strike-through, full width;
 //! - overline: the font's overline row, the cell's top row in a normal
@@ -41,6 +41,17 @@
 //!
 //! The dash starts at the cell's left edge, so that each character's dash
 //! reads as that letter's own underline (the maintainer, 2026-10-28).
+//!
+//! The dots of a dotted underline run along the whole line, not cell by
+//! cell. Each dot is as wide as the line is thick, and so is each gap, so
+//! one period is twice the thickness, and a cell is seldom a whole number
+//! of periods wide. A pattern that started again in each cell would put a
+//! dot at the end of one cell beside a dot at the start of the next. So the
+//! sprite holds the whole line, and the CPU path and the GPU path's cell
+//! shader each leave out a pixel when [`in_gap`] says that the pixel's
+//! place along the line falls in a gap. The curl and the dash repeat once a
+//! cell by design, a whole sine period and one dash in each cell, so they
+//! need no such rule.
 
 use std::collections::BTreeMap;
 
@@ -187,26 +198,20 @@ fn curly_bits(s: &mut Sprite, m: &Decorations, amp: u32) {
     }
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the dots lie inside the sprite's width"
-)]
-fn dotted(s: &mut Sprite, m: &Decorations) {
-    let t = m.underline_thickness;
-    let n =
-        s.w.saturating_add(t)
-            .checked_div(t.saturating_mul(2))
-            .unwrap_or(0)
-            .max(1);
-    let slot = f64::from(s.w) / f64::from(n);
-    for i in 0..n {
-        let i = f64::from(i);
-        let x0 = (i * slot + slot / 4.0 + 0.5).floor() as u32;
-        let x1 = (i * slot + 3.0 * slot / 4.0 + 0.5).floor() as u32;
-        let x1 = if x1 <= x0 { x0.saturating_add(1) } else { x1 };
-        s.fill_rows(x0, x1, m.underline, t);
-    }
+/// The most display pixels a dot of a dotted underline, or a gap between
+/// two dots, is wide: the GPU path's quad carries the width in 7 bits.
+pub(crate) const DOT_MOST: u32 = 127;
+
+/// Whether the pixel `x` display pixels from the left edge of a line's
+/// first cell falls in a gap of a dotted underline whose dots and gaps are
+/// each `d` display pixels wide. Each period starts with its gap, so the
+/// line's first cell starts with a gap and each dot ends a period. The
+/// rule counts along the whole line, so the pattern keeps one period from
+/// cell to cell, whatever the cell's width. The GPU path's cell shader
+/// follows the same rule. A `d` of 0 marks a line that is not dotted.
+pub(crate) fn in_gap(x: i64, d: u32) -> bool {
+    let d = i64::from(d);
+    d != 0 && x.rem_euclid(d.saturating_mul(2)) < d
 }
 
 /// The decorations a cell draws: `None` for none.
@@ -279,7 +284,7 @@ fn draw_at(kind: Kind, w: u32, h: u32, m: &Decorations, one_bit: bool) -> Vec<u8
         (Kind::Curly, Some(amp)) if one_bit => curly_bits(&mut s, m, amp),
         (Kind::Curly, Some(amp)) => curly(&mut s, m, amp),
         (Kind::Single | Kind::Double | Kind::Curly, _) => s.fill_rows(0, w, m.underline, t),
-        (Kind::Dotted, _) => dotted(&mut s, m),
+        (Kind::Dotted, _) => s.fill_rows(0, w, m.underline, t),
         (Kind::Dashed, _) => s.fill_rows(0, dash(w), m.underline, t),
         (Kind::Strike, _) => s.fill_rows(0, w, m.strike, m.strike_thickness),
         (Kind::Overline, _) => s.fill_rows(0, w, fit(m.overline, t, h), t),
@@ -365,6 +370,9 @@ pub(crate) struct Sprites {
     /// The scaled pieces the cells of sized runs draw, by [`RunLine`]:
     /// `None` for a piece the line leaves empty.
     runs: BTreeMap<RunLine, Option<Stored>>,
+    /// The underline's thickness in each of [`SCRIPTS`]' sets of lines,
+    /// which is the width of a dotted underline's dots and gaps.
+    thickness: [u32; 3],
 }
 
 /// The piece of a decoration that a cell of a sized run of scale `scale`
@@ -467,6 +475,58 @@ impl Sprites {
             o,
             bits,
             runs: BTreeMap::new(),
+            thickness: sets.each_ref().map(|m| m.underline_thickness),
+        }
+    }
+
+    /// The width in display pixels of each dot of `line`, and of each gap
+    /// between its dots, in a cell that draws `piece`: 0 unless `line` is
+    /// a dotted underline. A dot is as wide as the underline of its script
+    /// is thick, times the [`magnification`] of the piece, so a magnified
+    /// cell draws the normal cell's dots magnified. The width is at most
+    /// [`DOT_MOST`], so that both paths draw the same dots.
+    pub(crate) fn dots(&self, line: Line, piece: Piece) -> u32 {
+        if line.kind != Kind::Dotted {
+            return 0;
+        }
+        let t = self.thickness.get(line.set()).copied().unwrap_or(1);
+        t.saturating_mul(magnification(piece)).clamp(1, DOT_MOST)
+    }
+
+    /// Leaves out of `cov`, one display line of the sprite of `line` that
+    /// a cell drawing `piece` draws, every pixel that falls in a gap
+    /// between the dots of a dotted underline ([`in_gap`]). The cell is at
+    /// display column `col` of the grid, and `cov`'s first pixel lies `dx`
+    /// pixels right of and `dy` pixels below the top left corner of the
+    /// cell's area on the display. vtium turns each pixel back by the
+    /// display's orientation, as the sprite was turned, to find its upright
+    /// column in the cell and so its place along the line. A line that is
+    /// not dotted keeps every pixel.
+    pub(crate) fn leave_gaps(
+        &self,
+        (line, piece): (Line, Piece),
+        col: usize,
+        (dx, dy): (i64, i64),
+        cov: &mut [u8],
+    ) {
+        let d = self.dots(line, piece);
+        if d == 0 {
+            return;
+        }
+        let w = i64::from(self.w);
+        let left = i64::try_from(col).unwrap_or(i64::MAX).saturating_mul(w);
+        let last = |n: i64, v: i64| n.saturating_sub(1).saturating_sub(v);
+        for (x, a) in (dx..).zip(cov.iter_mut()).filter(|(_, a)| **a != 0) {
+            // the pixel's upright column in the cell
+            let u = match self.o {
+                Orientation::Normal => x,
+                Orientation::UpsideDown => last(w, x),
+                Orientation::Right => dy,
+                Orientation::Left => last(w, dy),
+            };
+            if in_gap(left.saturating_add(u), d) {
+                *a = 0;
+            }
         }
     }
 
@@ -614,9 +674,11 @@ mod tests {
     // in `tests/digests/cells.tsv` (tests/digests/README.md); the
     // curly wave's sine is computed by `src/trig.rs`, so this is also the
     // check that the wave's bytes stay the same on every host. A double or
-    // curl past a quarter of the cell, and the dash in a cell 2 or more
-    // pixels wide, are redrawn: the stored digest is of the earlier shape,
-    // so each must differ from it and draw the fallback or the dash. When a
+    // curl past a quarter of the cell, and the dash and the dotted line in
+    // a cell 2 or more pixels wide, are redrawn: the stored digest is of the
+    // earlier shape, so each must differ from it and draw the fallback, the
+    // dash, or for the dotted line the whole single line, whose gaps the
+    // cell leaves out as it draws. When a
     // digest differs, the test fails and says how many lines differ. When
     // the environment variable VTIUM_DECO_DIGESTS names a file, the test
     // also writes every `deco` line as vtium draws it to that file, a
@@ -652,6 +714,8 @@ mod tests {
             let k = Kind::ALL[kind - 1];
             let redrawn = if k == Kind::Dashed {
                 (w >= 2).then(|| is_the_dash(w, h, &px))
+            } else if k == Kind::Dotted {
+                (w >= 2).then(|| px == draw(Kind::Single, w, h, &Decorations::for_height(h)))
             } else {
                 past_a_quarter(k, w, h).then(|| falls_back(k, w, h, &px))
             };
@@ -696,10 +760,10 @@ mod tests {
         // every width's double at heights 2 to 11; every width's curl at
         // heights 1 to 11, and widths 12 to 24 at 12 to 15, 16 to 24 at
         // 16 to 19, 20 to 24 at 20 to 23 and 24 at 24 to 27; the dash at
-        // widths 2 to 24 and every height
+        // widths 2 to 24 and every height, and the dotted line there too
         assert_eq!(
             refit,
-            10 * 24 + (11 * 24 + 4 * 13 + 4 * 9 + 4 * 5 + 4) + 23 * 48
+            10 * 24 + (11 * 24 + 4 * 13 + 4 * 9 + 4 * 5 + 4) + 2 * 23 * 48
         );
     }
 

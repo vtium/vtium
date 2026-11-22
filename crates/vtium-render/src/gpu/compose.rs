@@ -1611,8 +1611,9 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             over: None,
             ..*job
         };
+        let sprites = &compose.sprites;
         let quad = |j: &Job, place: Option<Place>, flags: u32, beside: u32| {
-            cell_quad(j, (r, g), (place, beside), (row, flags))
+            cell_quad(j, (r, g), (place, beside), (row, flags), sprites)
         };
         push(&mut self.cells, None, quad(&bare, None, 0, 0));
         self.picture_rects
@@ -1968,6 +1969,7 @@ impl<G: Gl> GpuBack<'_, G> {
                 (self.turn.up_area(job.r), self.turn.up_area(job.g)),
                 (place, beside),
                 (row, ink),
+                &compose.sprites,
             );
             push(&mut self.cells, place.map(|p| (p.texture, p.color)), quad);
         }
@@ -2033,8 +2035,17 @@ pub(crate) const COL: u32 = 0xffff;
 
 /// The bits of a quad's `src[3]` that hold the row of its first cell. The
 /// bits above them name the piece of a sized run's decorations the quad
-/// draws ([`run_bits`]).
+/// draws ([`run_bits`]), and above those, from [`DOTS`], the width of a
+/// dotted underline's dots.
 pub(crate) const ROW: u32 = 0xffff;
+
+/// The first bit of a quad's `src[3]` that holds the width in display
+/// pixels of each dot of its dotted underline, and of each gap between
+/// them, in 7 bits: 0 when the quad's underline is not dotted. The cell
+/// shader leaves out each pixel of the underline that falls in a gap by
+/// the pixel's place along the grid's line, as the CPU path does
+/// (`crate::deco::in_gap`), so the dots keep one period from cell to cell.
+pub(crate) const DOTS: u32 = 25;
 
 /// The piece of its decorations that a cell of a sized run of scale 2 or
 /// more on a line of the normal size draws, as the bits above [`ROW`] in a
@@ -2071,18 +2082,25 @@ fn run_bits(job: &Job) -> u32 {
 /// mask, a color glyph), `flags` with the background, the underline's
 /// sprite and the sprite of the lines over the glyph (the strike, the
 /// overline or both), each its place among the sprites plus one, or
-/// 0 for none.
+/// 0 for none. The width of a dotted underline's dots in `sprites` goes
+/// above the row's bits from [`DOTS`].
 pub(crate) fn cell_quad(
     job: &Job,
     (r, g): (Area, Area),
     (place, beside): (Option<Place>, u32),
     (row, flags): (usize, u32),
+    sprites: &Sprites,
 ) -> Quad {
     let i = |v: i64| i32::try_from(v).unwrap_or(if v < 0 { i32::MIN } else { i32::MAX });
     let u = |v: i64| u32::try_from(v.max(0)).unwrap_or(u32::MAX);
     let (col, row) = (
         u32::try_from(job.posx).unwrap_or(COL).min(COL) | beside.min(COL) << SHIFT,
-        u32::try_from(row).unwrap_or(ROW).min(ROW) | run_bits(job),
+        u32::try_from(row).unwrap_or(ROW).min(ROW)
+            | run_bits(job)
+            | job
+                .underline
+                .map_or(0, |(line, _)| sprites.dots(line, job.piece))
+                << DOTS,
     );
     let (src, kind) = match place {
         Some(p) => (
