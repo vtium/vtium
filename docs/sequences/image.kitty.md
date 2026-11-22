@@ -98,6 +98,7 @@ These tests check what vtium does with the sequences on this page.
 - [tools/conformance/vtium/cases/kit-png-frames.case](https://github.com/vtium/vtium/blob/main/tools/conformance/vtium/cases/kit-png-frames.case)
 - [tools/conformance/vtium/cases/kit-spec-indexed-media.case](https://github.com/vtium/vtium/blob/main/tools/conformance/vtium/cases/kit-spec-indexed-media.case)
 - [tools/conformance/vtium/cases/kit-spec-indexed-recolor.case](https://github.com/vtium/vtium/blob/main/tools/conformance/vtium/cases/kit-spec-indexed-recolor.case)
+- [tools/conformance/vtium/cases/kit-spec-indexed.case](https://github.com/vtium/vtium/blob/main/tools/conformance/vtium/cases/kit-spec-indexed.case)
 - [tools/conformance/vtium/cases/kit-spec-no-id-order.case](https://github.com/vtium/vtium/blob/main/tools/conformance/vtium/cases/kit-spec-no-id-order.case)
 - [tools/conformance/vtium/cases/kit-spec-replies.case](https://github.com/vtium/vtium/blob/main/tools/conformance/vtium/cases/kit-spec-replies.case)
 
