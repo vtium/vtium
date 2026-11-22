@@ -1,7 +1,4 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
-runs-decorations	sized runs (OSC 66) with decorations, drawn on 2026-11-16 by tier2 render from fix/w1-render at e457a392; decorations scale with the text (ADR-1308 D9), and a color emoji in a run with text keeps its colors; the outline set draws each glyph at the normal size scaled up, since the font helper does not yet draw a run at true size
-runs-decorations-unifont	sized runs (OSC 66) with decorations, drawn on 2026-11-16 by tier2 render from fix/w1-render at e457a392; decorations scale with the text (ADR-1308 D9), and unifont's pixels and the decorations' pixels multiply by whole factors
 palette-ink	the shipped color scheme Ink (crates/vtium/install/palettes/ink.palette), drawn on 2026-11-20 by tier2 render from feat/w5-look-keys at 4110c2ce; every color is black, red or white
-frit-indic	the shipped font set indic in its ten scripts, drawn on 2026-11-21 by tier2 render from fix/w5-pre-gates at 47df3d6a; every cluster at full height, and each cluster wider than its cells squeezed sideways (ADR-1307 D1)
