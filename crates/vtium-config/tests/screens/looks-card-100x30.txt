@@ -7,8 +7,7 @@
                   no font file for the text font JetBrains Mono.
    Color scheme   legacy, from vtium.conf
    vtlook         sepia
-   Pointer theme  vtium's own pictures, from vtium.conf. A look cannot pick a pointer theme of its
-                  own yet.
+   Pointer theme  vtium's own pictures, from vtium.conf
 
  Enter on a line shows its choices or lets you type the name, and Left and Right step through the
  choices. Esc keeps the changes for Save.
@@ -17,6 +16,7 @@
  Box drawing: vtium's own lines, unless the text font has them all
  What it still misses:
  Text: the font family JetBrains Mono is not on this machine: no such family.
+
 
 
 

@@ -12,8 +12,7 @@ description: "looks.look at 80×25, keys: 3 Enter"
                   JetBrains Mono.
    Color scheme   legacy, from vtium.conf
    vtlook         sepia
-   Pointer theme  vtium's own pictures, from vtium.conf. A look cannot pick a
-                  pointer theme of its own yet.
+   Pointer theme  vtium's own pictures, from vtium.conf
 
  Enter on a line shows its choices or lets you type the name, and Left and
  Right step through the choices. Esc keeps the changes for Save.
@@ -22,6 +21,7 @@ description: "looks.look at 80×25, keys: 3 Enter"
  Box drawing: vtium's own lines, unless the text font has them all
  What it still misses:
  Not known yet: the font helper has not checked its fonts.
+
 
 
 

@@ -9,12 +9,12 @@ description: "flow at 80×25, keys: 4"
  DISPLAYS               TERMINALS                                INPUTS
  ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐
  ┃ All displays ┃━━━━━━▶│ desk                         │
- ┃ Every displ… ┃       │ font set proof · every VT    │
+ ┃ Every displ… ┃       │ look proof · every VT        │
  ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘
 
                         ┌──────────────────────────────┐
                         │ panel                        │
-                        │ default font set · every VT  │
+                        │ default look · every VT      │
                         └──────────────────────────────┘
 
  ──────────────────────────────────────────────────────────────────────────────
