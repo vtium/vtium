@@ -366,7 +366,7 @@ impl Terminal {
     /// taking nothing until the reply is handed back, and once the call's
     /// image work reaches its bound (ADR-1100, D5 and D7).
     pub fn input(&mut self, bytes: &[u8]) -> usize {
-        if self.state.pending() >= REPLIES_PENDING_MAX {
+        if self.replies_full() {
             return 0;
         }
         #[cfg(feature = "images")]
@@ -447,6 +447,15 @@ impl Terminal {
         self.state.hold.is_some()
     }
 
+    /// Whether the replies waiting for the host, the held ones included,
+    /// reach [`REPLIES_PENDING_MAX`](crate::REPLIES_PENDING_MAX), so that
+    /// [`input`](Self::input) takes nothing. While the host holds the
+    /// replies, only the release makes room, so the host stops feeding
+    /// the terminal until then.
+    pub fn replies_full(&self) -> bool {
+        self.state.pending() >= REPLIES_PENDING_MAX
+    }
+
     /// Ends the hold: the held replies join the bytes that
     /// [`take_replies`](Self::take_replies) returns, after what keys and
     /// the pointer sent during the hold, in the order the program asked.
@@ -458,10 +467,16 @@ impl Terminal {
     /// The session on this terminal ended. Each picture handler drops what
     /// it holds open between its strings, such as a kitty upload in chunks,
     /// with no answer, so the next session starts with none open
-    /// (ADR-1100, D16).
+    /// (ADR-1100, D16). The replies the host holds are dropped too, since
+    /// the program that asked for them is gone and the next session would
+    /// read them as typed input. The host goes on holding, so the next
+    /// session's replies wait for the same release.
     pub fn session_ended(&mut self) {
         #[cfg(feature = "images")]
         self.state.images_withdraw();
+        if self.state.hold.is_some() {
+            self.state.hold = Some(reply::Hold::default());
+        }
     }
 
     /// The selection a program set with OSC 52 since the last call, decoded,

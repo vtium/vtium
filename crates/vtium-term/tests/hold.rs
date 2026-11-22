@@ -98,10 +98,14 @@ fn a_flood_of_queries_during_the_hold_stops_at_the_bound() {
     t.set_cell_size(8, 8);
     t.hold_replies();
     let flood = b"\x1b[16t".repeat(2000);
-    assert_eq!(fed(&mut t, &flood), 1366 * 5);
+    assert_eq!(fed(&mut t, b"\x1b[16t".repeat(1365).as_slice()), 1365 * 5);
+    assert!(!t.replies_full(), "one report short of the bound");
+    assert_eq!(fed(&mut t, &flood), 5);
+    assert!(t.replies_full(), "the held reports reach the bound");
     assert_eq!(t.replies(), b"");
     t.release_replies();
     assert_eq!(t.take_replies(), b"\x1b[6;8;8t".repeat(1366));
+    assert!(!t.replies_full(), "taken");
     assert_eq!(fed(&mut t, &flood), flood.len(), "read again once taken");
 
     let mut t = term(10, 4, b"");
@@ -122,6 +126,26 @@ fn a_reset_drops_the_held_replies_and_keeps_the_hold() {
     t.input(b"\x1b[5n\x1b[16t");
     t.reset();
     assert!(t.replies_held());
+    t.input(b"\x1b[18t");
+    t.release_replies();
+    assert_eq!(t.take_replies(), b"\x1b[8;4;10t");
+}
+
+// A session that ends during the hold takes its held replies with it, so
+// the next session on the terminal reads none of them as typed input. The
+// host goes on holding, and the next session's replies wait for the
+// release. vtium starts the next session from RIS, after which the
+// terminal answers the new session's size report at the release.
+#[test]
+fn a_session_end_drops_the_held_replies_and_keeps_the_hold() {
+    let mut t = term(10, 4, b"");
+    t.set_cell_size(8, 8);
+    t.hold_replies();
+    t.input(b"\x1b[6n\x1b[16t");
+    t.session_ended();
+    t.input(b"\x1bc");
+    assert_eq!(t.take_replies(), b"", "nothing went out");
+    assert!(t.replies_held(), "the hold goes on");
     t.input(b"\x1b[18t");
     t.release_replies();
     assert_eq!(t.take_replies(), b"\x1b[8;4;10t");
