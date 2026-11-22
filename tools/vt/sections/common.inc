@@ -171,12 +171,14 @@ blink_line() {
 # installed files, and nothing it does reaches the console's own vtium.conf.
 # The page makes that folder in $XDG_RUNTIME_DIR, which run-vt.sh gives the
 # acceptance pass when the user's runtime directory is the user's alone. Only
-# when the session has none does the folder go in your home folder. It never
-# goes in /tmp: vtium refuses a font set in a folder that other users can
-# write to, so the TUI would count both looks' font sets as problems.
-# The page removes the folder when it exits for any reason. A hangup or
-# SIGTERM, which arrives when vtium stops while the TUI is open, makes bash
-# exit through that trap as well, once vtium-config has ended.
+# when the session has none does the folder go in your home folder. The
+# folder never goes in /tmp: vtium refuses a font set in a folder that other
+# users can write to, so the TUI would count both looks' font sets as
+# problems.
+# The page removes the folder however it exits. When vtium stops while the
+# TUI is open, the page's terminal hangs up and its bash gets SIGHUP or
+# SIGTERM. bash waits for vtium-config to end, then exits and removes the
+# folder on the way out.
 # The vtium.conf has two looks: big, in the outline font set at 20 points,
 # which the head desk uses, and small, in the bitmap font set, with vtium's
 # own pointer pictures. The page prints its steps and waits for a key before
