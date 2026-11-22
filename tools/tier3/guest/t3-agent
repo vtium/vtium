@@ -108,10 +108,9 @@
 #                    console is back as it was. Then the same with the
 #                    frits' directory at mode 0777, which apply must
 #                    refuse, and the directory's mode before and once
-#                    restored. Last it
-#                    stops vtium's unit on tty2 and starts it again, as
-#                    `bare` does, and answers the unit's state and the new
-#                    vtium's PID and age
+#                    restored. Last it stops vtium's unit on tty2 and
+#                    starts it again, as `bare` does, and answers the
+#                    unit's state and the new vtium's PID and age
 #   planes           prints the display's DRM atomic state, which the
 #                    kernel keeps in debugfs (/sys/kernel/debug/dri/N/state),
 #                    one line of it a line of the answer, so the showcase

@@ -19,12 +19,11 @@ no options, so the targets are the system's. apply's check runs
 install the agent moves the console aside and puts a small program in its
 place. The program writes down each copy of a font set the check is given,
 with the owner and mode of the folder that holds the copy, and then runs the
-console with the same arguments. The agent then puts the console back. Then
-it builds a second bundle
-for the set t3-open, opens the frits' directory to every user with chmod
-0777, runs apply again, and gives the directory its mode back. Last it
-stops vtium's unit on tty2 and starts it again, so the new vtium reads the
-new vtium.conf.
+console with the same arguments. The agent then puts the console back.
+Next it builds a second bundle for the set t3-open, opens the frits'
+directory to every user with chmod 0777, runs apply again, and gives the
+directory its mode back. Last it stops vtium's unit on tty2 and starts it
+again, so the new vtium reads the new vtium.conf.
 
 The check passes when the first apply exits 0 and wrote both files, the set
 is root's with mode 644, and vtium.conf names it. Its check must have read
@@ -32,9 +31,9 @@ one copy of the set, in a folder /run/vtium-config-apply-* that is root's
 with mode 700, and /run must hold none of apply's private folders
 afterwards. So the check tells a folder made under /run and removed apart
 from one never made there. The console must be back as it was. The second
-apply must exit with a failure in
-the walk's words, say that nothing was installed, write neither file and
-leave nothing in /run, and the directory must have its mode back.
+apply must exit with a failure in the walk's words, say that nothing was
+installed, write neither file and leave nothing in /run, and the directory
+must have its mode back.
 
 The new vtium must log that its font is the frit t3-apply, that its cell
 is 8x8, and that the font helper generated the set's glyphs at 8x8. It must
