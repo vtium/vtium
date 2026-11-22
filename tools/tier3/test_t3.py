@@ -7892,6 +7892,14 @@ class ApplyRootTest(unittest.TestCase):
         self.assertIn(t3_apply.CASE, t3_evaluate.NO_GOLDEN)
         self.assertEqual(t3_evaluate.golden_for("apply-root", t3_apply.CASE), (None, None))
         self.assertIs(t3_scenario.CHECK_RUNS[t3_apply.CASE], t3_apply.check_apply_root)
+        # tier3-minimal runs it, so a card that touches the install tree and
+        # runs tier3-minimal at V1 reaches the root path.
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            make = f.read()
+        minimal = re.search(r"^tier3-minimal:(.*)\n\t(.*)", make, re.M)
+        names = re.search(r"\$\(or \$\(VARIANTS\),([^)]*)\)", minimal.group(2)).group(1).split()
+        self.assertIn("apply-root", names)
+        self.assertIn("vtium-config apply as root", minimal.group(1))
 
     GOOD = ["apply said wrote\t/etc/vtium/fonts/t3-apply.vtfrit",
             "apply said wrote\t/etc/vtium/vtium.conf",

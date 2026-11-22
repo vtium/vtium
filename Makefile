@@ -1193,8 +1193,8 @@ tier3: tier3-image ## Tier 3: build the install tree, then run the five default 
 	$(T3_RUN) --tree-target install-tree $(VARIANTS)
 
 .PHONY: tier3-minimal
-tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, the 320x240 and 640x480 displays, vtium with nothing installed, and the default font sets at 16, 24 and 40 pixels
-	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16 2d-640x480-frit 2d-640x480-frit-held default-font-16 default-font-24 default-font-40 cullet-mono-16 cullet-mono-24 cullet-mono-40 builtin-font)
+tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, the 320x240 and 640x480 displays, vtium with nothing installed, the default font sets at 16, 24 and 40 pixels, and vtium-config apply as root
+	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16 2d-640x480-frit 2d-640x480-frit-held default-font-16 default-font-24 default-font-40 cullet-mono-16 cullet-mono-24 cullet-mono-40 builtin-font apply-root)
 
 # vtium's pictures on tier 3: the tree's console built with images, and with
 # any other features FEATURES names, then the images variants, which draw
