@@ -1427,10 +1427,14 @@ impl App {
     /// After an install of `done`, the font set changes the install made:
     /// the frits it removed leave the list, the frits it wrote join it,
     /// and on a live console the font the draft gives the console's head
-    /// is the one leaving gives back (ADR-1201 D4). The Looks tab holds
-    /// each font set by its place in the list, which the install moves,
-    /// so `spot`, taken before the installed draft replaced the old one,
-    /// keeps its highlight and an open detail by the font set's name.
+    /// becomes the font the TUI gives back to the console when it leaves.
+    /// The Looks tab holds each font set by its place in the list, which
+    /// the install moves, so `spot`, taken before the installed draft
+    /// replaced the old one, keeps its highlight and an open detail by the
+    /// font set's name.
+    ///
+    /// References:
+    /// - ADR-1201 D4: the TUI gives the live console back its font when it leaves.
     pub(crate) fn frits_installed(
         &mut self,
         done: crate::store::FritChanges,
