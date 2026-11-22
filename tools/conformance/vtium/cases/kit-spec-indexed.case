@@ -3,9 +3,9 @@
 # index and an alpha. Indices 0 to 247 are the 256-color table's colors,
 # 248 the default background, 249 and 255 the default foreground, and 250
 # to 254 the selection, cursor and link colors. A query with f=8 is
-# answered OK. A palette change after an upload leaves the stored picture
-# as it is. Compression, a file medium, a missing size, frames and
-# compositions are refused for these formats.
+# answered OK. When a program changes a color, each picture that uses it
+# takes the new color. Compression and a file medium go to the image host,
+# as for any format. A missing size, frames and compositions are refused.
 #
 # References: ADR-1100 D15.
 # spec: kitty graphics protocol, "Indexed color data"
@@ -29,17 +29,20 @@ send "\e[1;5H\e_Ga=T,i=4,f=16,s=2,v=1,C=1;Cf8JAA==\e\\"
 send "\e[1;7H\e_Ga=T,i=5,f=8,s=4,v=1,C=1;+vv8/Q==\e\\"
 dump
 
-# OSC 12 sets the cursor color, and image 6 shows index 252 in it.
+# OSC 12 sets the cursor color. Image 5's index 252 takes the new color,
+# and image 6 shows index 252 in it.
 send "\e]12;#00ff00\e\\"
 send "\e[1;9H\e_Ga=T,i=6,f=8,s=1,v=1,C=1;/A==\e\\"
 
-# OSC 4 changes color 1. Image 2 keeps the color it arrived with, and
-# image 7, sent after the change, shows the new color.
+# OSC 4 changes color 1. Image 2 takes the new color, and image 7, sent
+# after the change, shows it too.
 send "\e]4;1;#123456\e\\"
 send "\e[2;1H\e_Ga=T,i=7,f=8,s=1,v=1,C=1;AQ==\e\\"
 dump
 
-# Refused: f=8 with compression, f=16 from a file, and f=8 without v.
+# f=8 with compression and f=16 from a file go to the image host. The
+# fixture host has no fixture for either, so the zlib data is answered
+# EINVAL and the file EBADF, as for any format. f=8 without v is refused.
 send "\e_Ga=t,i=8,f=8,s=1,v=1,o=z;eJxjAAAAAQAB\e\\"
 send "\e_Ga=t,i=9,f=16,s=1,v=1,t=f;L3RtcC9waXhlbHM=\e\\"
 send "\e_Ga=t,i=10,f=8,s=1;AA==\e\\"
