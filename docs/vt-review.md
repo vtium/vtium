@@ -153,7 +153,7 @@ In a guide's text, `{vt}` stands for the run's VT and `{desktop}` for the deskto
 - `blink.guide` shows SGR 5's slow blink and SGR 6's rapid blink, and the cursor's blink interval that a program sets with the Linux console's `CSI 16 ; n ]`.
 - `clipboard.guide` checks `vtium-clipboard` and its short name `vticlip`: a copy pastes back with Shift+Insert and the middle button, and each refusal says why (ADR-1007).
 - `pointer.guide` checks that the arrow pointer reads on every background, and the shapes that a program sets, pushes and pops with OSC 22.
-- `pointer-file.guide` draws the ten pointer shapes from vtium's own pictures, from vtium's pointer file, from a cursor theme, and from a `pointer-theme` path where nothing is (ADR-1309). Each configuration needs a run of its own, because vtium reads its pointer file when it starts.
+- `pointer-file.guide` draws the ten pointer shapes from five sources (ADR-1309). They are vtium's own pictures, vtium's pointer file, a cursor theme, and a `pointer-theme` path where nothing is. The fifth is a cursor theme that the head's look names instead of the top level. Each configuration needs a run of its own, because vtium reads its pointer file when it starts.
 - `blank.guide` checks that `setterm --blank` times the DPMS blank, and that a program's `CSI 13 ]` wakes the displays (#79).
 - `window.guide` runs with `DEMO_ARGS='--allow-window-ops'`, and checks three things (#44). A program's request for 80 columns and 25 rows draws exactly that grid, at the largest font size at which the display holds it. The size report answers 25 rows and 80 columns. A zoom fills the screen again.
 - `vt.guide` checks the switch away and back, and that keys reach vtium and not the kernel console (#19).

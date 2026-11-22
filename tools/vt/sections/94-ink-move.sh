@@ -115,10 +115,10 @@ draw_step() {
 	done
 	# two sixels, a frame with a clear middle and a solid bar, with text
 	# above, in the frame's middle and below. Their size in pixels comes
-	# from the cell size the terminal reports now. vtium can take a font
-	# set's own cell some time after the walk switched to it, so a cell
-	# read once at the start can be stale by step 1, and a sixel sized in
-	# it would cover more rows and columns than the frame should.
+	# from the cell size the terminal reports now. vtium can learn a font
+	# set's cell size some time after the walk switches to it, so a cell
+	# size read once at the start can be stale by step 1, and a sixel
+	# sized in it would cover more rows and columns than the frame should.
 	cell_size
 	((cw > 0)) || { cw=10 ch=20; }
 	at $((s + dy - 1)) $((3 + dx)); printf '%s   %s' "$desc" "$desc"

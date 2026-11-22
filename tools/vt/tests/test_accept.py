@@ -1160,13 +1160,14 @@ class Pages(Case):
                 self.assertLessEqual(cols, 80)
 
     def test_ink_move_sizes_each_steps_sixels_in_the_cell_the_terminal_has_then(self):
-        # vtium can take a font set's own cell after the walk switched to
-        # it, after the page asked for the cell size and drew its first
-        # step: the walk on 2026-11-22 drew step 0 in a 19x36 cell, and the
-        # cell became 16x32 before step 1. A sixel's raster attributes give
-        # its size in pixels, so each step's frame and bar cover 3 rows and
-        # as many columns as the page means only when the page sizes them in
-        # the cell the terminal has when the step is drawn.
+        # vtium can learn a font set's cell size some time after the walk
+        # switches to it, even after the page has asked for the cell size
+        # and drawn its first step. The walk on 2026-11-22 drew step 0 in a
+        # 19×36 cell, and the cell became 16×32 before step 1. A sixel's
+        # raster attributes give its size in pixels, so each step's frame
+        # and bar cover 3 rows and as many columns as the page means only
+        # when the page sizes them in the cell the terminal has when the
+        # step is drawn.
         status, sixels = ink_move_run([(19, 36), (16, 32), (16, 32)])
         self.assertEqual(status, 0)
         self.assertEqual(sixels, [
