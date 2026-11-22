@@ -666,7 +666,8 @@ fn the_install_s_own_check_counts_the_bundle_s_font_sets() {
 }
 
 /// The stand-in console for the root check's tests: it appends each run's
-/// words to `log`, one to a line after a `---` line, and refuses a run
+/// words to `log`, one to a line after a `---` line, then a `===` line and
+/// the text of the file its last word names. It refuses a run
 /// whose `--with-frit` names a copy under the install's private folder
 /// when `refuse` is set, naming line 3 of the installed vtium.conf, so the
 /// check vtium-config runs on the draft before the install passes.
@@ -685,7 +686,7 @@ fn logging_console(f: &Fixture, log: &Path, refuse: bool) {
     script::executable(
         &f.path("vtium"),
         &format!(
-            "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\n{{ echo ---; printf '%s\\n' \"$@\"; }} >> '{}'\n{verdict}exit 0\n",
+            "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\nfor last in \"$@\"; do :; done\n{{ echo ---; printf '%s\\n' \"$@\"; echo ===; cat \"$last\"; }} >> '{}'\n{verdict}exit 0\n",
             log.display()
         ),
     );
@@ -693,23 +694,30 @@ fn logging_console(f: &Fixture, log: &Path, refuse: bool) {
 }
 
 /// The words of each run that `log` holds, with the fixture's root shown
-/// as `ROOT`.
-fn runs(f: &Fixture, log: &Path) -> Vec<Vec<String>> {
+/// as `ROOT`, and the text of the file each run's last word names.
+fn runs(f: &Fixture, log: &Path) -> Vec<(Vec<String>, String)> {
     let root = f.root.to_str().expect("a path");
     std::fs::read_to_string(log)
         .expect("the log")
         .split("---\n")
         .skip(1)
-        .map(|run| run.lines().map(|w| w.replace(root, "ROOT")).collect())
+        .map(|run| {
+            let (words, text) = run.split_once("===\n").unwrap_or((run, ""));
+            (
+                words.lines().map(|w| w.replace(root, "ROOT")).collect(),
+                text.to_owned(),
+            )
+        })
         .collect()
 }
 
 /// A bundle that replaces and removes font sets but holds no vtium.conf,
 /// because the draft's vtium.conf is the installed one, still gets the
-/// console's check in the privileged step. That run checks the installed
-/// vtium.conf, passes no file of its own, and counts the bundle's font
-/// sets with one `--with-frit` for each copy under the install's private
-/// folder and one `--without-frit` for each removal.
+/// console's check in the privileged step. That run checks a copy root
+/// makes of the installed vtium.conf, as the check of the draft checked a
+/// copy of that same text. It counts the bundle's font sets with one `--with-frit` for
+/// each copy under the install's private folder and one `--without-frit`
+/// for each removal.
 ///
 /// References:
 /// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets, so its verdict is the draft's.
@@ -724,13 +732,19 @@ fn a_bundle_of_font_sets_alone_gets_the_install_s_own_check() {
     let ran = f.ok(&["install"]);
     let runs = runs(&f, &log);
     assert_eq!(runs.len(), 2, "the draft's check, then apply's: {runs:?}");
-    let apply = &runs[1];
+    let (apply, text) = &runs[1];
     assert_eq!(
         apply[..3],
         ["check-config", "--configdir", "ROOT/etc"],
         "{apply:?}"
     );
-    assert_eq!(apply.len(), 7, "no vtium.conf of the bundle's: {apply:?}");
+    assert_eq!(apply.len(), 8, "{apply:?}");
+    let temp = std::env::temp_dir().join("vtium-config-apply-");
+    assert!(
+        apply[7].starts_with(temp.to_str().expect("a path")) && apply[7].ends_with("/vtium.conf"),
+        "root's copy of the installed vtium.conf: {apply:?}"
+    );
+    assert_eq!(text, INSTALLED);
     assert_eq!(apply[3], "--with-frit", "{apply:?}");
     let copy = apply[4]
         .strip_suffix("/old.vtfrit")
@@ -739,7 +753,7 @@ fn a_bundle_of_font_sets_alone_gets_the_install_s_own_check() {
         copy.starts_with("ROOT/run/vtium-config-apply-"),
         "{apply:?}"
     );
-    assert_eq!(apply[5..], ["--without-frit", "kept"], "{apply:?}");
+    assert_eq!(apply[5..7], ["--without-frit", "kept"], "{apply:?}");
     assert_eq!(
         std::fs::read_to_string(f.path("etc/fonts/old.vtfrit"))
             .ok()
@@ -783,7 +797,7 @@ fn the_install_s_refusal_names_a_check_with_the_same_verdict() {
             .map(|(command, _)| command)
             .unwrap_or_else(|| panic!("a command to run: {said}"));
         let words: Vec<&str> = command.split(' ').collect();
-        let apply = runs(&f, &log).pop().expect("apply's run");
+        let (apply, _) = runs(&f, &log).pop().expect("apply's run");
         assert_eq!(words.len(), apply.len() + 1, "{words:?} {apply:?}");
         assert_eq!(words[..2], ["vtium", "check-config"], "{words:?}");
         let bundle = words[5]
@@ -795,7 +809,13 @@ fn the_install_s_refusal_names_a_check_with_the_same_verdict() {
             if run.contains("/vtium-config-apply-") && run.ends_with("/old.vtfrit") {
                 assert_eq!(*word, format!("{bundle}/fonts/old.vtfrit"), "{words:?}");
             } else if run.contains("/vtium-config-apply-") && run.ends_with("/vtium.conf") {
-                assert_eq!(*word, format!("{bundle}/vtium.conf"), "{words:?}");
+                // the bundle's vtium.conf, or the installed one when the
+                // bundle holds none
+                let conf = match font_size {
+                    true => format!("{bundle}/vtium.conf"),
+                    false => "ROOT/etc/vtium.conf".to_owned(),
+                };
+                assert_eq!(*word, conf, "{words:?}");
             } else {
                 assert_eq!(word, run, "{words:?} {apply:?}");
             }
