@@ -1519,6 +1519,7 @@ impl App {
         }) {
             self.ask_glyphs(other);
         }
+        let wait = new.is_ok() && self.waits_for_cell(h);
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
@@ -1526,6 +1527,9 @@ impl App {
         match new {
             Ok(()) => {
                 head.switched = Some(head.console.id);
+                if wait {
+                    head.console.term.terminal.hold_replies();
+                }
                 let refused = std::mem::take(&mut head.font_refused);
                 if refused > 1 {
                     log::info!(
@@ -2240,6 +2244,67 @@ impl App {
         }
         for (name, height, answer) in late {
             self.late_cell(&name, height, answer);
+        }
+        self.end_cell_waits();
+    }
+
+    /// Whether head `h` draws a font set whose cell at the head's height
+    /// the font helper has yet to give: the helper gave no answer in time,
+    /// it still runs or starts again, and no later answer has come. The
+    /// head draws in the cell it kept until the answer comes.
+    fn waits_for_cell(&self, h: usize) -> bool {
+        let Some(head) = self.heads.get(h) else {
+            return false;
+        };
+        let at = draw_height(head, self.dpi(h), &self.locale);
+        let wants = head
+            .font
+            .as_ref()
+            .is_some_and(|f| f.wants_own_cell(at, head.sized()));
+        let Some(frit) = head.frit().and_then(|name| self.frits.get(name)) else {
+            return false;
+        };
+        if !wants || frit.helper.as_ref().is_none_or(|h| h.failed().is_some()) {
+            return false;
+        }
+        let known = if head.chosen().struck() {
+            frit.own.get(&at).cloned()
+        } else {
+            frit.answer_at(at, head.chosen().outline())
+        };
+        known.is_some_and(|k| k.is_err_and(|no| no.late))
+    }
+
+    /// Sends the shown console of each head the replies it held since its
+    /// font switch, once the head waits no more for the new font set's
+    /// cell: the helper's late answer laid the head out in the new cell,
+    /// or the helper failed and the head keeps its cell. A zoom or a new
+    /// font that leaves nothing to wait for ends the wait too. The terminal
+    /// answers the held size reports from the cell and the grid the head
+    /// has now, so once the program has the new font set's name, every
+    /// size it is told is the new cell's. The state alone ends the wait,
+    /// never a timer.
+    ///
+    /// A hidden console keeps its own grid and cell until it is shown, so
+    /// the late cell does not lay it out. Its hold therefore goes on until
+    /// the head shows it. Every switch of the console shown lays the head
+    /// out again before this turn's end, so the console sends its replies
+    /// from the new cell.
+    ///
+    /// References:
+    /// - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    fn end_cell_waits(&mut self) {
+        for h in 0..self.heads.len() {
+            let held = self
+                .heads
+                .get(h)
+                .is_some_and(|head| head.console.term.terminal.replies_held());
+            if !held || self.waits_for_cell(h) {
+                continue;
+            }
+            if let Some(head) = self.heads.get_mut(h) {
+                head.console.send_held_replies();
+            }
         }
     }
 
@@ -7733,6 +7798,359 @@ mod tests {
         );
         shown(&mut app);
         (lp, app, dir)
+    }
+
+    /// A program on one display, 320×160 pixels and drawing the built-in
+    /// font in its 8×8 cell, switches with OSC 50 to the bitmap frit `t`,
+    /// whose helper never answers in time. The program then asks for the
+    /// font's name and, with XTWINOPS 16, 14 and 18, for the cell, the text
+    /// area and the grid, and writes `hi`. `settle` makes the state change
+    /// that ends the wait for the cell. Returns the replies the program got
+    /// and the screen's first row before `settle` ran, and all the replies
+    /// it got.
+    fn late_switch(test: &str, settle: impl FnOnce(&mut App)) -> (String, String, String) {
+        let dir = Scratch::new(&format!("app-{test}"));
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let (_lp, mut app) = seat_with(&[], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        assert_eq!(app.heads.first().unwrap().cell, (8, 8), "the built-in cell");
+        let program = b"\x1b]50;t\x07\x1b]50;?\x07\x1b[16t\x1b[14t\x1b[18thi";
+        let mut replies = Vec::new();
+        let mut fed = 0;
+        let mut feed = |app: &mut App, replies: &mut Vec<u8>| {
+            let term = app.term_mut().unwrap();
+            let rest = program.get(fed..).unwrap_or_default();
+            fed = fed.saturating_add(term.parse(rest, &mut |r| replies.extend_from_slice(r)));
+            fed
+        };
+        // The terminal stops after the switch's request, and the turn
+        // switches the font, whose cell is not known in time.
+        feed(&mut app, &mut replies);
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().frit(), Some("t"), "switched");
+        assert_eq!(app.heads.first().unwrap().cell, (8, 8), "in the old cell");
+        // The terminal reads the rest of the program's output and draws
+        // it in the old cell.
+        let read = feed(&mut app, &mut replies);
+        assert_eq!(read, program.len(), "the program's output is all read");
+        app.turn(Instant::now());
+        let early = String::from_utf8(replies.clone()).unwrap();
+        let row = app.screen_text().first().cloned().unwrap_or_default();
+        settle(&mut app);
+        app.turn(Instant::now());
+        feed(&mut app, &mut replies);
+        (early, row, String::from_utf8(replies).unwrap())
+    }
+
+    // A program that switches to a bitmap font set whose cell comes after
+    // the wait, then asks for the set's name and its cell, and then writes
+    // text, sees its text drawn at once. The answers wait until the cell is
+    // known. Every answer after the new name then reports the new 10×8
+    // cell, on the grid of 32×20 cells it lays out, in the order the
+    // program asked.
+    //
+    // References:
+    // - ADR-1200 D5: OSC 50's query names the font set in use.
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // covers: text.font-change
+    #[test]
+    fn a_switch_answers_once_its_late_cell_is_known() {
+        let (early, row, replies) = late_switch("late-switch-cell", |app| {
+            let own = vtium_font::Cell {
+                width: 10,
+                height: 8,
+            };
+            let frit = app.frits.get_mut("t").unwrap();
+            let running = frit.helper.as_mut().unwrap();
+            assert!(running.answer_late(Ok(helper::OwnCell::Bitmap(own))));
+        });
+        assert_eq!(row.trim_end(), "hi", "the text is drawn during the wait");
+        assert_eq!(early, "", "nothing is answered while the cell is not known");
+        assert_eq!(
+            replies,
+            "\x1b]50;t\x07\x1b[6;8;10t\x1b[4;160;320t\x1b[8;20;32t"
+        );
+    }
+
+    // When the font helper fails before the cell comes, the console stops
+    // waiting for it. The program's text is drawn during the wait, and the
+    // program then gets the answers in the 8×8 cell the head keeps, in the
+    // order it asked.
+    // covers: text.font-change
+    #[test]
+    fn a_switch_answers_in_the_kept_cell_once_the_helper_fails() {
+        let (early, row, replies) = late_switch("late-switch-failed", |app| {
+            let frit = app.frits.get_mut("t").unwrap();
+            frit.helper.as_mut().unwrap().give_up("the helper failed");
+        });
+        assert_eq!(row.trim_end(), "hi", "the text is drawn during the wait");
+        assert_eq!(early, "", "nothing is answered while the cell is not known");
+        assert_eq!(
+            replies,
+            "\x1b]50;t\x07\x1b[6;8;8t\x1b[4;160;320t\x1b[8;20;40t"
+        );
+    }
+
+    // A program on console 1 switches to a bitmap font set whose cell comes
+    // after the wait, and asks for the set's name and its cell. The user
+    // opens console 2 before the cell comes, which hides console 1. The
+    // late 10×8 cell lays out the shown console alone, so console 1 keeps
+    // its 8×8 fit while it is hidden and goes on holding its replies.
+    // Shown again, console 1 is laid out in the new cell, and only then
+    // does it answer, with the new name and the new cell together.
+    //
+    // References:
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_console_hidden_during_the_wait_answers_once_shown_in_the_new_cell() {
+        let dir = Scratch::new("app-late-hidden");
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let (_lp, mut app) = seat_with(&[], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let mut replies = Vec::new();
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;t\x07", &mut |r| replies.extend_from_slice(r));
+        app.turn(Instant::now());
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;?\x07\x1b[16t", &mut |r| {
+            replies.extend_from_slice(r)
+        });
+        app.turn(Instant::now());
+        assert_eq!(replies, b"", "the replies wait for the cell");
+        let first = app.heads.first().unwrap().console.id;
+        let now = Instant::now();
+        assert!(app.open_console(0, now), "a second console opens");
+        app.turn(now);
+        let own = vtium_font::Cell {
+            width: 10,
+            height: 8,
+        };
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(
+            frit.helper
+                .as_mut()
+                .unwrap()
+                .answer_late(Ok(helper::OwnCell::Bitmap(own)))
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.cell, (10, 8), "the shown console takes the new cell");
+        let hidden = head.hidden.iter_mut().find(|c| c.id == first).unwrap();
+        assert_eq!(hidden.fit.cell, (8, 8), "the hidden console keeps its fit");
+        assert!(hidden.term.terminal.replies_held(), "and its hold");
+        assert_eq!(hidden.term.terminal.take_replies(), b"", "nothing went out");
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.console.id, first, "console 1 is shown again");
+        assert_eq!(head.cell, (10, 8), "in the new cell");
+        assert!(!head.console.term.terminal.replies_held(), "the hold ended");
+        assert_eq!(
+            String::from_utf8(head.console.term.terminal.take_replies()).unwrap(),
+            "\x1b]50;t\x07\x1b[6;8;10t"
+        );
+    }
+
+    /// The OSC 50 and XTWINOPS 16 replies that the console `id` of head 0
+    /// gives at once to a query of the font set's name and of its cell.
+    fn name_and_cell(app: &mut App, id: u64) -> String {
+        let head = app.heads.first_mut().unwrap();
+        let console = head.consoles_mut().find(|c| c.id == id).unwrap();
+        let mut replies = Vec::new();
+        console.term.parse(b"\x1b]50;?\x07\x1b[16t", &mut |r| {
+            replies.extend_from_slice(r)
+        });
+        String::from_utf8(replies).unwrap()
+    }
+
+    /// Frits `a` and `b`, which state their cells of 10×20 and 16×32, and
+    /// `t`, whose cell the stand-in helper never gives in time.
+    fn two_cells_and_a_late_one(dir: &Scratch) -> font::Sources {
+        std::fs::write(dir.join("a.vtfrit"), "source=kbd:x\ncell=10x20\n").unwrap();
+        std::fs::write(dir.join("b.vtfrit"), "source=kbd:x\ncell=16x32\n").unwrap();
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
+        font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        }
+    }
+
+    // Head 0 draws frit a and has two consoles; console 2 is hidden. A
+    // program on console 1 switches the head to frit b. While console 2 is
+    // hidden it keeps the grid and the 10×20 cell it last drew in, so it
+    // goes on naming a, and its name and its cell agree. Once shown, the
+    // head lays console 2 out in b, and its name and its cell change
+    // together.
+    //
+    // References:
+    // - ADR-1200 D5: the name OSC 50's query reports.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_hidden_console_names_the_font_it_last_drew_in_until_shown() {
+        let dir = Scratch::new("app-hidden-name");
+        let fonts = two_cells_and_a_late_one(&dir);
+        let (_lp, mut app) = seat_with(&["--font-name=a", "--font-size=0"], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let first = app.heads.first().unwrap().console.id;
+        assert!(
+            app.open_console(0, Instant::now()),
+            "a second console opens"
+        );
+        app.turn(Instant::now());
+        let second = app.heads.first().unwrap().console.id;
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, first);
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t"
+        );
+        let mut replies = Vec::new();
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;b\x07", &mut |r| replies.extend_from_slice(r));
+        app.turn(Instant::now());
+        assert_eq!(
+            app.heads.first().unwrap().cell,
+            (16, 32),
+            "the head draws b"
+        );
+        assert_eq!(name_and_cell(&mut app, first), "\x1b]50;b\x07\x1b[6;32;16t");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t",
+            "console 2, hidden, keeps the font it last drew in"
+        );
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, second, "shown");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;b\x07\x1b[6;32;16t"
+        );
+    }
+
+    // Head 0 draws frit a and has two consoles; console 2 is hidden. A
+    // program on console 1 switches the head to frit t, whose cell comes
+    // after the wait. Console 2, hidden, names a and its 10×20 cell during
+    // the wait and after the late 12×24 cell lays console 1 out. Once
+    // shown, console 2 is laid out in t's cell, and names t with that cell.
+    //
+    // References:
+    // - ADR-1200 D5: the name OSC 50's query reports.
+    // - ADR-1200 D17: the cell that comes after the wait.
+    // - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    // covers: text.font-change
+    #[test]
+    fn a_hidden_console_takes_the_late_cell_and_its_name_together_once_shown() {
+        let dir = Scratch::new("app-hidden-late-name");
+        let fonts = two_cells_and_a_late_one(&dir);
+        let (_lp, mut app) = seat_with(&["--font-name=a", "--font-size=0"], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let first = app.heads.first().unwrap().console.id;
+        assert!(
+            app.open_console(0, Instant::now()),
+            "a second console opens"
+        );
+        app.turn(Instant::now());
+        let second = app.heads.first().unwrap().console.id;
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, first);
+        let mut replies = Vec::new();
+        let term = app.term_mut().unwrap();
+        term.parse(b"\x1b]50;t\x07", &mut |r| replies.extend_from_slice(r));
+        app.turn(Instant::now());
+        assert!(
+            app.heads
+                .first()
+                .unwrap()
+                .console
+                .term
+                .terminal
+                .replies_held(),
+            "console 1 waits for t's cell"
+        );
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t",
+            "console 2, hidden during the wait"
+        );
+        let own = vtium_font::Cell {
+            width: 12,
+            height: 24,
+        };
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(
+            frit.helper
+                .as_mut()
+                .unwrap()
+                .answer_late(Ok(helper::OwnCell::Bitmap(own)))
+        );
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        assert_eq!(head.cell, (12, 24), "the late cell");
+        assert_eq!(
+            String::from_utf8(head.console.term.terminal.take_replies()).unwrap(),
+            "",
+            "console 1 asked nothing"
+        );
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;a\x07\x1b[6;20;10t",
+            "console 2, hidden after the late cell"
+        );
+        app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(app.heads.first().unwrap().console.id, second, "shown");
+        assert_eq!(
+            name_and_cell(&mut app, second),
+            "\x1b]50;t\x07\x1b[6;24;12t"
+        );
     }
 
     // ADR-1200 D17: a late outline answer at the height the head draws at

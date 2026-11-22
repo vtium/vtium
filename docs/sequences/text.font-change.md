@@ -28,11 +28,18 @@ vtium takes only the name of one of its font sets, and ignores anything else, su
 
 These tests check what vtium does with the sequences on this page.
 
+- `a_console_hidden_during_the_wait_answers_once_shown_in_the_new_cell` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
+- `a_hidden_console_names_the_font_it_last_drew_in_until_shown` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
+- `a_hidden_console_takes_the_late_cell_and_its_name_together_once_shown` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
+- `a_switch_answers_in_the_kept_cell_once_the_helper_fails` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
+- `a_switch_answers_once_its_late_cell_is_known` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
 - `osc_50_switches_back_to_vconsoles_font_by_the_name_its_query_reported` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
 - `osc_50_switches_to_a_frit_and_its_helper_is_asked` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
+- `a_hidden_consoles_query_names_the_font_it_last_drew_in_until_shown` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `a_sessions_end_returns_its_switch_to_the_configured_font` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `a_sessions_end_undoes_its_zoom` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
+- `an_osc_50_switch_holds_the_programs_replies_until_the_late_cell` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 
 ## Where to read more
 

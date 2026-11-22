@@ -219,14 +219,18 @@ impl Term {
     }
 
     /// Whether the terminal takes the child's output now: no finished
-    /// frame waits for a display, and no request waits for the turn that
-    /// carries it out. While the pty holds output and this is true, the
-    /// loop turns again at once.
+    /// frame waits for a display, no request waits for the turn that
+    /// carries it out, and the replies the console holds for a late cell
+    /// have not reached the bound on waiting replies. While the pty holds
+    /// output and this is true, the loop turns again at once. A full hold
+    /// stops the reading until the release, since the held replies reach
+    /// no pty and so nothing else stops the loop from turning at once.
     pub fn takes_input(&self) -> bool {
         !(self.unshown
             || self.terminal.font_requested()
             || self.terminal.grid_requested()
-            || self.terminal.display_requested())
+            || self.terminal.display_requested()
+            || (self.terminal.replies_held() && self.terminal.replies_full()))
     }
 
     /// The turn drew what it could of `views`, the head's displays: once
