@@ -68,6 +68,9 @@ considered:
   - operator: aaronsb
     said: "[A direction change sent mid-paragraph: follow the recommendation or keep D2?] Follow the recommendation (Rec.)"
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "A: on its own cell"
+    via: the steering session's question of 2026-11-22 on where a picture and a placeholder run on a double-size line are drawn; A is the option that starts a picture on the screen columns where its cell is drawn
 observable:
   - "The probe `bidi` passes: in the replay interface's display view, `abc` then the Hebrew word shalom then ` (1) def`, printed in the default mode, reads `abc (1) <shalom reversed> def`"
   - "vtium-term, calling unicode-bidi as D13 guards it, passes every case of the Unicode Character Database's BidiTest.txt and BidiCharacterTest.txt at the version its tables pin, the visual order included"
@@ -203,6 +206,8 @@ The computation is a pure function of the screen and the four properties, so a f
 > Edited 2026-11-06: building the frame found four points this section left open. A row whose last right-to-left character is erased draws in written order again, so a frame computed from the screen alone could not tell that its cells moved. Each line therefore keeps a flag besides the four paragraph properties, set when a right-to-left or joining character is written into it or a rewrap gives it one, and a paragraph that holds such a line redraws all its visible rows on any change; that leaves four of `LineFlags`' spare bits, not five. A change to a paragraph property marks every row whose properties it changes. The replay interface's screen and frame views keep printing each row in the order it was written, so their goldens hold in both builds, and the display view of D14 alone prints the drawn order.
 
 > Edited 2026-11-06, after the review of the frame: a character with marks on it is mirrored too, as D7 says, which the first note had left as a limit. The frame carries the cell's mirrored first character beside the cell's own cluster, and a renderer draws the marks on it. An edit that ends a row's wrap splits its paragraph, and the rows of a split paragraph that draws in another order are marked changed. A paragraph of more than `BIDI_PARAGRAPH_ROWS_MAX` rows, 501 or more, draws as explicit; the first build resolved one of exactly 501.
+
+> Edited 2026-11-22: the maintainer decided where a picture and a run of kitty placeholder cells are drawn on a double-width or double-height row. On such a row the cursor's column counts the row's own cells, and the cell in column n is drawn at screen columns 2n and 2n + 1. A picture starts on the screen columns where the cell it was placed in is drawn, at screen column 2n in a left-to-right paragraph. In a right-to-left paragraph its box ends at the right edge of the screen columns where that cell is drawn, 2v + 2 for a cell drawn in place v of the row's order. The picture keeps its own size in both directions. A run of placeholder cells covers the screen columns where its cells are drawn. It starts at twice the smallest place its cells are drawn in and covers two screen columns for each of its cells. Its part of the picture is stretched to that width. A picture placed in a cell the row no longer shows, because the row was made double after the picture was placed, is not drawn.
 
 ### D9: the cursor
 
