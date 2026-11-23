@@ -705,6 +705,9 @@ The maintainer accepted these rules on 2026-11-04 as this record drafted them (`
 - **A value out of bounds in a section** is an error in that section under ADR-1401 D7's strict reading, as D3 says the sections are read, and never clamped as a top-level value is. This record's agent makes that call from D3. A head sets no font key of its own, since a head's font has one path, from the head to its look to the look's frit (ADR-1401 D3).
 - **A key in a section has the top level's name, values and bounds** where the top level has the key too, as `login` and the font keys do. Inside one section a key given twice is an error, as in heads.conf today.
 - **A key a section kind cannot take is an error in that section,** which drops the section under ADR-1401 D7: a head drops with its rules, and a look drops, so a head that names it takes the default look (ADR-1200 D16). The error names the levels where the key may be set.
+
+> Note 2026-11-22: ADR-1510 D2, which the maintainer decided on 2026-11-22, amends this bullet for a key that vtium does not know at all, such as one that a newer vtium added. vtium reports that key with its file and line, ignores the key alone, and reads the rest of the section. A key that vtium knows but that the section kind cannot take, such as `font-name` in a head, still drops the section as this bullet says.
+
 - **The key table records where each key may be set.** Its column that says a key is set in a file or on the command line gains the values `look` and `head`, so docs/config.md lists each key's levels, and allowing one more key in a section later is an edit to one row.
 - **Keys that belong to the whole process stay at the top level,** such as `display-buffers`, `consoles-max`, `hwaccel` and `sb-memory`, for the reason ADR-1401 D2 gives for `display-buffers`: they trade the machine's memory or set the process's behaviour, and are the same for every head.
 
