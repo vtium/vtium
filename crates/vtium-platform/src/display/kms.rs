@@ -134,6 +134,11 @@ pub(crate) trait Kms {
     fn cap(&self, cap: u32) -> io::Result<u64>;
     fn set_master(&self) -> io::Result<()>;
     fn drop_master(&self) -> io::Result<()>;
+    /// Whether this open file of the card is its DRM master now. The
+    /// kernel makes the first process to open a card that no process holds
+    /// master of the card's master, and a seat manager that shares the
+    /// open file can drop master on it, so only the kernel knows.
+    fn is_master(&self) -> io::Result<bool>;
 
     fn resources(&self) -> io::Result<Resources>;
 

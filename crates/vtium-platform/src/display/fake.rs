@@ -205,6 +205,10 @@ pub(crate) struct State {
     pub(crate) master_elsewhere: bool,
     /// The times master was let go while held.
     pub(crate) master_drops: usize,
+    /// The times a drop of master was refused with EINVAL, as the kernel
+    /// refuses it on an open file that is not the master
+    /// (`drm_dropmaster_ioctl`).
+    pub(crate) master_drops_refused: usize,
     /// The kernel removed the card, as when a native driver takes the
     /// display over from simpledrm: every ioctl fails with ENODEV
     /// (`drm_ioctl` checks `drm_dev_is_unplugged`), and a read of the
@@ -1169,11 +1173,17 @@ impl Kms for FakeCard {
         self.unplugged("drop_master")?;
         let mut s = self.state.borrow_mut();
         if !s.master {
+            s.master_drops_refused += 1;
             return Err(err(Errno::INVAL));
         }
         s.master = false;
         s.master_drops += 1;
         Ok(())
+    }
+
+    fn is_master(&self) -> io::Result<bool> {
+        self.unplugged("is_master")?;
+        Ok(self.state.borrow().master)
     }
 
     fn resources(&self) -> io::Result<Resources> {

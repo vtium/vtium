@@ -281,6 +281,11 @@ impl<K: Kms> Drm2d<K> {
             ));
         }
         let levels = card.levels();
+        // The open made this file the card's master where no process held
+        // master, and left it without master where another process held
+        // it. A card whose answer is unknown counts as master, so its
+        // sleep tries to let master go.
+        let master = card.is_master().unwrap_or(true);
         Ok(Drm2d {
             card,
             source: Dumbs,
@@ -289,7 +294,7 @@ impl<K: Kms> Drm2d<K> {
             levels,
             legacy,
             hotspot,
-            master: false,
+            master,
             foreground: false,
             awake: false,
             policy,
@@ -1286,6 +1291,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Ends the sleep once no flip is in flight: hides the planes that show
     /// something, under the master the commit needs, and drops DRM master.
     fn finish_sleep(&mut self) {
+        self.recheck_master();
         let hide = self.planes_to_hide();
         if !hide.entries.is_empty()
             && let Err(e) = self.card.commit(&hide, DRM_MODE_ATOMIC_NONBLOCK)
@@ -1399,16 +1405,40 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.wake_failed = false;
     }
 
+    /// Lets go of the DRM master this file holds. A file without master
+    /// has nothing to let go, and the kernel would refuse the drop with
+    /// `EINVAL` (`drm_dropmaster_ioctl`).
     fn release_master(&mut self) {
         // The kernel removed the card, and its master with it.
         if self.card.removed() {
             self.master = false;
             return;
         }
-        if let Err(e) = self.card.drop_master() {
+        self.recheck_master();
+        if self.master
+            && let Err(e) = self.card.drop_master()
+        {
             log::debug!("cannot drop DRM master: {e}");
         }
         self.master = false;
+    }
+
+    /// Asks the kernel whether this file still holds the DRM master that
+    /// drm2d took. A seat manager shares the open file with vtium and drops
+    /// master on it before it tells vtium to let the card go, as seatd
+    /// does when the VT is switched away (`seat_disable_client`). Without
+    /// master, the sleep then commits nothing and drops nothing. A file
+    /// whose answer is unknown keeps counting as master.
+    fn recheck_master(&mut self) {
+        if !self.master || self.card.removed() {
+            return;
+        }
+        match self.card.is_master() {
+            Ok(held) => self.master = held,
+            // The kernel removed the card, and its master with it.
+            Err(_) if self.card.removed() => self.master = false,
+            Err(e) => log::debug!("cannot ask whether vtium holds DRM master: {e}"),
+        }
     }
 
     /// Looks for connectors plugged in or out, as on a udev hotplug event,

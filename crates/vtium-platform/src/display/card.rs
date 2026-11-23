@@ -148,6 +148,20 @@ impl Kms for Card {
         self.noted(|| -> io::Result<()> { drm_ffi::auth::release_master(self.raw()) })
     }
 
+    /// Asks with an AUTH_MAGIC for the magic number 0, as libdrm's
+    /// `drmIsMaster` does. The kernel lets only the master make that call
+    /// and refuses anyone else with `EACCES`. It answers the master
+    /// `EINVAL`, because no client ever gets 0 as its magic number
+    /// (`drm_authmagic` in `drivers/gpu/drm/drm_auth.c`).
+    fn is_master(&self) -> io::Result<bool> {
+        self.noted(|| match drm_ffi::auth::auth_magic_token(self.raw(), 0) {
+            Ok(_) => Ok(true),
+            Err(e) if e.raw_os_error() == Some(Errno::INVAL.raw_os_error()) => Ok(true),
+            Err(e) if e.raw_os_error() == Some(Errno::ACCESS.raw_os_error()) => Ok(false),
+            Err(e) => Err(e),
+        })
+    }
+
     fn resources(&self) -> io::Result<Resources> {
         self.noted(|| -> io::Result<Resources> {
             read_resources(|crtcs, connectors| {
@@ -683,6 +697,8 @@ mod tests {
         // primary node, so the render node refuses it with EACCES too.
         let e = card.disable_crtc(1).expect_err("SETCRTC on a render node");
         assert_eq!(e.raw_os_error(), Some(Errno::ACCESS.raw_os_error()), "{e}");
+        // A render node is never a card's DRM master.
+        assert_eq!(card.is_master().ok(), Some(false));
         // a render node's driver is a GPU's, never a 1-bit or gray panel's
         assert_eq!(card.levels(), None);
         let mut events = Vec::new();
