@@ -1253,13 +1253,15 @@ A machine with no configuration at all:
   ```text
   vtium.conf has errors and counts as closed: all input is off.
   no possible paths for terminal: no head in /etc/vtium/vtium.conf survives
-  /etc/vtium/vtium.conf:40: unknown key "focs" in [head kiosk]
+  /etc/vtium/vtium.conf:40: `isolated` cannot be "maybe". Change it to one of `yes`, `no`.
   nothing on this console takes input; the full report: vtium check-config /etc/vtium/vtium.conf
   ```
 
   with the first errors, each with its file and line, between the second line and the last. When a policy line vtium cannot read is why the file is closed and broken, that line's error comes first, and the other errors follow in the file's order. It names `check-config` because `check-config` rebuilds the report from the file itself, run over ssh or from other boot media with the disk mounted. The screen stays for as long as vtium runs, with no timeout. It shows in full under every level of `osd`, `silent` included, since vtium serves nothing then (D5; the maintainer, 2026-11-13).
 
 > Edited 2026-11-13: the maintainer added `osd = silent`, and decided that the panic screen shows in full under every level (`considered`, 2026-11-13). The bullet ended: "The screen stays for as long as vtium runs, with no timeout."
+
+> Edited 2026-11-22: under ADR-1510 D2, an unknown key in a head is reported and ignored, so it no longer drops the head, and the example's third line no longer led to its second. The example's error is now a bad value of a key the head takes, which still drops the head, as level 3 above says. The third line read: `/etc/vtium/vtium.conf:40: unknown key "focs" in [head kiosk]`.
 - **The panic screen's drawing.** The panic screen shows the maintainer's drawing of Tux, the Linux penguin, panicked inside a computer monitor, beside or above its text. The maintainer chose the drawings and where each one goes (2026-11-12):
   - **The text always comes first.** The drawing shows only where the text still shows every line that it shows without the drawing. Where the drawing does not fit, the panic screen shows the text alone.
   - **A build without image support** (the minspec build) draws the drawing in plain 7-bit ASCII, one character to a character cell, so it shows in any font, code page 437 included. The full drawing is 32 columns by 20 rows. The small drawing is the monitor cropped from the full one, without the sparks and the keyboard, and it is 21 columns by 10 rows.
