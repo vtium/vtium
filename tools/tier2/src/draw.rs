@@ -1588,8 +1588,8 @@ mod tests {
             Ok(concat!(
                 "vtium.conf has errors and counts as closed: all input is off.\n",
                 "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
-                "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
-                "/etc/vtium/vtium.conf:5: A head's section cannot set `font-size`: a head gets it from its look. Set it in the head's `[look NAME]` section, or at the top of vtium.conf for every head.\n",
+                "/etc/vtium/vtium.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
+                "/etc/vtium/vtium.conf:5: `isolated` cannot be \"maybe\". Change it to one of `yes`, `no`.\n",
                 "/etc/vtium/vtium.conf:7: This rule sends devices to head \"kisok\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.\n",
                 "More errors: 1\n",
                 "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",
@@ -1608,7 +1608,7 @@ mod tests {
             Ok(vtium_render::Notice::new(concat!(
                 "vtium.conf has errors and counts as closed: all input is off.\n",
                 "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
-                "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
+                "/etc/vtium/vtium.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
                 "More errors: 3\n",
                 "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",
             )))
