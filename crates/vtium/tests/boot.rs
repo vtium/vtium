@@ -5579,7 +5579,7 @@ fn the_start_logs_each_head_file_error_with_its_line() {
     let dir = Scratch::new("boot-head-file-log");
     std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o700)).expect("0700");
     let path = dir.join("vtium.conf");
-    let text = "version = 1\n[head desk]\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ndisplay * -> desk\ninput * -> desc\n";
+    let text = "version = 1\n[head desk]\n[head bad]\nconsoles = 0\n[rules]\ndisplay * -> desk\ndisplay * -> desk\ninput * -> desc\n";
     std::fs::write(&path, text).expect("vtium.conf");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
     // read as the console reads it, by the account the test runs as

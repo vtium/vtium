@@ -2166,8 +2166,8 @@ mod tests {
     const PANIC: &str = concat!(
         "vtium.conf has errors and counts as closed: all input is off.\n",
         "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
-        "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
-        "/etc/vtium/vtium.conf:5: This section has no key named \"font-weight\". Check the spelling, or remove the line.\n",
+        "/etc/vtium/vtium.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
+        "/etc/vtium/vtium.conf:5: `isolated` cannot be \"maybe\". Change it to one of `yes`, `no`.\n",
         "/etc/vtium/vtium.conf:7: This rule sends devices to head \"k\\u{202e}x\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.\n",
         "More errors: 2\n",
         "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",
@@ -2261,7 +2261,7 @@ mod tests {
     // covers: platform.heads.policy
     #[test]
     fn a_broken_closed_files_start_shows_the_panic_screens_report() {
-        let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\nfont-weight = bold\n[rules]\ndisplay * -> k\u{202e}x\ninput * -> desc\ninput * -> nowhere\n";
+        let text = "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\nisolated = maybe\n[rules]\ndisplay * -> k\u{202e}x\ninput * -> desc\ninput * -> nowhere\n";
         let start = Start::trusted(
             std::path::Path::new("/etc/vtium/vtium.conf"),
             text.as_bytes(),
@@ -2276,7 +2276,7 @@ mod tests {
             "escaped: {shown:?}"
         );
         // any other start shows its console line and next step alone
-        let partly = "version = 1\npolicy = closed\n[head desk]\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> desk\n";
+        let partly = "version = 1\npolicy = closed\n[head desk]\n[head kiosk]\nconsoles = 0\n[rules]\ndisplay * -> desk\n";
         let start = Start::trusted(
             std::path::Path::new("/etc/vtium/vtium.conf"),
             partly.as_bytes(),
@@ -2887,7 +2887,7 @@ mod tests {
     fn a_display_no_rule_claims_with_no_head_declared_is_told_to_declare_one() {
         let path = std::path::Path::new("/etc/vtium/vtium.conf");
         let off = include_str!("../../../docs/heads/off.conf");
-        let broken = "version = 1\npolicy = closed\n[head desk]\nfocs = 1\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n";
+        let broken = "version = 1\npolicy = closed\n[head desk]\nconsoles = 0\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n";
         let display = vtium_settings::Identity {
             connector: Some("HDMI-A-1".to_owned()),
             card: Some("pci-0000:03:00.0".to_owned()),

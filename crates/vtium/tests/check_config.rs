@@ -427,7 +427,7 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
          policy = closed
          [head desk]
          [head kiosk]
-         frob = 1
+         consoles = 0
          [rules]
          display * -> desk
          input * -> kiosk
@@ -444,9 +444,7 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
     assert_eq!(
         lines,
         [
-            format!(
-                "{f}:5: This section has no key named \"frob\". Check the spelling, or remove the line."
-            ),
+            format!("{f}:5: `consoles` cannot be \"0\": it takes 1 or more."),
             format!(
                 "{f}:5: Because of this error, vtium ignores this head and every rule that names it."
             ),

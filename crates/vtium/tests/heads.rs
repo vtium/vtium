@@ -5461,13 +5461,13 @@ const PARTLY: &str = "vtium.conf has errors: running the parts without errors.\n
 const CLOSED_OFF: &str = "vtium.conf has errors and counts as closed: all input is off.\nThis console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.";
 
 /// The panic screen of a broken closed file whose one error, on line 4,
-/// is the key `focs`, read as `heads.conf` (D7): the console line, that
+/// is `consoles = 0`, read as `heads.conf` (D7): the console line, that
 /// no head is left, the error with its file and line, and the next step,
 /// each naming the file the start read.
 const PANIC: &str = concat!(
     "vtium.conf has errors and counts as closed: all input is off.\n",
     "No head can run because of the errors in heads.conf, listed below.\n",
-    "heads.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
+    "heads.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
     "This console takes no input. For the full report, run vtium check-config heads.conf over ssh or from other boot media.",
 );
 
@@ -5567,10 +5567,7 @@ fn d7_row(row: &Row) {
                 let path = file.path.display();
                 let at = |line: &str, error: &str| format!("{path}{line}: {error}");
                 let error = match test {
-                    "broken-closed" => at(
-                        ":4",
-                        "This section has no key named \"focs\". Check the spelling, or remove the line.",
-                    ),
+                    "broken-closed" => at(":4", "`consoles` cannot be \"0\": it takes 1 or more."),
                     // the policy line vtium cannot read, at its line
                     "unreadable-policy" | "unreadable-policy-no-head" => at(
                         ":2",
@@ -5706,14 +5703,14 @@ fn each_row_of_d7s_outcomes_runs_what_it_says_and_shows_its_line() {
         },
         Row {
             test: "partly-closed",
-            text: format!("version = 1\npolicy = closed\n{DESK}[head bad]\ncolour = red\n"),
+            text: format!("version = 1\npolicy = closed\n{DESK}[head bad]\nconsoles = 0\n"),
             kind: Kind::File,
             heads: &["desk"], lit: 2,
             line: Some(PARTLY),
         },
         Row {
             test: "broken-open",
-            text: "version = 1\n[head desk]\ncolour = red\n[rules]\ndisplay * -> desk\n".into(),
+            text: "version = 1\n[head desk]\nconsoles = 0\n[rules]\ndisplay * -> desk\n".into(),
             kind: Kind::File,
             heads: &["console"], lit: 2,
             line: Some(SKIPPED),
@@ -5728,7 +5725,7 @@ fn each_row_of_d7s_outcomes_runs_what_it_says_and_shows_its_line() {
         },
         Row {
             test: "broken-closed",
-            text: "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\n".into(),
+            text: "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\n[rules]\ndisplay * -> kiosk\n".into(),
             kind: Kind::File,
             heads: &[], lit: 1,
             line: Some(CLOSED_OFF),
@@ -5753,7 +5750,7 @@ fn each_row_of_d7s_outcomes_runs_what_it_says_and_shows_its_line() {
 // covers: platform.heads.policy
 #[test]
 fn a_partly_broken_open_file_runs_its_survivors_then_the_shipped_tail_with_no_head_isolated() {
-    let text = "version = 1\n[head desk]\nisolated = yes\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ninput path:kbd-bad -> bad\n";
+    let text = "version = 1\n[head desk]\nisolated = yes\n[head bad]\nconsoles = 0\n[rules]\ndisplay * -> desk\ninput path:kbd-bad -> bad\n";
     let displays = [(
         "/dev/mem0",
         Memory::new(320, 160, "MEM-1", "mem-small").lit(),
@@ -5775,7 +5772,7 @@ fn a_partly_broken_open_file_runs_its_survivors_then_the_shipped_tail_with_no_he
 // covers: platform.heads.policy
 #[test]
 fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() {
-    let text = "version = 1\npolicy = closed\n[head desk]\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ninput path:kbd-bad -> bad\ninput path:kbd-desk -> desk\n";
+    let text = "version = 1\npolicy = closed\n[head desk]\n[head bad]\nconsoles = 0\n[rules]\ndisplay * -> desk\ninput path:kbd-bad -> bad\ninput path:kbd-desk -> desk\n";
     let displays = [(
         "/dev/mem0",
         Memory::new(320, 160, "MEM-1", "mem-small").lit(),
@@ -5811,7 +5808,7 @@ fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() 
 // covers: platform.heads.policy
 #[test]
 fn a_broken_closed_file_runs_nothing_and_shows_the_panic_screen_on_the_boot_display_for_good() {
-    let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
+    let text = "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
     let displays = [
         ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
         (
@@ -5973,7 +5970,7 @@ fn under_closed_with_no_display_vtium_waits_past_display_wait() {
 fn noticed() -> (Seat, HeadFile) {
     let file = HeadFile::new(
         "noticed",
-        "version = 1\n[head desk]\ncolour = red\n[rules]\ndisplay * -> desk\n",
+        "version = 1\n[head desk]\nconsoles = 0\n[rules]\ndisplay * -> desk\n",
     );
     let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
     let mut s = Seat::with_rules(
@@ -9047,7 +9044,7 @@ fn under_closed_osd_silent_lights_no_display_for_a_console_line() {
 // covers: platform.heads.policy
 #[test]
 fn the_panic_screen_looks_the_same_under_osd_silent_as_under_minimal() {
-    let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
+    let text = "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
     let drawn: Vec<(Option<String>, Vec<u8>)> = ["--osd=minimal", "--osd=silent"]
         .into_iter()
         .map(|osd| {
