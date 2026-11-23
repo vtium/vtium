@@ -66,7 +66,15 @@ considered:
   - operator: aaronsb
     said: "I thin unkernel makes sense. it gives us a chance to add some configurables to vtium, basically disabling safety."
     via: the maintainer, after the study of v86 against unkernel, in the steering session on 2026-11-22, as the steering session's notes of that day record it; the rest of the answer, on the helpers' sandbox, is recorded in ADR-1200 and ADR-1101
-status: proposed
+  - operator: aaronsb
+    said: "Message only"
+    via: the maintainer, answering the fallback probe through the question tool in the steering session, 2026-11-22
+    covers: [fallback]
+  - operator: aaronsb
+    said: "locale scripts that just switch modes"
+    via: the maintainer, in the steering session on 2026-11-22, when the demonstrator was first planned
+    covers: [what the scripts do]
+status: accepted
 date: 2026-11-22
 deciders:
   - aaronsb
@@ -86,8 +94,8 @@ related:
 - **Trades away:** The image is not the system vtium runs on in daily use. It has no systemd, logind, PAM or seat manager, so tier 3 goes on judging those. Each release gains a build step and a page to publish, and the image's GPL programs need their sources offered beside it. The fonts, layouts and locale data make the image larger than vtium needs in order to start. In the browser, vtium runs inside an emulator that the project does not control, with no VTs, and its font and image helpers run without their seccomp filters and landlock domain there.
 - **One-way?** No. The image is built output, and dropping it costs a build step and a page. Once people link to the launch page, its address is worth keeping.
 - **Probes:**
-  - *Confident (what the scripts do):* each locale mode script only switches the keyboard layout, the font set and `LANG`, and returns. It shows no lesson and no sample text. Is that the scope you want?
-  - *Not confident (fallback):* unkernel runs only in browsers with JSPI: Chrome and Edge from 137, Firefox from 153 and Safari from 27. In an older browser, the page could boot the same demo on v86 at 800×600 from a saved state, which is slower but runs everywhere. Should the page fall back to v86, rather than show a message that names the browsers that work?
+  - *Confident (what the scripts do):* each locale mode script only switches the keyboard layout, the font set and `LANG`, and returns. It shows no lesson and no sample text. Is that the scope you want? (Answered 2026-11-22; see `considered`.)
+  - *Not confident (fallback):* unkernel runs only in browsers with JSPI: Chrome and Edge from 137, Firefox from 153 and Safari from 27. In an older browser, the page could boot the same demo on v86 at 800×600 from a saved state, which is slower but runs everywhere. Should the page fall back to v86, rather than show a message that names the browsers that work? (Answered 2026-11-22; see `considered`.)
 - **Inversion:** Between "a person installs vtium to try it", which means replacing the login prompt on a VT of their own machine, and "vtium ships a distribution of its own". The demo image is a minimal system built only to show vtium and to run its review, and each release rebuilds it.
 
 ## Context
@@ -157,7 +165,9 @@ The maintainer chose unkernel after a study measured it against v86 on the same 
 - **The CPU path first.** vtium's CPU path draws on unkernel's display. In a browser with WebGL2, unkernel also offers a KMS device through virgl, and there vtium's GPU path runs with Mesa in the image. The GPU image is 82 MB, needs 1,536 MiB of guest memory, and its speed is untimed. So the first browser image is the CPU image that D1 builds, and a GPU page follows with the GPU flavour.
 - **The release's aarch64 build.** unkernel runs aarch64 programs, so the browser image packs the release's aarch64 binaries with the same tree, as D5 allows.
 - **No VTs.** unkernel's kernel has no VTs, so vtium runs one console without a VT, and the page shows no switching between consoles. busybox's init starts one vtium there in place of D1's two. The download for QEMU keeps D1's kernel with VTs.
-- **Browsers with JSPI.** unkernel needs JSPI, WebAssembly's interface for suspending a call into JavaScript. It ships turned on in Chrome and Edge from version 137, Firefox from 153 and Safari from 27, about 77% of browsers in use in November 2026. The page checks for it with unkernel's own support check before it boots anything. Whether a failed check falls back to v86 is the Summary's fallback probe. The lean is yes: v86 at 800×600, resumed from a saved state, where scrolling and redraws take about two thirds of their time at 1024×768 and the screen still holds 100×37 cells.
+- **Browsers with JSPI.** unkernel needs JSPI, WebAssembly's interface for suspending a call into JavaScript. It ships turned on in Chrome and Edge from version 137, Firefox from 153 and Safari from 27, about 77% of browsers in use in November 2026. The page checks for it with unkernel's own support check before it boots anything. When the check fails, the page boots nothing and shows a message that names the browsers that work. The page carries no second emulator (the maintainer, 2026-11-22).
+
+> Edited 2026-11-22: the maintainer answered the fallback probe against its lean. The bullet's last sentences read: "Whether a failed check falls back to v86 is the Summary's fallback probe. The lean is yes: v86 at 800×600, resumed from a saved state, where scrolling and redraws take about two thirds of their time at 1024×768 and the screen still holds 100×37 cells."
 - **The helpers on unkernel's kernel.** The kernel is built without seccomp and without landlock. vtium's font and image helpers then run without their filters and their landlock domain, and vtium logs the reason, as ADR-1200 D15 and ADR-1101 D9 decide. The image's vtium.conf keeps the sandbox setting at its default, so its log names the kernel as the reason. The guest runs inside the browser's own sandbox, and only the visitor, who already has a shell, can send it a font or a picture.
 - **Static files.** With one emulated CPU on the page's own thread, unkernel needs no cross-origin isolation, so GitHub Pages serves the page as plain files.
 - **The kernel's source.** unkernel's kernel and emulator are GPL-2.0, and its SDK and page code are MIT. The launch page offers the source of the exact kernel it serves, beside the sources of the image's GPL programs (D2).

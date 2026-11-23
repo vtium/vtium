@@ -377,6 +377,9 @@ considered:
   - operator: aaronsb
     said: "it gives us a chance to add some configurables to vtium, basically disabling safety. I believe when sandboxing (safety, seccomp) is deactivated we don't need to print anything to screen but it should be clear that if the kernel is new enough to support it, but it's off, it's logged clearly. something like kernel is new enough to support seccomp but it is either not compiled with it/vtium cannot use it/vtium has it disabled...that sort of thing"
     via: the maintainer, choosing unkernel for the browser demo after the study of v86 against unkernel, in the steering session on 2026-11-22, as the steering session's notes of that day record it; the setting and the log's reasons are folded into D15
+  - operator: aaronsb
+    said: "Yes, as designed"
+    via: the maintainer, answering the steering session's summary of the helper-sandbox setting through the question tool, 2026-11-22
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
