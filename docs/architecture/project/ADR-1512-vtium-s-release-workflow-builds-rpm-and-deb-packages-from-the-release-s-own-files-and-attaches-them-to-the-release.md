@@ -36,7 +36,48 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
-status: proposed
+considered:
+  - operator: aaronsb
+    said: "Two repositories"
+    via: the maintainer, through the question tool in the steering session, 2026-11-23
+    covers: [where the packaging lives]
+  - operator: aaronsb
+    said: "A fonts archive"
+    via: the maintainer, through the question tool in the steering session, 2026-11-23
+    covers: [the font files]
+  - operator: aaronsb
+    said: "pinned rust for now, subject to change based on how it really works out"
+    via: the maintainer, through the question tool in the steering session, 2026-11-23
+    covers: [the Rust compiler]
+  - operator: aaronsb
+    said: "All seven"
+    via: the maintainer, through the question tool in the steering session, 2026-11-23
+    covers: [the targets]
+  - operator: aaronsb
+    said: "x86_64 first"
+    via: the maintainer, through the question tool in the steering session, 2026-11-23
+    covers: [architectures]
+  - operator: aaronsb
+    said: "One file everywhere"
+    via: the maintainer, through the question tool in the steering session, 2026-11-23
+    covers: [the PAM file]
+  - operator: aaronsb
+    said: "All or nothing"
+    via: the maintainer, through the question tool in the steering session, 2026-11-23
+    covers: [a failed package]
+  - operator: aaronsb
+    said: "All three right"
+    via: the maintainer, through the question tool in the steering session, 2026-11-23
+    covers: [every release]
+  - operator: aaronsb
+    said: "All three right"
+    via: the maintainer, through the question tool in the steering session, 2026-11-23
+    covers: [no signatures]
+  - operator: aaronsb
+    said: "All three right"
+    via: the maintainer, through the question tool in the steering session, 2026-11-23
+    covers: [the claim]
+status: accepted
 date: 2026-11-23
 deciders:
   - aaronsb
@@ -57,16 +98,16 @@ related:
 - **Trades away:** A person on these distributions downloads each release's file and installs it, because no package repository tells `dnf`, `zypper` or `apt` that a newer vtium exists. The packages carry no package manager signature, so trust rests on the attestations and `SHA256SUMS`, and zypper asks before it installs an unsigned file. A release takes longer, since it waits for seven target releases' builds, lints and installs, and a failed package holds the whole release back. Once published, a release's files are locked, so a packaging fix waits for the next release. The packages claim the free VTs at install, as the Arch packages do, which the distributions' own rules forbid for their archives, so these packages stay vtium's own. The packages carry Cullet Mono's faces built on another machine, because the distributions' FontForge does not write the bytes vtium pins.
 - **One-way?** No. How the packages are built is reversible, because a release's packages are files and a later release can build them another way. The package names are expensive: once machines install `vtium-minspec` by name, a rename needs a transition package in each family.
 - **Probes:**
-  - *Not confident (where the packaging lives):* the spec files and `debian/` directories live in two new repositories, `vtium/vtium-rpm` and `vtium/vtium-deb`, held as submodules at `packaging/rpm` and `packaging/deb`, as ADR-1500 D1 decides for each package manager (D5). The other choice is two folders in vtium's own tree. Lean: the repositories, because they keep the packaging's history and CI apart from vtium's, match vtium-arch, and give a later build service a repository to read. Do you want the repositories, or the folders?
-  - *Not confident (the font files):* `make install` needs Cullet Mono's faces, and only FontForge 20251009 writes the bytes their pins hold. Lean: each release carries the font files `make install` stages, built once in the release workflow, as a new archive `vtium-VERSION-fonts.tar.zst` beside the vendor archive (D4). The other choices are building the faces in each family's container with that family's FontForge, which fails the pins, or loosening the pins for packages. Is a fonts archive on each release right?
-  - *Not confident (the Rust compiler):* the packages build with the Rust release that `rust-toolchain.toml` pins, which rustup installs in the build container before the offline build (D4). Debian 13's own rustc is 1.85, older than vtium's minimum of 1.88. Lean: the pinned Rust on every target, so every package builds with the compiler the gates ran. Should a target whose own Rust is new enough, such as Fedora, use its own Rust instead?
-  - *Not confident (the targets):* Fedora 44 and 45, openSUSE Tumbleweed and Leap 16.1, Debian 13, and Ubuntu 24.04 and 26.04, seven targets in all (D6). Lean: both Ubuntu LTS releases, because most Ubuntu machines still run 24.04, and only the newest Leap and Debian's stable release. Is that the list, or should Ubuntu keep only 26.04?
-  - *Not confident (architectures):* the packages build for x86_64 only at first, as vtium-arch's do. Lean: aarch64 joins once its packages can be checked, because tier 3's guests run on x86_64 KVM, so an aarch64 package would go out unchecked (D8). Should aarch64 packages come with the first release that carries packages, checked in containers only?
-  - *Not confident (the PAM file):* seat mode's PAM file, `/etc/pam.d/vtium`, names its modules directly and includes no stack of the distribution's. Lean: every family ships vtium's one file, because it must give the session the greeter class, which a family's shared session stack does not set, and every family has its modules. A family gets a file of its own only when its guest shows that the shared file fails there (D2). Is one file right, or should each family's file include that family's stack from the start?
-  - *Not confident (a failed package):* when one package fails to build, lint or install, the release run attaches nothing, so the release waits until the package is fixed (D4). Lean: a release carries all its files or none, so a published release never lacks a package that its notes name. Should a release go out without the failed target's packages instead?
-  - *Confident (every release):* every release carries packages, pre-releases included, because the maintainer chose files on each GitHub release. Is that what you want?
-  - *Confident (no signatures):* the packages carry no rpm or deb signature, and a person checks a file with `gh attestation verify` and `SHA256SUMS` (D4). Signed repositories come with the build services. Is that what you want?
-  - *Confident (the claim):* each console package claims the free VTs in direct mode at a first install and gives them back at removal, as vtium-arch's packages do (D2). Is that what you want on these distributions too?
+  - *Not confident (where the packaging lives):* the spec files and `debian/` directories live in two new repositories, `vtium/vtium-rpm` and `vtium/vtium-deb`, held as submodules at `packaging/rpm` and `packaging/deb`, as ADR-1500 D1 decides for each package manager (D5). The other choice is two folders in vtium's own tree. Lean: the repositories, because they keep the packaging's history and CI apart from vtium's, match vtium-arch, and give a later build service a repository to read. Do you want the repositories, or the folders? (Answered 2026-11-23; see `considered`.)
+  - *Not confident (the font files):* `make install` needs Cullet Mono's faces, and only FontForge 20251009 writes the bytes their pins hold. Lean: each release carries the font files `make install` stages, built once in the release workflow, as a new archive `vtium-VERSION-fonts.tar.zst` beside the vendor archive (D4). The other choices are building the faces in each family's container with that family's FontForge, which fails the pins, or loosening the pins for packages. Is a fonts archive on each release right? (Answered 2026-11-23; see `considered`.)
+  - *Not confident (the Rust compiler):* the packages build with the Rust release that `rust-toolchain.toml` pins, which rustup installs in the build container before the offline build (D4). Debian 13's own rustc is 1.85, older than vtium's minimum of 1.88. Lean: the pinned Rust on every target, so every package builds with the compiler the gates ran. Should a target whose own Rust is new enough, such as Fedora, use its own Rust instead? (Answered 2026-11-23; see `considered`.)
+  - *Not confident (the targets):* Fedora 44 and 45, openSUSE Tumbleweed and Leap 16.1, Debian 13, and Ubuntu 24.04 and 26.04, seven targets in all (D6). Lean: both Ubuntu LTS releases, because most Ubuntu machines still run 24.04, and only the newest Leap and Debian's stable release. Is that the list, or should Ubuntu keep only 26.04? (Answered 2026-11-23; see `considered`.)
+  - *Not confident (architectures):* the packages build for x86_64 only at first, as vtium-arch's do. Lean: aarch64 joins once its packages can be checked, because tier 3's guests run on x86_64 KVM, so an aarch64 package would go out unchecked (D8). Should aarch64 packages come with the first release that carries packages, checked in containers only? (Answered 2026-11-23; see `considered`.)
+  - *Not confident (the PAM file):* seat mode's PAM file, `/etc/pam.d/vtium`, names its modules directly and includes no stack of the distribution's. Lean: every family ships vtium's one file, because it must give the session the greeter class, which a family's shared session stack does not set, and every family has its modules. A family gets a file of its own only when its guest shows that the shared file fails there (D2). Is one file right, or should each family's file include that family's stack from the start? (Answered 2026-11-23; see `considered`.)
+  - *Not confident (a failed package):* when one package fails to build, lint or install, the release run attaches nothing, so the release waits until the package is fixed (D4). Lean: a release carries all its files or none, so a published release never lacks a package that its notes name. Should a release go out without the failed target's packages instead? (Answered 2026-11-23; see `considered`.)
+  - *Confident (every release):* every release carries packages, pre-releases included, because the maintainer chose files on each GitHub release. Is that what you want? (Answered 2026-11-23; see `considered`.)
+  - *Confident (no signatures):* the packages carry no rpm or deb signature, and a person checks a file with `gh attestation verify` and `SHA256SUMS` (D4). Signed repositories come with the build services. Is that what you want? (Answered 2026-11-23; see `considered`.)
+  - *Confident (the claim):* each console package claims the free VTs in direct mode at a first install and gives them back at removal, as vtium-arch's packages do (D2). Is that what you want on these distributions too? (Answered 2026-11-23; see `considered`.)
 - **Inversion:** Between "the distributions package vtium in their own archives", which takes their maintainers and their rules, and "each person builds vtium from source". vtium builds its own packages for each distribution, from the files its release already attests, and publishes them on the release.
 
 ## Context
