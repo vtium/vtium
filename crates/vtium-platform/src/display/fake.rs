@@ -209,6 +209,9 @@ pub(crate) struct State {
     /// refuses it on an open file that is not the master
     /// (`drm_dropmaster_ioctl`).
     pub(crate) master_drops_refused: usize,
+    /// The kernel gives no answer to whether this file is the master: the
+    /// question fails with ENOTTY, so vtium cannot tell.
+    pub(crate) master_unanswered: bool,
     /// The kernel removed the card, as when a native driver takes the
     /// display over from simpledrm: every ioctl fails with ENODEV
     /// (`drm_ioctl` checks `drm_dev_is_unplugged`), and a read of the
@@ -1183,7 +1186,11 @@ impl Kms for FakeCard {
 
     fn is_master(&self) -> io::Result<bool> {
         self.unplugged("is_master")?;
-        Ok(self.state.borrow().master)
+        let s = self.state.borrow();
+        if s.master_unanswered {
+            return Err(err(Errno::NOTTY));
+        }
+        Ok(s.master)
     }
 
     fn resources(&self) -> io::Result<Resources> {

@@ -2735,6 +2735,39 @@ fn a_card_whose_seat_manager_dropped_master_before_the_wake_up_sleeps_quietly() 
     assert_eq!(s.master_drops_refused, 0, "no drop of a master not held");
 }
 
+// The kernel gives no answer at the open to whether the file is the
+// card's master, and the file is not. The first wake-up still takes
+// master, so it sets the display up at once instead of failing until a
+// retry.
+#[test]
+fn a_card_whose_master_is_unknown_at_the_open_takes_master_at_the_wake_up() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
+    {
+        let mut s = card.state();
+        s.master = false;
+        s.master_unanswered = true;
+    }
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    assert!(v.card().state().master);
+}
+
+// The kernel gives no answer to whether the file is the card's master, and
+// the file is. The sleep still lets master go, so the vtium of the VT
+// shown next can take it.
+#[test]
+fn a_card_whose_master_is_unknown_lets_master_go_at_the_sleep() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
+    card.state().master_unanswered = true;
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.sleep();
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    let s = v.card().state();
+    assert!(!s.master);
+    assert_eq!(s.master_drops, 1);
+}
+
 // A monitor's power cycle: the connector goes, and another comes, as an
 // MST connector is replaced. With no display left the
 // card keeps master, as its VT is still shown.
