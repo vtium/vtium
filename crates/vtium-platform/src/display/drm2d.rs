@@ -1811,7 +1811,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             if o.announced {
                 self.events.push(Event::Removed(o.id));
             }
+            let (crtc, name) = (o.crtc, o.name.clone());
             self.free(o);
+            self.legacy_gone_off(crtc, &name);
             changed = true;
         }
         self.move_refused.retain(|id| connected.contains(id));
@@ -2725,6 +2727,26 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
         }
         set
+    }
+
+    /// Turns off `crtc`, which display `name` held until it went, on a card
+    /// driven through the legacy calls, where no display left takes the
+    /// CRTC and it still shows a mode. Removing the framebuffers of the
+    /// gone display turns its CRTC off on some drivers, such as amdgpu.
+    /// Others, such as i915, keep the CRTC lit with the gone connector on
+    /// it, which holds a multi-stream connector's share of the link. The
+    /// legacy call that turns the CRTC off takes every connector off it.
+    fn legacy_gone_off(&self, crtc: u32, name: &str) {
+        if !self.legacy
+            || self.card.removed()
+            || self.outputs.iter().any(|o| o.crtc == crtc)
+            || !matches!(self.card.crtc_mode(crtc), Ok(Some(_)))
+        {
+            return;
+        }
+        if let Err(e) = self.card.disable_crtc(crtc) {
+            log::warn!("cannot turn off the CRTC that display {name} held: {e}");
+        }
     }
 
     /// Lets go of display `o`, which a placement could not put on a CRTC

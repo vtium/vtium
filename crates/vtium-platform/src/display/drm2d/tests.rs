@@ -5259,6 +5259,26 @@ fn a_display_plugged_back_in_on_a_crtc_left_on_shows_its_first_frame() {
     assert!(v.card().shows(100, fb), "{:?}", v.card().state());
 }
 
+// On a legacy card whose driver keeps a CRTC lit when its framebuffer
+// goes, as i915 does, the unplug turns the gone display's CRTC off, which
+// takes the unplugged connector off it.
+#[test]
+fn a_display_gone_from_a_legacy_card_has_its_crtc_turned_off() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().remove_fb = RemoveFb::PlaneOff;
+    card.state().atomic = false;
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x11);
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    let s = v.card().state();
+    assert_eq!(s.disabled_crtcs, [100]);
+    assert_eq!(s.active.get(&100), Some(&false), "the CRTC is off");
+    assert_eq!(s.bound.get(&A), None, "the connector is off the CRTC");
+    assert_eq!(s.crtc_modes.get(&100), None);
+}
+
 /// The debug lines since [`logs::capture`] that say a display's modeset
 /// is on screen. `tools/vt/run-vt.sh` copies the card's state at each.
 fn modesets_shown() -> Vec<String> {
