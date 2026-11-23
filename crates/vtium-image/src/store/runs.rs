@@ -27,9 +27,9 @@
 use std::collections::BTreeMap;
 
 use super::relative::Located;
-use super::{ALT, Buffer, Placement, Rows, Screens, Spot, Store};
+use super::{ALT, Buffer, Geometry, Placement, Rows, Screens, Spot, Store};
 use crate::bounds::{IMAGES_PER_BUFFER, PLACEMENTS_PER_BUFFER};
-use crate::image::{LineKey, PlaceholderRun, PlacementKey};
+use crate::image::{LineKey, Place, PlaceholderRun, PlacementKey};
 use crate::rules::rules;
 
 #[cfg(test)]
@@ -157,21 +157,42 @@ fn run_origin(row: i64, run: &PlaceholderRun) -> (i64, i64) {
     )
 }
 
+/// The origin run `run` on screen row `row` gives its virtual placement on
+/// the screen as a frame draws it: the row of the picture's top left cell
+/// and the screen column where the picture's first column is drawn. A run
+/// on a double-size line draws each cell two screen columns wide, so the
+/// picture's columns left of the run cover twice as many screen columns.
+///
+/// References:
+/// - ADR-1004 D8, "Double-size rows": a child of a virtual placement starts
+///   from where its parent is drawn, offset in screen columns.
+pub(super) fn drawn_origin(row: i64, run: &PlaceholderRun) -> (i64, i64) {
+    let scale = if run.double { 2 } else { 1 };
+    (
+        row.saturating_sub(i64::from(run.row)),
+        i64::from(run.col)
+            .saturating_sub(i64::from(run.column))
+            .saturating_mul(scale),
+    )
+}
+
 /// The origin of each virtual placement that `runs` show: the least row
 /// and the least column over its runs' cells, each cell's own row and
-/// column in the picture taken off first (D13). `row_of` gives a run's
-/// line's row, or `None` for a line the rows given do not hold.
+/// column in the picture taken off first (D13), as `at` gives the origin
+/// of one run. `row_of` gives a run's line's row, or `None` for a line the
+/// rows given do not hold.
 pub(super) fn origins(
     virtuals: &Virtuals,
     runs: &[PlaceholderRun],
     row_of: impl Fn(LineKey) -> Option<i64>,
+    at: fn(i64, &PlaceholderRun) -> (i64, i64),
 ) -> BTreeMap<PlacementKey, (i64, i64)> {
     let mut out: BTreeMap<PlacementKey, (i64, i64)> = BTreeMap::new();
     for run in runs {
         let (Some(key), Some(row)) = (virtuals.find(run), row_of(run.line)) else {
             continue;
         };
-        let (top, left) = run_origin(row, run);
+        let (top, left) = at(row, run);
         out.entry(key)
             .and_modify(|o| *o = (o.0.min(top), o.1.min(left)))
             .or_insert((top, left));
@@ -191,14 +212,19 @@ pub(super) fn origins(
 /// double-size line draws it two screen columns wide, at screen columns 2n
 /// and 2n + 1. The entry of a run on such a line starts at screen column
 /// 2n and covers two screen columns for each of the run's cells that fits
-/// on the screen. The picture's horizontal offset and drawn width are
-/// doubled with it, so the part of the picture under the run fills the
-/// wider box. The picture keeps its height.
+/// on the screen. Its cells are twice as wide, so the grid is twice as
+/// wide too, and the picture is fitted again into that wider grid with its
+/// aspect kept and centered, as kitty's rule for a virtual placement says.
+/// The run shows its part of that fit. Each row of a grid thus shows its
+/// part of the fit for its own line's cells: the rows of one grid on lines
+/// of different sizes show parts of two fits.
 ///
 /// References:
 /// - ADR-1004 D8, "Double-size rows": a placeholder run covers the screen
-///   columns where its cells are drawn, twice as wide on a double-size
-///   line.
+///   columns where its cells are drawn, and its picture keeps its aspect
+///   in the doubled grid.
+/// - ADR-1100 D13: a virtual placement's picture is fitted to its grid of
+///   cells, its aspect kept and centered.
 pub(super) fn run_placement(p: &Placement, run: &PlaceholderRun, cols: usize) -> Option<Placement> {
     let scale: u32 = if run.double { 2 } else { 1 };
     let start = run.col.checked_mul(scale)?;
@@ -214,13 +240,21 @@ pub(super) fn run_placement(p: &Placement, run: &PlaceholderRun, cols: usize) ->
     if cells == 0 {
         return None;
     }
-    let (cw, ch) = (i64::from(p.cw), i64::from(p.ch));
-    let ox =
-        p.ox.saturating_sub(i64::from(run.column).saturating_mul(cw));
-    let oy = p.oy.saturating_sub(i64::from(run.row).saturating_mul(ch));
+    let (fx, fy, fw, fh) = if run.double {
+        doubled_fit(p)?
+    } else {
+        (p.ox, p.oy, p.dw, p.dh)
+    };
+    // the run's cells are `scale` cells of the placement's unit wide
+    let (cw, ch) = (
+        i64::from(p.cw).saturating_mul(i64::from(scale)),
+        i64::from(p.ch),
+    );
+    let ox = fx.saturating_sub(i64::from(run.column).saturating_mul(cw));
+    let oy = fy.saturating_sub(i64::from(run.row).saturating_mul(ch));
     let (dw, dh) = (
-        i64::try_from(p.dw).unwrap_or(i64::MAX),
-        i64::try_from(p.dh).unwrap_or(i64::MAX),
+        i64::try_from(fw).unwrap_or(i64::MAX),
+        i64::try_from(fh).unwrap_or(i64::MAX),
     );
     let width = i64::from(cells).saturating_mul(cw);
     let covers = ox < width && ox.saturating_add(dw) > 0 && oy < ch && oy.saturating_add(dh) > 0;
@@ -228,11 +262,29 @@ pub(super) fn run_placement(p: &Placement, run: &PlaceholderRun, cols: usize) ->
         col: start,
         cols: cells.saturating_mul(scale),
         rows: 1,
-        ox: ox.saturating_mul(i64::from(scale)),
+        ox,
         oy,
-        dw: p.dw.saturating_mul(u64::from(scale)),
+        dw: fw,
+        dh: fh,
         ..p.clone()
     })
+}
+
+/// Virtual placement `p`'s picture fitted into its grid with every cell
+/// twice as wide, as a double-size line draws it: its offset and drawn
+/// size in pixels of the placement's cell, fitted into the wider grid with
+/// its aspect kept and centered. A cell offset the placement was given is
+/// not carried into the wider grid. `None` when the fit refuses the size.
+fn doubled_fit(p: &Placement) -> Option<(i64, i64, u64, u64)> {
+    let place = Place {
+        cols: p.cols.checked_mul(2)?,
+        rows: p.rows,
+        src_width: p.sw,
+        src_height: p.sh,
+        ..Place::default()
+    };
+    let g = Geometry::fit(&place, None, (p.sw, p.sh), (p.cw, p.ch)).ok()?;
+    Some((g.ox, g.oy, g.dw, g.dh))
 }
 
 impl Store {
@@ -252,7 +304,12 @@ impl Store {
         }
         let virtuals = Virtuals::of(buf);
         let screen: BTreeMap<LineKey, i64> = rows.screen.iter().copied().zip(0i64..).collect();
-        let out = origins(&virtuals, runs, |line| screen.get(&line).copied());
+        let out = origins(
+            &virtuals,
+            runs,
+            |line| screen.get(&line).copied(),
+            run_origin,
+        );
         let visited = buf
             .placements
             .len()

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use std::borrow::Cow;
 
-use super::runs::{RUN_KEY_FIRST, Virtuals, origins, run_placement};
+use super::runs::{RUN_KEY_FIRST, Virtuals, drawn_origin, origins, run_placement};
 use super::{Animation, FramePixels, Located, Placement, Rows, Spot, Store};
 use crate::image::{ImageKey, LineKey, Pixels, PlaceholderRun, PlacementKey};
 use crate::rules::{Layer, rules};
@@ -83,6 +83,49 @@ pub struct FramePlacement {
     /// for the binary's animation clock; `None` for a picture no animation
     /// command named.
     pub animation: Option<Animation>,
+    /// The entry is a relative placement. The store placed it from where
+    /// its parent is drawn, as the frame's [`LinePlaces`] gives that, so
+    /// its column is a screen column whatever the line under it.
+    pub relative: bool,
+}
+
+/// Where the lines a frame shows draw their cells, which only vtium-term,
+/// which holds the lines, knows. A line of single size in a left-to-right
+/// paragraph draws its cell in column n at screen column n. A double-width
+/// or double-height line draws it two screen columns wide, and a
+/// right-to-left paragraph draws its cells in another order. The store
+/// asks where the box of a relative placement's root is drawn, so that it
+/// places the child from there in screen columns.
+///
+/// References:
+/// - ADR-1004 D8, "Double-size rows": a child starts from its parent's
+///   drawn top left, offset by its H screen columns and V rows.
+pub trait LinePlaces {
+    /// The screen columns each cell of the line at view row `row` covers:
+    /// 2 on a double-width or double-height line, otherwise 1. A row above
+    /// the view is negative, and one below it counts on past the view's
+    /// last.
+    fn scale(&self, row: i64) -> i64;
+
+    /// The screen column where a picture's box, `cols` cells wide and
+    /// placed in column `col` of the line at view row `row`, starts when it
+    /// is drawn, negative when it starts left of the screen. `None` when
+    /// the line does not show its cell in column `col`.
+    fn left(&self, row: i64, col: u32, cols: u32) -> Option<i64>;
+}
+
+/// The lines of a screen that draws each cell in its own screen column,
+/// left to right.
+pub struct SingleSize;
+
+impl LinePlaces for SingleSize {
+    fn scale(&self, _row: i64) -> i64 {
+        1
+    }
+
+    fn left(&self, _row: i64, col: u32, _cols: u32) -> Option<i64> {
+        Some(i64::from(col))
+    }
 }
 
 impl FramePlacement {
@@ -166,6 +209,33 @@ impl Store {
         runs: &[PlaceholderRun],
         cols: usize,
     ) -> Vec<FramePlacement> {
+        self.frame_drawn(view, below, runs, cols, &SingleSize)
+    }
+
+    /// [`frame_with_runs`](Self::frame_with_runs) on lines that `places`
+    /// says where they draw their cells. A relative placement is placed
+    /// from where its root's box is drawn: `places` gives the screen column
+    /// where the root's box starts, and the child starts its offset of
+    /// screen columns right of the root's origin. A child of a virtual
+    /// placement starts its offset right of the screen column where the
+    /// picture's first column is drawn, which the runs give: a run on a
+    /// double-size line draws each cell two screen columns wide. A child
+    /// whose root is on a cell its line does not show is not drawn. The
+    /// store's own placements keep their line's column, for vtium-term to
+    /// move.
+    ///
+    /// References:
+    /// - ADR-1004 D8, "Double-size rows": a child starts from its parent's
+    ///   drawn top left, offset by H screen columns and V rows, whatever
+    ///   the size of either line.
+    pub fn frame_drawn(
+        &self,
+        view: Rows<'_>,
+        below: &[LineKey],
+        runs: &[PlaceholderRun],
+        cols: usize,
+        places: &dyn LinePlaces,
+    ) -> Vec<FramePlacement> {
         let Some(buf) = self.buffers.get(self.active()) else {
             return Vec::new();
         };
@@ -219,7 +289,7 @@ impl Store {
         };
         let row_of = |line: LineKey| screen_rows.get(&line).copied();
         let origins = match &virtuals {
-            Some(v) if !buf.children.is_empty() => origins(v, runs, row_of),
+            Some(v) if !buf.children.is_empty() => origins(v, runs, row_of, drawn_origin),
             _ => BTreeMap::new(),
         };
         let width = i64::try_from(cols).unwrap_or(i64::MAX);
@@ -229,15 +299,31 @@ impl Store {
             };
             let (top, col, revision) = match buf.locate(k) {
                 Some(Located::At {
+                    root,
                     line,
                     row,
                     col,
                     revision,
-                    ..
-                }) => match line_rows.get(&line) {
-                    Some(r) => (r.saturating_add(row), col, revision),
-                    None => continue,
-                },
+                }) => {
+                    let (Some(&r), Some(q)) = (line_rows.get(&line), buf.placements.get(&root))
+                    else {
+                        continue;
+                    };
+                    // the root's origin lies lost_cols cells left of its
+                    // column, and the chain's offsets count screen columns
+                    // from that origin
+                    let lost = i64::from(q.lost_cols);
+                    let offset = col.saturating_sub(i64::from(q.col).saturating_sub(lost));
+                    let Some(left) = places.left(r, q.col, q.cols) else {
+                        continue;
+                    };
+                    let origin = left.saturating_sub(places.scale(r).saturating_mul(lost));
+                    (
+                        r.saturating_add(row),
+                        origin.saturating_add(offset),
+                        revision,
+                    )
+                }
                 Some(Located::Floating {
                     root,
                     row,
@@ -262,6 +348,7 @@ impl Store {
                 key: k,
                 placement: Cow::Owned(placed),
                 revision,
+                relative: true,
             });
         }
         if let Some(virtuals) = &virtuals {
@@ -283,6 +370,7 @@ impl Store {
                     key: k,
                     revision: placed.revision,
                     placement: Cow::Owned(placed),
+                    relative: false,
                 });
             }
         }
@@ -301,7 +389,9 @@ impl Store {
                     f.key
                 };
                 let shown = self.shown(f.placement.image, image);
-                Some(entry(key, &f.placement, image, f.row, f.revision, shown))
+                let mut e = entry(key, &f.placement, image, f.row, f.revision, shown);
+                e.relative = f.relative;
+                Some(e)
             })
             .collect()
     }
@@ -327,6 +417,8 @@ struct Found<'a> {
     key: PlacementKey,
     placement: Cow<'a, Placement>,
     revision: u64,
+    /// A relative placement, placed in screen columns.
+    relative: bool,
 }
 
 impl<'a> Found<'a> {
@@ -338,6 +430,7 @@ impl<'a> Found<'a> {
             key,
             placement: Cow::Borrowed(p),
             revision: p.revision,
+            relative: false,
         }
     }
 }
@@ -442,5 +535,6 @@ fn entry(
         frame: shown.as_ref().map_or(1, |f| f.frame),
         pixel_revision: shown.as_ref().map_or(image.revision, |f| f.revision),
         animation: image.anim.as_deref().map(super::Anim::state),
+        relative: false,
     }
 }

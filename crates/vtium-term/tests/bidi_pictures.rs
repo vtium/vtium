@@ -111,8 +111,8 @@ fn a_picture_on_a_double_height_right_to_left_pair_ends_where_its_cell_is_drawn(
 // Two placeholder cells at the start of a right-to-left row keep their
 // order and are drawn against the half's right edge, in the line's fifth
 // and sixth places, which are screen columns 8 to 11. The run's entry
-// covers those four columns, its picture stretched to 32 pixels, twice
-// its width on a row of single size.
+// covers those four columns. Its 16×16 picture keeps its aspect in the
+// 32×16 pixels the two cells cover, so it is 16 pixels wide.
 // covers: text.bidi
 #[test]
 fn a_placeholder_run_on_a_double_width_right_to_left_row_covers_its_cells() {
@@ -120,7 +120,7 @@ fn a_placeholder_run_on_a_double_width_right_to_left_row_covers_its_cells() {
     t.input(b"\x1b_Ga=p,U=1,i=1,p=5,c=2,r=1,q=2\x1b\\");
     let cells: String = [P, D[0], D[0], P, D[0], D[1]].iter().collect();
     t.input(format!("\x1b[38;5;1m\x1b[58;5;5m{cells}\x1b[m").as_bytes());
-    assert_eq!(boxes(&t), [(8, 4, 32)]);
+    assert_eq!(boxes(&t), [(8, 4, 16)]);
 }
 
 // ADR-1004 D8: a line made double after a picture was placed on it shows
@@ -137,4 +137,80 @@ fn a_picture_in_a_cell_a_double_width_right_to_left_row_hides_is_not_drawn() {
     assert_eq!(columns(&t), [4]);
     t.input(b"\x1b#6");
     assert_eq!(columns(&t), []);
+}
+
+/// The view row and the column of each entry of the frame, in draw order.
+fn places(t: &Terminal) -> Vec<(i64, u32)> {
+    let palette = Palette::default();
+    let frame = t.screen().frame(&palette, Age::NEVER);
+    frame.placements().iter().map(|p| (p.row, p.col)).collect()
+}
+
+// ADR-1004 D8: a picture placed in the third cell of a double-width
+// right-to-left row of six cells is drawn in the row's fourth place, at
+// screen columns 6 and 7, and keeps that place once its top row has
+// scrolled above the view: the line's size and order are read from the
+// scrollback.
+// covers: text.bidi
+#[test]
+fn a_picture_whose_top_row_scrolled_above_the_view_keeps_its_right_to_left_double_place() {
+    let mut t = term(12, 3, "\x1b[2;1H\x1b[2 k\x1b#6\x1b[2;3H");
+    t.screen_mut().set_scrollback_max(100);
+    t.input(b"\x1b_Ga=p,i=1,c=2,r=3,C=1,q=2\x1b\\");
+    assert_eq!(places(&t), [(1, 6)]);
+    t.input(b"\x1b[3;1H\n\n");
+    assert_eq!(places(&t), [(-1, 6)]);
+}
+
+// ADR-1004 D8: each line of a right-to-left double-height pair draws two
+// placeholder cells in its fourth and fifth places, at screen columns 6 to
+// 9. A grid of two by two cells is 32×32 pixels there, which the 16×16
+// picture fills: the top line shows source rows 0 to 7 and the bottom
+// line rows 8 to 15.
+// covers: text.bidi
+#[test]
+fn a_placeholder_grid_on_a_right_to_left_double_height_pair_covers_its_cells() {
+    let top: String = [P, D[0], D[0], P, D[0], D[1]].iter().collect();
+    let bottom: String = [P, D[1], D[0], P, D[1], D[1]].iter().collect();
+    let mut t = term(12, 3, "\x1b[2 k\x1b#3\x1b[2G");
+    t.input(b"\x1b_Ga=p,U=1,i=1,p=5,c=2,r=2,q=2\x1b\\");
+    t.input(format!("\x1b[38;5;1m\x1b[58;5;5m{top}\r\n\x1b#4\x1b[2G{bottom}\x1b[m").as_bytes());
+    let palette = Palette::default();
+    let frame = t.screen().frame(&palette, Age::NEVER);
+    let parts: Vec<_> = frame
+        .placements()
+        .iter()
+        .map(|p| (p.row, p.col, p.cols, p.width, p.height, p.src_y))
+        .collect();
+    assert_eq!(parts, [(0, 6, 4, 32, 16, 0), (1, 6, 4, 32, 16, 8)]);
+}
+
+/// Sends image 2, then places image 1 with placement id 1 at the cursor
+/// and image 2 as its child, `h` columns right of it and one row below.
+fn parent_and_child(t: &mut Terminal, h: i32) {
+    let mut s = b"\x1b_Ga=t,f=24,s=16,v=16,i=2,q=2;".to_vec();
+    s.extend(b"////".repeat(2 * 128));
+    s.extend(b"\x1b\\");
+    t.input(&s);
+    t.input(b"\x1b_Ga=p,i=1,p=1,C=1,q=2\x1b\\");
+    t.input(format!("\x1b_Ga=p,i=2,p=1,P=1,Q=1,H={h},V=1,q=2\x1b\\").as_bytes());
+}
+
+// ADR-1004 D8: a relative placement starts from where its parent is drawn
+// on the screen, offset by H screen columns to the right and V rows down,
+// so the two pictures keep their places side by side as pictures are
+// never flipped. On an empty right-to-left row of twelve cells the fourth
+// cell is drawn at screen column 8, so a parent placed there ends there
+// and starts at column 7, and its child with H=1 starts at column 8. On a
+// double-width row of six cells the fourth cell is drawn in place 2, at
+// screen columns 4 and 5, so the parent starts at column 4 and the child
+// at 5.
+// covers: text.bidi
+#[test]
+fn a_child_of_a_picture_in_a_right_to_left_row_is_offset_from_where_its_parent_is_drawn() {
+    for (start, parent) in [("\x1b[2 k\x1b[1;4H", 7), ("\x1b[2 k\x1b#6\x1b[1;4H", 4)] {
+        let mut t = term(12, 3, start);
+        parent_and_child(&mut t, 1);
+        assert_eq!(places(&t), [(0, parent), (1, parent + 1)], "{start:?}");
+    }
 }

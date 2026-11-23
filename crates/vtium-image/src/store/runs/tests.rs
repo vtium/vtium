@@ -224,8 +224,10 @@ fn the_cells_of_a_run_outside_the_grid_draw_nothing() {
 
 // ADR-1004 D8: a double-size line draws the cell in place n at screen
 // columns 2n and 2n + 1, so a run on it covers twice as many screen
-// columns as it has cells, and the part of the picture under it is
-// stretched to twice its width, keeping its height.
+// columns as it has cells. The grid's cells are twice as wide there, and
+// the picture is fitted into the wider grid with its aspect kept: a 16×32
+// picture in a grid of 2 by 2 cells of 16×16 pixels is 32 pixels tall and
+// 16 wide, centered with 8 pixels free on each side.
 // covers: image.kitty-placeholders
 #[test]
 fn a_run_on_a_double_size_line_covers_twice_its_cells() {
@@ -240,22 +242,26 @@ fn a_run_on_a_double_size_line_covers_twice_its_cells() {
     let entries = frame(&s, &f, &[double(run(11, 3, 2, 7, 0, 0))]);
     assert_eq!(
         seen(&entries),
-        vec![((1, 6, 4, 1), (0, 0, 32, 16), (0, 0, 16, 16))]
+        vec![((1, 6, 4, 1), (8, 0, 16, 16), (0, 0, 16, 16))]
     );
     let whole = entries.first().expect("an entry");
-    assert_eq!((whole.offset_x, whole.drawn_width), (0, 32));
-    // the second column of the picture, stretched over two screen columns
+    assert_eq!(
+        (whole.offset_x, whole.drawn_width, whole.drawn_height),
+        (8, 16, 32)
+    );
+    // the grid's second column holds the picture's right half
     let entries = frame(&s, &f, &[double(run(10, 1, 1, 7, 0, 1))]);
     assert_eq!(
         seen(&entries),
-        vec![((0, 2, 2, 1), (0, 0, 16, 16), (8, 0, 8, 16))]
+        vec![((0, 2, 2, 1), (0, 0, 8, 16), (8, 0, 8, 16))]
     );
     let second = entries.first().expect("an entry");
-    assert_eq!((second.offset_x, second.drawn_width), (-16, 32));
-    // the screen's last two columns hold one of the run's cells
+    assert_eq!((second.offset_x, second.drawn_width), (-8, 16));
+    // the screen's last two columns hold one of the run's cells, which
+    // shows the picture's left half
     assert_eq!(
         seen(&frame(&s, &f, &[double(run(10, 5, 2, 7, 0, 0))])),
-        vec![((0, 10, 2, 1), (0, 0, 16, 16), (0, 0, 8, 16))]
+        vec![((0, 10, 2, 1), (8, 0, 8, 16), (0, 0, 8, 16))]
     );
     // a run whose first cell would be drawn past the screen draws nothing
     assert!(frame(&s, &f, &[double(run(10, 6, 2, 7, 0, 0))]).is_empty());
