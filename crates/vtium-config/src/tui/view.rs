@@ -190,12 +190,9 @@ fn status(app: &App) -> String {
 fn small(app: &App) -> Vec<String> {
     let cols = app.size.cols;
     let mut lines: Vec<String> = Vec::new();
-    // the message line first: the live trial's countdown and its keys,
-    // or what the last key said; a question's own words wait for the
-    // question's keys at the top, as they do today
-    if (app.nav.trial.is_some() || app.nav.confirm.is_none())
-        && let Some(message) = &app.shared.message
-    {
+    // the live trial's countdown, and its keys, first
+    let trial = app.nav.trial.is_some();
+    if trial && let Some(message) = &app.shared.message {
         lines.extend(wrap(message, cols, usize::MAX));
         lines.push(String::new());
     }
@@ -205,6 +202,13 @@ fn small(app: &App) -> Vec<String> {
         usize::MAX,
     ));
     lines.push(String::new());
+    // what u says when it has nothing to put back, after what is wrong;
+    // a message that a view left stays for the view, so it does not push
+    // the commands off this screen
+    if !trial && app.shared.message.as_deref() == Some(words::NOTHING_TO_UNDO) {
+        lines.extend(wrap(words::NOTHING_TO_UNDO, cols, usize::MAX));
+        lines.push(String::new());
+    }
     lines.extend(wrap(words::TOO_SMALL_COMMANDS, cols, usize::MAX));
     for c in crate::help::Command::ALL {
         if matches!(c, crate::help::Command::Serve | crate::help::Command::Tui) {

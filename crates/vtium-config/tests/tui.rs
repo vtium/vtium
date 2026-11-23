@@ -294,7 +294,9 @@ fn a_grid_too_small_draws_the_way_out() {
         .and_then(|p| p.first())
         .expect("the key line below the minimum size");
     assert!(keys.contains("u undo"), "{keys}");
-    assert!(joined.ends_with(keys), "{screen}");
+    // the key line wraps at 30 columns, so the words are compared
+    let words = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(words(&joined).ends_with(&words(keys)), "{screen}");
     assert!(rows.iter().all(|r| r.chars().count() <= 30), "{screen}");
 }
 
@@ -1467,6 +1469,35 @@ fn below_the_minimum_the_screen_says_so_and_u_undoes_the_preview() {
         assert!(screen.contains("Fonts"), "{screen}");
         assert!(!screen.contains("vtium-config needs"), "{screen}");
     }
+}
+
+/// In a terminal that is too small from the start, no trial changed the
+/// font or the grid, so `u` says that it has nothing to put back and sends
+/// the console nothing.
+#[test]
+fn u_with_nothing_to_put_back_says_so() {
+    use vtium_config::tui::words;
+    let mut c = Console::vtium(79, 24, true, "unifont")
+        .takes("unifont", (79, 24))
+        .keys(&[b"u"]);
+    run(&mut c);
+    assert_eq!(c.switches(), Vec::<String>::new());
+    // no grid request, CSI 8 ; rows ; cols t
+    let written = String::from_utf8_lossy(&c.written).into_owned();
+    let grid_requests = written
+        .split("\x1b[8;")
+        .skip(1)
+        .filter(|rest| {
+            let end = rest
+                .find(|c: char| !c.is_ascii_digit() && c != ';')
+                .unwrap_or(rest.len());
+            rest[end..].starts_with('t')
+        })
+        .count();
+    assert_eq!(grid_requests, 0);
+    let screen = c.seen.clone().expect("the screen");
+    let joined = screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
+    assert!(joined.contains(words::NOTHING_TO_UNDO), "{screen}");
 }
 
 #[test]
