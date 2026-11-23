@@ -101,8 +101,9 @@ pub struct FramePlacement {
 /// - ADR-1004 D8, "Double-size rows": a child starts from its parent's
 ///   drawn top left, offset by its H screen columns and V rows.
 pub trait LinePlaces {
-    /// The screen columns each cell of the line at view row `row` covers:
-    /// 2 on a double-width or double-height line, otherwise 1. A row above
+    /// How many screen columns each cell of the line at view row `row`
+    /// is drawn across: 2 on a double-width or double-height line,
+    /// otherwise 1. A row above
     /// the view is negative, and one below it counts on past the view's
     /// last.
     fn scale(&self, row: i64) -> i64;
