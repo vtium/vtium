@@ -927,9 +927,11 @@ impl<F: Framebuffer> Drop for Fbdev<F> {
     }
 }
 
-/// The framebuffer's timer in the loop. A swap or a device removed in
-/// another source's callback disarms the timer, perhaps in the batch in
-/// which it expired, so it leaves the loop through [`Removals`].
+/// The framebuffer's timer in the loop, which leaves the loop through
+/// [`Removals`]. A swap or the device's removal disarms the timer. vtium
+/// does both between dispatches, so the timer leaves the loop at once. A
+/// disarm inside a batch of events would wait for the dispatch to return,
+/// so the timer's event later in that batch would find its source.
 struct LoopLink<D: 'static, F, A> {
     removals: Removals<D>,
     access: A,

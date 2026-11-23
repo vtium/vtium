@@ -114,10 +114,12 @@ impl<K: Kms + 'static, S: Source<K> + 'static> Drm2d<K, S> {
 }
 
 /// The card's sources in the loop. The card's descriptor and its timers
-/// leave the loop through [`Removals`], since a card goes away, and a
-/// timer is disarmed, from the callback of another source: udev's for a
-/// card removed, the card's own descriptor for a flip done in the batch in
-/// which its bound expired.
+/// leave the loop through [`Removals`]. Inside a batch of events, the
+/// card's own descriptor disarms a timer: the bound of a flip that it
+/// reports done, or the stale bound of a flip left to the kernel, perhaps
+/// in the batch in which that bound expired. The bound then leaves the loop
+/// when the dispatch returns. vtium drops a removed card between
+/// dispatches, so the card's descriptor and timers leave the loop at once.
 struct LoopLink<D: 'static, K, S, A> {
     removals: Removals<D>,
     source: RegistrationToken,

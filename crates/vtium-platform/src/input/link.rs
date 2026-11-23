@@ -25,9 +25,12 @@ pub(super) trait Link {
 
 pub(super) struct LoopLink<D: 'static, A> {
     handle: LoopHandle<'static, D>,
-    /// A device's descriptor leaves the loop through [`Removals`], since
-    /// udev's callback removes the device, perhaps in the batch that holds
-    /// the device's last event.
+    /// A device's descriptor leaves the loop through [`Removals`]. Inside a
+    /// batch of events, a device removes itself after a read error or a
+    /// hangup, and its descriptor leaves the loop when the dispatch
+    /// returns. vtium removes a device that udev reports gone, and sleeps
+    /// the input at a VT release, between dispatches, so those descriptors
+    /// leave the loop at once.
     removals: Removals<D>,
     access: A,
     /// The hide timer is in the loop.

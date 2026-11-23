@@ -3163,6 +3163,56 @@ fn a_flip_done_in_the_turn_its_bound_expires_leaves_no_stale_event() {
     );
 }
 
+// The case the removed check in `Removals` exists for. A sleep leaves a
+// modeset's flip to the kernel, so CRTC 100 owes an event that no display
+// waits for, under a stale bound. The loop is held past that bound, and in
+// the next batch a callback reads the owed event, which ends the wait and
+// disarms the bound, and then wakes and sleeps the card again, which leaves
+// a new modeset flip on CRTC 100 under a new bound. The first bound's
+// expiry waits later in the same batch. It reaches nothing, so the new wait
+// stays until its own event or bound, and calloop finds the source still
+// there. Were the first bound's callback to run, it would end the new wait,
+// and the new flip's event would be taken for a later display's own.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test holds the loop past the stale bound, as a blocking commit does"
+)]
+fn a_stale_bound_disarmed_and_armed_again_in_one_batch_keeps_the_new_wait() {
+    use calloop::ping::make_ping;
+    let (mut lp, mut app) = in_loop(one());
+    app.0.wake_up().unwrap();
+    app.0.sleep();
+    assert_eq!(app.0.stale.len(), 1, "the sleep left the modeset's flip");
+    let (crtc, first) = app.0.stale[0];
+    assert!(first.is_some(), "under a bound");
+    let (ping, source) = make_ping().unwrap();
+    lp.handle()
+        .insert_source(source, |(), (), app: &mut App| {
+            app.0.card().complete_flips();
+            app.0.dispatch().unwrap();
+            assert!(app.0.stale.is_empty(), "the owed event ended the wait");
+            app.0.wake_up().unwrap();
+            app.0.sleep();
+        })
+        .unwrap();
+    logs::capture();
+    std::thread::sleep(std::time::Duration::from_millis(
+        u64::try_from(crate::FLIP_WAIT_MS).unwrap() + 50,
+    ));
+    ping.ping();
+    lp.dispatch(Some(std::time::Duration::ZERO), &mut app)
+        .unwrap();
+    let waits: Vec<_> = app.0.stale.iter().map(|&(c, t)| (c, t.is_some())).collect();
+    assert_eq!(
+        waits,
+        vec![(crtc, true)],
+        "the new wait stays, under its bound"
+    );
+    assert_ne!(app.0.stale[0].1, first, "a new bound");
+    assert_eq!(stale_warnings(), Vec::<String>::new());
+}
+
 /// Cards by the node they are at, as vtium keeps them.
 struct Cards(std::collections::BTreeMap<u32, Drm2d<FakeCard>>);
 
@@ -3170,11 +3220,14 @@ fn card_at(node: u32) -> impl Fn(&mut Cards) -> Option<&mut Drm2d<FakeCard>> + C
     move |cards: &mut Cards| cards.0.get_mut(&node)
 }
 
-// A card removed while its own event waits in the same batch, and a new card
-// at the same node, as when a native driver takes card0's minor: one udev
-// turn removes the old card and adds the new one. The old card's event is
-// delivered to nothing, the new card reads nothing that was the old card's,
-// and calloop finds no event for a source that left.
+// A test of `Removals` through a whole card: a card dropped inside a
+// dispatch while its own event waits later in the same batch, and a new
+// card inserted at the same node in the same callback. vtium itself drops a
+// card between dispatches, where it leaves the loop at once, so the ping's
+// callback here stands for any callback that drops a card. The old card's
+// event is delivered to nothing, the new card reads nothing that was the
+// old card's, and calloop finds no event for a source that left. The stale
+// bound test above is the case that vtium meets.
 #[test]
 fn a_card_removed_with_its_event_waiting_leaves_no_stale_event() {
     use calloop::ping::make_ping;
