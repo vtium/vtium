@@ -122,7 +122,7 @@ impl State {
     /// it wrote (ADR-1004 D10). Without the cell's size in pixels the pixel
     /// column is as the host gave it.
     pub(super) fn logical_pointer(&self, col: usize, row: usize, px: u32) -> (usize, u32) {
-        let logical = self.screen.pointer_col(col, row);
+        let logical = self.screen.report_col(col, row);
         let px = match self.host.cell {
             Some((width, _)) if logical != col => {
                 let at = |c: usize| u32::try_from(c).unwrap_or(u32::MAX).saturating_mul(width);
