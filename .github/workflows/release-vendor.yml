@@ -2,30 +2,52 @@
 # commit: the source as vtium-VERSION.tar.gz and vtium-VERSION.zip from git
 # archive, the vendor archive vtium-VERSION-vendor.tar.zst and its .sha256,
 # which hold the source of every outside crate vtium builds with so that a
-# package manager that builds with no network has them (ADR-1500 D9), the
-# manifest of those crates, vtium-VERSION-dependencies.tsv, and SHA256SUMS,
-# which lists the SHA-256 of each. tools/vendor/archive describes the files.
+# package manager that builds with no network has them, the manifest of
+# those crates, vtium-VERSION-dependencies.tsv, and SHA256SUMS, which lists
+# the SHA-256 of each. tools/vendor/archive describes the files.
 #
-# When a release is published, the archive job checks out the release's tag,
-# builds Cullet Mono's faces, then packs the files with make
-# vendor-archive-check. The check verifies them against SHA256SUMS and the
-# source archives against the commit, builds the workspace and make install
-# offline from the vendor archive, and keeps the files as a workflow
-# artifact. The attest job makes a build provenance attestation for each
-# file, and the attach job attaches the files to the release. Anyone can
-# then check a file with gh attestation verify FILE --repo vtium/vtium.
+# A release is published from a draft. GitHub's immutable releases lock a
+# release's files once it is published, so the files go onto the draft
+# first. The person who makes the release pushes the signed tag, saves a
+# draft release for it, and runs this workflow on the tag with draft set:
 #
-# Run by hand on a tag, a branch or a commit, the workflow packs and checks
-# the files and keeps them as a workflow artifact alone, so they can be
-# checked before a release depends on them. It attests them only when the
-# attest input is true, which checks the attest step itself. An attestation
-# names the commit the workflow ran from, which in a run by hand is the
-# branch the run was started on, not the ref input, so a run by hand
-# attests only to try the step. A run by hand checks out the whole history,
-# so the files' names carry the ref's tag, or git describe's name for it.
+#   gh workflow run release-vendor.yml --ref v0.1.0-alpha.12 -f draft=true
 #
-# A release published with the workflow token starts no workflow, so this
-# runs for a release that a person publishes.
+# The draft job checks that the tag has a release and that the release is
+# still a draft. The archive job checks out the tag, builds Cullet Mono's
+# faces, then packs the files with make vendor-archive-check. The check
+# verifies them against SHA256SUMS and the source archives against the
+# commit, builds the workspace and make install offline from the vendor
+# archive, and keeps the files as a workflow artifact. The attest job makes
+# a build provenance attestation for each file. A run started on the tag
+# runs from the tag's commit, so each attestation names that commit. The
+# attach job attaches the files to the draft. The person then looks over
+# the draft and publishes it. Anyone can check a file with
+# gh attestation verify FILE --repo vtium/vtium.
+#
+# GitHub starts no workflow when a draft release is saved, because the
+# release event's created type does not fire for a draft. That is why a
+# person starts this workflow by hand.
+#
+# When the release is published, the published job downloads its files and
+# checks that they are the files SHA256SUMS lists, that each one matches
+# its SHA-256, and that each one has an attestation. A release published
+# with the workflow token starts no workflow, so this runs for a release
+# that a person publishes.
+#
+# Run by hand without draft, on a tag, a branch or a commit, the workflow
+# is a dry run. It packs and checks the files and keeps them as a workflow
+# artifact alone, so they can be checked before a release depends on them.
+# It attests them only when the attest input is true, which checks the
+# attest step itself. An attestation names the commit the workflow ran
+# from, which in a dry run is the branch the run was started on, not the
+# ref input, so a dry run attests only to try the step. A dry run checks
+# out the whole history, so the files' names carry the ref's tag, or git
+# describe's name for it.
+#
+# References:
+# - ADR-1500 D9: each release carries the vendor archive, for a package
+#   manager that builds with no network.
 name: Release files
 on:
   release:
@@ -33,11 +55,17 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: The tag, branch or commit to pack the release files for, such as v0.1.0-alpha.6 or main
-        required: true
+        description: The tag, branch or commit to pack the release files for, such as v0.1.0-alpha.6 or main; empty packs the ref the run started on. A run with draft set packs the tag it started on and takes no other ref.
+        required: false
+        default: ''
         type: string
       attest:
         description: Also make a build provenance attestation for each file, to try the attest step
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: Attach the attested files to the draft release of the tag this run started on
         required: false
         default: false
         type: boolean
@@ -45,12 +73,60 @@ on:
 permissions:
   contents: read
 
+# Two runs that attach files to the same draft would replace each other's
+# files, so they wait for each other. Dry runs never wait.
+concurrency:
+  group: release-files-${{ inputs.draft && github.ref_name || github.run_id }}
+  cancel-in-progress: false
+
 env:
-  # Empty in a run by hand.
-  RELEASE_TAG: ${{ github.event.release.tag_name }}
+  # The tag of the draft release, and empty in a dry run.
+  RELEASE_TAG: ${{ inputs.draft && github.ref_name || '' }}
 
 jobs:
+  # Fails before the long build when the run cannot attach its files: the
+  # run did not start on a tag, the ref input names something else, or the
+  # tag has no draft release. Only a token that may write to the repository
+  # sees draft releases. The job runs no code of the tag's.
+  draft:
+    if: inputs.draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_INPUT: ${{ inputs.ref }}
+        run: |
+          if [ "$REF_TYPE" != tag ]; then
+            echo "::error::A run with draft set must start on the release's tag, as in gh workflow run release-vendor.yml --ref v0.1.0-alpha.12 -f draft=true. This run started on the $REF_TYPE $GITHUB_REF_NAME."
+            exit 1
+          fi
+          if [ -n "$REF_INPUT" ] && [ "$REF_INPUT" != "$RELEASE_TAG" ]; then
+            echo "::error::A run with draft set packs the tag it started on, $RELEASE_TAG, and the ref input names $REF_INPUT."
+            exit 1
+          fi
+          case $RELEASE_TAG in
+            v[0-9]*) ;;
+            *) echo "::error::The tag $RELEASE_TAG is not a release tag, which reads vVERSION."; exit 1 ;;
+          esac
+          if ! draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft); then
+            echo "::error::The tag $RELEASE_TAG has no release. Save a draft release for $RELEASE_TAG first."
+            exit 1
+          fi
+          if [ "$draft" != true ]; then
+            echo "::error::The release $RELEASE_TAG is already published, so this run cannot attach files to it. The files go onto a draft before it is published."
+            exit 1
+          fi
+          echo "The release $RELEASE_TAG is a draft."
+
   archive:
+    needs: draft
+    # The draft job is skipped in a dry run, and GitHub skips every job
+    # after a skipped job unless the job's condition says otherwise. A
+    # published release starts only the published job.
+    if: ${{ github.event_name == 'workflow_dispatch' && !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       # The offline build fills much of the runner's disk. The runner's
@@ -62,8 +138,8 @@ jobs:
           df -h /
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || inputs.ref }}
-          fetch-depth: ${{ github.event_name == 'release' && 1 || 0 }}
+          ref: ${{ inputs.draft && format('refs/tags/{0}', github.ref_name) || inputs.ref || github.ref }}
+          fetch-depth: ${{ inputs.draft && 1 || 0 }}
           persist-credentials: false
       # libudev and libxkbcommon, which vtium-platform links, libsystemd,
       # which its logind feature links, libseat, which its libseat feature
@@ -126,8 +202,11 @@ jobs:
           if-no-files-found: error
 
   attest:
-    if: github.event_name == 'release' || inputs.attest
-    needs: archive
+    # The draft job is skipped in a dry run, and GitHub skips every job
+    # after a skipped job unless the job's condition says otherwise.
+    # It needs the draft job too, so that a draft job that failed skips it.
+    if: ${{ !failure() && !cancelled() && (inputs.draft || inputs.attest) }}
+    needs: [draft, archive]
     runs-on: ubuntu-latest
     # Attesting needs a token from GitHub's OIDC provider and the right to
     # store attestations. The job runs no code of the tag's.
@@ -147,11 +226,11 @@ jobs:
           subject-path: release/*
 
   attach:
-    if: github.event_name == 'release'
-    needs: [archive, attest]
+    if: inputs.draft
+    needs: [draft, archive, attest]
     runs-on: ubuntu-latest
-    # Only this job may write to the release, and it runs no code of the
-    # tag's.
+    # Only this job and the draft job may write to the release, and neither
+    # runs code of the tag's.
     permissions:
       contents: write
     steps:
@@ -159,11 +238,18 @@ jobs:
         with:
           name: vtium-release
           path: release
-      # --clobber replaces the files a run that was started again had
-      # already attached. Each file must carry the release's version.
+      # The release is checked again, because the person may have published
+      # it during the build. --clobber replaces the files a run that was
+      # started again had already attached. Each file must carry the
+      # release's version.
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          if [ "$draft" != true ]; then
+            echo "::error::The release $RELEASE_TAG was published during this run, so its files cannot be attached any more."
+            exit 1
+          fi
           version=${RELEASE_TAG#v}
           for f in release/*; do
             case ${f#release/} in
@@ -172,3 +258,37 @@ jobs:
             esac
           done
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber release/*
+          echo "::notice::The draft release $RELEASE_TAG carries its files. Look over the draft, then publish it."
+
+  # Checks a release once it is published. The job runs no code of the
+  # tag's.
+  published:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir release && cd release
+          if ! gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*'; then
+            echo "::error::The release $TAG carries no files. Its files go onto the draft, with gh workflow run release-vendor.yml --ref $TAG -f draft=true, before it is published."
+            exit 1
+          fi
+          if [ ! -f SHA256SUMS ]; then
+            echo "::error::The release $TAG carries no SHA256SUMS."
+            exit 1
+          fi
+          { cut -c67- SHA256SUMS; echo SHA256SUMS; } | sort > ../listed
+          find . -maxdepth 1 -type f -printf '%f\n' | sort > ../carried
+          if ! diff -u ../listed ../carried; then
+            echo "::error::The files of the release $TAG differ from the files SHA256SUMS lists, shown above with SHA256SUMS's list first."
+            exit 1
+          fi
+          sha256sum -c SHA256SUMS
+          while read -r f; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY"
+          done < ../listed
