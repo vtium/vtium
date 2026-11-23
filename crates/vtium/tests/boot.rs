@@ -5654,7 +5654,7 @@ fn frit_fonts_of(
     let go = dir.join("go");
     let helper = vtium::helper::Command {
         program: stand_in::stand_in_shell().to_path_buf(),
-        args: ["-c", script, "helper"]
+        args: ["-c", &stand_in::undumpable(script), "helper"]
             .into_iter()
             .map(OsString::from)
             .chain([fixture.into_os_string(), go.clone().into_os_string()])

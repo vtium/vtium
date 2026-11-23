@@ -142,6 +142,37 @@ enum Waiting {
     Sleep,
 }
 
+/// Whether this open file of the card holds its DRM master, as far as
+/// vtium knows. The kernel answers the question through an AUTH_MAGIC
+/// call, and that call can fail for another reason than the answer, so
+/// vtium sometimes cannot tell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Master {
+    Held,
+    NotHeld,
+    /// The kernel gave no answer, so vtium acts as though the file may or
+    /// may not hold master. A sleep tries to drop master, as libdrm's
+    /// `drmIsMaster` counts every answer but a refusal as master. A
+    /// wake-up still calls SET_MASTER, which the kernel answers with
+    /// success on the file that is already the master
+    /// (`drm_setmaster_ioctl`).
+    Unknown,
+}
+
+impl Master {
+    /// What the kernel's answer says: unknown when the question failed.
+    fn from_answer(answer: io::Result<bool>) -> Master {
+        match answer {
+            Ok(true) => Master::Held,
+            Ok(false) => Master::NotHeld,
+            Err(e) => {
+                log::debug!("cannot ask whether vtium holds DRM master: {e}");
+                Master::Unknown
+            }
+        }
+    }
+}
+
 /// What a scan of the connectors is for. Only a wake-up's commits a
 /// modeset while blanked (the operator's decision on vtium/vtium#18).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,7 +203,7 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// No universal planes or no atomic commits: the legacy calls.
     legacy: bool,
     hotspot: bool,
-    master: bool,
+    master: Master,
     /// The seat gave the card its displays: woken and not put to sleep
     /// since, though waking may have failed.
     foreground: bool,
@@ -281,6 +312,10 @@ impl<K: Kms> Drm2d<K> {
             ));
         }
         let levels = card.levels();
+        // The open made this file the card's master where no process held
+        // master, and left it without master where another process held
+        // it.
+        let master = Master::from_answer(card.is_master());
         Ok(Drm2d {
             card,
             source: Dumbs,
@@ -289,7 +324,7 @@ impl<K: Kms> Drm2d<K> {
             levels,
             legacy,
             hotspot,
-            master: false,
+            master,
             foreground: false,
             awake: false,
             policy,
@@ -1086,7 +1121,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// displays; a failed retry keeps master and the displays online, as
     /// the atomic modeset left them, so the blank still powers them down.
     fn try_wake(&mut self, scan: Scan) -> io::Result<()> {
-        if !self.master {
+        if self.master != Master::Held {
             // After the fast retries ran out, each later try that fails
             // logs at debug level, so the slow retries do not fill the log.
             let level = if self.wake_failed {
@@ -1099,7 +1134,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     log::log!(level, "cannot take DRM master: {e}");
                 }
             })?;
-            self.master = true;
+            self.master = Master::Held;
         }
         self.awake = true;
         // Another program held the displays: what the buffers hold counts
@@ -1286,6 +1321,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Ends the sleep once no flip is in flight: hides the planes that show
     /// something, under the master the commit needs, and drops DRM master.
     fn finish_sleep(&mut self) {
+        self.recheck_master();
         let hide = self.planes_to_hide();
         if !hide.entries.is_empty()
             && let Err(e) = self.card.commit(&hide, DRM_MODE_ATOMIC_NONBLOCK)
@@ -1311,7 +1347,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// the legacy calls and without master, where vtium commits nothing.
     fn planes_to_hide(&self) -> Request {
         let mut req = Request::default();
-        if !self.master || self.legacy {
+        if self.master == Master::NotHeld || self.legacy {
             return req;
         }
         let all = self.card.planes().unwrap_or_else(|e| {
@@ -1393,22 +1429,47 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.events.push(Event::Asleep);
         }
         self.awake = false;
-        self.master = false;
+        self.master = Master::NotHeld;
         self.retries = None;
         self.owed = false;
         self.wake_failed = false;
     }
 
+    /// Lets go of the DRM master this file holds. A file without master
+    /// has nothing to let go, and the kernel would refuse the drop with
+    /// `EINVAL` (`drm_dropmaster_ioctl`).
     fn release_master(&mut self) {
         // The kernel removed the card, and its master with it.
         if self.card.removed() {
-            self.master = false;
+            self.master = Master::NotHeld;
             return;
         }
-        if let Err(e) = self.card.drop_master() {
+        self.recheck_master();
+        if self.master != Master::NotHeld
+            && let Err(e) = self.card.drop_master()
+        {
             log::debug!("cannot drop DRM master: {e}");
         }
-        self.master = false;
+        self.master = Master::NotHeld;
+    }
+
+    /// Asks the kernel whether this file still holds the DRM master that
+    /// drm2d took. A seat manager shares the open file with vtium and drops
+    /// master on it before it tells vtium to let the card go, as seatd
+    /// does when the VT is switched away (`seat_disable_client`). Without
+    /// master, the sleep then commits nothing and drops nothing. When the
+    /// kernel gives no answer, vtium keeps what it knew: a master it held
+    /// still counts as held.
+    fn recheck_master(&mut self) {
+        if self.master == Master::NotHeld || self.card.removed() {
+            return;
+        }
+        match self.card.is_master() {
+            Ok(held) => self.master = if held { Master::Held } else { Master::NotHeld },
+            // The kernel removed the card, and its master with it.
+            Err(_) if self.card.removed() => self.master = Master::NotHeld,
+            Err(e) => log::debug!("cannot ask whether vtium holds DRM master: {e}"),
+        }
     }
 
     /// Looks for connectors plugged in or out, as on a udev hotplug event,
@@ -1624,7 +1685,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
         // The card takes master as it wakes and lets it go only as it
         // falls asleep, so a scan always runs under master.
-        debug_assert!(self.master, "an awake card holds DRM master");
+        debug_assert_eq!(self.master, Master::Held, "an awake card holds DRM master");
         let res = self.card.resources()?;
         // Every connector is read before the scan changes anything, and
         // the loop is asked between the reads whether the kernel wants
@@ -1811,7 +1872,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             if o.announced {
                 self.events.push(Event::Removed(o.id));
             }
+            let (crtc, name) = (o.crtc, o.name.clone());
             self.free(o);
+            self.legacy_gone_off(crtc, &name);
             changed = true;
         }
         self.move_refused.retain(|id| connected.contains(id));
@@ -2725,6 +2788,26 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
         }
         set
+    }
+
+    /// Turns off `crtc`, which display `name` held until it went, on a card
+    /// driven through the legacy calls, where no display left takes the
+    /// CRTC and it still shows a mode. Removing the framebuffers of the
+    /// gone display turns its CRTC off on some drivers, such as amdgpu.
+    /// Others, such as i915, keep the CRTC lit with the gone connector on
+    /// it, which holds a multi-stream connector's share of the link. The
+    /// legacy call that turns the CRTC off takes every connector off it.
+    fn legacy_gone_off(&self, crtc: u32, name: &str) {
+        if !self.legacy
+            || self.card.removed()
+            || self.outputs.iter().any(|o| o.crtc == crtc)
+            || !matches!(self.card.crtc_mode(crtc), Ok(Some(_)))
+        {
+            return;
+        }
+        if let Err(e) = self.card.disable_crtc(crtc) {
+            log::warn!("cannot turn off the CRTC that display {name} held: {e}");
+        }
     }
 
     /// Lets go of display `o`, which a placement could not put on a CRTC

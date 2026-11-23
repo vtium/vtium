@@ -32,12 +32,15 @@ considered:
     said: "Shrink the grid"
     via: the steering session's interview on 2026-11-22 (question tool, brief/for/against/lean per probe); the figure ADR-1404-joined-displays.svg was rendered and shown first; the maintainer chose the lean
     covers: [an unplugged display]
+  - operator: aaronsb
+    said: "overall it's reasonable"
+    via: the maintainer, reading the wave 6a records page, 2026-11-22
 observable:
   - "A head with `arrange = stacked` over two displays of the same size shows one grid with the rows of both, and a line that a program writes on the last row of the top display continues on the first row of the bottom one"
   - "The same head with `arrange = side-by-side` shows one grid with the columns of both, and a line wraps only at the right edge of the right display"
   - "Unplugging one of the two displays resizes the grid to the display that remains, and the shell redraws its prompt at the new size; plugging the display in again gives back the joined grid"
   - "A head with no `arrange` key mirrors its displays as it does today"
-status: proposed
+status: accepted
 date: 2026-11-20
 deciders:
   - aaronsb
@@ -50,7 +53,7 @@ related:
 
 ## Summary
 
-- **Decided:** A head can join its displays into one larger terminal: stacked, one above the other, for more rows, or side by side for more columns. A head's section in vtium.conf names the arrangement with `arrange = stacked` or `arrange = side-by-side`, and names the order of the displays with `display-order`. Mirroring stays the default, so a head with no `arrange` key works as it does today. A joined head has one grid, one set of consoles and one cursor. Each display draws the rows or columns that fall on it, at a font height of its own, chosen so that text is about the same physical size on every display. When one of the joined displays is unplugged, the grid shrinks to the displays that remain, as a resize does, and grows back when the display returns. This record decides the shape and puts its open choices to the maintainer; the build follows in the alpha phase.
+- **Decided:** A head can join its displays into one larger terminal: stacked, one above the other, for more rows, or side by side for more columns. A head's section in vtium.conf names the arrangement with `arrange = stacked` or `arrange = side-by-side`, and names the order of the displays with `display-order`. Mirroring stays the default, so a head with no `arrange` key works as it does today. A joined head has one grid, one set of consoles and one cursor. Each display draws the rows or columns that fall on it, at a font height of its own, chosen so that text is about the same physical size on every display. When one of the joined displays is unplugged, the grid shrinks to the displays that remain, as a resize does, and grows back when the display returns. The maintainer chose both on 2026-11-22, and the build follows in the alpha phase.
 - **Trades away:** A joined head shows nothing twice, so a person who wants the same text on a second display keeps mirroring for that head. The seam between two displays is a bezel the text crosses, and on displays of different density the rows or columns line up only to within a pixel or two. Unplugging a joined display resizes every program on the head.
 - **One-way?** No. `arrange` is a new key with mirroring as its default, so a configuration that names no arrangement never changes. Once people keep joined heads in their vtium.conf, renaming the key or its values costs them an edit (ADR-1510).
 - **Probes:**
@@ -83,7 +86,7 @@ Several words recur below. A head's displays are **joined** when each shows a di
 
 ### D3: how rows and columns line up on displays of different size and density
 
-- **Each display draws at its own font height,** as a mirrored head's displays already do (`layout.rs`). For a joined head the height is the one that gives a cell about the same physical size on every display, from each display's density and the head's font size in points. Text then reads the same size on both sides of the seam, and a line that crosses a seam keeps its size. The first probe asks the maintainer about this. The other way is one cell size in pixels on every display, so the cells line up exactly, but text is smaller on the denser display.
+- **Each display draws at its own font height,** as a mirrored head's displays already do (`layout.rs`). For a joined head the height is the one that gives a cell about the same physical size on every display, from each display's density and the head's font size in points. Text then reads the same size on both sides of the seam, and a line that crosses a seam keeps its size. The maintainer chose this on 2026-11-22 (`considered`). The other way is one cell size in pixels on every display, so the cells line up exactly, but text is smaller on the denser display.
 - **Pixels that fill no whole cell lie at the outer edges,** away from the seam, in the console's background color. On a stacked head the top display's spare rows of pixels lie at its top and the bottom display's at its bottom, so the rows meet at the seam with no gap but the bezel. Across the shared side, each display centres its cells, so the columns of a stacked head line up about the middle of each display.
 - **A display that holds fewer cells along the shared side** than another sets the shared side for the head, and the larger display leaves its extra width, or height, in the background color, centred. vtium-config notes when a joined head leaves more than a few cells unused this way, because the person may want to swap the order or the displays.
 - **A bitmap font draws at a whole multiple of its own size on each display** (ADR-1200 D17), so the physical sizes on two displays match only as closely as the whole multiples allow. The rule takes the multiple on each display that comes closest to the same physical size.
@@ -94,7 +97,7 @@ The figure shows both arrangements with the numbers of two examples. On the left
 
 ### D4: a display that leaves and comes back
 
-- **When one joined display is unplugged, the grid shrinks** to the displays that remain, as a resize does: the programs see the new size, and the scrollback rewraps as ADR-1003 decides. When the display returns and its rule still matches, the head joins it again in its place in `display-order`, and the grid grows back. The second probe asks the maintainer about this. The other way keeps the grid and leaves the missing display's part unseen, so programs never see a resize, but a person on the remaining display cannot see where the cursor is.
+- **When one joined display is unplugged, the grid shrinks** to the displays that remain, as a resize does: the programs see the new size, and the scrollback rewraps as ADR-1003 decides. When the display returns and its rule still matches, the head joins it again in its place in `display-order`, and the grid grows back. The maintainer chose this on 2026-11-22 (`considered`). The other way keeps the grid and leaves the missing display's part unseen, so programs never see a resize, but a person on the remaining display cannot see where the cursor is.
 - **A display left off,** which stays present but dark (ADR-1401 D8), counts as unplugged here, because the person cannot see its part.
 - **When the head's last display leaves,** `when-display-lost` applies as it does to every head (ADR-1401 D8).
 
