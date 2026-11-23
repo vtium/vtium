@@ -155,11 +155,51 @@ pub(super) fn vtlook_findings(
     top.into_iter().chain(looks).collect()
 }
 
-/// What check-config says of the pointer file that `pointer-theme` names,
-/// `top`, with where it is named, read through `gate` as the console reads
-/// it: each line counts, since vtium draws its own pictures in place of
-/// what it cannot read. A path that names neither an SVG file nor a cursor
-/// theme's folder is reported where it is named. An SVG file that fails
+/// What check-config says of the pointer files that `pointer-theme` names:
+/// at the top level, `top`, with where it is named, and in each of
+/// `looks`, a look's name, its pointer file and the line of vtium.conf
+/// `conf` that names it. Each file is read through `gate` as the console
+/// reads it, and each line counts, since vtium draws its own pictures in
+/// place of what it cannot read. A line two places share, such as a theme
+/// that the top level and a look both name, is said once.
+///
+/// References:
+/// - ADR-1205 D6: each look picks its pointer theme, which passes the same trust rule as the top level's.
+pub(super) fn pointer_findings(
+    top: Option<(&str, String)>,
+    conf: &Path,
+    looks: &[(String, String, usize)],
+    gate: &vtium_settings::cullet::Gate,
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut add = |said: Vec<String>| {
+        for line in said {
+            if !out.contains(&line) {
+                out.push(line);
+            }
+        }
+    };
+    if let Some((value, named)) = top {
+        add(pointer_file_findings(
+            value,
+            &|said| format!("{named}: {said}"),
+            gate,
+        ));
+    }
+    for (_, value, line) in looks {
+        add(pointer_file_findings(
+            value,
+            &|said| at(conf, Some(*line), said).to_string(),
+            gate,
+        ));
+    }
+    out
+}
+
+/// What check-config says of the pointer file at `value`, read through
+/// `gate` as the console reads it. A path that names neither an SVG file
+/// nor a cursor theme's folder is reported where it is named, the line
+/// that `named` makes of the sentence. An SVG file that fails
 /// the gate names the check it failed. A cursor theme's folder that fails
 /// the gate is one line, since every file in it fails the same way. In a
 /// theme that passes, check-config walks each shape's file names in the
@@ -173,21 +213,16 @@ pub(super) fn vtlook_findings(
 /// References:
 /// - ADR-1205 D4: a pointer theme is a resource activated by its folder, its links pass while they stay inside the theme's folder, and check-config names the file and the check it failed.
 /// - ADR-1309 D2, D3: what the path names, and which files of a cursor theme serve each shape.
-pub(super) fn pointer_findings(
-    top: Option<(&str, String)>,
+fn pointer_file_findings(
+    value: &str,
+    named: &dyn Fn(String) -> String,
     gate: &vtium_settings::cullet::Gate,
 ) -> Vec<String> {
     use crate::pointer_file::{Located, locate, theme_names, theme_refused_line};
     use vtium_settings::cullet::Check;
-    let Some((value, at)) = top else {
-        return Vec::new();
-    };
     let path = Path::new(value);
     match locate(path) {
-        Located::Unusable(_) => vec![format!(
-            "{at}: {}",
-            crate::pointer_file::unusable_line(path)
-        )],
+        Located::Unusable(_) => vec![named(crate::pointer_file::unusable_line(path))],
         Located::Svg(_) => match gate.open(path) {
             Err(r) if r.check != Check::Missing => vec![format!(
                 "{}: vtium treats this pointer file as missing, because {} So vtium draws its own pointer pictures.",

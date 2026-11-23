@@ -975,7 +975,7 @@ fn the_tiny5_frit_reads_its_bdf_as_published() {
         assert!(text.lines().any(|l| l == line), "tiny5 has {line}");
     }
     let sources: Vec<&str> = text.lines().filter(|l| l.starts_with("source=")).collect();
-    let published = "source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf";
+    let published = "source=bdf:/usr/share/fonts/vtium/Tiny5Mono.bdf";
     assert_eq!(sources, [published]);
     assert!(text.contains("7d30f9e887fdb29e0b951e92493822afba5f70a7"));
     assert!(text.contains("33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3"));
@@ -1331,7 +1331,7 @@ fn a_fallback_outline_font_draws_at_the_first_fonts_size() {
 
 // ADR-1200 D17 (the maintainer, 2026-11-06): a glyph from an outline source
 // behind an outline first source whose ink would pass its cells at the
-// first source's size is drawn smaller until it fits. Test Icons' U+E0B0
+// first source's size is drawn smaller until it fits. Test Icons' U+F015
 // is a bar 1200 units across and 1300 high, from 300 below the baseline,
 // which at Test Latin's 15.5 pixels to the em spans 18.6 by 20.2 pixels,
 // more than its 9x16 cell. Drawn smaller, its ink lies in the cell with
@@ -1348,19 +1348,19 @@ fn a_fallback_glyph_too_big_for_its_cell_is_drawn_smaller_to_fit() {
     icons
         .glyphs
         .push(ttf::Glyph::rect(600, -300, -300, 900, 1000));
-    icons.cmap = vec![(0xe0b0, (icons.glyphs.len() - 1) as u16)];
+    icons.cmap = vec![(0xf015, (icons.glyphs.len() - 1) as u16)];
     fs::write(w.path("fonts/TestIcons-Regular.ttf"), icons.build()).expect("font");
     let engine = w
         .engine("source=font:Test Latin\nsource=font:Test Icons\n")
         .expect("the frit loads");
     let bytes = engine
-        .draw(cell(9, 16), &[0xe0b0])
+        .draw(cell(9, 16), &[0xf015])
         .expect("draws")
         .expect("a glyph");
     let face =
         SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 16).expect("a face");
     let g = face
-        .draw(&['\u{e0b0}'], Style::default())
+        .draw(&['\u{f015}'], Style::default())
         .expect("the icon");
     assert_eq!((g.cells(), g.width(), g.height()), (Width::Narrow, 9, 16));
     assert!(g.ink().is_none(), "no ink past the cell");

@@ -86,7 +86,7 @@ RELR_LINK := -C link-arg=-Wl,-z,pack-relative-relocs
 # linker keeps one copy of each set of functions whose machine code and
 # relocations are the same, and points every caller at that copy. Generic
 # code instantiated for types of the same layout folds this way, and the
-# binary shrinks by about 42 KB, which keeps it under the 4,325,376-byte
+# binary shrinks by about 42 KB, which keeps it under the 4,390,912-byte
 # budget that tier 3 holds the minspec binary to. The mode is all, not safe:
 # safe folds only functions whose address no code takes, and rustc emits no
 # address-significance table to tell the linker which those are, so safe
@@ -113,7 +113,7 @@ ICF_LINK := -C link-arg=-Wl,--icf=all
 # on, as calloop-0.14.4/src/sys.rs. rustc applies the last prefix that
 # matches a path, so the crates.io prefix, the more specific one, comes
 # last and wins over the cargo home's. The binary shrinks
-# by about 2.6 KB, which counts against the 4,325,376-byte budget that tier
+# by about 2.6 KB, which counts against the 4,390,912-byte budget that tier
 # 3 holds the minspec binary to, and its size no longer depends on where
 # the cargo home is. vtium's own sources already appear as paths relative
 # to the workspace, such as crates/vtium/src/main.rs. The flags go to every
@@ -601,13 +601,13 @@ VENDOR_DIR = $(or $(CARGO_TARGET_DIR),target)/vendor-archive
 
 .PHONY: vendor-archive
 vendor-archive: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
-vendor-archive: ## Pack the source of every crate Cargo.lock names, for the commit HEAD names, as VENDOR_DIR/vtium-VERSION-vendor.tar.zst, its .sha256 and the manifest of its crates, vtium-VERSION-dependencies.tsv (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
+vendor-archive: ## Write the release files for the commit HEAD names into VENDOR_DIR: the source archives vtium-VERSION.tar.gz and .zip from git archive, the vendor archive vtium-VERSION-vendor.tar.zst with the source of every crate Cargo.lock names, its .sha256, the manifest of its crates, vtium-VERSION-dependencies.tsv, and SHA256SUMS over them all (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
 	tools/vendor/archive pack '$(VENDOR_DIR)'
 
 .PHONY: vendor-archive-check
 vendor-archive-check: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
 vendor-archive-check: export VTIUM_VENDOR_CULLET_MONO = $(abspath $(CULLET_MONO_OUT))
-vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace and make install from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build or if the manifest does not list the archive's crates (stages the font files first: needs the network once, and FontForge 20251009 unless make cullet-mono has built the faces)
+vendor-archive-check: vendor-archive ## Write the release files, check them against SHA256SUMS and the source archives against the commit, then build the workspace and make install from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build or if the manifest does not list the archive's crates (stages the font files first: needs the network once, and FontForge 20251009 unless make cullet-mono has built the faces)
 	tools/vendor/archive check '$(VENDOR_DIR)'
 
 # The ARM single-board computers minspec is judged against
@@ -723,7 +723,7 @@ bench: ## Time vtium-term's write benchmarks: ms a frame and a MiB, median with 
 # repetitions.
 DRAW_BENCH ?=
 .PHONY: draw-bench
-draw-bench: ## Time a full CPU redraw of a 240×67 screen of text with font-ligatures off and on (DRAW_BENCH='text equals arrows spaced')
+draw-bench: ## Time a full CPU redraw of a 240×67 screen of text, with font-ligatures off and on, and of underlined text, upright and turned (DRAW_BENCH='text equals arrows spaced underlined')
 	cargo run --release -p vtium-render --features bidi --example draw_bench -- --reps $(BENCH_REPS) $(DRAW_BENCH)
 
 # Tier 1 and the capability probes, against the goldens and probes in
@@ -754,7 +754,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the release files' check, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I tools/vt/tests/test_typepad.py
@@ -771,6 +771,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B tools/arm/test_sysroot.py
 	python3 -I -B tools/stage/test_check.py
 	python3 -I -B tools/vendor/test_manifest.py
+	python3 -I -B tools/vendor/test_archive.py
 	python3 -I -B tools/fonts/test_files.py
 	cargo test -q -p vtium-font --test set
 	cargo test -q -p vtium-tier1-shots --features draw
@@ -1189,12 +1190,12 @@ tier3-image: ## Fetch, verify and provision tier 3's guest image, unless the cac
 # under the run lock, so a second run cannot rebuild the tree under a running
 # one. The recipes hold no $(MAKE), so `make -n` runs nothing.
 .PHONY: tier3
-tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or VARIANTS="..." (JOBS=N, FEATURES='...')
+tier3: tier3-image ## Tier 3: build the install tree, then run the five default variants (2d-1280x800, 2d-7680x2160, 2d-1366x768-potato, 2d-7680x2160-font32, gl-1280x800), or VARIANTS="..." (JOBS=N, FEATURES='...')
 	$(T3_RUN) --tree-target install-tree $(VARIANTS)
 
 .PHONY: tier3-minimal
-tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, the 320x240 and 640x480 displays, vtium with nothing installed, and the default font sets at 16, 24 and 40 pixels
-	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16 2d-640x480-frit 2d-640x480-frit-held default-font-16 default-font-24 default-font-40 cullet-mono-16 cullet-mono-24 cullet-mono-40 builtin-font)
+tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, the 320x240 and 640x480 displays, vtium with nothing installed, the default font sets at 16, 24 and 40 pixels, and vtium-config apply as root
+	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16 2d-640x480-frit 2d-640x480-frit-held default-font-16 default-font-24 default-font-40 cullet-mono-16 cullet-mono-24 cullet-mono-40 builtin-font apply-root)
 
 # vtium's pictures on tier 3: the tree's console built with images, and with
 # any other features FEATURES names, then the images variants, which draw

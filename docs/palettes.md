@@ -87,7 +87,7 @@ Each `edid:` value names one monitor by the identity it reports, and `vtium conf
 
 ## Programs that change the colors
 
-A program can change the colors in its own console with escape sequences. OSC 4 changes one of the 256 colors, and OSC 10 to 19 change the default colors, the cursor's color and the selection's colors. OSC 104 to 119 reset them to the color scheme's colors. RIS, the full reset, and DECSTR, the soft reset, return the colors to the color scheme's too. See [Escape sequences](sequences/index.md) for each sequence.
+A program can change the colors in its own console with escape sequences. OSC 4 changes one of the 256 colors. OSC 10, 11 and 12 change the default foreground, the default background and the cursor's color. OSC 13 and 14 change the mouse pointer's colors, and OSC 17 and 19 the selection's colors. OSC 104, 110 to 114, 117 and 119 reset them to the color scheme's colors. vtium ignores OSC 15, 16 and 18, xterm's Tektronix colors. A program can also use kitty's color protocol, OSC 21, and save and restore all the colors with xterm's and kitty's color stacks. RIS, the full reset, and DECSTR, the soft reset, return the colors to the color scheme's too. See [Escape sequences](sequences/index.md) for each sequence.
 
 ## The file format
 
@@ -133,5 +133,8 @@ vtium installs these color schemes in `/usr/share/vtium/palettes`. Each comes fr
 | Gruvbox | `gruvbox-dark`, `gruvbox-light` | [gruvbox-community/gruvbox](https://github.com/gruvbox-community/gruvbox) | MIT |
 | Kiln | `kiln` | vtium's own: a warm near-black background, saturated accents and a light warm foreground | vtium's license |
 | Sunny | `sunny` | vtium's own: black text on a white background, like the white consoles of 1990s Unix workstations | vtium's license |
+| Ink | `ink` | vtium's own: black and red on white, for a display of three inks such as a three-color e-paper panel | vtium's license |
+
+Ink holds only black, red and white, so a panel that shows those three inks displays every one of its colors. Red, yellow and magenta print in red ink, and the other colors in black, so text a program colors stays readable on white. Colors 7 and 15 are the white of the paper, so text in those colors shows only on a colored background.
 
 Nord and Solarized are built-in palettes, so they need no file. To use a color scheme vtium does not install, copy its Ghostty theme file to `/etc/vtium/palettes/NAME.palette` as root, and add that path to `/etc/vtium/batch.conf`.

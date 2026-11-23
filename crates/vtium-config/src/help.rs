@@ -264,12 +264,12 @@ const TOPICS: &[Topic] = &[
                 "add a look",
             ),
             form(
-                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT] [--login-image-rows N] [--login-image-position P] [--login-image-scale PCT] [--palette NAME]",
+                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT] [--login-image-rows N] [--login-image-position P] [--login-image-scale PCT] [--palette NAME] [--pointer-theme PATH]",
                 "change a look's settings",
             ),
             form("look rm NAME [--force]", "delete a look"),
         ],
-        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting, --line-spacing and --ligatures set font-engine, font-hinting, font-line-spacing and font-ligatures; --display-depth, --display-dpi, --login-image, --login-image-fit, --login-image-rows, --login-image-position, --login-image-scale and --palette set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
+        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting, --line-spacing and --ligatures set font-engine, font-hinting, font-line-spacing and font-ligatures; --display-depth, --display-dpi, --login-image, --login-image-fit, --login-image-rows, --login-image-position, --login-image-scale, --palette and --pointer-theme set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
         example: "vtium-config look add big --frit monoid --size 14",
     },
     Topic {
@@ -362,11 +362,11 @@ const TOPICS: &[Topic] = &[
         forms: &[
             form(
                 "new-frit FONT... [--name NAME] [--cell WxH] [--size POINTS] [--layer NAME]...",
-                "make a font set from fonts",
+                "make a font set from fonts, in your draft",
             ),
             form(
                 "new-frit --from FILE [--name NAME]",
-                "install the font set in FILE",
+                "add the font set in FILE to your draft",
             ),
             form(
                 "new-frit --template",
@@ -377,7 +377,7 @@ const TOPICS: &[Topic] = &[
                 "open the full-screen tool at its new font set page",
             ),
         ],
-        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. Each --layer adds a layer from the layers folder of the font sets' directory, such as nerd-symbols or noto-emoji. The layers follow the fonts in the order of their roles: scripts, then symbols, then emoji, then the fallback, whatever order you give them in. --from installs a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. Run as a user, it writes a draft and prints the command that installs it.",
+        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. Each --layer adds a layer from the layers folder of the font sets' directory, such as nerd-symbols or noto-emoji. The layers follow the fonts in the order of their roles: scripts, then symbols, then emoji, then the fallback, whatever order you give them in. --from takes a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. The font set then waits in your draft, in ~/.config/vtium/drafts/DRAFT.frits/, and install installs it with the draft. new-frit prints what the check of the draft finds and how the draft stands.",
         example: "vtium-config new-frit unifont --name my-font --size 14",
     },
     Topic {
@@ -388,11 +388,8 @@ const TOPICS: &[Topic] = &[
     },
     Topic {
         command: Command::RemoveFrit,
-        forms: &[form(
-            "remove-frit NAME",
-            "remove a font set that vtium.conf does not use",
-        )],
-        detail: "Removes the font set NAME.vtfrit. It does not remove a built-in font, a name with no font set, or a font set that font-name names, at the top of vtium.conf or in a look. When the removal is installed, the file is kept as NAME.vtfrit.bak.",
+        forms: &[form("remove-frit NAME", "remove a font set, in your draft")],
+        detail: "Removes the font set NAME.vtfrit in your draft. The removal waits in ~/.config/vtium/drafts/DRAFT.frits/ until you install the draft, and install then keeps the file as NAME.vtfrit.bak. For a font set that only your draft adds, remove-frit takes the new font set back out of the draft. It does not remove a built-in font, a name with no font set, or a set of vtium's catalog. When font-name names the font set, at the top of vtium.conf or in a look, the removal still waits in the draft. The check then lists each line that names it, and install refuses the draft until those lines name another font.",
         example: "vtium-config remove-frit my-font",
     },
     Topic {
@@ -482,7 +479,7 @@ pub const DESCRIPTION: [&str; 2] = [
 ];
 
 /// What the commands change, after the list of commands.
-pub const DRAFTS: &str = "The commands from flow to edit change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. activate and deactivate keep their changes beside the draft, in NAME.batch, and install writes them to /etc/vtium/batch.conf. The font set commands (new-frit, remove-frit) write a draft and print the command that installs it.";
+pub const DRAFTS: &str = "The commands from flow to edit change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. activate and deactivate keep their changes beside the draft, in NAME.batch, and install writes them to /etc/vtium/batch.conf. The font set commands (new-frit, remove-frit) keep their changes beside the draft too, in NAME.frits/, and install writes them to the font sets' directory.";
 
 /// The statuses vtium-config exits with, and what each means.
 pub const EXIT_STATUS: [(u8, &str); 7] = [

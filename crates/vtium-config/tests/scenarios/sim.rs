@@ -43,8 +43,9 @@ const LONG_FILE_COMMENTS: usize = 30;
 /// The font the stand-in console draws when the TUI starts.
 pub const START_FONT: &str = "unifont";
 
-/// The stand-in desk: the installed vtium.conf, the draft and the
-/// installed history, all in memory. Every check passes.
+/// The stand-in desk: the installed vtium.conf, the draft, its folder of
+/// font sets, the installed font sets and the installed history, all in
+/// memory. Every check passes.
 #[derive(Clone, Debug)]
 pub struct Desk {
     pub installed: String,
@@ -58,6 +59,10 @@ pub struct Desk {
     pub no_route: bool,
     /// The resources that are active or that the draft changes.
     pub resources: Vec<(std::path::PathBuf, vtium_config::batch::State)>,
+    /// The draft's folder: the font sets it adds, replaces and removes.
+    pub frits: vtium_config::store::FritChanges,
+    /// The installed font sets, by name.
+    pub installed_frits: std::collections::BTreeMap<String, Vec<u8>>,
 }
 
 impl Desk {
@@ -69,7 +74,36 @@ impl Desk {
             added,
             removed,
             resources: self.resources.clone(),
+            frits: self.frits.clone(),
+            frit_changes: vtium_config::tui::fixture::frit_edits(
+                &self.frits,
+                &self.installed_frits,
+                &vtium_config::tui::fixture::inputs().frits,
+            ),
             ..Default::default()
+        }
+    }
+
+    /// The plan an install hands the privileged step, as the store's
+    /// prepare builds it: the font sets first, then vtium.conf where the
+    /// draft differs from it.
+    fn plan(&self) -> Plan {
+        let (mut files, removals) = vtium_config::tui::fixture::frit_plan(
+            &self.frits,
+            &self.installed_frits,
+            &vtium_config::tui::fixture::inputs().frits,
+        );
+        if self.draft != self.installed {
+            files.push(FileEdit {
+                path: "/etc/vtium/vtium.conf".into(),
+                old: Some(self.installed.clone()),
+                new: self.draft.clone(),
+            });
+        }
+        Plan {
+            files,
+            removals,
+            no_route: self.no_route,
         }
     }
 
@@ -98,27 +132,21 @@ impl Desk {
                 self.draft()
             }
             Op::Check(text) => Done::Draft(self.opened(text), None),
-            Op::Prepare if self.draft == self.installed => Done::Plan(Plan {
-                no_route: self.no_route,
-                ..Plan::default()
-            }),
-            Op::Prepare => Done::Plan(Plan {
-                files: vec![FileEdit {
-                    path: "/etc/vtium/vtium.conf".into(),
-                    old: Some(self.installed.clone()),
-                    new: self.draft.clone(),
-                }],
-                removals: Vec::new(),
-                no_route: self.no_route,
-            }),
+            Op::Prepare => Done::Plan(self.plan()),
+            Op::FontSet { frit, edit, text } => {
+                vtium_config::tui::fixture::font_set_op(&mut self.frits, frit, edit)?;
+                Done::Draft(self.opened(text), None)
+            }
             Op::Revert | Op::Delete => {
                 self.draft.clone_from(&self.installed);
                 self.drop_batch();
+                self.frits = Default::default();
                 self.draft()
             }
             Op::New => {
                 self.draft = "version = 1\n[look default]\n".to_owned();
                 self.drop_batch();
+                self.frits = Default::default();
                 self.draft()
             }
             Op::History => Done::History(
@@ -226,8 +254,19 @@ impl Sim {
     /// The TUI at its start in `term`, at `cols` by `rows`, on the
     /// fixture, with a desk whose draft is the fixture's vtium.conf.
     pub fn start(term: Term, cols: usize, rows: usize) -> Sim {
+        Sim::start_on(term, cols, rows, |_| {})
+    }
+
+    /// [`Sim::start`] on the fixture's inputs as `edit` changes them.
+    pub fn start_on(
+        term: Term,
+        cols: usize,
+        rows: usize,
+        edit: impl Fn(&mut vtium_config::tui::model::Inputs),
+    ) -> Sim {
         let mut inputs = vtium_config::tui::fixture::inputs();
         inputs.desk = true;
+        edit(&mut inputs);
         // comments after the fixture's settings make the file longer than
         // the file view's window, so its scrolling keys have lines to move
         let mut conf = inputs.conf.clone().unwrap_or_default();
@@ -251,6 +290,8 @@ impl Sim {
                 writes: 0,
                 no_route: false,
                 resources: vtium_config::tui::fixture::active(),
+                frits: Default::default(),
+                installed_frits: vtium_config::tui::fixture::inputs().installed,
             },
             console_font: START_FONT.to_owned(),
             mouse: false,
@@ -320,6 +361,10 @@ impl Sim {
                     did.effects.push("install".into());
                     let _ = plan;
                     self.desk.installed.clone_from(&self.desk.draft);
+                    vtium_config::tui::fixture::frits_install(
+                        &mut self.desk.frits,
+                        &mut self.desk.installed_frits,
+                    );
                     Event::Installed(Ok(self.desk.draft()))
                 }
                 Effect::InstallFont => {
@@ -439,5 +484,6 @@ fn op_word(op: &Op) -> &'static str {
         Op::Devices => "devices",
         Op::Resource { .. } => "resource",
         Op::SystemFont(_) => "system font",
+        Op::FontSet { .. } => "font set",
     }
 }

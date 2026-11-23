@@ -7,6 +7,7 @@
 
 use vtium_font::{Format as FontFormat, Glyph};
 
+use crate::beside::Beside;
 use crate::reach::{self, Reach};
 use crate::target::Orientation;
 
@@ -43,6 +44,10 @@ pub(crate) struct Stored {
     /// of a sized run whose text mixes them with text, which keep their
     /// own colors over the text the mask draws.
     layer: Option<Box<Stored>>,
+    /// For a piece of a magnified character, the pixels near the ink in
+    /// the character's pieces beside it, which the piece's underline
+    /// skips ([`Beside`]).
+    beside: Option<Box<Beside>>,
 }
 
 /// `width` by `height` pixels of `bpp` bytes turned by `o`: the pixel at
@@ -305,6 +310,7 @@ impl Stored {
                 at: (0, 0),
                 reach: Reach::NONE,
                 layer: None,
+                beside: None,
             };
         }
         Stored {
@@ -317,15 +323,30 @@ impl Stored {
             at: (0, 0),
             reach: Reach::NONE,
             layer: None,
+            beside: None,
         }
     }
 
-    /// Bytes its pixels take, its color layer's included: what the cache's
-    /// byte ceilings count.
+    /// Bytes its pixels take, its color layer's and the ink beside it
+    /// included: what the cache's byte ceilings count.
     pub(crate) fn bytes(&self) -> usize {
         self.data
             .len()
             .saturating_add(self.layer.as_ref().map_or(0, |l| l.bytes()))
+            .saturating_add(self.beside.as_ref().map_or(0, |b| b.bytes()))
+    }
+
+    /// This piece of a magnified character with `beside`, the pixels near
+    /// the ink in the character's pieces beside it, if any come near.
+    pub(crate) fn with_beside(mut self, beside: Option<Beside>) -> Stored {
+        self.beside = beside.map(Box::new);
+        self
+    }
+
+    /// The pixels near the ink beside this piece of a magnified character,
+    /// which its underline skips.
+    pub(crate) fn beside(&self) -> Option<&Beside> {
+        self.beside.as_deref()
     }
 
     /// This mask with `layer`, a color image of the same size, drawn over
@@ -409,6 +430,36 @@ impl Stored {
                     .copied()
                     .unwrap_or(0);
             }),
+        }
+    }
+
+    /// The coverage at drawn column `x`, line `y`, 0 outside the glyph: the
+    /// one pixel that [`Stored::mask_line`] gives there, read without
+    /// filling a line.
+    pub(crate) fn coverage(&self, x: i64, y: i64) -> u8 {
+        let (x, y) = self.local(x, y);
+        let Some((row, drawn_w)) = self.row(y) else {
+            return 0;
+        };
+        if x < 0 || x >= drawn_w {
+            return 0;
+        }
+        let Some(c) = usize::try_from(x)
+            .ok()
+            .and_then(|x| x.checked_div(usize::try_from(self.scale).ok()?.max(1)))
+        else {
+            return 0;
+        };
+        match self.format {
+            Format::Bits => {
+                let bit = row.get(c / 8).map_or(0, |b| b << (c % 8) & 0x80);
+                if bit != 0 { 255 } else { 0 }
+            }
+            Format::Mask => row.get(c).copied().unwrap_or(0),
+            Format::Rgba => row
+                .get(c.wrapping_mul(4).wrapping_add(3))
+                .copied()
+                .unwrap_or(0),
         }
     }
 
@@ -560,6 +611,43 @@ mod tests {
                         let mut got = vec![0u32; w];
                         s.bits_line(x0, y, (1, 2), &mut got);
                         assert_eq!(got, want, "scale {scale}, line {y}, from {x0}, {w} wide");
+                    }
+                }
+            }
+        }
+    }
+
+    // one pixel's coverage is the pixel a line read gives there, at 1 bit,
+    // 8 bits and in a color glyph's alpha, at every scale and turn, and 0
+    // past each edge
+    #[test]
+    fn a_pixels_coverage_is_the_pixel_its_line_gives() {
+        let g = glyph(11, 3, |x, y| ((x * 7 + y) % 4) as u8 * 85);
+        let two = glyph(11, 3, |x, y| if (x * 7 + y) % 3 == 0 { 255 } else { 0 });
+        let rgba: Vec<u8> = (0..11u32 * 3)
+            .flat_map(|i| [0, 0, 0, (i % 3) as u8 * 120])
+            .collect();
+        let color = Glyph::from_pixels(11, 3, FontFormat::Rgba, rgba).unwrap();
+        for o in [
+            Orientation::Normal,
+            Orientation::Right,
+            Orientation::UpsideDown,
+            Orientation::Left,
+        ] {
+            for scale in 1..=3 {
+                let stored = [
+                    Stored::new(&two, scale, o, true),
+                    Stored::new(&g, scale, o, false),
+                    Stored::new(&color, scale, o, false),
+                ];
+                assert!(stored[0].is_bits() && stored[2].is_rgba());
+                for s in &stored {
+                    for y in -2..40 {
+                        for x in -2..40 {
+                            let mut px = [0u8; 1];
+                            s.mask_line(x, y, &mut px);
+                            assert_eq!(s.coverage(x, y), px[0], "{o:?}, scale {scale}, {x}, {y}");
+                        }
                     }
                 }
             }

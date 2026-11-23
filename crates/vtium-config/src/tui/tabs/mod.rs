@@ -36,7 +36,7 @@ use super::edit::Change as DraftChange;
 use super::flow::Item;
 use super::input::Key;
 use super::listbox::Body;
-use super::model::{Effect, Pending, Shared, Size, TYPED_MAX, Then, View};
+use super::model::{Effect, Shared, Size, TYPED_MAX, Then, View};
 use super::shot::Preview;
 use super::words;
 
@@ -103,10 +103,10 @@ pub trait Tab {
         Preview::nothing(shared, size)
     }
 
-    /// The lines a vtium console draws as the tab's preview, in its own
-    /// font, where a picture would go elsewhere: none for a tab with no
-    /// preview.
-    fn console_lines(&self, _shared: &Shared) -> Vec<Vec<(&'static str, Style)>> {
+    /// The lines a vtium console draws as the tab's preview on a screen
+    /// of `size`, in its own font, where a picture would go elsewhere:
+    /// none for a tab with no preview.
+    fn console_lines(&self, _shared: &Shared, _size: Size) -> Vec<Vec<(&'static str, Style)>> {
         Vec::new()
     }
 
@@ -132,7 +132,7 @@ pub trait Tab {
     fn type_key(&mut self, _key: Key) {}
 
     /// Whether the action key `action` acts in the tab as it stands: `i`
-    /// installs, `s` saves and `o` turns `allow-font-ops` on. A tab whose
+    /// installs and `s` saves. A tab whose
     /// own keys use the letter, or with a level open over it, leaves the
     /// action alone.
     ///
@@ -171,10 +171,11 @@ pub enum Change {
     },
     /// Puts this line on the message line.
     Say(String),
-    /// Replaces the frits that wait for the install with these.
-    Pending(Pending),
     /// Tries this font on the live console.
     Try(String),
+    /// Tries the size `points` on the live console's grid, measured in the
+    /// font set `font`, or the font the console draws where it is `None`.
+    TrySize { font: Option<String>, points: u32 },
     /// Clears the message line.
     Quiet,
     /// Makes `changes` on the draft, in order, and hands the result to the

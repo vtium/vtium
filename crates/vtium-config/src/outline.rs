@@ -829,6 +829,8 @@ pub fn family_key(name: &str) -> String {
 
 pub use raster::{baseline, cell_width, decorations, own_box, rasterise, size};
 
+mod strike;
+
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
 pub(crate) mod raster {
@@ -844,9 +846,77 @@ pub(crate) mod raster {
     use skrifa::{GlyphId, MetadataProvider};
     use swash::scale::image::{Content, Image};
     use swash::scale::{Render, ScaleContext, Source, StrikeWith};
-    use swash::zeno::{Command, Mask, Origin, Placement, Point, Transform};
+    use swash::zeno::{Bounds, Command, Fill, Mask, Origin, Placement, Point, Transform};
 
     use crate::resample::{self, METHOD};
+
+    /// The most pixels across or down that vtium-config rasterises one
+    /// glyph at: twice the largest cell side, so a glyph two cells wide in
+    /// the largest cell still draws.
+    pub(crate) const GLYPH_SIDE_MAX: u32 = 2 * vtium_font::CELL_SIDE_MAX;
+
+    /// [`GLYPH_SIDE_MAX`] as an error message writes it.
+    const GLYPH_SIDE_TEXT: &str = "4,096";
+    const _: () = assert!(GLYPH_SIDE_MAX == 4096);
+
+    /// The whole pixels that a glyph whose points lie within `b` covers, as
+    /// zeno sizes the mask it fills: its left edge, its top edge above the
+    /// baseline, and its width and height. `None` when either side is
+    /// longer than [`GLYPH_SIDE_MAX`], or when an edge is not a number or
+    /// does not fit an `i32`, and the caller then draws the glyph as empty.
+    ///
+    /// A font can pass the font check and still scale a glyph to tens of
+    /// thousands of pixels. One font unit becomes the cell's height less
+    /// half a pixel, divided by the font's ascent plus its descent in font
+    /// units, so a font whose ascent and descent span one unit draws each
+    /// unit almost a cell high. zeno computes a mask's size as a `u32`
+    /// product that overflows past 4 GB, and turns each point into 24.8
+    /// fixed point with a conversion that is undefined behavior past
+    /// 8,388,608 pixels. Every call that rasterises in vtium-config passes
+    /// the glyph's box through this first, so no glyph mask is larger than
+    /// 4,096 × 4,096 pixels and every point zeno converts stays in range.
+    pub(crate) fn glyph_box(b: Bounds) -> Option<Placement> {
+        let edge = |v: f32| -> Option<i64> {
+            let v = f64::from(v);
+            (v.is_finite() && v >= f64::from(i32::MIN) && v <= f64::from(i32::MAX))
+                .then_some(v as i64)
+        };
+        let side = |lo: f32, hi: f32| -> Option<(i32, i32, u32)> {
+            let (lo, hi) = (edge(lo.floor())?, edge(hi.ceil())?);
+            let length = u32::try_from(hi.checked_sub(lo)?).ok()?;
+            (length <= GLYPH_SIDE_MAX).then_some((
+                i32::try_from(lo).ok()?,
+                i32::try_from(hi).ok()?,
+                length,
+            ))
+        };
+        let (left, _, width) = side(b.min.x, b.max.x)?;
+        let (_, top, height) = side(b.min.y, b.max.y)?;
+        Some(Placement {
+            left,
+            top,
+            width,
+            height,
+        })
+    }
+
+    /// Whether zeno may fill `path`: the box [`glyph_box`] gives for the
+    /// pixels zeno would size its mask from, with the nonzero fill that
+    /// [`Mask`] and swash's `Render` use when no style is set.
+    fn fits(path: impl swash::zeno::PathData) -> bool {
+        glyph_box(swash::zeno::bounds(path, Fill::NonZero, None)).is_some()
+    }
+
+    /// A glyph drawn as nothing: no pixels and a box of no size, as a
+    /// space draws. A glyph past [`GLYPH_SIDE_MAX`] draws as this.
+    fn nothing(source: Source, content: Content) -> Image {
+        Image {
+            source,
+            content,
+            placement: Placement::default(),
+            data: Vec::new(),
+        }
+    }
 
     #[cfg(test)]
     thread_local! {
@@ -860,7 +930,7 @@ pub(crate) mod raster {
         #[cfg(test)]
         COLOR_DRAWS.with(|n| n.set(n.get().saturating_add(1)));
     }
-    use swash::{FontDataRef, FontRef, StringId};
+    use swash::{FontRef, StringId};
 
     /// The face `family` names in `data`, its Regular face first, or its
     /// first face for an empty family; with the family its name table
@@ -869,7 +939,7 @@ pub(crate) mod raster {
     /// the reader and the test the search among installed fonts uses, so a
     /// face the search finds is a face this takes (ADR-1500 D8).
     fn face<'a>(data: &'a [u8], family: &str) -> Result<(FontRef<'a>, String, u32), String> {
-        let fonts = FontDataRef::new(data).ok_or("not a TrueType or OpenType font")?;
+        let fonts = crate::names::swash_fonts(data)?;
         if fonts.is_empty() {
             return Err("the font holds no face".to_owned());
         }
@@ -955,6 +1025,8 @@ pub(crate) mod raster {
         hinter: Option<(f32, HintingInstance)>,
         /// The automatic hinter's classes of the face's glyphs, found once.
         styles: Option<GlyphStyles>,
+        /// The face's color bitmap strikes, which vtium-config reads itself.
+        strikes: super::strike::Strikes<'a>,
         /// The style drawn over each outline ([`OutlineRequest::synth`]).
         synth: Style,
         /// How many times wider than the font draws it each outline is
@@ -1170,15 +1242,23 @@ pub(crate) mod raster {
         /// A drawer of the glyphs of `font`, face `index` of its file,
         /// hinting its outlines as `hinting` says.
         pub(crate) fn new(font: FontRef<'a>, index: u32, hinting: Hinting) -> Self {
+            let raw = skrifa::FontRef::from_index(font.data, index).ok();
+            // swash's test for Apple Color Emoji, on the family name
+            let apple = || {
+                font.localized_strings()
+                    .find_by_id(StringId::Family, None)
+                    .is_some_and(|name| name.chars().eq("Apple Color Emoji".chars()))
+            };
             Self {
                 font,
                 context: ScaleContext::new(),
-                outlines: skrifa::FontRef::from_index(font.data, index)
-                    .ok()
-                    .map(|f| f.outline_glyphs()),
+                outlines: raw.as_ref().map(|f| f.outline_glyphs()),
                 hinting,
                 hinter: None,
                 styles: None,
+                strikes: raw.map_or(super::strike::Strikes::None, |f| {
+                    super::strike::Strikes::new(&f, apple)
+                }),
                 synth: Style::default(),
                 widen: 1.0,
             }
@@ -1231,12 +1311,7 @@ pub(crate) mod raster {
         pub(crate) fn is_color(&mut self, g: u16, ppem: f32) -> bool {
             let mut scaler = self.context.builder(self.font).size(ppem).build();
             (scaler.has_color_outlines() && scaler.scale_color_outline(g).is_some())
-                || (scaler.has_color_bitmaps()
-                    && self
-                        .font
-                        .color_strikes()
-                        .find_by_largest_ppem(g)
-                        .is_some_and(|strike| strike.ppem() != 0))
+                || self.strikes.holds(g)
         }
 
         /// Glyph `g` drawn as [`Drawer::draw`] draws it, its outline moved
@@ -1256,9 +1331,7 @@ pub(crate) mod raster {
                 drew_color();
                 return Some(self.compose(&layers));
             }
-            if scaler.has_color_bitmaps()
-                && let Some(image) = self.bitmap(g, ppem, fit)
-            {
+            if let Some(image) = self.bitmap(g, ppem, fit) {
                 drew_color();
                 return Some(image);
             }
@@ -1321,6 +1394,66 @@ pub(crate) mod raster {
         /// set up for the size, or a glyph whose hinting fails, is drawn
         /// unhinted rather than not at all.
         fn outline(&mut self, g: u16, ppem: f32, transform: Option<Transform>) -> Option<Image> {
+            let mut path = self.path(g, ppem, transform)?;
+            synthesise(&mut path, self.synth, ppem);
+            if self.widen != 1.0 {
+                widen(&mut path, self.widen);
+            }
+            if !fits(&path[..]) {
+                return Some(nothing(Source::Outline, Content::Mask));
+            }
+            let mut mask = Mask::new(&path[..]);
+            // the placement's top is right only once the mask knows its size
+            mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
+            let (mut data, placement) = mask.render();
+            if self.hinting == Hinting::Bitmap {
+                one_bit(&mut data);
+            }
+            Some(Image {
+                source: Source::Outline,
+                content: Content::Mask,
+                placement,
+                data,
+            })
+        }
+
+        /// How far glyph `g`'s outline reaches across at `ppem`, in pixels
+        /// from the pen: its leftmost and its rightmost point, before any
+        /// style or widening. When `hinted`, the outline is hinted as
+        /// [`Drawer::draw`] hints it, which can move an edge by part of a
+        /// pixel; otherwise it is the font's own outline, scaled. `None`
+        /// when the face has no outline for `g`, or the outline has no
+        /// width.
+        fn across(&mut self, g: u16, ppem: f32, hinted: bool) -> Option<(f32, f32)> {
+            let path = if hinted {
+                self.path(g, ppem, None)?
+            } else {
+                let outlines = self.outlines.clone()?;
+                let glyph = outlines.get(GlyphId::new(u32::from(g)))?;
+                let mut pen = Pen {
+                    path: Vec::new(),
+                    transform: None,
+                };
+                let unhinted = DrawSettings::unhinted(Size::new(ppem), LocationRef::default());
+                glyph.draw(unhinted, &mut pen).ok()?;
+                pen.end_contour();
+                pen.path
+            };
+            let b = swash::zeno::bounds(&path[..], Fill::NonZero, None);
+            (b.min.x.is_finite() && b.max.x.is_finite() && b.min.x < b.max.x)
+                .then_some((b.min.x, b.max.x))
+        }
+
+        /// Glyph `g`'s outline at `ppem`, hinted, its points moved by
+        /// `transform`, each contour closed. A face whose hinter cannot be
+        /// set up for the size, or a glyph whose hinting fails, gives the
+        /// unhinted outline rather than none.
+        fn path(
+            &mut self,
+            g: u16,
+            ppem: f32,
+            transform: Option<Transform>,
+        ) -> Option<Vec<Command>> {
             let outlines = self.outlines.clone()?;
             let glyph = outlines.get(GlyphId::new(u32::from(g)))?;
             if self.hinter.as_ref().is_none_or(|&(at, _)| at != ppem) {
@@ -1351,40 +1484,23 @@ pub(crate) mod raster {
                 glyph.draw(unhinted, &mut pen).ok()?;
             }
             pen.end_contour();
-            synthesise(&mut pen.path, self.synth, ppem);
-            if self.widen != 1.0 {
-                widen(&mut pen.path, self.widen);
-            }
-            let mut mask = Mask::new(&pen.path[..]);
-            // the placement's top is right only once the mask knows its size
-            mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
-            let (mut data, placement) = mask.render();
-            if self.hinting == Hinting::Bitmap {
-                one_bit(&mut data);
-            }
-            Some(Image {
-                source: Source::Outline,
-                content: Content::Mask,
-                placement,
-                data,
-            })
+            Some(pen.path)
         }
 
         /// A color bitmap from the font's largest strike holding `g`, its
         /// colors premultiplied, scaled to `ppem` or as far under as fits
-        /// `fit`, by [`METHOD`] (ADR-1200 D13; the operator's choice on
-        /// vtium/vtium#23).
+        /// `fit`, by [`METHOD`]. vtium-config reads the strike itself
+        /// (`strike.rs`), which refuses an image larger than the glyph
+        /// bound before decoding it.
+        ///
+        /// References:
+        /// - ADR-1200 D13 and the operator's choice on vtium/vtium#23: the
+        ///   resampling method.
         fn bitmap(&mut self, g: u16, ppem: f32, fit: (u32, u32)) -> Option<Image> {
-            let strike = self.font.color_strikes().find_by_largest_ppem(g)?.ppem();
-            // a scaler of no size draws the strike as it is stored
-            let mut native = self.context.builder(self.font).build();
-            let image = native.scale_color_bitmap(g, StrikeWith::LargestSize)?;
-            let (w, h) = (image.placement.width, image.placement.height);
-            if strike == 0 || w == 0 || h == 0 {
-                return None;
-            }
+            let image = self.strikes.bitmap(g)?;
+            let (strike, w, h) = (image.ppem, image.width, image.height);
             let premultiplied = image
-                .data
+                .rgba
                 .as_chunks::<4>()
                 .0
                 .iter()
@@ -1401,14 +1517,21 @@ pub(crate) mod raster {
             let s = (f64::from(ppem) / f64::from(strike))
                 .min(f64::from(fit.0) / f64::from(w))
                 .min(f64::from(fit.1) / f64::from(h));
+            // `fit` is unbounded where the baseline and the W rule measure
+            // a glyph, so only the glyph bound keeps the scaled bitmap small
+            let scaled = Point::new((f64::from(w) * s) as f32, (f64::from(h) * s) as f32);
+            if glyph_box(Bounds::new(Point::ZERO, scaled)).is_none() {
+                let source = Source::ColorBitmap(StrikeWith::LargestSize);
+                return Some(nothing(source, Content::Color));
+            }
             let size = |n: u32| ((f64::from(n) * s).round() as u32).max(1);
             let out = resample::resize(&src, size(w), size(h), METHOD);
             Some(Image {
                 source: Source::ColorBitmap(StrikeWith::LargestSize),
                 content: Content::Color,
                 placement: Placement {
-                    left: (f64::from(image.placement.left) * s).round() as i32,
-                    top: (f64::from(image.placement.top) * s).round() as i32,
+                    left: (f64::from(image.left) * s).round() as i32,
+                    top: (f64::from(image.top) * s).round() as i32,
                     width: out.width,
                     height: out.height,
                 },
@@ -1420,12 +1543,25 @@ pub(crate) mod raster {
         /// laid over those below it, premultiplied, with exact rounding.
         fn compose(&self, layers: &swash::scale::outline::Outline) -> Image {
             let palette = self.font.color_palettes().next();
-            let b = layers.bounds();
-            let (x0, y1) = (b.min.x.floor() as i32, b.max.y.ceil() as i32);
-            let w = (b.max.x.ceil() as i32 - x0).max(0) as u32;
-            let h = (y1 - b.min.y.floor() as i32).max(0) as u32;
-            let mut data = vec![0u8; (w * h * 4) as usize];
+            let Some(Placement {
+                left: x0,
+                top: y1,
+                width: w,
+                height: h,
+            }) = glyph_box(layers.bounds())
+            else {
+                return nothing(Source::ColorOutline(0), Content::Color);
+            };
+            let Some(size) = (w as usize)
+                .checked_mul(h as usize)
+                .and_then(|n| n.checked_mul(4))
+            else {
+                return nothing(Source::ColorOutline(0), Content::Color);
+            };
+            let mut data = vec![0u8; size];
             for i in 0..layers.len() {
+                // each layer's points lie within the glyph's box, so zeno's
+                // mask for a layer is no larger than the box checked above
                 let Some(layer) = layers.get(i) else { continue };
                 let [r, g, b, a] = layer
                     .color_index()
@@ -1524,30 +1660,43 @@ pub(crate) mod raster {
     /// Sans Mono's `W` at 16 pixels spans 8.02 pixels, 9 columns, where
     /// full hinting snaps it to 8. A glyph with no outline, a color or bitmap
     /// one, is measured as it is drawn.
-    fn w_width(drawer: &mut Drawer<'_>, ppem: f32, h: u32) -> u32 {
+    ///
+    /// An outline past the glyph bound draws as nothing, so a cell measured
+    /// without it would hold only empty glyphs, each as large as the cell.
+    /// The face then gives no width, and the source fails as a whole.
+    fn w_width(drawer: &mut Drawer<'_>, ppem: f32, h: u32) -> Result<u32, String> {
         let font = drawer.font;
         let (charmap, advances) = (font.charmap(), font.glyph_metrics(&[]).scale(ppem));
-        ['W', 'M', '0']
+        let Some((c, g)) = ['W', 'M', '0']
             .into_iter()
-            .map(|c| charmap.map(c))
-            .find(|&g| g != 0)
-            .map(|g| {
-                let mut scaler = drawer.context.builder(font).size(ppem).build();
-                let ink = Render::new(&[Source::Outline])
-                    .render(&mut scaler, g)
-                    .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
-                    .map_or(0, |i| i.placement.width);
-                // vtium rounds the advance once, from a float, where
-                // FreeType's advance is already rounded in 26.6 fixed point.
-                // They can differ when the fraction is near a half, as
-                // DejaVu Sans Mono's W at 15 pixels advances 7.4995, which
-                // vtium rounds to 7 and FreeType to 8. That changes the cell
-                // only for a font whose W ink is narrower than its advance;
-                // DejaVu's covers 8 columns either way
-                (advances.advance_width(g).round() as u32).max(ink)
-            })
-            .unwrap_or(h.div_ceil(2))
-            .clamp(1, vtium_font::CELL_SIDE_MAX)
+            .map(|c| (c, charmap.map(c)))
+            .find(|&(_, g)| g != 0)
+        else {
+            return Ok(h.div_ceil(2).clamp(1, vtium_font::CELL_SIDE_MAX));
+        };
+        let mut scaler = drawer.context.builder(font).size(ppem).build();
+        // swash's Render rasterises with zeno inside swash, so the glyph
+        // bound is checked on the same outline first
+        if scaler
+            .scale_outline(g)
+            .is_some_and(|outline| !fits(outline.path()))
+        {
+            return Err(format!(
+                "its {c} draws wider or taller than {GLYPH_SIDE_TEXT} pixels in a character cell {h} pixels high, so vtium cannot size a character cell from this font"
+            ));
+        }
+        let ink = Render::new(&[Source::Outline])
+            .render(&mut scaler, g)
+            .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
+            .map_or(0, |i| i.placement.width);
+        // vtium rounds the advance once, from a float, where FreeType's
+        // advance is already rounded in 26.6 fixed point. They can differ
+        // when the fraction is near a half, as DejaVu Sans Mono's W at 15
+        // pixels advances 7.4995, which vtium rounds to 7 and FreeType to 8.
+        // That changes the cell only for a font whose W ink is narrower
+        // than its advance. DejaVu's covers 8 columns either way.
+        let width = (advances.advance_width(g).round() as u32).max(ink);
+        Ok(width.clamp(1, vtium_font::CELL_SIDE_MAX))
     }
 
     /// The width of an outline font's own cell `height` pixels high
@@ -1570,7 +1719,7 @@ pub(crate) mod raster {
             // the W rule measures the unhinted outline whatever `hinting=`
             // says (ADR-1200 D1, D17); only a color W is drawn, unhinted
             let mut drawer = Drawer::new(font, index, Hinting::default());
-            let width = w_width(&mut drawer, ppem, height);
+            let width = w_width(&mut drawer, ppem, height)?;
             widest = Some(widest.map_or(width, |w: u32| w.max(width)));
         }
         widest.ok_or_else(|| "no face to take the cell from".to_owned())
@@ -1796,10 +1945,18 @@ pub(crate) mod raster {
                 None => baseline_at(&mut plain, &metrics, ppem, h),
             };
             let advances = font.glyph_metrics(&[]).scale(ppem);
+            // the font's ascent and descent at the size drawn, which a
+            // Powerline separator maps onto its cell's rows
+            let em = ppem / f32::from(metrics.units_per_em);
+            let design = (metrics.ascent * em, metrics.descent.abs() * em);
+            // the width the font designs its separators in, from its solid
+            // right-pointing triangle, which a separator touching one side
+            // of its advance is measured against
+            let arrow = separator_box(&mut drawer, charmap.map(ARROW), ppem, &advances);
             let width = if want_w != 0 {
                 want_w
             } else {
-                w_width(&mut plain, ppem, h)
+                w_width(&mut plain, ppem, h)?
             };
             let cell = Cell {
                 width,
@@ -1811,11 +1968,15 @@ pub(crate) mod raster {
                 cluster_width: request.cluster_width,
             };
             let mut glyphs: Vec<Placed> = Vec::new();
-            let mut index: Vec<(u16, u32)> = Vec::new();
+            // Each placed glyph, keyed by its glyph id and by how its
+            // character is placed, since a font can map characters that
+            // are placed differently to one glyph.
+            let mut index: Vec<(u16, Placing, u32)> = Vec::new();
             let mut map = Vec::new();
             for &(c, g) in &wanted {
-                let at = match index.iter().find(|(id, _)| *id == g) {
-                    Some(&(_, i)) => i,
+                let how = Placing::of(c);
+                let at = match index.iter().find(|&&(id, h, _)| id == g && h == how) {
+                    Some(&(_, _, i)) => i,
                     None => {
                         // a line of double width stretches each outline
                         // sideways, which a color glyph cannot take: the
@@ -1825,9 +1986,6 @@ pub(crate) mod raster {
                             continue;
                         }
                         let advance = advances.advance_width(g) * widen;
-                        // a glyph larger than a set's chunk goes in a chunk of
-                        // its own (ADR-1302 D6), so none is left out for its size
-                        let wide = crate::shaping::wide(&[c]);
                         // a fallback source's glyph too big for its cells is
                         // drawn smaller to fit them (ADR-1200 D17), unless it
                         // is a letter of a joining script, which uses the
@@ -1835,13 +1993,13 @@ pub(crate) mod raster {
                         // D12), or of an Indic script, squeezed to its cell
                         // (ADR-1307 D1); `place` keeps those two at full size
                         let fit = request.fit;
-                        let Some(placed) = place(&mut drawer, (c, g), advance, wide, fit, &cell)
-                        else {
+                        let at = (advance, design, arrow);
+                        let Some(placed) = place(&mut drawer, g, how, at, fit, &cell) else {
                             continue;
                         };
                         let i = u32::try_from(glyphs.len()).map_err(|_| "too many glyphs")?;
                         glyphs.push(placed);
-                        index.push((g, i));
+                        index.push((g, how, i));
                         i
                     }
                 };
@@ -1899,30 +2057,76 @@ pub(crate) mod raster {
         pub(crate) cluster_width: vtium_term::ClusterWidth,
     }
 
-    /// Glyph `g` of the character `c`, advancing `advance` pixels, placed
-    /// in `cell`, two cells wide when `wide`, as the terminal gives its
-    /// character two cells (ADR-1200 D21); `None` when the font draws
-    /// nothing for it. A glyph wider than its cells of a character that
-    /// joins (ADR-1302 D2) or of an Indic script (ADR-1307 D1) is squeezed
-    /// sideways before it is rasterised, by its cells' width over its
-    /// advance, unrounded, its pen on its cell's left edge, so its advance
-    /// fills its cells, and it is never drawn smaller. A joining letter no
-    /// wider than its cells keeps its width, its advance against the edge
-    /// where it meets the letter read before it: the right edge for a
-    /// right-to-left script (ADR-1302 D2, D11). Any other glyph whose ink
-    /// would pass its cells is drawn smaller to fit them when `fit`, as a
-    /// later source's glyph is (ADR-1200 D17).
+    /// What [`place`] reads of a glyph's character to choose how it places
+    /// the glyph: whether the character is a Powerline separator, joins its
+    /// neighbors, belongs to an Indic script, runs right to left, and
+    /// takes two cells. A font can map characters that differ in any of
+    /// these to one glyph, so the helper keeps each placed glyph by its
+    /// glyph id and by this, and two characters share a placed glyph only
+    /// when they agree on all of it.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    struct Placing {
+        separator: bool,
+        joins: bool,
+        indic: bool,
+        /// Whether a joining character runs right to left; false for a
+        /// character that does not join, since `place` asks only then.
+        backward: bool,
+        wide: bool,
+    }
+
+    impl Placing {
+        fn of(c: u32) -> Placing {
+            let joins = crate::shaping::joins(c);
+            Placing {
+                separator: separator(c),
+                joins,
+                indic: crate::shaping::indic(c),
+                backward: joins && crate::shaping::shape::backward(c),
+                wide: crate::shaping::wide(&[c]),
+            }
+        }
+    }
+
+    /// Glyph `g` of a character that is placed as `how` says, advancing
+    /// `advance` pixels, placed in `cell`; `None` when the font draws
+    /// nothing for it. The glyph takes two cells when the terminal gives
+    /// its character two. A glyph wider than its cells of a character that
+    /// joins or of an Indic script is squeezed sideways before it is
+    /// rasterised, by its cells' width over its advance, unrounded, its pen
+    /// on its cell's left edge, so its advance fills its cells, and it is
+    /// never drawn smaller. A joining letter no wider than its cells keeps
+    /// its width, its advance against the edge where it meets the letter
+    /// read before it: the right edge for a right-to-left script. Any other
+    /// glyph whose ink would pass its cells is drawn smaller to fit them
+    /// when `fit`, as a later source's glyph is. A Powerline separator is
+    /// drawn as [`place_separator`] draws it, whatever the source. `design`
+    /// is the font's ascent and descent in pixels at the cell's size, and
+    /// `arrow` the width its separators are designed in ([`separator_box`]).
+    ///
+    /// References:
+    /// - ADR-1200 D21: a character the terminal gives two cells is drawn across both.
+    /// - ADR-1302 D2, D11: a joining letter is squeezed to its cells, or kept against the edge where it joins.
+    /// - ADR-1307 D1: an Indic letter wider than its cells is squeezed to them.
+    /// - ADR-1200 D17: a later source's glyph is drawn smaller to fit its cells.
     fn place(
         drawer: &mut Drawer<'_>,
-        (c, g): (u32, u16),
-        advance: f32,
-        wide: bool,
+        g: u16,
+        how: Placing,
+        (advance, design, arrow): (f32, (f32, f32), Option<f32>),
         fit: bool,
         cell: &Cell,
     ) -> Option<Placed> {
+        let wide = how.wide;
         let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
-        let joins = crate::shaping::joins(c);
-        if (joins || crate::shaping::indic(c)) && advance > span {
+        if how.separator
+            && let Some(placed) =
+                place_separator(drawer, g, (advance, design, arrow), cells(wide), cell)
+        {
+            return Some(placed);
+        }
+        let joins = how.joins;
+        if (joins || how.indic) && advance > span {
             let sx = span / advance;
             return place_drawn(
                 &mut |ppem, bounds| drawer.draw_stretched(g, ppem, bounds, sx),
@@ -1933,11 +2137,7 @@ pub(crate) mod raster {
             );
         }
         if joins && advance > 0.0 {
-            let dx = if crate::shaping::shape::backward(c) {
-                span - advance
-            } else {
-                0.0
-            };
+            let dx = if how.backward { span - advance } else { 0.0 };
             return place_drawn(
                 &mut |ppem, bounds| drawer.draw_moved(g, ppem, bounds, dx),
                 cells(wide),
@@ -1953,6 +2153,166 @@ pub(crate) mod raster {
             fit,
             cell,
         )
+    }
+
+    /// Whether `c` is a Powerline separator: one of the triangles, half
+    /// circles, slants and other shapes from U+E0B0 to U+E0D7 that a shell
+    /// prompt puts between its colored segments. The Powerline icons before
+    /// them, such as the branch and the padlock, are not separators.
+    fn separator(c: u32) -> bool {
+        (0xe0b0..=0xe0d7).contains(&c)
+    }
+
+    /// U+E0B0, the solid right-pointing triangle that every Powerline font
+    /// draws. Its flat side lies on the pen and its point on the right side
+    /// of the box the font designs its separators in.
+    const ARROW: u32 = 0xe0b0;
+
+    /// How much of its advance a separator's ink may fall short of a side
+    /// and still reach that side: a sixteenth. The Nerd Fonts patcher draws
+    /// its separators about that far past their box, so that they overlap
+    /// their neighbors, and its pixelated squares (U+E0C4 to U+E0C7) start
+    /// a thirtieth of the advance inside the pen. A thin divider in the
+    /// middle of its advance lies far inside both sides.
+    const SEPARATOR_SLACK: f32 = 1.0 / 16.0;
+
+    /// The width, in the drawer's pixels at `ppem` before any widening,
+    /// that the font designs its separators in: the ink of `arrow`, its
+    /// glyph for U+E0B0, unhinted and cut to that glyph's pen and advance.
+    /// Monoid Nerd Font Mono's triangles span their whole advance. Symbols
+    /// Nerd Font Mono advances a whole em, which is wider than a cell, and
+    /// draws its separators in a box about 0.65 em wide, against the pen or
+    /// against the advance. `None` when the font has no such glyph or it
+    /// has no ink inside its advance, and the separators' advance is then
+    /// their box.
+    fn separator_box(
+        drawer: &mut Drawer<'_>,
+        arrow: u16,
+        ppem: f32,
+        advances: &swash::GlyphMetrics<'_>,
+    ) -> Option<f32> {
+        if arrow == 0 {
+            return None;
+        }
+        let advance = advances.advance_width(arrow);
+        let (l, r) = drawer.across(arrow, ppem, false)?;
+        let (l, r) = (l.max(0.0), r.min(advance));
+        (l < r).then_some(r - l)
+    }
+
+    /// Glyph `g` of a Powerline separator, advancing `advance` pixels,
+    /// stretched or squeezed onto its cells, and never drawn smaller to
+    /// fit them. A separator meets the colored segment beside it, so a side
+    /// that its ink reaches has to meet its cell's edge on every row.
+    ///
+    /// Up and down, the helper maps the box from the font's descent to its
+    /// ascent (`design`, in pixels at the cell's size) onto the cell's rows.
+    ///
+    /// Across, the helper looks at each side on its own. Where the ink
+    /// reaches the side of the box the font designs the separator in, the
+    /// ink's edge lands on the cell's edge. Where the ink stops short of
+    /// that side, the box's side lands on the cell's edge, so the font's
+    /// own spacing stays on that side. A triangle therefore fills its cell
+    /// from its flat side to its point. A thin divider in the middle of its
+    /// advance stays a thin bar in the middle of the cell, and a bar against
+    /// one side keeps its width. The ink reaches a side when the font's own
+    /// outline passes that side, or stops short of it by no more than
+    /// [`SEPARATOR_SLACK`] of the advance. The helper decides that on the
+    /// unhinted outline, since hinting at a small size can move an edge by
+    /// part of a pixel, and then maps the hinted edge, the one that is
+    /// drawn.
+    ///
+    /// The box is the advance, from the pen. Some fonts design their
+    /// separators narrower than their advance, which `arrow` measures
+    /// ([`separator_box`]). Symbols Nerd Font Mono advances a whole em and
+    /// draws U+E0B0 from the pen to about 0.65 em, and U+E0B2 from about
+    /// 0.35 em to the advance. In such a font, a separator whose ink
+    /// reaches the pen but not the advance has its box that wide from the
+    /// pen. One that reaches the advance but not the pen has its box that
+    /// wide up to the advance.
+    ///
+    /// The Nerd Fonts patcher draws each separator a little past its box,
+    /// so that it overlaps its neighbors. The helper cuts the ink to the pen
+    /// and the advance before it maps it, so the ink past them goes to the
+    /// glyph's ink box, as any glyph's ink past its cells does. Placed as
+    /// other glyphs are, such a separator would be centered in its cells,
+    /// or drawn smaller because its ink passes them, and a column of
+    /// background would show between it and its segment.
+    ///
+    /// The pen stays on the cell's left edge. Other glyphs are moved right
+    /// by half of what their cells' width exceeds their advance, which
+    /// centers them; a separator's stretch already lines its box up with
+    /// the cells' edges, so it is not moved.
+    ///
+    /// `None` for a color glyph and for a font with no advance, box or
+    /// outline for it, which [`place`] then places as any other glyph.
+    ///
+    /// References:
+    /// - ADR-1200 D17: separators from every outline source are mapped
+    ///   onto their cells, side by side, while other glyphs of a later
+    ///   source are drawn smaller to fit.
+    /// - ADR-1302 D2: the pen rule that centers other glyphs, which a
+    ///   separator does not follow.
+    /// - ADR-1302 D1: the ink box that takes the ink past the cells.
+    fn place_separator(
+        drawer: &mut Drawer<'_>,
+        g: u16,
+        (advance, (ascent, descent), arrow): (f32, (f32, f32), Option<f32>),
+        cells: u32,
+        cell: &Cell,
+    ) -> Option<Placed> {
+        let span = ascent + descent;
+        if advance <= 0.0 || span <= 0.0 || drawer.is_color(g, cell.ppem) {
+            return None;
+        }
+        // The drawer widens a line of double width after this transform,
+        // so the ink and the advance are mapped in the drawer's pixels
+        // before the widening, onto the cells' width before it too.
+        let widen = drawer.widen;
+        let advance = advance / widen;
+        let width = (cell.width * cells) as f32 / widen;
+        // The ink across, cut to the pen and the advance; ink that lies
+        // wholly outside them, or has no width, maps the advance instead.
+        // Whether the ink reaches a side is a matter of the font's design,
+        // so the helper decides it on the unhinted outline, which hinting
+        // at a small size cannot move. Where the ink reaches a side, the
+        // hinted outline's edge, the edge that is drawn, meets the cell's.
+        let cut = |(l, r): (f32, f32)| Some((l.max(0.0), r.min(advance))).filter(|(l, r)| l < r);
+        let design = drawer.across(g, cell.ppem, false).and_then(cut);
+        let drawn = drawer.across(g, cell.ppem, true).and_then(cut);
+        let mapped = match design.zip(drawn) {
+            Some(((dl, dr), (l, r))) => {
+                let slack = advance * SEPARATOR_SLACK;
+                let narrow = arrow.map_or(advance, |w| w.min(advance));
+                // the box the font designs this separator in
+                let (b0, b1) = match (dl <= slack, dr >= advance - slack) {
+                    (true, false) => (0.0, narrow),
+                    (false, true) => (advance - narrow, advance),
+                    _ => (0.0, advance),
+                };
+                // each side lands on the cell's edge where the ink reaches
+                // it, and keeps the font's spacing where the ink does not
+                let l = if dl <= b0 + slack { l } else { b0 };
+                let r = if dr >= b1 - slack { r } else { b1 };
+                (l, r)
+            }
+            None => (0.0, advance),
+        };
+        // on a tiny cell a hinted edge can cross the box's other side, and
+        // the advance is mapped instead
+        let (left, right) = if mapped.0 < mapped.1 {
+            mapped
+        } else {
+            (0.0, advance)
+        };
+        let (sx, sy) = (width / (right - left), cell.height as f32 / span);
+        // the box's top lands on the cell's top row, and the outline is
+        // placed on the cell's baseline, so the move up is what the
+        // baseline lies below the box's top
+        let up = cell.baseline as f32 - ascent * sy;
+        let transform = Transform::scale(sx, sy).then_translate(-left * sx, up);
+        let mut draw = |ppem, fit| drawer.draw_transformed(g, ppem, fit, Some(transform));
+        place_drawn(&mut draw, cells, None, false, cell)
     }
 
     /// The cells a glyph two cells wide when `wide` spans.

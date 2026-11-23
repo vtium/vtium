@@ -526,7 +526,8 @@ pub fn run(console: &mut Console) -> u8 {
 
 /// A desk standing in for the store in the tests of the views beside the
 /// flow: its draft starts as the fixture's vtium.conf, its check passes,
-/// and it keeps each plan it installs. As the store does, it installs only
+/// its folder keeps the draft's font sets as the store's does, and it
+/// keeps each plan it installs. As the store does, it installs only
 /// what a Prepare readied, and refuses an install that no Prepare readied.
 /// It hands the console's runner the command an install runs, so the
 /// console decides whether the privileged step succeeds.
@@ -549,6 +550,11 @@ pub struct Desk {
     /// What the system's fonts folder holds where the person's font
     /// would go: nothing, a different file, or the same file.
     pub placement: vtium_config::apply::Placement,
+    /// The draft's folder: the font sets it adds, replaces and removes.
+    pub frits: vtium_config::store::FritChanges,
+    /// The installed font sets, by name, as the fixture's inputs list
+    /// them, which an install writes and removes.
+    pub installed_frits: std::collections::BTreeMap<String, Vec<u8>>,
 }
 
 pub fn desk() -> Desk {
@@ -563,6 +569,8 @@ pub fn desk() -> Desk {
         font_ready: false,
         fonts_installed: Vec::new(),
         placement: vtium_config::apply::Placement::New,
+        frits: Default::default(),
+        installed_frits: inputs().installed,
     }
 }
 
@@ -593,7 +601,36 @@ impl Desk {
                 .filter(|(_, s)| matches!(s, State::Activates | State::Deactivates))
                 .count(),
             resources: self.resources.clone(),
+            frits: self.frits.clone(),
+            frit_changes: vtium_config::tui::fixture::frit_edits(
+                &self.frits,
+                &self.installed_frits,
+                &vtium_config::tui::fixture::inputs().frits,
+            ),
             ..Default::default()
+        }
+    }
+
+    /// The plan an install hands the privileged step, as the store's
+    /// prepare builds it: the font sets first, then vtium.conf where the
+    /// draft differs from it.
+    fn plan(&self) -> vtium_config::draft::Plan {
+        let (mut files, removals) = vtium_config::tui::fixture::frit_plan(
+            &self.frits,
+            &self.installed_frits,
+            &inputs().frits,
+        );
+        if self.draft != self.installed {
+            files.push(vtium_config::draft::FileEdit {
+                path: PathBuf::from("/etc/vtium/vtium.conf"),
+                old: Some(self.installed.clone()),
+                new: self.draft.clone(),
+            });
+        }
+        vtium_config::draft::Plan {
+            files,
+            removals,
+            no_route: false,
         }
     }
 }
@@ -612,16 +649,11 @@ impl vtium_config::tui::desk::Desk for Desk {
             }
             // the store's check reads the text it is given and writes nothing
             Op::Check(text) => Ok(Done::Draft(self.checked(text), None)),
-            Op::Prepare if self.draft == self.installed => Ok(Done::Plan(Default::default())),
-            Op::Prepare => Ok(Done::Plan(vtium_config::draft::Plan {
-                files: vec![vtium_config::draft::FileEdit {
-                    path: PathBuf::from("/etc/vtium/vtium.conf"),
-                    old: Some(self.installed.clone()),
-                    new: self.draft.clone(),
-                }],
-                removals: Vec::new(),
-                no_route: false,
-            })),
+            Op::Prepare => Ok(Done::Plan(self.plan())),
+            Op::FontSet { frit, edit, text } => {
+                vtium_config::tui::fixture::font_set_op(&mut self.frits, frit, edit)?;
+                Ok(Done::Draft(self.checked(text), None))
+            }
             Op::Devices => Ok(Done::Present {
                 present: Default::default(),
                 densities: inputs().densities,
@@ -660,6 +692,7 @@ impl vtium_config::tui::desk::Desk for Desk {
             return Err(said);
         }
         self.installed.clone_from(&self.draft);
+        vtium_config::tui::fixture::frits_install(&mut self.frits, &mut self.installed_frits);
         Ok(match self.after.clone() {
             Some(outcome) => Done::Installed(self.opened(), outcome),
             None => Done::Draft(self.opened(), None),

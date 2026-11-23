@@ -455,11 +455,17 @@ impl Flow {
                 self.state.pick = pick;
                 Vec::new()
             }
-            Obj::Pal(Slot::Font(f)) => {
-                let Some(f) = f else {
+            // a look shows its font set in the Looks tab, where the look
+            // is made and changed. The default look is the draft's
+            // `[look default]` section when the draft holds one.
+            Obj::Pal(Slot::Look(l)) => {
+                let frit = flowlayout::look_section(&shared.inputs.flow, l.as_deref())
+                    .map(|x| x.frit.clone())
+                    .filter(|f| !f.is_empty());
+                let Some(frit) = frit else {
                     return say(words::DEFAULT_FONT_PREVIEW);
                 };
-                vec![Command::Request(Request::ShowFont(f.clone()))]
+                vec![Command::Request(Request::ShowFont(frit))]
             }
             _ => {
                 let line = self.choice_line(shared, &obj);
@@ -539,7 +545,7 @@ impl Flow {
                 self.pick(shared, Piece::Input(sel.clone()))
             }
             Obj::New(Slot::Display(sel)) => self.pick(shared, Piece::Display(sel.clone())),
-            Obj::Pal(Slot::Font(f)) => self.pick(shared, Piece::Font(f.clone())),
+            Obj::Pal(Slot::Look(l)) => self.pick(shared, Piece::Look(l.clone())),
             Obj::Others => say(words::OTHERS_CANNOT),
             Obj::Doc(..) => say(words::IN_DOCUMENT),
             Obj::Roam(Slot::Input(_)) => say(words::IN_ROAMING),
@@ -555,14 +561,14 @@ impl Flow {
         let doc = flowlayout::shown_doc(&self.state, paths::read(&shared.inputs.flow));
         let flow = &shared.inputs.flow;
         let state = &mut self.state;
-        let was_font = state.new.font.clone();
+        let was_look = state.new.look.clone();
         let done = match &piece {
-            // the default font set is the absence of one
-            Piece::Font(None) if was_font.is_some() => {
-                state.new.font = None;
-                Picked::Replaced(was_font.clone())
+            // the default look is the absence of one
+            Piece::Look(None) if was_look.is_some() => {
+                state.new.look = None;
+                Picked::Replaced(was_look.clone())
             }
-            Piece::Font(None) => Picked::Added,
+            Piece::Look(None) => Picked::Added,
             _ => state.new.pick_part(flow, piece.clone()),
         };
         let new = state.new.clone();
@@ -582,14 +588,14 @@ impl Flow {
                     _ => words::special_picked(&title),
                 });
             }
-            Piece::Font(f) => {
-                let now = f
+            Piece::Look(l) => {
+                let now = l
                     .clone()
-                    .unwrap_or_else(|| words::DEFAULT_FONT_SET.to_owned());
+                    .unwrap_or_else(|| words::DEFAULT_LOOK_PART.to_owned());
                 return say(match done {
-                    Picked::Removed => words::font_default(),
-                    Picked::Replaced(Some(old)) => words::font_instead(&now, &old),
-                    _ => words::font_picked(&now),
+                    Picked::Removed => words::look_default(),
+                    Picked::Replaced(Some(old)) => words::look_instead(&now, &old),
+                    _ => words::look_picked(&now),
                 });
             }
         };
@@ -901,7 +907,7 @@ impl Flow {
         if let Some(typed) = state.typing.clone() {
             return self.card_type_key(shared, obj, &path, &line, typed, key);
         }
-        let choices = flowlayout::card_choices(shared, &line);
+        let choices = flowlayout::path_choices(shared, &path, &line);
         match key {
             Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
                 let at = step(state.line, lines.len(), key);
@@ -1014,8 +1020,7 @@ impl Flow {
         let mut changed = path.clone();
         match line {
             CardLine::Name => changed.name = Some(value.clone()),
-            CardLine::Font => changed.font = Some(value.clone()).filter(|v| !v.is_empty()),
-            CardLine::Size => changed.size = value.parse().ok(),
+            CardLine::Look => changed.look = Some(value.clone()).filter(|v| !v.is_empty()),
             CardLine::Setting(key) => changed.set(key, &value),
             CardLine::Part(piece) => {
                 changed.pick(piece.clone());
@@ -1079,10 +1084,10 @@ impl Flow {
         if let Some(typed) = state.typing.clone() {
             return self.typed_key(shared, stage, from_new, typed, key);
         }
-        let fonts = flowlayout::font_names(shared);
+        let looks = flowlayout::look_names(shared);
         let length = match &state.picker {
             Some(p) => parts::picker(&shared.inputs.flow, p.stage, p.key).len(),
-            None => parts::makes(stage, &fonts).len(),
+            None => parts::makes(stage, &looks).len(),
         };
         match key {
             Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
@@ -1091,7 +1096,7 @@ impl Flow {
                 Vec::new()
             }
             Key::Escape if state.picker.is_some() => {
-                let back = parts::makes(stage, &fonts)
+                let back = parts::makes(stage, &looks)
                     .iter()
                     .position(|(_, _, m)| {
                         state
@@ -1126,7 +1131,7 @@ impl Flow {
                         None => Vec::new(),
                     }
                 }
-                None => match parts::makes(stage, &fonts)
+                None => match parts::makes(stage, &looks)
                     .get(state.line)
                     .map(|(_, _, m)| m.clone())
                 {
@@ -1207,7 +1212,7 @@ impl Flow {
 
     /// "new terminal": makes a terminal part with the next free name. From
     /// NEW PATH it also goes into the new path, and the new path's
-    /// terminal card opens, where its name, font set and size are set.
+    /// terminal card opens, where its name and look are set.
     fn new_terminal(&mut self, shared: &Shared, from_new: bool) -> Vec<Command> {
         let flow = &shared.inputs.flow;
         let doc = flowlayout::shown_doc(&self.state, paths::read(flow));
@@ -1520,22 +1525,63 @@ mod tests {
     }
 
     #[test]
-    fn enter_on_a_palette_font_set_shows_the_font_sets_in_the_looks_tab() {
+    fn enter_on_a_palette_look_shows_its_font_set_in_the_looks_tab() {
         let mut app = app();
-        let fonts = flowlayout::font_names(&app.shared);
         let name = app
             .shared
             .inputs
-            .fonts
+            .flow
+            .looks
             .iter()
-            .rfind(|f| fonts.contains(&f.name))
-            .map(|f| f.name.clone())
-            .expect("a font set");
-        highlight(&mut app, Obj::Pal(Slot::Font(Some(name.clone()))));
+            .find(|l| !l.frit.is_empty())
+            .map(|l| l.name.clone())
+            .expect("a look that names a font set");
+        highlight(&mut app, Obj::Pal(Slot::Look(Some(name.clone()))));
         keys(&mut app, &[Key::Enter]);
-        // the Flow view asks update to show the font set, which the Looks
-        // tab lists; it never writes another tab's state itself
+        // the Flow view asks update to show the look's font set, which the
+        // Looks tab lists; it never writes another tab's state itself
         assert_eq!(app.nav.view, View::Looks, "{name}");
+    }
+
+    // vtium draws a terminal that names no look with the draft's
+    // `[look default]` section, so Enter on "default look" shows that
+    // look's font set
+    #[test]
+    fn enter_on_the_default_look_shows_the_font_set_of_look_default() {
+        let mut app = app();
+        let mut big = app
+            .shared
+            .inputs
+            .flow
+            .looks
+            .first()
+            .cloned()
+            .expect("the look big");
+        big.name = "default".into();
+        big.frit = "unifont".into();
+        app.shared.inputs.flow.looks.push(big);
+        highlight(&mut app, Obj::Pal(Slot::Look(None)));
+        keys(&mut app, &[Key::Enter]);
+        assert_eq!(
+            app.nav.view,
+            View::Looks,
+            "{:?}",
+            app.shared.message.as_deref()
+        );
+    }
+
+    // with no `[look default]` section, vtium draws such a terminal with
+    // the font set the top of vtium.conf sets
+    #[test]
+    fn enter_on_the_default_look_with_no_look_default_says_vtium_conf_sets_it() {
+        let mut app = app();
+        highlight(&mut app, Obj::Pal(Slot::Look(None)));
+        keys(&mut app, &[Key::Enter]);
+        assert_eq!(app.nav.view, View::Flow);
+        assert_eq!(
+            app.shared.message.as_deref(),
+            Some(words::DEFAULT_FONT_PREVIEW)
+        );
     }
 
     #[test]

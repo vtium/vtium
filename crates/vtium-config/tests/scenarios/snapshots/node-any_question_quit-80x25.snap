@@ -12,8 +12,7 @@ description: "any.question.quit at 80×25, keys: 3 n Shrink q"
                   console's own font.
    Color scheme   legacy, from vtium.conf
    vtlook         No filter
-   Pointer theme  vtium's own pictures, from vtium.conf. A look cannot pick a
-                  pointer theme of its own yet.
+   Pointer theme  vtium's own pictures, from vtium.conf
 
  Type the look's name, then press Enter. Esc keeps the name it had.
  Its fonts, by role:
@@ -21,6 +20,7 @@ description: "any.question.quit at 80×25, keys: 3 n Shrink q"
  Box drawing: vtium's own lines, unless the text font has them all
  What it still misses:
  Nothing: this machine has every font it names.
+
 
 
  1 change is not saved. Save them before you quit? y saves them and quits, n

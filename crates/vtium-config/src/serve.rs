@@ -259,7 +259,7 @@ use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, Un
 
 use crate::child::PARSER_MEMORY;
 use crate::font::Font;
-use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Hinting, Source, valid_name};
+use crate::frit::{Cover, FRIT_BYTES_MAX, FRIT_SOURCES_MAX, Frit, Hinting, Source, valid_name};
 use crate::frit::{Render, RenderLine};
 pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
@@ -365,6 +365,10 @@ pub const ACTIVE: u32 = 10;
 /// A description of one font file ([`DescribeAsk`]), which only
 /// vtium-config sends.
 pub const DESCRIBE: u32 = 11;
+/// The sources of a frit that the helper leaves out, as one `u32` with a
+/// bit for each `source=` line, the first line the lowest bit
+/// ([`Request::LeaveOut`]).
+pub const LEAVE_OUT: u32 = 12;
 /// The answer to a [`DescribeAsk`]: the font file's
 /// [`crate::describe::Description`].
 pub const FRAME_DESCRIPTION: u32 = 18;
@@ -805,13 +809,36 @@ fn read_magic(r: &mut impl Read) -> Result<bool, String> {
 }
 
 /// Any request the helper reads: one of the glyph requests, a pointer
-/// ask, or the active fonts.
+/// ask, the active fonts, a font file's description, or the sources left
+/// out.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     Serve(ServeRequest),
     Pointer(PointerAsk),
     Active(ActiveAsk),
     Describe(DescribeAsk),
+    /// The sources of each frit that the helper reads from now on leaves
+    /// out, a bit for each `source=` line in the order the frit's text
+    /// gives them, the first line the lowest bit. A frit read already is
+    /// read again at its next request. The console sends it first to a
+    /// helper it starts after a source made an earlier helper crash, hang
+    /// or reach its CPU limit, and with a source left out on purpose while
+    /// it looks for the source that did. A helper serves one frit for the
+    /// console, so the bits name that frit's sources.
+    ///
+    /// References:
+    /// - ADR-1200 D14: a crash, a fault or a timeout fails one source and
+    ///   nothing else.
+    LeaveOut(u32),
+}
+
+/// The bytes of a [`Request::LeaveOut`] that leaves out the sources whose
+/// bits `mask` sets.
+pub fn leave_out_request(mask: u32) -> Vec<u8> {
+    let mut out = REQUEST_MAGIC.to_vec();
+    put32(&mut out, LEAVE_OUT);
+    put32(&mut out, mask);
+    out
 }
 
 /// A description of one font file, for vtium-config's Fonts tab and its
@@ -968,6 +995,19 @@ pub fn read_request(r: &mut impl Read) -> Result<Option<Request>, String> {
         ActiveAsk::read_body(&mut f).map(|a| Some(Request::Active(a)))
     } else if kind == DESCRIBE {
         DescribeAsk::read_body(&mut f).map(|a| Some(Request::Describe(a)))
+    } else if kind == LEAVE_OUT {
+        // a bit past the most sources a frit holds names no source
+        let mask = f.u32()?;
+        if u32::try_from(FRIT_SOURCES_MAX)
+            .ok()
+            .and_then(|n| mask.checked_shr(n))
+            .is_none_or(|past| past != 0)
+        {
+            return Err(format!(
+                "sources left out past the {FRIT_SOURCES_MAX} a frit holds"
+            ));
+        }
+        Ok(Some(Request::LeaveOut(mask)))
     } else {
         ServeRequest::read_body(kind, &mut f).map(|r| Some(Request::Serve(r)))
     }
@@ -1042,9 +1082,12 @@ impl PointerAsk {
         match read_request(r)? {
             None => Ok(None),
             Some(Request::Pointer(a)) => Ok(Some(a)),
-            Some(Request::Serve(_) | Request::Active(_) | Request::Describe(_)) => {
-                Err("a glyph request where a pointer ask was expected".to_owned())
-            }
+            Some(
+                Request::Serve(_)
+                | Request::Active(_)
+                | Request::Describe(_)
+                | Request::LeaveOut(_),
+            ) => Err("a glyph request where a pointer ask was expected".to_owned()),
         }
     }
 
@@ -1596,6 +1639,10 @@ enum TextOut {
     /// The text font, by its spelling and the frit's line that names it,
     /// is missing or cannot be read.
     LeftOut(String, usize),
+    /// The console left the text font out, by its spelling and the frit's
+    /// line that names it, because the font made an earlier helper crash,
+    /// hang or reach its CPU limit.
+    Dropped(String, usize),
     /// The frit has no source of its own, only layers' sources.
     NoneOwn,
 }
@@ -1642,11 +1689,12 @@ struct SmallerFont {
 /// its family names as fontconfig matches them, or its first face for an
 /// empty family.
 fn outline_face<'a>(font: &'a [u8], family: &str) -> Result<swash::FontRef<'a>, String> {
-    use swash::{FontDataRef, StringId};
-    let fonts = FontDataRef::new(font).ok_or("not a TrueType or OpenType font")?;
+    use swash::StringId;
+    let fonts = crate::names::swash_fonts(font)?;
     let want = family_key(family);
     fonts
         .fonts()
+        .take(crate::names::FACES_MAX as usize)
         .find(|f| {
             want.is_empty() || {
                 let strings = f.localized_strings();
@@ -2160,7 +2208,7 @@ impl Engine {
         console: Option<ConsoleFont>,
         gate: &Gate,
     ) -> Result<Engine, String> {
-        Engine::read(frit, paths, console, gate).map_err(|nothing| nothing.why)
+        Engine::read(frit, paths, console, (gate, 0)).map_err(|nothing| nothing.why)
     }
 
     /// [`Engine::load`], which for a frit it draws nothing from keeps what
@@ -2168,14 +2216,23 @@ impl Engine {
     /// missing font, and the sources left out and the fonts that differ,
     /// so a sources query still names them.
     ///
+    /// It leaves out each source whose bit `leave` sets, a bit for each
+    /// `source=` line in the order of the frit's text, the first line the
+    /// lowest bit, as if the frit had no such line. The console names
+    /// those sources when one of them made an earlier helper crash, hang or
+    /// reach its CPU limit, and logs that itself, so the read adds no
+    /// warning for them.
+    ///
     /// References:
     /// - ADR-1204 D7: the console logs each missing font, and vtium-config
     ///   names each one, whether or not the set has a font left.
+    /// - ADR-1200 D14: a crash, a fault or a timeout fails one source and
+    ///   nothing else.
     fn read(
         frit: &FritText,
         paths: &Paths,
         console: Option<ConsoleFont>,
-        gate: &Gate,
+        (gate, leave): (&Gate, u32),
     ) -> Result<Engine, DrawsNothing> {
         let file = Path::new(&frit.name);
         // the console hands the frit with its layers in place, so each
@@ -2206,7 +2263,14 @@ impl Engine {
         let mut why = Vec::new();
         let mut left_out = Vec::new();
         let mut differs = Vec::new();
-        for source in &frit.sources {
+        for (i, source) in frit.sources.iter().enumerate() {
+            if u32::try_from(i)
+                .ok()
+                .and_then(|i| 1u32.checked_shl(i))
+                .is_some_and(|bit| leave & bit != 0)
+            {
+                continue;
+            }
             let own_line = frit.place(source.line).own;
             // the version the font states, read only where the set asks
             // for one
@@ -2368,10 +2432,20 @@ impl Engine {
         let text_left_out = match frit
             .sources
             .iter()
-            .find(|s| s.style == REGULAR && s.layer.is_none())
+            .enumerate()
+            .find(|(_, s)| s.style == REGULAR && s.layer.is_none())
         {
             None => Some(TextOut::NoneOwn),
-            Some(text)
+            // the console left it out, after it made a helper fail
+            Some((i, text))
+                if u32::try_from(i)
+                    .ok()
+                    .and_then(|i| 1u32.checked_shl(i))
+                    .is_some_and(|bit| leave & bit != 0) =>
+            {
+                Some(TextOut::Dropped(text.spelling.clone(), text.line))
+            }
+            Some((_, text))
                 if !sources
                     .iter()
                     .any(|(s, _): &(Source, _)| s.line == text.line) =>
@@ -2579,9 +2653,10 @@ impl Engine {
     /// high that the W rule gives it (the maintainer, 2026-11-01); the
     /// console names the height, and at a height of 0 there is none. An outline
     /// source whose W rule fails fails as a source that fails to draw does.
-    /// Else why the frit has none: a missing text font, a later bitmap
-    /// source whose cell does not fit, no height to draw an outline font
-    /// at, or no source of its own left.
+    /// Else why the frit has none: a missing text font, a text font the
+    /// console left out after it made a helper fail, a later bitmap source
+    /// whose cell does not fit, no height to draw an outline font at, or
+    /// no source of its own left.
     ///
     /// References:
     /// - ADR-1204 D5: a missing text font leaves the cell to the
@@ -2591,6 +2666,11 @@ impl Engine {
             Some(TextOut::LeftOut(text, _)) => {
                 return Err(format!(
                     "the text font source={text} is missing or cannot be read, so the built-in font draws the text in its place, and the cell comes from the configuration"
+                ));
+            }
+            Some(TextOut::Dropped(text, _)) => {
+                return Err(format!(
+                    "vtium left out the text font source={text} after it made the font helper fail, so the built-in font draws the text in its place"
                 ));
             }
             Some(TextOut::NoneOwn) => {
@@ -3621,7 +3701,7 @@ impl Engine {
         // built-in font. A layer spliced in before that line draws first.
         let built_in = self.built_in_at(cell);
         let text_line = match &self.text_left_out {
-            Some(TextOut::LeftOut(_, line)) => *line,
+            Some(TextOut::LeftOut(_, line) | TextOut::Dropped(_, line)) => *line,
             Some(TextOut::NoneOwn) | None => 0,
         };
         let mut standing: Option<BTreeSet<u32>> = None;
@@ -4567,6 +4647,9 @@ struct Work<'p> {
     /// Each frit's engine, by its name and text, so a frit whose text
     /// changes is read again.
     engines: BTreeMap<FritText, Result<Engine, DrawsNothing>>,
+    /// The sources each frit leaves out, from the console's last
+    /// [`Request::LeaveOut`]: none until one comes.
+    left_out: u32,
     console: Option<ConsoleFont>,
     asks: VecDeque<Queued>,
     fills: VecDeque<Fill>,
@@ -4591,9 +4674,17 @@ impl Work<'_> {
     /// it draws nothing and what its read found.
     fn read(&mut self, frit: &FritText) -> &Result<Engine, DrawsNothing> {
         let (paths, console, gate) = (self.paths, self.console.clone(), &self.gate);
+        let left_out = self.left_out;
         self.engines
             .entry(frit.clone())
-            .or_insert_with(|| Engine::read(frit, paths, console, gate))
+            .or_insert_with(|| Engine::read(frit, paths, console, (gate, left_out)))
+    }
+
+    /// Takes the sources the console names to leave out: each frit read
+    /// already is read again at its next request, without them.
+    fn leave_out(&mut self, mask: u32) {
+        self.left_out = mask;
+        self.engines.clear();
     }
 
     /// Takes the active fonts the console names, the gate every frit is
@@ -4832,6 +4923,7 @@ fn answer_requests(
         paths,
         gate,
         engines: BTreeMap::new(),
+        left_out: 0,
         console: None,
         asks: VecDeque::new(),
         fills: VecDeque::new(),
@@ -4870,6 +4962,10 @@ fn answer_requests(
                             Ok(())
                         }
                         Request::Describe(a) => a.answer(&work.gate, out),
+                        Request::LeaveOut(mask) => {
+                            work.leave_out(mask);
+                            Ok(())
+                        }
                         Request::Active(a) => match work.activate(&a) {
                             Ok(()) => Ok(()),
                             Err(why) => {
@@ -5231,6 +5327,103 @@ mod tests {
                 (f.0, SetFace::new(set, 16).unwrap())
             })
             .collect()
+    }
+
+    // ADR-1200 D14: the console names the sources the helper leaves out,
+    // after one of them made a helper crash; the helper reads the frit
+    // without them, and a frit with none left draws nothing
+    #[test]
+    fn the_sources_the_console_names_are_left_out() {
+        let text = "source=builtin:unifont\ncover=U+0041\nsource=builtin:unifont\ncover=U+0042\nsource=builtin:unifont\ncover=U+0043\n";
+        let ask = request(ASK, frit(text), &['A', 'B', 'C']).encode();
+        let answer = |mask: Option<u32>| {
+            let mut bytes = mask.map(leave_out_request).unwrap_or_default();
+            bytes.extend_from_slice(&ask);
+            let mut out = Vec::new();
+            let status = serve(
+                std::io::Cursor::new(bytes),
+                &mut out,
+                &Paths::default(),
+                Duration::from_secs(5),
+            );
+            (status, frames(&out))
+        };
+        let drawn = |frames: &[(u32, Vec<u8>)]| -> Vec<char> {
+            let faces = faces(frames);
+            ['A', 'B', 'C']
+                .into_iter()
+                .filter(|&c| faces.iter().any(|(_, f)| f.has_glyph(c)))
+                .collect()
+        };
+        let (status, all) = answer(None);
+        assert_eq!(status, 0);
+        assert_eq!(drawn(&all), ['A', 'B', 'C']);
+        // the second source left out: its B is not drawn, the others are,
+        // and no warning names it
+        let (status, two) = answer(Some(0b010));
+        assert_eq!(status, 0);
+        assert_eq!(drawn(&two), ['A', 'C']);
+        assert!(two.iter().all(|f| f.0 != FRAME_WARNING), "{two:?}");
+        assert_eq!(two.last().map(|f| f.0), Some(FRAME_DONE));
+        let (status, first) = answer(Some(0b110));
+        assert_eq!(status, 0);
+        assert_eq!(drawn(&first), ['A']);
+        // every source left out: the ask fails, and the helper goes on
+        let (status, none) = answer(Some(0b111));
+        assert_eq!(status, 0);
+        assert_eq!(none.iter().map(|f| f.0).collect::<Vec<_>>(), [FRAME_FAILED]);
+    }
+
+    // ADR-1200 D14: a text font the console left out, after it made a
+    // helper fail, gives no cell, and the reason says that vtium left it
+    // out, not that it is missing; the built-in font draws the text in its
+    // place
+    #[test]
+    fn a_text_font_the_console_left_out_gives_no_cell_and_says_why() {
+        let text = "source=builtin:unscii-8\nsource=builtin:unifont\n";
+        let mut bytes = leave_out_request(0b01);
+        bytes.extend_from_slice(&query_at(frit(text), 16).encode());
+        let mut out = Vec::new();
+        let status = serve(
+            std::io::Cursor::new(bytes),
+            &mut out,
+            &Paths::default(),
+            Duration::from_secs(5),
+        );
+        assert_eq!(status, 0);
+        let frames: Vec<(u32, Vec<u8>)> = frames(&out)
+            .into_iter()
+            .filter(|f| f.0 != FRAME_WARNING)
+            .collect();
+        assert_eq!(
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_NO_OWN_CELL]
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&frames[0].1),
+            "vtium left out the text font source=builtin:unscii-8 after it made the font helper fail, so the built-in font draws the text in its place"
+        );
+    }
+
+    // a leave-out request reads back, and one with a bit past the sixteen
+    // sources a frit holds is refused before anything else is read
+    #[test]
+    fn a_leave_out_request_reads_back_and_names_no_source_past_sixteen() {
+        for mask in [0, 1, 0b1010, 0xffff] {
+            assert_eq!(
+                read_request(&mut &leave_out_request(mask)[..]),
+                Ok(Some(Request::LeaveOut(mask)))
+            );
+        }
+        for mask in [0x1_0000, 0x8000_0000] {
+            assert_eq!(
+                read_request(&mut &leave_out_request(mask)[..]),
+                Err("sources left out past the 16 a frit holds".to_owned())
+            );
+        }
+        let mut cut = leave_out_request(1);
+        cut.pop();
+        assert!(read_request(&mut &cut[..]).is_err());
     }
 
     #[test]
@@ -5890,6 +6083,42 @@ mod tests {
         ];
         assert_eq!(outline_version(cut, ""), None);
         assert_eq!(outline_version(cut, "Mname"), None);
+    }
+
+    // The same bytes reach swash on every other path the helper takes:
+    // the coverage of a font, its description, and the drawing of a frit
+    // that names it. vtium-config checks the font's tables before swash
+    // reads them, so each path refuses the font with a message, in a debug
+    // build too, where swash's subtraction past zero would panic. The test
+    // runs in the test profile, which checks overflow as a debug build does.
+    #[test]
+    fn a_font_whose_tables_point_past_its_end_is_refused_on_every_path() {
+        let cut: &[u8] = &[
+            0x4f, 0x54, 0x54, 0x4f, 0x00, 0x01, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x6e, 0x61,
+            0x6d, 0x65, 0x54, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04,
+            0x00,
+        ];
+        let damaged = "the font is damaged: its name table points past its own end";
+        assert_eq!(outline_coverage(cut, "").unwrap_err(), damaged);
+        assert_eq!(outline_coverage(cut, "Mname").unwrap_err(), damaged);
+        assert_eq!(
+            crate::describe::describe(cut, "font.ttf").unwrap_err(),
+            damaged
+        );
+        let dir = scratch("cut-font");
+        let file = dir.join("cut.otf");
+        std::fs::write(&file, cut).unwrap();
+        let text = format!(
+            "source=outline:{}\nsource=builtin:unifont\n",
+            file.display()
+        );
+        let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        let left: Vec<(usize, bool, &str)> = engine
+            .left_out()
+            .iter()
+            .map(|l| (l.line, l.missing, l.why.as_str()))
+            .collect();
+        assert_eq!(left, [(1, false, damaged)]);
     }
 
     // A font of a lower version than version= asks for, and a file whose
@@ -8319,6 +8548,7 @@ mod tests {
             paths: &paths,
             gate: Gate::Open,
             engines: BTreeMap::new(),
+            left_out: 0,
             console: None,
             asks: VecDeque::new(),
             fills: VecDeque::new(),

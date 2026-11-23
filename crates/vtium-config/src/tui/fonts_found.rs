@@ -353,12 +353,8 @@ pub fn supplied_by(shared: &super::model::Shared, name: Option<&str>) -> Supplie
         return Supplied::Unknown(Unknown::BuiltIn);
     }
     let text = shared
-        .pending
-        .frits
-        .iter()
-        .find(|(n, _)| n == name)
-        .map(|(_, t)| t.as_bytes().to_vec())
-        .or_else(|| shared.inputs.installed.get(name).cloned())
+        .frit_text(name)
+        .map(<[u8]>::to_vec)
         // vconsole's font with no font set of its name is a kbd font
         .or_else(|| vconsole.map(|v| format!("source=kbd:{v}\n").into_bytes()));
     match text.and_then(|t| Frit::parse(&t, Path::new(name), name).ok()) {

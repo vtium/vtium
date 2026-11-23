@@ -50,6 +50,10 @@ pub const PREVIEW_TEXT_SHORT: &str = "text";
 
 pub const TRIAL_KEY: &str = "t: try live";
 
+/// The status line's word for `t` on a font set that only the draft adds,
+/// which the console can try once the draft is installed.
+pub const TRIAL_AFTER_INSTALL: &str = "t: after install";
+
 pub const TRIAL_NONE: &str = "no live trial";
 
 /// The status line's trial words on a tab other than the Looks tab, which
@@ -71,6 +75,15 @@ pub const TRIAL_OFF: &str = "The live trial works only in a vtium console with a
 pub fn trial_countdown(font: impl Display, left: u32) -> String {
     format!(
         "Trying {font} on the console for {left} s. Press k to keep it, or any other key to put the font back."
+    )
+}
+
+/// The live trial's countdown for the font set `font`, which the draft
+/// replaces. The console reads only installed font sets, so the trial
+/// shows the installed version, and the countdown says so.
+pub fn trial_countdown_installed(font: impl Display, left: u32) -> String {
+    format!(
+        "Trying {font} on the console for {left} s. The console reads the installed {font}, so the draft's changes to it show once you install the draft. Press k to keep it, or any other key to put the font back."
     )
 }
 
@@ -407,44 +420,12 @@ pub fn came_went(came: &[String], went: &[String]) -> String {
     }
 }
 
-/// The leave question below the minimum size, on the row above its keys:
-/// that font sets wait to be installed, and that both answers save the
-/// `unsaved` changes first.
-pub fn small_leave(unsaved: usize) -> String {
-    match unsaved {
-        0 => "Font sets wait to be installed.".to_owned(),
-        1 => "Font sets wait to be installed; y and n save 1 change first.".to_owned(),
-        n => format!("Font sets wait to be installed; y and n save {n} changes first."),
-    }
-}
-
 /// The quit question below the minimum size, on one row before its keys:
 /// the changes quitting loses.
 pub fn small_question(unsaved: usize) -> String {
     match unsaved {
         1 => "1 change is not saved.".to_owned(),
         n => format!("{n} changes are not saved."),
-    }
-}
-
-/// The question `q` asks while font sets wait for an install: what
-/// leaving loses, and the `unsaved` changes that `y` saves first.
-pub fn leave_question(added: &[String], removed: &[String], unsaved: usize) -> String {
-    let mut lost = Vec::new();
-    if !added.is_empty() {
-        lost.push(format!("the new font sets {}", list(added.iter().cloned())));
-    }
-    if !removed.is_empty() {
-        lost.push(format!("the removal of {}", list(removed.iter().cloned())));
-    }
-    let lost = list(lost.into_iter());
-    let ask = format!(
-        "Install before you quit? Quitting without installing loses {lost}. y installs and quits, n quits without installing, and Esc goes back."
-    );
-    match unsaved {
-        0 => ask,
-        1 => format!("{ask} Both y and n first save the 1 change that is not saved."),
-        n => format!("{ask} Both y and n first save the {n} changes that are not saved."),
     }
 }
 

@@ -633,8 +633,11 @@ pub fn font_covering_in(letters: &[char], dirs: &[PathBuf], gate: &Gate) -> Opti
         let Ok(faces) = crate::names::faces(data.as_slice()) else {
             continue;
         };
+        let Ok(fonts) = crate::names::swash_fonts(&data) else {
+            continue;
+        };
         for face in faces {
-            let Some(font) = swash::FontRef::from_index(&data, face.index as usize) else {
+            let Some(font) = fonts.get(face.index as usize) else {
                 continue;
             };
             // The font file is user-writable, so its family name can hold

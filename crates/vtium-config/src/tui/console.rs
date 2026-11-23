@@ -27,7 +27,7 @@ use super::model::{App, Live, Shared};
 /// The preview text of `app`'s open tab, as the tab gives it, empty for a
 /// tab with none.
 pub fn lines(app: &App) -> Vec<Vec<(&'static str, Style)>> {
-    app.tab().console_lines(&app.shared)
+    app.tab().console_lines(&app.shared, app.size)
 }
 
 impl Shared {

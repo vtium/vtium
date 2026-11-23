@@ -60,6 +60,12 @@ swash = "=0.2.10"
 # the mode a frit's `hinting=` names (ADR-1200 D1), since swash's scaler
 # hints in one fixed mode; the version and features swash already builds.
 skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
+# The PNG decoder of color bitmap strikes, which vtium-config reads itself
+# with skrifa's read-fonts in place of swash's strike reader (ADR-1200,
+# 2026-11-21): it bounds what it allocates and inflates only the rows an
+# image needs. Pure Rust, MIT or Apache-2.0, the version the image helper
+# already builds.
+png = "=0.18.1"
 # The shaper ADR-1200's glyph engine takes for clusters (vtium/vtium#144):
 # HarfRust, the HarfBuzz project's Rust port, MIT, with no unsafe code of
 # its own; run only in the helper and the parser's child, never in the

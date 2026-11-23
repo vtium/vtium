@@ -63,6 +63,7 @@
 //! [`RENDER_TIMER_SAMPLES`].
 
 mod arrow;
+mod beside;
 mod blend;
 mod bounds;
 mod cache;
@@ -83,6 +84,7 @@ mod picture;
 mod pointer_file;
 mod reach;
 mod renderer;
+mod skip;
 mod sprite;
 mod stored;
 #[cfg(feature = "bidi")]

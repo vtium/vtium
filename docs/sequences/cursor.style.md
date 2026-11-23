@@ -35,6 +35,8 @@ These tests check what vtium does with the sequences on this page.
 - `an_underline_cursor_toggles_a_single_underline` in [crates/vtium-render/tests/cursor.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/cursor.rs)
 - `a_cursor_shape_change_at_rest_redraws_its_cell` in [crates/vtium-render/tests/damage.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/damage.rs)
 - `a_bar_cursor_keeps_its_letter_on_the_gpu_path` in [crates/vtium-render/tests/gpu_line_size.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/gpu_line_size.rs)
+- `the_underline_cursor_draws_its_whole_line_under_a_descender` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
+- `the_underline_cursor_draws_on_the_gpu_path_as_on_the_cpu_path` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
 - `decscusr_sets_the_cursor_style` in [crates/vtium-term/tests/replies.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/replies.rs)
 - `a_style_a_program_chose_blinks_as_it_says` in [crates/vtium/src/app/cursor_blink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app/cursor_blink.rs)
 

@@ -116,7 +116,14 @@ impl<F: Face> Gpu<F> {
     }
 
     fn cells(&self) -> Vec<Quad> {
-        self.quads(&["target_size", "masks", "colors", "sprites", "cell"])
+        self.quads(&[
+            "target_size",
+            "masks",
+            "colors",
+            "sprites",
+            "cell",
+            "besides",
+        ])
     }
 
     fn fills(&self) -> usize {
@@ -251,8 +258,13 @@ fn a_cell_of_several_layers_names_its_sprites() {
         .find(|q| q.dst == dst(cell(0, 0)))
         .unwrap();
     let fg = u32::from_str_radix(FG, 16).unwrap();
-    // the curl is the third sprite and the strike the sixth, each plus one
-    assert_eq!(q.params, params(FG, 1, BG, fg | 3 << 24, fg | 6 << 24));
+    // the curl is the third sprite and the strike the sixth, each plus one;
+    // the curl skips the glyph's ink with a gap of one pixel, which the
+    // background's top byte holds from its fifth bit up; the fourth bit,
+    // clear in a 16-pixel cell, says the line skips color ink too
+    let mut want = params(FG, 1, BG, fg | 3 << 24, fg | 6 << 24);
+    want[1] |= 1 << (24 + 4);
+    assert_eq!(q.params, want);
 }
 
 // The overline shares the strike's slot: alone it is the seventh sprite,

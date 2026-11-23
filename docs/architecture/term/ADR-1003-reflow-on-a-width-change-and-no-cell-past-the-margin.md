@@ -59,6 +59,10 @@ considered:
     via: the session's ADR questions, 2026-10-27; the figure was shown
     paraphrase: true
     covers: [long lines, zooming in on a full scrollback]
+  - operator: aaronsb
+    said: "Keep the accepted cost: with the view at the top of a long scrollback, a resize rewraps everything from the view down. Close the issue with the reason in ADR-1003, and reopen it if a resize is slow at the default scrollback size."
+    via: the maintainer's interview in the steering session, 2026-11-20, round 7, as the steering session's notes of that interview record it
+    paraphrase: true
 observable:
   - "The probe `reflow` (tools/conformance/scenarios/reflow.scenario) passes: `abcdefghijklmno` printed on 10 columns reads as one row after a resize to 20"
   - "A replay case for each rule of this record, under the decision it pins"
@@ -196,6 +200,8 @@ A rewrap builds each logical line's new rows as it consumes its old ones, so its
 
 > Note 2026-10-28 (the reflow build): as built, three parts differ from the plan above. The waiting rows are one stretch, the oldest, so the rows the view and the selection reach rewrap at once with every row below them to the screen; a view at the top of 100,000 rows of wrapped pairs 170 cells wide costs 55-85 ms on the development machine. The operator accepted that cost on 2026-10-28: a limited machine keeps a smaller scrollback through the existing keys, `sb-size` defaulting to 1,000 lines and `sb-size-cap` following memory (10,000 lines below 2 GiB), so a minspec board's worst case is about a tenth of that. A second stretch of waiting rows between the view and the margin, which would keep the cost to the view's rows, is deferred to its own issue, to be investigated once reflow works on real hardware. A line with no wide character breaks at multiples of the width, so the margin takes only the rows it needs of a longer one and its head waits, and a drop past `sb-size` cuts its first rows by length: one logical line spanning 100,000 rows resizes in about 2 ms. A resize to one column rewraps the whole scrollback at once, since a wide character becomes an empty cell there and a row that waited would keep it. Each line keeps a mark that it may hold a wide character in its padding, so the count reads lengths alone: 100,000 rows of wrapped pairs count in 2-3 ms.
 
+> Note 2026-11-20: the maintainer decided on 2026-11-20 to keep the cost accepted on 2026-10-28 (`considered`, 2026-11-20). With the view scrolled to the top of a large scrollback, a resize still rewraps every row from the view down to the screen at once. vtium builds no second stretch of waiting rows. At the default `sb-size` of 1,000 lines that costs about 0.7 ms on the development machine and an estimated 7 ms on a minspec board, the table's second row. The work reopens if a resize is slow at the default scrollback size.
+
 ### Determinism
 
 The screen, the scrollback, the cursor, the image store and the replies after a run of bytes and resizes follow from that run, in order, and never from how the bytes between two resizes were split, nor from what the view, a selection or a copy reached in between. A resize falls between two input calls; a sequence or a UTF-8 character it falls inside completes after it against the new size, as the parser holds it.
@@ -224,7 +230,9 @@ Mode 2028, contour's line reflow mode, is set by default and by RIS. SM and RM 2
 
 - The shell's output reads whole at any width, in the screen and the scrollback, and the probe `reflow` passes.
 - No stale cell comes back on a widening, and the alternate screen's lines give back their memory past the margin.
-- A resize costs the screen and its margin, under a millisecond at the minspec estimate, however large the scrollback.
+- A resize costs the screen and its margin, under a millisecond at the minspec estimate, however large the scrollback, while the view is at the screen. With the view scrolled back, it also rewraps every row from the view down, which the notes in Cost accept.
+
+> Edited 2026-11-20: the maintainer kept the cost of a resize with the view scrolled back (Cost's note of 2026-11-20). The bullet ended "however large the scrollback."
 - Printing at a width and rewrapping to it give the same cells, which a property test can hold.
 
 ### Negative

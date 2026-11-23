@@ -8,7 +8,7 @@ vtium takes its fonts from font set files, called frits. A frit is a short text 
 
 The console does not read any font file itself. Instead, it starts the font helper, `vtium-config serve`. The font helper reads the frit's sources and turns them into ready-made glyphs, the images of the characters. It sends the console glyphs at the size of the console's character cell, the box on the screen that holds one character.
 
-When `font-name` is not set, vtium uses the console font that the system names. That name comes from `vconsole.font=` on the kernel command line, or from `FONT=` in `/etc/vconsole.conf`. When neither names a font, vtium uses the font set `terminus`, bitmap Terminus at every size from 12 to 32 pixels. You can choose the outline set `cullet-mono` instead, which scales to any size and adds Nerd Fonts icons and color emoji. Every build installs both sets, with GNU Unifont for the characters that Terminus lacks.
+When `font-name` is not set, vtium uses the console font that the system names. That name comes from `vconsole.font=` on the kernel command line, or from `FONT=` in `/etc/vconsole.conf`. When neither names a font, vtium uses the font set `terminus`, bitmap Terminus in nine sizes from 12 to 32 pixels. You can choose the outline set `cullet-mono` instead, which scales to any size and adds Nerd Fonts icons and color emoji. Every build installs both sets, with GNU Unifont for the characters that Terminus lacks.
 
 ## An outline font
 
@@ -182,7 +182,7 @@ A frit can say which font each source needs, so that vtium-config can name the f
 
 - `version=` gives the lowest version of the font that the frit was written for, such as `3.4.0`.
 - `check=` names a character that only the right font holds, such as `U+E0B0`. A Nerd Fonts build holds that character, and the plain font of a similar name does not.
-- `sha256=` gives the SHA-256 of a font file that the frit names by its path.
+- `sha256=` gives the SHA-256 of a font file that the frit names by its path. On the lines after a `strike=` line, it gives the hash of that strike's file.
 - `url=` gives the font's page on the web, where you can get it.
 
 For example, this frit names the Nerd Fonts build of Fira Code precisely:
@@ -264,7 +264,7 @@ A font set that a look names takes effect when vtium next starts on the VT, like
 
 You can also run the tool in a terminal that is not vtium, such as a desktop terminal. There it shows the same lists and installs the same way. It does not send that terminal a font, and it tells you so. When the `allow-font-ops` key is off, the tool tells you that too, and says how to turn the key on in the Settings tab.
 
-`vtium config new-frit` makes a frit, and `vtium config remove-frit` removes one, without the full-screen tool. When you run either as your own user, it writes an install bundle and prints the `sudo` command that installs it. When you run either as root, it installs the change at once.
+`vtium config new-frit` makes a frit, and `vtium config remove-frit` removes one, without the full-screen tool. Like the tool, each command keeps its change in your draft and installs nothing. `vtium config install` then installs the draft with its font sets. When `remove-frit` names a font set that only your draft adds, it takes that font set back out of the draft. A removal waits in the draft even while a look uses the font set. The check then names the look, and `install` refuses the draft until the look uses another font.
 
 ## Switching and zooming
 

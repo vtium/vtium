@@ -449,15 +449,16 @@ pub fn state_words(flow: &Flow, rule: &Rule) -> String {
 
 /// The first line of `flow` and of the status line: the draft's name and
 /// state against the installed file, the count of its `batch` changes to
-/// the active resources, and its problems. A draft that changes the
-/// active resources is not the same as installed, even when its text is.
+/// the active resources and of its `frits`, the font set changes, and its
+/// problems. A draft that changes the active resources or holds a font
+/// set change is not the same as installed, even when its text is.
 ///
 /// References:
 /// - ADR-1403 D8: the state line counts a draft's changes beside vtium.conf.
 pub fn state_line(
     name: &str,
     state: &crate::drafts::State,
-    batch: usize,
+    (batch, frits): (usize, usize),
     problems: usize,
 ) -> String {
     let problems = match problems {
@@ -465,11 +466,20 @@ pub fn state_line(
         1 => "1 problem".to_owned(),
         n => format!("{n} problems"),
     };
-    let words = match (state, batch) {
-        (_, 0) => state.words(),
-        (crate::drafts::State::Same, n) => crate::batch::resource_changes(n),
-        (state, n) => format!("{}, {}", state.words(), crate::batch::resource_changes(n)),
-    };
+    // a draft is the same as installed only when its text is the
+    // installed file's and nothing waits beside it
+    let beside = [
+        (batch > 0).then(|| crate::batch::resource_changes(batch)),
+        (frits > 0).then(|| crate::drafts::frit_count(frits)),
+    ];
+    let words = std::iter::once(match state {
+        crate::drafts::State::Same if batch + frits > 0 => None,
+        state => Some(state.words()),
+    })
+    .chain(beside)
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(", ");
     format!("draft {name}: {words} · {problems}")
 }
 
@@ -604,14 +614,20 @@ fn state_kind(state: &RuleState) -> &'static str {
 /// The flow as `vtium config flow --json` prints it: one object whose
 /// `version` is 1, with the draft's state, so a script can rely on its
 /// fields. `problems` in the draft is the count the state line gives, and
-/// the top-level `problems` lists every line the check printed. Rules and the devices' `rule` are numbered from 1, as the
-/// commands take them.
+/// the top-level `problems` lists every line the check printed. Rules and
+/// the devices' `rule` are numbered from 1, as the commands take them.
+/// `frits` lists the draft's font set changes, `frits` here, each by its
+/// name with `add`, `replace` or `remove`.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": `flow --json` lists the changes under `"frits"`.
 pub fn json(
     flow: &Flow,
     name: &str,
     state: &crate::drafts::State,
     checked: &crate::drafts::Checked,
     missing: &[String],
+    frits: &[crate::drafts::FritChange],
 ) -> String {
     let problems = &checked.problems;
     let device = |d: &Device| {
@@ -671,9 +687,16 @@ pub fn json(
             .iter()
             .map(|(k, v)| format!("{{\"key\":{},\"value\":{}}}", quoted(k), quoted(v))),
     );
+    let frits = frits.iter().map(|f| {
+        format!(
+            "{{\"name\":{},\"change\":{}}}",
+            quoted(&f.name),
+            quoted(f.edit().word())
+        )
+    });
     let (added, removed) = state.counts();
     format!(
-        "{{\"version\":1,\"draft\":{{\"name\":{},\"state\":{},\"added\":{added},\"removed\":{removed},\"problems\":{}}},\"policy\":{},\"base\":{{\"set\":{base},\"defaults\":{}}},\"displays\":{},\"rules\":{},\"heads\":{},\"looks\":{},\"inputs\":{},\"problems\":{},\"missing\":{}}}\n",
+        "{{\"version\":1,\"draft\":{{\"name\":{},\"state\":{},\"added\":{added},\"removed\":{removed},\"problems\":{}}},\"policy\":{},\"base\":{{\"set\":{base},\"defaults\":{}}},\"displays\":{},\"rules\":{},\"heads\":{},\"looks\":{},\"frits\":{},\"inputs\":{},\"problems\":{},\"missing\":{}}}\n",
         quoted(name),
         quoted(state.kind()),
         checked.count(),
@@ -683,6 +706,7 @@ pub fn json(
         list(rules),
         list(heads),
         list(looks),
+        list(frits),
         list(flow.inputs.iter().map(device)),
         list(problems.iter().map(|p| quoted(p))),
         list(missing.iter().map(|m| quoted(m))),

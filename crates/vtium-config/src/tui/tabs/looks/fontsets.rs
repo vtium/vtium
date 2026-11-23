@@ -1,21 +1,25 @@
-//! The Looks tab's group of font sets: every font set (frit) installed and
-//! every built-in font, each with what the console reads of it. The group
-//! marks a font set for removal at the next install, and a font set's
-//! detail shows its fonts by role, what it still misses, and the looks
-//! that use it. A look's card shows the same roles and misses for the
-//! look's font set.
+//! The Looks tab's group of font sets: every font set (frit) installed,
+//! every built-in font, and each font set the draft adds, each with what
+//! the console reads of it. The group marks a font set the draft adds,
+//! replaces or removes, and a font set's detail shows its fonts by role,
+//! what it still misses, and the looks that use it. A look's card shows
+//! the same roles and misses for the look's font set.
 //!
 //! References:
+//! - ADR-1403 D8, "The frits a draft sees": the installed frits plus the
+//!   draft's, each marked, and a look card offers them.
 //! - ADR-1201 D3, the Fonts bullet: the marks of each font set and the
 //!   removal at the next install.
 //! - ADR-1205 D6: the roles a font set's fonts fill.
 //! - ADR-1205 D8: a resource's view shows what works, and within a look
 //!   what it still misses, by role.
 
+use super::super::super::desk::{FontSetEdit, Op};
 use super::super::super::listbox::Item;
-use super::super::super::model::{Font, FontState, Shared};
+use super::super::super::model::{Effect, Font, FontState, Shared};
 use super::super::super::words;
 use super::super::{Change, Command};
+use crate::drafts::FritEdit;
 use crate::frit::{Frit, Source};
 use crate::serve::LeftOut;
 use crate::specimen::Sources;
@@ -24,11 +28,75 @@ use vtium_font::Source as GlyphSource;
 use vtium_font::Style;
 use vtium_font::sprite::Range;
 
+/// The font sets the draft sees, in the tab's order: every font set
+/// installed and every built-in font, then each font set that only the
+/// draft's folder adds, by name. The list holds a font set the draft adds
+/// apart from the installed ones, after them, so adding or taking one back
+/// moves no installed font set in the list. vtium-config reads a font set
+/// the draft adds as the next start would, so the list marks one the
+/// console does not read.
+///
+/// References:
+/// - ADR-1403 D8, "The frits a draft sees": the installed frits plus each `FRIT.vtfrit` in the folder.
+pub fn all(shared: &Shared) -> Vec<Font> {
+    let installed = &shared.inputs.fonts;
+    let mut out = installed.clone();
+    out.extend(
+        shared
+            .frits()
+            .kept
+            .iter()
+            .filter(|(name, _)| !installed.iter().any(|f| f.name == **name))
+            .map(|(name, text)| Font {
+                name: name.clone(),
+                state: state_of(name, text),
+            }),
+    );
+    out
+}
+
+/// The font set at `at` in [`all`].
+pub fn font(shared: &Shared, at: usize) -> Option<Font> {
+    all(shared).into_iter().nth(at)
+}
+
+/// The place of the font set `name` in [`all`].
+pub fn place(shared: &Shared, name: &str) -> Option<usize> {
+    all(shared).iter().position(|f| f.name == name)
+}
+
+/// Whether the font set `name` is one that only the draft adds: its
+/// folder holds it, and this machine has no font set of that name.
+pub fn only_drafted(shared: &Shared, name: &str) -> bool {
+    shared.frits().kept.contains_key(name) && !shared.inputs.fonts.iter().any(|f| f.name == name)
+}
+
+/// What the console reads of the font set `name` whose text is `text`,
+/// as the frit parser reads it.
+pub fn state_of(name: &str, text: &str) -> FontState {
+    match Frit::parse(text.as_bytes(), Path::new(name), name) {
+        Ok(_) => FontState::Reads,
+        Err(e) if e.line == 0 => FontState::Refused(e.why),
+        Err(e) => FontState::Refused(format!("line {}: {}", e.line, e.why)),
+    }
+}
+
+/// Whether the draft replaces the installed font set `name` with text of
+/// its own, which the install writes in its place.
+pub fn replaced(shared: &Shared, name: &str) -> bool {
+    shared.draft.as_ref().is_some_and(|d| {
+        d.frit_changes
+            .iter()
+            .any(|(n, c)| n == name && *c == FritEdit::Replace)
+    })
+}
+
 /// The font set at `at` in the list of fonts as an item of the tab's
-/// list: its name, then what the console reads of it, whether the install
-/// removes it, and whether it is vtium.conf's font set, saved or to save.
+/// list: its name, then what the console reads of it, whether the draft
+/// adds, replaces or removes it, and whether it is vtium.conf's font set,
+/// saved or to save.
 pub fn item(shared: &Shared, at: usize) -> Item {
-    let Some(f) = shared.inputs.fonts.get(at) else {
+    let Some(f) = font(shared, at) else {
         return Item::default();
     };
     let mut note = match (&f.state, shared.sources.get(&f.name)) {
@@ -46,8 +114,12 @@ pub fn item(shared: &Shared, at: usize) -> Item {
     if shared.refused.contains(&f.name) {
         note = words::KEPT.to_owned();
     }
-    if shared.pending.removals.contains(&f.name) {
+    if shared.frits().removed.contains(&f.name) {
         note = format!("{note}, {}", words::TO_REMOVE);
+    } else if only_drafted(shared, &f.name) {
+        note = format!("{note}, {}", words::IN_DRAFT);
+    } else if replaced(shared, &f.name) {
+        note = format!("{note}, {}", words::REPLACED_IN_DRAFT);
     }
     if shared.changed("font-name") && shared.drafted("font-name").as_deref() == Some(&f.name) {
         note = format!("{note}, {}", words::TO_SAVE);
@@ -63,65 +135,57 @@ pub fn usable(shared: &Shared, font: &Font) -> bool {
     !matches!(font.state, FontState::Refused(_)) && !shared.refused.contains(&font.name)
 }
 
-/// `r` on the font set named `name`: the font set is removed when the
-/// user installs, or, when the install already removes it, no longer is.
-/// The tab refuses what `remove-frit` refuses, by vtium.conf, its top
-/// level and its looks, both as it is and as the install leaves it, and a
-/// font set the install replaces with a new one. The install lists the
-/// font set's file among what it changes, and `apply` removes it, as it
-/// removes the frit of `remove-frit`'s draft.
+/// `r` on the font set named `name`, as `remove-frit` does it. On an
+/// installed font set, the draft's folder keeps its removal, and the
+/// install removes it; the removal takes the place of a new text the draft
+/// gives it. The removal is kept even when the draft's vtium.conf names
+/// the font set, at its top level or in a look, and the check then lists
+/// each line that names it. On a font set that only the draft adds, `r`
+/// takes it back out of the folder, and on a removed one it takes the
+/// removal back. The tab refuses what `remove-frit` refuses, by the same
+/// check: a built-in font, a set of vtium's catalog, and a font set that is
+/// neither installed nor in the folder.
+///
+/// References:
+/// - ADR-1403 D8, "Every font set change is kept at once": what `r` keeps, and the removals vtium-config refuses.
 pub fn remove(shared: &Shared, name: &str) -> Vec<Command> {
     let say = |line: String| Command::Change(Change::Say(line));
-    let mut pending = shared.pending.clone();
-    if let Some(at) = pending.removals.iter().position(|n| n == name) {
-        pending.removals.remove(at);
-        return vec![
-            Command::Change(Change::Pending(pending)),
-            say(words::remove_dropped(name)),
-        ];
+    let Some(draft) = &shared.draft else {
+        return vec![say(words::NO_DESK.to_owned())];
+    };
+    let keep = |edit, line| {
+        vec![
+            Command::Effect(Effect::Desk(Op::FontSet {
+                frit: name.to_owned(),
+                edit,
+                text: draft.text.clone(),
+            })),
+            say(line),
+        ]
+    };
+    // a removal already kept is taken back first, so `r` toggles it even
+    // where it would now refuse to keep one
+    if shared.frits().removed.contains(name) {
+        return keep(FontSetEdit::Forget, words::remove_dropped(name));
     }
-    let refused = crate::commands::removal_refusal(name, shared.conf_text())
-        .or_else(|| {
-            pending
-                .frits
-                .iter()
-                .any(|(n, _)| n == name)
-                .then(|| words::remove_replaced(name))
-        })
-        .or_else(|| {
-            (!shared.inputs.installed.contains_key(name)).then(|| words::remove_unread(name))
-        });
-    if let Some(why) = refused {
+    if let Some(why) = crate::commands::removal_refusal(&shared.inputs.frits, name) {
         return vec![say(words::remove_refused(name, why))];
     }
-    pending.removals.push(name.to_owned());
-    // the install as it would be with the removal: refused when the
-    // draft names the font set
-    match shared.frit_plan_of(&pending) {
-        Ok(_) => vec![
-            Command::Change(Change::Pending(pending)),
-            say(words::remove_pending(name)),
-        ],
-        Err(why) => vec![say(words::remove_refused(name, why))],
+    if shared.inputs.installed.contains_key(name) {
+        return keep(FontSetEdit::Remove, words::remove_pending(name));
     }
+    if shared.frits().kept.contains_key(name) {
+        return keep(FontSetEdit::Forget, words::remove_forgotten(name));
+    }
+    vec![say(words::remove_refused(name, words::remove_unread(name)))]
 }
 
 /// The text of the font set `name` as the install would leave it: a new
 /// font set that waits for the install, else the installed file.
 fn text<'s>(shared: &'s Shared, name: &str) -> Option<&'s str> {
     shared
-        .pending
-        .frits
-        .iter()
-        .find(|(n, _)| n == name)
-        .map(|(_, t)| t.as_str())
-        .or_else(|| {
-            shared
-                .inputs
-                .installed
-                .get(name)
-                .and_then(|b| std::str::from_utf8(b).ok())
-        })
+        .frit_text(name)
+        .and_then(|b| std::str::from_utf8(b).ok())
 }
 
 /// The font set `name` as the frit parser reads it, where its text reads.
@@ -337,7 +401,7 @@ pub fn users(shared: &Shared, name: &str) -> Vec<String> {
 /// paragraph: its name, whether it reads, its fonts by role, what it
 /// misses, and the looks that use it.
 pub fn detail(shared: &Shared, at: usize) -> Vec<String> {
-    let Some(f) = shared.inputs.fonts.get(at) else {
+    let Some(f) = font(shared, at) else {
         return Vec::new();
     };
     let mut out = vec![
@@ -347,8 +411,11 @@ pub fn detail(shared: &Shared, at: usize) -> Vec<String> {
             FontState::BuiltIn => words::BUILT_IN_WHOLE.to_owned(),
             FontState::Refused(why) => words::does_not_read_whole(why),
         },
-        words::ROLES_HEADING.to_owned(),
     ];
+    if only_drafted(shared, &f.name) {
+        out.push(words::IN_DRAFT_WHOLE.to_owned());
+    }
+    out.push(words::ROLES_HEADING.to_owned());
     out.extend(roles(shared, &f.name).into_iter().map(|l| format!("  {l}")));
     out.push(words::MISSES_HEADING.to_owned());
     out.extend(
@@ -358,4 +425,202 @@ pub fn detail(shared: &Shared, at: usize) -> Vec<String> {
     );
     out.push(words::detail_users(&users(shared, &f.name)));
     out
+}
+
+#[cfg(test)]
+#[expect(clippy::panic, reason = "a test fails by panicking")]
+mod tests {
+    use super::*;
+    use crate::tui::desk::Opened;
+    use crate::tui::fixture;
+    use crate::tui::model::App;
+
+    /// The fixture's shared state with a draft open on its vtium.conf,
+    /// whose folder holds `kept` and `removed`.
+    fn shared(kept: &[&str], removed: &[&str]) -> Shared {
+        let inputs = fixture::inputs();
+        let text = inputs.conf.clone().unwrap_or_default();
+        assert!(text.contains("font-name = proof"), "{text}");
+        let (app, _) = App::new(inputs, 80, 25);
+        let mut shared = app.shared;
+        let mut frits = crate::store::FritChanges::default();
+        for name in kept {
+            frits
+                .kept
+                .insert((*name).to_owned(), "source=builtin:unifont\n".to_owned());
+        }
+        for name in removed {
+            frits.removed.insert((*name).to_owned());
+        }
+        shared.draft = Some(Opened {
+            name: "mine".into(),
+            text,
+            frits,
+            ..Default::default()
+        });
+        shared
+    }
+
+    /// The change `r` asks the desk to keep for `name`, and what the
+    /// message line says; or, when `r` refuses, `None` and the line.
+    fn r(shared: &Shared, name: &str) -> (Option<FontSetEdit>, String) {
+        let mut edit = None;
+        let mut said = String::new();
+        for command in remove(shared, name) {
+            match command {
+                Command::Effect(Effect::Desk(Op::FontSet { frit, edit: e, .. })) => {
+                    assert_eq!(frit, name);
+                    edit = Some(e);
+                }
+                Command::Change(Change::Say(line)) => said = line,
+                other => panic!("r on {name}: {other:?}"),
+            }
+        }
+        (edit, said)
+    }
+
+    /// `r` keeps the removal of an installed font set even when the
+    /// draft's vtium.conf names it, at its top level or in a look: the
+    /// check then lists each line that names it.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "Every font set change is kept at once": a removal is written even when the draft's looks name the frit.
+    #[test]
+    fn r_keeps_the_removal_of_a_font_set_the_draft_names() {
+        // look proof names proof
+        let (edit, said) = r(&shared(&[], &[]), "proof");
+        assert_eq!(edit, Some(FontSetEdit::Remove), "{said}");
+        assert_eq!(said, words::remove_pending("proof"));
+        // the top level names minspec-16
+        let mut named = shared(&[], &[]);
+        if let Some(d) = named.draft.as_mut() {
+            d.text = d.text.replace("font-name=unifont", "font-name=minspec-16");
+        }
+        assert_eq!(r(&named, "minspec-16").0, Some(FontSetEdit::Remove));
+    }
+
+    /// `r` on an installed font set that the draft replaces removes it, as
+    /// `remove-frit` does: the removal takes the place of the new text.
+    #[test]
+    fn r_removes_an_installed_font_set_the_draft_replaces() {
+        let (edit, said) = r(&shared(&["tiny5"], &[]), "tiny5");
+        assert_eq!(edit, Some(FontSetEdit::Remove), "{said}");
+    }
+
+    /// `r` on a font set that only the draft adds takes it back out of
+    /// the draft's folder, and on a removed font set takes the removal
+    /// back.
+    #[test]
+    fn r_takes_back_a_font_set_only_the_draft_adds_and_a_removal() {
+        let (edit, said) = r(&shared(&["quiet"], &[]), "quiet");
+        assert_eq!(edit, Some(FontSetEdit::Forget), "{said}");
+        assert_eq!(said, words::remove_forgotten("quiet"));
+        let (edit, said) = r(&shared(&[], &["tiny5"]), "tiny5");
+        assert_eq!(edit, Some(FontSetEdit::Forget), "{said}");
+        assert_eq!(said, words::remove_dropped("tiny5"));
+    }
+
+    /// `r` refuses only what it cannot keep: a built-in font, and a font
+    /// set that is neither installed nor in the draft's folder.
+    #[test]
+    fn r_refuses_a_built_in_font_and_a_font_set_it_cannot_find() {
+        let (edit, said) = r(&shared(&[], &[]), "unifont");
+        assert_eq!(edit, None);
+        assert!(said.contains("built-in font"), "{said}");
+        let (edit, said) = r(&shared(&[], &[]), "quiet");
+        assert_eq!(edit, None);
+        assert_eq!(
+            said,
+            words::remove_refused("quiet", words::remove_unread("quiet"))
+        );
+    }
+
+    /// The list marks a font set only the draft adds and one the draft
+    /// changes, and leaves unmarked a font set in the folder whose text is
+    /// the installed one's, which the install leaves as it is.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "The frits a draft sees": the views mark each frit the draft adds, replaces or removes, and a file with the installed text is no change.
+    #[test]
+    fn the_list_marks_what_the_draft_adds_and_changes() {
+        let mut held = shared(&["quiet", "tiny5", "proof"], &[]);
+        if let Some(d) = held.draft.as_mut() {
+            d.frit_changes = vec![
+                ("quiet".to_owned(), FritEdit::Add),
+                ("tiny5".to_owned(), FritEdit::Replace),
+            ];
+        }
+        let note = |name: &str| {
+            let at = place(&held, name).unwrap_or_else(|| panic!("{name} is listed"));
+            item(&held, at).detail
+        };
+        assert!(
+            note("quiet").ends_with(words::IN_DRAFT),
+            "{}",
+            note("quiet")
+        );
+        assert!(
+            note("tiny5").ends_with(words::REPLACED_IN_DRAFT),
+            "{}",
+            note("tiny5")
+        );
+        assert!(!note("proof").contains("draft"), "{}", note("proof"));
+        // quiet comes after the installed font sets and the built-in fonts
+        assert_eq!(place(&held, "quiet"), Some(held.inputs.fonts.len()));
+    }
+
+    /// A look card's font set line offers a font set only the draft adds,
+    /// marked so, and leaves out one the draft removes; a look that names
+    /// a removed font set shows it with a note that says so.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "The frits a draft sees": the installed frits plus the folder's, minus each removed one, and a look card offers them.
+    #[test]
+    fn a_look_card_offers_the_font_sets_the_draft_sees() {
+        use super::super::card::{Line, choices};
+        let held = shared(&["quiet"], &["proof"]);
+        let look = super::super::list::look(&held, "proof").unwrap_or_else(|| panic!("look proof"));
+        let offered = choices(&held, &look, Line::FontSet);
+        let note = |name: &str| {
+            offered
+                .iter()
+                .find(|c| c.name == name)
+                .map(|c| c.note.clone())
+                .unwrap_or_else(|| panic!("{name} among {offered:?}"))
+        };
+        assert_eq!(note("quiet"), words::IN_DRAFT);
+        assert_eq!(note("tiny5"), "");
+        // proof is the look's own value only, with the note
+        assert_eq!(offered.iter().filter(|c| c.name == "proof").count(), 1);
+        assert_eq!(note("proof"), words::CHOICE_REMOVED);
+    }
+
+    /// `r` keeps no removal of a font set that only a category folder of
+    /// vtium's catalog holds, since the install removes only from the
+    /// frits' directory itself, and it says why in `remove-frit`'s words.
+    /// A font set of the same name in the frits' directory itself is
+    /// removed as any other.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "Every font set change is kept at once": `r` and `remove-frit` refuse the same changes.
+    #[test]
+    #[expect(clippy::expect_used, reason = "a test fails by panicking")]
+    fn r_refuses_a_set_of_the_catalog_as_remove_frit_does() {
+        let dir = crate::scratch::Scratch::new("fontsets-catalog");
+        std::fs::create_dir_all(dir.join("console")).expect("a category folder");
+        std::fs::write(dir.join("console/cat.vtfrit"), "source=builtin:unifont\n")
+            .expect("a set of the catalog");
+        let mut held = shared(&[], &[]);
+        held.inputs.frits = dir.to_path_buf();
+        // the TUI lists the catalog's sets among the installed ones
+        held.inputs
+            .installed
+            .insert("cat".to_owned(), b"source=builtin:unifont\n".to_vec());
+        let why = crate::commands::removal_refusal(&dir, "cat").expect("the catalog's set");
+        let (edit, said) = r(&held, "cat");
+        assert_eq!(edit, None, "{said}");
+        assert_eq!(said, words::remove_refused("cat", &why));
+        std::fs::write(dir.join("cat.vtfrit"), "source=builtin:unifont\n").expect("a set");
+        assert_eq!(r(&held, "cat").0, Some(FontSetEdit::Remove));
+    }
 }

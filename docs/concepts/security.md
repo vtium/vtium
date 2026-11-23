@@ -44,10 +44,11 @@ A program talks to vtium through a pty, short for pseudoterminal. A pty is a pai
 - **Links.** A program can mark text as a link. vtium never opens a link. When you Ctrl+click a link, vtium copies its address, and you decide where to paste it.
 - **The clipboard.** A program can copy text into vtium's selection, the text that the middle mouse button pastes. A program can never read the selection, so it cannot see what you or another program copied.
 - **Pictures from files.** A program can ask vtium to show a picture from a file, or from a shared-memory object, which is a block of memory that programs share by name. vtium's root process never opens it. The image helper opens it, as your user. The helper opens only ordinary files, and never a device. It refuses any file in the kernel's own folders, such as `/proc` and `/sys`.
+- **Handing over the display.** A program can ask vtium to let go of the display, so that a graphical program can draw there. It sends kmscon's `setBackground` string, and `setForeground` takes the display back. vtium accepts the request only from the console that its head shows at that moment. When a seat manager gives vtium its devices, vtium ignores the request.
 
 Read more:
 
-- [config.md](../config.md) lists the settings that control these requests, `allow-font-ops`, `allow-window-ops` and `clipboard-write`, and gives the default of each. [Determinism](../architecture.md#determinism) states the rule for replies in full.
+- [config.md](../config.md) lists the settings that control these requests, `allow-font-ops`, `allow-window-ops`, `clipboard-write` and `allow-display-ops`, and gives the default of each. [Determinism](../architecture.md#determinism) states the rule for replies in full.
 
 ## A configuration only root can change
 

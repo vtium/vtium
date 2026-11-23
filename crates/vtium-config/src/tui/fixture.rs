@@ -163,7 +163,10 @@ pub const SECTIONS: &str = "version = 1\n[look proof]\nfont-name = proof\nvtlook
 
 /// What the TUI opens on: the fonts of a machine with three frits, one that
 /// does not read, its vtium.conf, and [`flow`] in the Flow view, with no
-/// desk, so the Flow view changes nothing.
+/// desk, so the Flow view changes nothing. The frits' directory is a path
+/// that no machine has, so what the machine running the tests installed in
+/// `/etc/vtium/fonts` changes no test; a test that needs frits on disk
+/// sets `frits` to a directory of its own.
 pub fn inputs() -> Inputs {
     let font = |name: &str, state| Font {
         name: name.to_owned(),
@@ -186,7 +189,7 @@ pub fn inputs() -> Inputs {
         dpi: (96, DpiFrom::Assumed),
         densities: vec![96],
         vconsole_font: None,
-        frits: PathBuf::from("/etc/vtium/fonts"),
+        frits: PathBuf::from("/nonexistent/vtium/fonts"),
         view: View::Fonts,
         display: Some((640, 480)),
         flow: flow(),
@@ -209,7 +212,25 @@ pub fn inputs() -> Inputs {
         .collect(),
         effects: effects(),
         font_files: font_files(),
+        layers: layers(),
     }
+}
+
+/// The layers the fixture's frits' folder holds, as [`super::layers`]
+/// reads them: two for scripts, one each for symbols, emoji and the
+/// fallback.
+pub fn layers() -> Vec<(String, vtium_font::set::layer::Role)> {
+    use vtium_font::set::layer::Role;
+    [
+        ("arabic", Role::Script),
+        ("cjk-jp", Role::Script),
+        ("nerd-symbols", Role::Symbols),
+        ("noto-emoji", Role::Emoji),
+        ("unifont", Role::Fallback),
+    ]
+    .into_iter()
+    .map(|(n, r)| (n.to_owned(), r))
+    .collect()
 }
 
 /// The font files the fixture's Fonts tab lists, in the scan's order:
@@ -517,6 +538,11 @@ fn scheme(dark: u8, light: u8, accent: [u8; 3]) -> vtium_term::Palette {
 /// administrator's dusk hides, and paper, both active; the
 /// administrator's dusk, active; loose, which fails the trust rule; and
 /// broken, which does not read.
+///
+/// Every scheme here is made up for the tests, and none is a scheme vtium
+/// ships. paper is a light scheme of the tests' own: vtium's e-ink scheme
+/// is ink, in crates/vtium/install/palettes. The settled screens of the
+/// Looks tab show paper by name, so the name stays.
 pub fn palettes() -> Vec<SchemeFile> {
     let file =
         |dir: &str, name: &str, state, trust: Result<(), String>, hidden, colors| SchemeFile {
@@ -674,12 +700,57 @@ pub fn resource_op(
 /// a look, and three rules, the second naming the keyboard at `pci-0:3.3`.
 pub const DRAFT: &str = "font-size=12\nversion = 1\n[look big]\nfont-name = proof\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\ninput path:pci-0:3.3 -> panel\ninput class:keyboard -> roaming\n";
 
-/// The stand-in console those goldens check a draft with: `check-config
-/// --configdir DIR FILE` names each line of FILE that holds `BAD` and
-/// fails, and passes any other file.
+/// The stand-in console those goldens check a draft with. It reads its
+/// arguments the way `vtium check-config` does: `--configdir DIR`, any
+/// number of `--with-frit FILE` and `--without-frit NAME`, and
+/// `--no-devices`, in any order, and the vtium.conf it checks as the one
+/// word that is no option, or `DIR/vtium.conf` without one. It names each
+/// line that holds `BAD`, in that file and in each `--with-frit` file, as
+/// an error, and refuses a `--with-frit` that is not a regular file named
+/// `NAME.vtfrit`. It exits 1 when it found an error, and notes `FILE:
+/// checked` and exits 0 when it found none.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": the check reads the font set files a draft adds or replaces through `--with-frit`.
 pub const CHECKER: &str = r#"#!/bin/sh
 [ "$1" = check-config ] || exit 9
-file="$4"
+shift
+configdir=/etc/vtium
+file=
+failed=
+frit() {
+  case "${1##*/}" in
+    ?*.vtfrit) [ -f "$1" ] ;;
+    *) false ;;
+  esac || {
+    echo "--with-frit \"$1\" is not a font set file." >&2
+    failed=1
+    return
+  }
+  for n in $(grep -n BAD "$1" | cut -d: -f1); do
+    echo "$1:$n: BAD is not a key vtium reads" >&2
+    failed=1
+  done
+}
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --configdir|--with-frit|--without-frit)
+      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; exit 1; }
+      case "$1" in
+        --configdir) configdir="$2" ;;
+        --with-frit) frit "$2" ;;
+      esac
+      shift 2 ;;
+    --configdir=*) configdir="${1#*=}"; shift ;;
+    --with-frit=*) frit "${1#*=}"; shift ;;
+    --without-frit=*|--no-devices) shift ;;
+    -*) echo "unknown option $1" >&2; exit 1 ;;
+    *)
+      [ -z "$file" ] || { echo "a second file $1" >&2; exit 1; }
+      file="$1"; shift ;;
+  esac
+done
+[ -n "$file" ] || file="$configdir/vtium.conf"
 bad=$(grep -n BAD "$file" | cut -d: -f1)
 if [ -n "$bad" ]; then
   for n in $bad; do
@@ -687,8 +758,110 @@ if [ -n "$bad" ]; then
   done
   exit 1
 fi
+[ -z "$failed" ] || exit 1
 echo "$file: checked"
 "#;
+
+/// What a stand-in desk does with [`super::desk::Op::FontSet`] on `frits`,
+/// the draft's folder: the change as the real store keeps it. A new font
+/// set takes the place of a removal of the installed one of its name, and
+/// a removal takes the place of a new font set. It refuses what the real
+/// store refuses: a built-in font's name and a name no font set can have.
+pub fn font_set_op(
+    frits: &mut crate::store::FritChanges,
+    frit: &str,
+    edit: &super::desk::FontSetEdit,
+) -> Result<(), String> {
+    use super::desk::FontSetEdit;
+    if crate::frit::RESERVED.contains(&frit) || !crate::frit::valid_name(frit) {
+        return Err(format!("{frit:?} is not a name a font set can have"));
+    }
+    frits.kept.remove(frit);
+    frits.removed.remove(frit);
+    match edit {
+        FontSetEdit::Keep(text) => {
+            frits.kept.insert(frit.to_owned(), text.clone());
+        }
+        FontSetEdit::Remove => {
+            frits.removed.insert(frit.to_owned());
+        }
+        FontSetEdit::Forget => {}
+    }
+    Ok(())
+}
+
+/// The font set changes a stand-in desk's draft makes, from `frits`, the
+/// draft's folder, against `installed`, the installed frits by name, in
+/// the frits' directory `dir`: what the real desk counts, through the same
+/// function ([`crate::drafts::frit_changes`]).
+pub fn frit_changes(
+    frits: &crate::store::FritChanges,
+    installed: &std::collections::BTreeMap<String, Vec<u8>>,
+    dir: &std::path::Path,
+) -> Vec<crate::drafts::FritChange> {
+    crate::drafts::frit_changes("mine", frits, dir, |path| {
+        let name = path.file_stem()?.to_str()?;
+        installed.get(name).cloned()
+    })
+    .0
+}
+
+/// [`frit_changes`] by name with what each does, as the real desk gives
+/// them in [`super::desk::Opened::frit_changes`].
+pub fn frit_edits(
+    frits: &crate::store::FritChanges,
+    installed: &std::collections::BTreeMap<String, Vec<u8>>,
+    dir: &std::path::Path,
+) -> Vec<(String, crate::drafts::FritEdit)> {
+    frit_changes(frits, installed, dir)
+        .iter()
+        .map(|c| (c.name.clone(), c.edit()))
+        .collect()
+}
+
+/// The font set part of the plan a stand-in desk readies from `frits`,
+/// the draft's folder, against `installed`, the installed frits by name,
+/// in the frits' directory `dir`, as the real desk's prepare builds it
+/// from [`frit_changes`]: each new or replaced frit whose text differs
+/// from the installed one, and a removal for each removed frit that is
+/// installed.
+pub fn frit_plan(
+    frits: &crate::store::FritChanges,
+    installed: &std::collections::BTreeMap<String, Vec<u8>>,
+    dir: &std::path::Path,
+) -> (Vec<crate::draft::FileEdit>, Vec<crate::draft::Removal>) {
+    let mut files = Vec::new();
+    let mut removals = Vec::new();
+    for change in frit_changes(frits, installed, dir) {
+        match change.new {
+            Some(new) => files.push(crate::draft::FileEdit {
+                path: change.path,
+                old: change.old.map(|b| String::from_utf8_lossy(&b).into_owned()),
+                new,
+            }),
+            None => removals.push(crate::draft::Removal {
+                path: change.path,
+                old: change.old.unwrap_or_default(),
+            }),
+        }
+    }
+    (files, removals)
+}
+
+/// What a stand-in desk's install does to `frits`, the draft's folder,
+/// and `installed`, the installed frits: the install writes and removes
+/// them, and the folder keeps no change the system now matches.
+pub fn frits_install(
+    frits: &mut crate::store::FritChanges,
+    installed: &mut std::collections::BTreeMap<String, Vec<u8>>,
+) {
+    for (name, text) in std::mem::take(&mut frits.kept) {
+        installed.insert(name, text.into_bytes());
+    }
+    for name in std::mem::take(&mut frits.removed) {
+        installed.remove(&name);
+    }
+}
 
 #[cfg(test)]
 mod tests {

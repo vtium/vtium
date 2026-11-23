@@ -159,6 +159,24 @@ fn read(path: &Path) -> Result<Option<String>, Fail> {
     crate::tui::read_conf(path).map_err(Fail::File)
 }
 
+/// The temporary file [`write()`] writes before it renames the file over
+/// `name`: `.NAME.new-PID`, with this process's id.
+fn temporary(name: &str) -> String {
+    format!(".{name}.new-{}", std::process::id())
+}
+
+/// Whether `file` is a name that [`write()`] gives its temporary file, of
+/// this process or of any other: `.NAME.new-PID`. A process killed between
+/// the write and the rename leaves one behind, and another process sees
+/// one while its write is under way, so a reader of the folder skips it.
+fn is_temporary(file: &str) -> bool {
+    file.strip_prefix('.')
+        .and_then(|rest| rest.rsplit_once(".new-"))
+        .is_some_and(|(name, pid)| {
+            !name.is_empty() && !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit())
+        })
+}
+
 /// Writes `text` to `path` through a new file renamed over it, making the
 /// directory first, so a draft is never left half written.
 pub fn write(path: &Path, text: &str) -> Result<(), Fail> {
@@ -168,12 +186,75 @@ pub fn write(path: &Path, text: &str) -> Result<(), Fail> {
     let name = path
         .file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    let new = dir.join(format!(".{name}.new-{}", std::process::id()));
+    let new = dir.join(temporary(&name));
     std::fs::write(&new, text).map_err(fail)?;
     std::fs::rename(&new, path).map_err(|e| {
         let _ = std::fs::remove_file(&new);
         fail(e)
     })
+}
+
+/// The font set changes a draft's folder holds ([`Store::frit_changes`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FritChanges {
+    /// Each frit the draft adds or replaces, by name, with its whole text.
+    pub kept: std::collections::BTreeMap<String, String>,
+    /// Each installed frit the draft removes, by name.
+    pub removed: std::collections::BTreeSet<String>,
+    /// Each entry of the folder that is not a font set change, by its
+    /// path and why. The check lists each one, and install refuses the
+    /// draft while one is there.
+    pub problems: Vec<String>,
+}
+
+impl FritChanges {
+    /// How many font set changes the folder holds.
+    pub fn len(&self) -> usize {
+        self.kept.len() + self.removed.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0 && self.problems.is_empty()
+    }
+}
+
+/// `frit` when it is a name a frit can have and no built-in font's.
+fn frit_name(frit: &str) -> Result<&str, Fail> {
+    if crate::frit::RESERVED.contains(&frit) {
+        return Err(Fail::Usage(format!(
+            "{frit} is a built-in font, not a font set"
+        )));
+    }
+    if !crate::frit::valid_name(frit) {
+        return Err(Fail::Usage(format!(
+            "{frit:?} is not a name a font set can have"
+        )));
+    }
+    Ok(frit)
+}
+
+/// A frit's file in a draft's folder, read whole when it is at most
+/// [`crate::frit::FRIT_BYTES_MAX`] bytes of UTF-8.
+fn read_bounded(path: &Path) -> Result<String, String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|f| {
+            f.take(
+                u64::try_from(crate::frit::FRIT_BYTES_MAX)
+                    .unwrap_or(0)
+                    .saturating_add(1),
+            )
+            .read_to_end(&mut bytes)
+        })
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > crate::frit::FRIT_BYTES_MAX {
+        return Err(format!(
+            "this font set is larger than {} bytes",
+            crate::frit::FRIT_BYTES_MAX
+        ));
+    }
+    String::from_utf8(bytes).map_err(|_| "this font set is not UTF-8 text".to_owned())
 }
 
 /// Removes `path`; a file already gone is no failure.
@@ -296,6 +377,136 @@ impl Store {
         }
     }
 
+    /// The folder beside the draft `name` that keeps its font set changes,
+    /// `NAME.frits/`. A draft that never held a font set change has no
+    /// folder, and one whose changes were all taken back or installed may
+    /// keep an empty folder, which holds no change.
+    pub fn frits_path(&self, name: &str) -> Result<PathBuf, Fail> {
+        Ok(self.drafts_dir().join(format!("{}.frits", named(name)?)))
+    }
+
+    /// The draft `name`'s font set changes as its folder holds them: each
+    /// `FRIT.vtfrit`, a frit the draft adds or replaces, and each
+    /// `FRIT.removed`, an installed frit it removes. vtium-config reads only
+    /// regular files whose names are a frit's name with one of those two
+    /// endings, each at most the largest frit the glyph helper reads, and
+    /// lists every other entry of the folder as a problem. It skips the
+    /// temporary files that [`write()`] makes on the way to one of those
+    /// files, so a write cut short or under way in another process blocks
+    /// no install. A missing folder and an empty one both hold no change.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "A draft's font set changes": the folder and what it may hold.
+    pub fn frit_changes(&self, name: &str) -> Result<FritChanges, Fail> {
+        let dir = self.frits_path(name)?;
+        let mut changes = FritChanges::default();
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(changes),
+            Err(e) => return Err(Fail::File(format!("{}: {e}", dir.display()))),
+        };
+        for entry in entries {
+            let entry = entry.map_err(|e| Fail::File(format!("{}: {e}", dir.display())))?;
+            let path = entry.path();
+            let file = entry.file_name().to_string_lossy().into_owned();
+            if is_temporary(&file) {
+                continue;
+            }
+            let problem = |why: &str| format!("{}: {why}", path.display());
+            let regular = entry.file_type().is_ok_and(|t| t.is_file());
+            let frit = |ending: &str| {
+                file.strip_suffix(ending)
+                    .filter(|n| crate::frit::valid_name(n) && !crate::frit::RESERVED.contains(n))
+                    .map(str::to_owned)
+            };
+            match (frit(".vtfrit"), frit(".removed")) {
+                _ if !regular => changes
+                    .problems
+                    .push(problem("this is not a regular file, so it is not a font set change")),
+                (Some(frit), _) => match read_bounded(&path) {
+                    Ok(text) => {
+                        changes.kept.insert(frit, text);
+                    }
+                    Err(why) => changes.problems.push(problem(&why)),
+                },
+                (_, Some(frit)) => {
+                    changes.removed.insert(frit);
+                }
+                _ => changes.problems.push(problem(
+                    "this file is not a font set change. A draft's font set folder holds only NAME.vtfrit and NAME.removed files.",
+                )),
+            }
+        }
+        // the folder never holds both files for one frit; where someone put
+        // both there, the removal is the problem the check names
+        for frit in changes.kept.keys() {
+            if changes.removed.remove(frit) {
+                changes.problems.push(format!(
+                    "{}: the folder both adds and removes the font set {frit}",
+                    dir.display()
+                ));
+            }
+        }
+        Ok(changes)
+    }
+
+    /// Keeps the frit `frit`, `text`, as a font set the draft `name` adds
+    /// or replaces: writes `FRIT.vtfrit` and deletes `FRIT.removed`.
+    pub fn keep_frit(&self, name: &str, frit: &str, text: &str) -> Result<(), Fail> {
+        let dir = self.frits_path(name)?;
+        let frit = frit_name(frit)?;
+        write(&dir.join(format!("{frit}.vtfrit")), text)?;
+        remove(&dir.join(format!("{frit}.removed")))
+    }
+
+    /// Keeps the removal of the installed frit `frit` in the draft `name`:
+    /// writes an empty `FRIT.removed` and deletes `FRIT.vtfrit`.
+    pub fn keep_removal(&self, name: &str, frit: &str) -> Result<(), Fail> {
+        let dir = self.frits_path(name)?;
+        let frit = frit_name(frit)?;
+        write(&dir.join(format!("{frit}.removed")), "")?;
+        remove(&dir.join(format!("{frit}.vtfrit")))
+    }
+
+    /// Takes the draft `name`'s change to the frit `frit` back, whichever
+    /// it is. The folder stays, even when it is left empty: another
+    /// vtium-config may have just made the folder to keep a change of its
+    /// own and not yet written it, and removing the folder then would make
+    /// that write fail. An empty folder holds no change wherever
+    /// vtium-config reads it ([`Store::frit_changes`]), and `revert`, `new`
+    /// and `draft rm` remove the folder with every change in it.
+    pub fn forget_frit(&self, name: &str, frit: &str) -> Result<(), Fail> {
+        let dir = self.frits_path(name)?;
+        let frit = frit_name(frit)?;
+        remove(&dir.join(format!("{frit}.vtfrit")))?;
+        remove(&dir.join(format!("{frit}.removed")))
+    }
+
+    /// Drops every font set change of the draft `name`, as `revert`, `new`
+    /// and `draft rm` do: deletes its folder.
+    pub fn drop_frits(&self, name: &str) -> Result<(), Fail> {
+        let dir = self.frits_path(name)?;
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(Fail::File(format!("{}: {e}", dir.display()))),
+        }
+    }
+
+    /// Gives the draft `to` the font set changes of the draft `from`, as
+    /// `draft new --from DRAFT` does, in place of any it had.
+    pub fn copy_frits(&self, from: &str, to: &str) -> Result<(), Fail> {
+        let changes = self.frit_changes(from)?;
+        self.drop_frits(to)?;
+        for (frit, text) in &changes.kept {
+            self.keep_frit(to, frit, text)?;
+        }
+        for frit in &changes.removed {
+            self.keep_removal(to, frit)?;
+        }
+        Ok(())
+    }
+
     /// Where `edit` copies the draft `name` for the editor.
     pub fn edit_copy(&self, name: &str) -> Result<PathBuf, Fail> {
         Ok(self
@@ -415,11 +626,12 @@ impl Store {
         write(&self.draft_path(name)?, text)
     }
 
-    /// Removes the draft `name`, its changes to the active resources and
-    /// its base.
+    /// Removes the draft `name`, its changes to the active resources, its
+    /// font set folder and its base.
     pub fn remove_draft(&self, name: &str) -> Result<(), Fail> {
         remove(&self.draft_path(name)?)?;
         remove(&self.batch_path(name)?)?;
+        self.drop_frits(name)?;
         remove(&self.base_path(name)?)
     }
 

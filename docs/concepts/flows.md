@@ -210,6 +210,16 @@ To send a keyboard somewhere else for good, change its rule in vtium.conf. Then 
 
 **How to avoid it.** Leave at least one head without `isolated = yes`, and give that head a display that is on. There is then always an active head for the rescue key to send a keyboard to.
 
+### Keyboard DEVICE now types into the active screen, but no terminal runs on this VT
+
+**Keyboard DEVICE now types into the active screen until the next boot (the rescue key moved it), but no terminal runs on this VT. Press Ctrl-Alt and a function key to switch to a VT that runs one.**
+
+**Why.** The rescue key moved the keyboard, as above, on a VT where no head runs. One vtium runs on each VT that vtium is enabled on, and it builds only the heads that run there. Here every head's `vt` line names other VTs, so the keyboard has no head to type into.
+
+**What to do.** Press Ctrl-Alt and the function key of a VT that runs a head, such as `Ctrl-Alt-F3` for a head with `vt = 3`.
+
+**How to avoid it.** Give every VT where vtium runs a head. A head with no `vt` line runs on every VT. `vtium console status` shows where vtium is enabled.
+
 ## Where the details are
 
 - [Heads](heads.md) explains the policies, the guards, and what happens when a display goes away.

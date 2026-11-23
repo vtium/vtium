@@ -6,6 +6,7 @@
 
 #[path = "common/home.rs"]
 mod home;
+use vtium_config::tui::fixture;
 use vtium_testscript as script;
 
 use std::path::{Path, PathBuf};
@@ -13,24 +14,24 @@ use std::process::{Command, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
-/// The stand-in console: `check-config --configdir DIR FILE` prints
-/// `FILE:N: BAD is not a key vtium reads`, and the line that says what the
-/// error drops, on standard error for each line N of FILE that holds `BAD`
-/// and exits 1, else notes `FILE: checked` on
-/// standard output and exits 0.
-const CHECKER: &str = r#"#!/bin/sh
-[ "$1" = check-config ] || exit 9
-file="$4"
-bad=$(grep -n BAD "$file" | cut -d: -f1)
-if [ -n "$bad" ]; then
-  for n in $bad; do
-    echo "$file:$n: BAD is not a key vtium reads" >&2
-    echo "$file:$n: Because of this error, vtium ignores this line." >&2
-  done
-  exit 1
-fi
-echo "$file: checked"
-"#;
+/// The stand-in console: the TUI's [`fixture::CHECKER`], which reads its
+/// arguments as `vtium check-config` does and prints `FILE:N: BAD is not a
+/// key vtium reads` on standard error for each line N that holds `BAD`,
+/// with the line that says what the error drops beside each one, and
+/// exits 1, else notes `FILE: checked` on standard output and exits 0.
+fn stand_in() -> String {
+    let says = "echo \"$file:$n: BAD is not a key vtium reads\" >&2\n";
+    assert!(
+        fixture::CHECKER.contains(says),
+        "the stand-in names BAD lines"
+    );
+    fixture::CHECKER.replace(
+        says,
+        &format!(
+            "{says}    echo \"$file:$n: Because of this error, vtium ignores this line.\" >&2\n"
+        ),
+    )
+}
 
 const INSTALLED: &str = "font-size=12\nversion = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n";
 
@@ -56,7 +57,7 @@ fn fixture(name: &str) -> Fixture {
     }
     std::fs::write(root.join("etc/vtium.conf"), INSTALLED).expect("vtium.conf");
     let checker = root.join("vtium");
-    script::executable(&checker, CHECKER);
+    script::executable(&checker, &stand_in());
     Fixture { root }
 }
 
@@ -335,7 +336,7 @@ fn flow_json_carries_its_version_and_the_draft_s_state() {
             r#""rules":[{"number":1,"line":5,"kind":"display","selector":"*","target":"desk","state":"matches-nothing","words":"matches no connected display"},"#,
             r#"{"number":2,"line":6,"kind":"input","selector":"serial:046d:c31c:X","target":"desk","state":"needs-udev","words":"needs udev"},"#,
             r#"{"number":3,"line":7,"kind":"input","selector":"class:keyboard","target":"roaming","state":"matches-nothing","words":"matches no connected device"}],"#,
-            r#""heads":[{"name":"desk","consoles":1,"look":"default","keys":[]}],"looks":[],"#,
+            r#""heads":[{"name":"desk","consoles":1,"look":"default","keys":[]}],"looks":[],"frits":[],"#,
             r#""inputs":[{"name":"046d:c31c:X","detail":"","keys":["serial:046d:c31c:X"],"found":false,"rule":2}],"problems":[],"missing":[]}"#,
             "\n"
         )
@@ -658,14 +659,14 @@ fn the_history_keeps_the_newest_files_its_setting_allows() {
     );
 }
 
-/// The stand-in console of [`CHECKER`], which also refuses a file that
+/// The stand-in console of [`stand_in`], which also refuses a file that
 /// holds `NOROUTE` with vtium's own message for a file whose rules wire no
 /// complete route (ADR-1403 D3), on the file and no line of it.
 fn no_route_checker(f: &Fixture) {
     let message = vtium_settings::Missing::NoDisplayRule
         .to_string()
         .replace('\'', r"'\''");
-    let script = CHECKER.replace(
+    let script = stand_in().replace(
         "if [ -n \"$bad\" ]; then",
         &format!(
             "if grep -q NOROUTE \"$file\"; then\n  printf '%s\\n' \"$file: \"'{message}' >&2\n  [ -n \"$bad\" ] || exit 1\nfi\nif [ -n \"$bad\" ]; then"
@@ -816,7 +817,7 @@ fn a_full_installed_file_keeps_every_line_but_the_one_a_change_sets() {
     assert_eq!(kept, example.lines().collect::<Vec<_>>());
 }
 
-/// The stand-in console of [`CHECKER`], which also warns, for each line of
+/// The stand-in console of [`stand_in`], which also warns, for each line of
 /// the file that holds `GONE`, that the font set desk needs a font this
 /// machine lacks, in vtium-settings' own words. It then exits as the real
 /// check does: with [`vtium_settings::CHECK_MISSING_FONTS`] when those are
@@ -832,7 +833,7 @@ fn missing_font_checker(f: &Fixture) {
     )
     .replace('\'', r"'\''");
     let only = vtium_settings::CHECK_MISSING_FONTS;
-    let script = CHECKER.replace(
+    let script = stand_in().replace(
         "if [ -n \"$bad\" ]; then",
         &format!(
             "for n in $(grep -n GONE \"$file\" | cut -d: -f1); do\n  printf '%s\\n' \"$file:$n: \"'{message}' >&2\n  gone=1\ndone\nif [ -n \"$gone\" ] && [ -z \"$bad\" ]; then\n  grep -q WORDS \"$file\" && exit 1\n  exit {only}\nfi\nif [ -n \"$bad\" ]; then"

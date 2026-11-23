@@ -50,7 +50,7 @@ impl Seen<'_> {
     fn kept(&self) -> bool {
         Self::draft(self.before) == Self::draft(self.after)
             && self.before.app.shared.unsaved == self.after.app.shared.unsaved
-            && self.before.app.shared.pending == self.after.app.shared.pending
+            && self.before.app.shared.frits() == self.after.app.shared.frits()
     }
 
     /// The changes that waited for Save are in the draft the desk keeps.
@@ -59,14 +59,12 @@ impl Seen<'_> {
             || (self.has("save") && self.after.desk.draft == Self::draft(self.before).unwrap_or(""))
     }
 
-    /// The key quits, or asks the question that fits first: the quit
-    /// question while changes wait for Save, the leave question while font
-    /// sets wait for an install.
+    /// The key quits, or asks the quit question first while changes wait
+    /// for Save. The font sets that wait for an install stay in the
+    /// draft's folder, so they ask nothing.
     fn quits_or_asks(&self) -> Result<(), String> {
         let app = &self.before.app;
-        let want = if !app.shared.pending.is_empty() {
-            "question:leave"
-        } else if app.shared.unsaved > 0 {
+        let want = if app.shared.unsaved > 0 {
             "question:quit"
         } else {
             return self.exits(0);
@@ -223,7 +221,7 @@ impl Seen<'_> {
 
     /// The terminal card open in `sim`, with the line under its cursor:
     /// its object, its path and the line. `None` outside a card.
-    fn card(sim: &Sim) -> Option<(Obj, vtium_config::tui::paths::Path, CardLine)> {
+    pub fn card(sim: &Sim) -> Option<(Obj, vtium_config::tui::paths::Path, CardLine)> {
         let fv = sim.app.flow.state();
         let obj = fv.layer.clone()?;
         let path = flowlayout::card_path(sim.app.flow.state(), &sim.app.shared, &obj)?;
@@ -290,7 +288,7 @@ impl Seen<'_> {
             .clone()
             .or_else(|| app.settings.editing().map(str::to_owned))
             .or_else(|| match app.nav.view {
-                View::New => app.looks.form().fields.get(app.looks.form().at).cloned(),
+                View::New => app.looks.new_frit().typed().map(str::to_owned),
                 View::Looks => app.looks.card().and_then(|c| c.typed()).map(str::to_owned),
                 _ => None,
             })
@@ -431,42 +429,6 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         }
     };
     m.insert("y.question.quit", (save_quit, no_today));
-    m.insert(
-        "y.question.leave",
-        (
-            |s| {
-                // an install refused or failed keeps the TUI, which says why
-                if !s.exited() {
-                    return if s.has("install") || s.after.app.shared.message.is_none() {
-                        Err("the TUI stays after an install, or says nothing".into())
-                    } else {
-                        Ok(())
-                    };
-                }
-                s.exits(0)?;
-                if s.has("install") && s.saved() {
-                    Ok(())
-                } else {
-                    Err("expected a save and an install before the TUI quits".into())
-                }
-            },
-            no_today,
-        ),
-    );
-    m.insert(
-        "n.question.leave",
-        (
-            |s| {
-                s.exits(0)?;
-                if s.saved() && !s.has("install") {
-                    Ok(())
-                } else {
-                    Err("expected a save and no install".into())
-                }
-            },
-            no_today,
-        ),
-    );
     m.insert("n.question", (no, no_today));
     m.insert(
         "n.question.quit",
@@ -482,8 +444,6 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             no_today,
         ),
     );
-    m.insert("i.question.leave", (nothing, no_today));
-    m.insert("l.question.leave", (nothing, no_today));
     m.insert("other.question", (nothing, no_today));
     m.insert("s.view", (saves, no_today));
     m.insert("s.view.fonts", (saves, no_today));
@@ -570,8 +530,8 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("click.question", (still, None));
     m.insert("wheel.question", (still, None));
     m.insert("mouse.trial", (back, no_today));
-    // the new-frit form's moving keys move between its rows, onto a field
-    // whose text is typed or onto the row that adds the font set
+    // the new-frit form's moving keys move between its rows: its roles,
+    // its name and the row that adds the font set
     for id in [
         "up.layer.new-frit",
         "down.layer.new-frit",
@@ -599,9 +559,12 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     // another shape today: what the key does there today is not pinned
     let not_built: Check = |_| Err("not built".into());
     m.insert("list.filter-picker", (not_built, None));
-    // w asks nothing yet in the Looks tab
-    m.insert("window-ops.view.looks", (not_built, Some(nothing)));
-    looks_checks(&mut m, not_built, nothing);
+    // w asks whether to let programs resize the grid
+    m.insert(
+        "window-ops.view.looks",
+        (|s| s.opens("question:window-ops"), None),
+    );
+    looks_checks(&mut m);
     m.insert(
         "enter.typing.settings",
         (
@@ -619,23 +582,8 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("n.view.flow", (|s| s.opens("question:new"), no_today));
     m.insert("v.view.flow", (|s| s.opens("layer:file-view"), no_today));
     m.insert("o.view.flow", (|s| s.opens("layer:restore"), no_today));
-    // today `o` turns allow-font-ops on in Help and Settings, and does
-    // nothing on the Effects and Fonts tabs, which are new and follow the
-    // row
-    let ops_on: Check = |s| {
-        let new_tab = matches!(s.before.app.nav.view, View::Effects | View::Fonts);
-        if s.before.term == Term::OpsOff && !new_tab {
-            if s.has("check") {
-                Ok(())
-            } else {
-                Err("expected allow-font-ops turned on".into())
-            }
-        } else {
-            s.nothing()
-        }
-    };
     m.insert("o.view.looks", (nothing, None));
-    m.insert("o.view", (nothing, Some(ops_on)));
+    m.insert("o.view", (nothing, None));
     // a card's own keys: Left and Right step the choice under the cursor,
     // Enter sets it, and e on a path's detail takes the path into NEW PATH
     m.insert(
@@ -666,8 +614,12 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                 if s.exited() || !s.kept() || a.line != b.line {
                     return Err("Right left the card, changed a line or changed the draft".into());
                 }
+                // a terminal whose look is missing offers that look as one
+                // more choice on its Look line
                 let last = Seen::card(s.before)
-                    .map(|(_, _, line)| flowlayout::card_choices(&s.before.app.shared, &line).len())
+                    .map(|(_, path, line)| {
+                        flowlayout::path_choices(&s.before.app.shared, &path, &line).len()
+                    })
                     .unwrap_or(0)
                     .saturating_sub(1);
                 if b.pick == a.pick.saturating_add(1).min(last) {
@@ -1129,11 +1081,7 @@ fn installs(s: &Seen<'_>) -> Result<(), String> {
 /// The checks of the Looks tab's rows and of a look's card: what Enter,
 /// `n`, `r`, `t` and `p` do on each kind of item, and what the card's keys
 /// do on each line.
-fn looks_checks(
-    m: &mut BTreeMap<&'static str, (Check, Option<Check>)>,
-    not_built: Check,
-    nothing: Check,
-) {
+fn looks_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
     m.insert(
         "enter.view.looks",
         (
@@ -1166,7 +1114,7 @@ fn looks_checks(
                 }
                 _ => {
                     let to = s.step.to.node();
-                    if to == "looks.new-frit.typing" {
+                    if to == "looks.new-frit" {
                         Ok(())
                     } else {
                         Err(format!(
@@ -1189,7 +1137,7 @@ fn looks_checks(
                 _ => {
                     if s.exited() || s.step.to.node() != "looks" {
                         Err("r left the list".into())
-                    } else if s.before.app.shared.pending != s.after.app.shared.pending
+                    } else if s.before.app.shared.frits() != s.after.app.shared.frits()
                         || s.after.app.shared.message.is_some()
                     {
                         Ok(())
@@ -1253,11 +1201,10 @@ fn looks_checks(
         "list.font-sizes",
         "list.palettes",
         "list.look-effects",
+        "list.pointer-themes",
     ] {
         m.insert(id, (|s| s.goes_to("looks.look.list"), None));
     }
-    // a look draws vtium.conf's pointer theme, so its line has no list
-    m.insert("list.pointer-themes", (not_built, Some(nothing)));
 }
 
 /// The group of the item the Looks tab highlighted before the key, as
@@ -1329,7 +1276,7 @@ fn row_cases() -> BTreeMap<&'static str, Case> {
         matches!(s.step.from.focus.as_str(), "switch" | "choice")
     });
     m.insert("list.font-set-files", |s| {
-        matches!(card_line(s), Some(CardLine::Font))
+        matches!(card_line(s), Some(CardLine::Look))
     });
     m.insert("list.terminals", |s| {
         matches!(card_line(s), Some(CardLine::Name))
@@ -1658,12 +1605,27 @@ impl Checks {
             let parts = written(before, after);
             self.found.writes.entry(view).or_default().extend(parts);
         }
-        if s.before.app.shared.pending != s.after.app.shared.pending && !s.has("install") {
+        // the font sets the draft's folder keeps: an install settles them,
+        // and Revert and New start the draft over without them, as they
+        // replace the draft
+        let replaces = ["install", "revert", "new", "delete"]
+            .iter()
+            .any(|op| s.has(op));
+        if s.before.app.shared.frits() != s.after.app.shared.frits() && !replaces {
             self.found
                 .writes
                 .entry(view)
                 .or_default()
                 .insert("frits".into());
+        }
+        // the draft's changes to the active resources, which an install
+        // writes as the batch file
+        if s.before.desk.resources != s.after.desk.resources && !s.has("install") {
+            self.found
+                .writes
+                .entry(view)
+                .or_default()
+                .insert("batch".into());
         }
     }
 
@@ -1755,7 +1717,11 @@ impl Checks {
             }
             if let Some(wrote) = self.found.writes.get(v.id.as_str()) {
                 for part in wrote {
-                    if !v.writes.contains(part) {
+                    // `top:KEY` is one top-level key, which a row's `top`
+                    // allows with every other
+                    let allowed = v.writes.contains(part)
+                        || part.starts_with("top:") && v.writes.iter().any(|w| w == "top");
+                    if !allowed {
                         self.found.failures.push(format!(
                             "{} writes {part}, which the views table does not list",
                             v.id
@@ -1768,7 +1734,8 @@ impl Checks {
 }
 
 /// The parts of vtium.conf that differ between `before` and `after`, by
-/// the views table's names: `top`, `look`, `head`, `rules` and `labels`.
+/// the views table's names: `top:KEY` for each top-level key, `look`,
+/// `head`, `rules` and `labels`.
 /// The `version = 1` line that the first change to a draft with no
 /// sections writes is left out, as the views table's note says.
 fn written(before: &str, after: &str) -> BTreeSet<String> {
@@ -1796,7 +1763,16 @@ fn written(before: &str, after: &str) -> BTreeSet<String> {
     a.keys()
         .chain(b.keys())
         .filter(|k| a.get(*k) != b.get(*k))
-        .map(|(part, _)| part.clone())
+        .map(|(part, line)| {
+            if part != "top" {
+                return part.clone();
+            }
+            // a top-level line names its key before `=`, or is the bare
+            // key of a switch that is on, or `no-KEY` for one that is off
+            let key = line.split('=').next().unwrap_or("").trim();
+            let key = key.strip_prefix("no-").unwrap_or(key);
+            format!("top:{key}")
+        })
         .collect()
 }
 
@@ -1808,10 +1784,9 @@ fn reached_today(id: &str) -> Option<bool> {
     Some(match id {
         // the view, the tab or the form exists today in another shape, the
         // Effects tab as a line that says it is coming
-        "effects" | "looks.new-frit" | "looks.new-frit.typing" => true,
+        "effects" => true,
         // nothing like it exists today
-        "flow.card.list" | "looks.new-frit.list" => false,
-        "any.question.window-ops" => false,
+        "flow.card.list" => false,
         // the six tabs' new screens and questions, which nothing builds yet
         "effects.filter" | "effects.effect" | "any.question.deactivate" => false,
         _ => return None,

@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import time
 
+import t3_apply
 import t3_batch
 import t3_bench
 import t3_builtin
@@ -345,6 +346,21 @@ SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait"
 # helper, and starts it again. Its cases are the new vtium's login prompt and
 # the notice of a kernel message, both judged by their goldens.
 VARIANTS["builtin-font"] = dict(POWER, conf="vtium-minimal.conf", builtin=True, agent=True)
+
+# apply-root checks vtium-config's privileged step as root (t3_apply) on
+# the minspec machine with the minimal configuration, in make
+# tier3-minimal. Once vtium shows its login prompt, the agent installs a
+# bundle with a new font set and a vtium.conf that names it through
+# /usr/bin/vtium-config apply. It then tries a second bundle into a frits'
+# directory at mode 0777, which apply must refuse, and starts vtium again.
+# Its one case is a check without a golden: the new vtium's screen, kept
+# when the check passes.
+#
+# References:
+# - ADR-1403 D8: apply's check reads root's copies of the font sets under
+#   /run, and apply checks the frits' directory with the console's walk.
+VARIANTS["apply-root"] = dict(POWER, conf="vtium-minimal.conf", login=False, agent=True,
+                              checks=[t3_apply.CASE])
 
 # The font sets every build installs (ADR-1204 D2, t3_fonts): default-font-N
 # names no font and draws terminus, cullet-mono-N names cullet-mono, each at a
@@ -1828,6 +1844,7 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               "two-logins": t3_seat.check_two_logins,
               t3_fonts.CASE: t3_fonts.run,
               **t3_handover.CHECK_RUNS,
+              **t3_apply.CHECK_RUNS,
               **t3_keyecho.CHECK_RUNS,
               **t3_heads.CHECK_RUNS}
 

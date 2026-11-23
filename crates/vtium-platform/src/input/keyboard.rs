@@ -114,28 +114,44 @@ impl std::fmt::Debug for Keymap {
 
 impl Keymap {
     /// The configured keymap: the keymap file, else the names, else the
-    /// system's default names, else the built-in fallback. `None` only
-    /// when even the fallback fails.
+    /// system's default names, else the built-in fallback. Where xkb's
+    /// keyboard layouts are missing, vtium logs one line that says so and
+    /// takes the built-in keymap after the keymap file, since no name can
+    /// compile. `None` only when even the fallback fails.
     pub fn new(config: &KeymapConfig) -> Option<Keymap> {
-        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
-        let (keymap, compiled) = config
+        let (context, layouts) = context()?;
+        Keymap::compile(context, layouts, config)
+    }
+
+    /// [`Self::new`] with `context`, whose include path holds xkb's
+    /// keyboard layouts where `layouts` is true.
+    fn compile(context: xkb::Context, layouts: bool, config: &KeymapConfig) -> Option<Keymap> {
+        let from_file = config
             .keymap_file
             .as_deref()
-            .and_then(|path| Some((from_file(&context, path)?, Compiled::File(path.to_owned()))))
-            .or_else(|| Some((from_names(&context, config)?, Compiled::Names(config.names()))))
-            .or_else(|| {
-                log::warn!(
-                    target: "input",
-                    "cannot compile the keymap ({}, {}, {}, {}), taking the system's default",
-                    config.model, config.layout, config.variant, config.options
-                );
-                let default = KeymapConfig::default();
-                Some((from_names(&context, &default)?, Compiled::Names(default.names())))
-            })
-            .or_else(|| {
-                log::warn!(target: "input", "cannot compile the default keymap, taking the built-in one");
-                Some((fallback(&context)?, Compiled::BuiltIn))
-            })?;
+            .and_then(|path| Some((from_file(&context, path)?, Compiled::File(path.to_owned()))));
+        let (keymap, compiled) = match from_file {
+            Some(found) => found,
+            None if !layouts => {
+                log::warn!(target: "input", "{LAYOUTS_MISSING}");
+                (fallback(&context)?, Compiled::BuiltIn)
+            }
+            None => from_names(&context, config)
+                .map(|keymap| (keymap, Compiled::Names(config.names())))
+                .or_else(|| {
+                    log::warn!(
+                        target: "input",
+                        "cannot compile the keymap ({}, {}, {}, {}), taking the system's default",
+                        config.model, config.layout, config.variant, config.options
+                    );
+                    let default = KeymapConfig::default();
+                    Some((from_names(&context, &default)?, Compiled::Names(default.names())))
+                })
+                .or_else(|| {
+                    log::warn!(target: "input", "cannot compile the default keymap, taking the built-in one");
+                    Some((fallback(&context)?, Compiled::BuiltIn))
+                })?,
+        };
         let mut keymap = Keymap {
             context,
             keymap,
@@ -146,9 +162,9 @@ impl Keymap {
         Some(keymap)
     }
 
-    /// The built-in keymap alone.
+    /// The built-in keymap alone, which compiles without xkb's data.
     pub fn fallback() -> Option<Keymap> {
-        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        let context = checked_context(xkb::CONTEXT_NO_DEFAULT_INCLUDES)?;
         let keymap = fallback(&context)?;
         Some(Keymap {
             context,
@@ -243,10 +259,20 @@ impl Keymap {
         self
     }
 
+    /// [`Self::new`] on a system without xkb's keyboard layouts.
+    #[cfg(test)]
+    pub(crate) fn without_layouts(config: &KeymapConfig) -> Option<Keymap> {
+        Keymap::compile(
+            checked_context(xkb::CONTEXT_NO_DEFAULT_INCLUDES)?,
+            false,
+            config,
+        )
+    }
+
     /// A keymap compiled from `text`, with no compose table.
     #[cfg(test)]
     pub(crate) fn from_text(text: &str) -> Option<Keymap> {
-        let context = xkb::Context::new(xkb::CONTEXT_NO_DEFAULT_INCLUDES);
+        let context = checked_context(xkb::CONTEXT_NO_DEFAULT_INCLUDES)?;
         let keymap = xkb::Keymap::new_from_string(
             &context,
             String::from(text),
@@ -260,6 +286,46 @@ impl Keymap {
             compiled: Compiled::BuiltIn,
         })
     }
+}
+
+/// What vtium logs where xkb's keyboard layouts are missing.
+const LAYOUTS_MISSING: &str = "The keyboard layouts are missing. vtium cannot find xkb's layout data in /usr/share/X11/xkb or another directory that libxkbcommon searches. vtium uses its built-in US keymap, so the xkb-layout setting and the other xkb-* settings have no effect. Installing xkeyboard-config (xkb-data on Debian) adds the layouts.";
+
+/// A libxkbcommon context for compiling keymaps, and whether xkb's
+/// keyboard layouts are on its include path.
+///
+/// vtium creates the context without libxkbcommon's default include path
+/// and then adds that path itself. libxkbcommon before 1.13 refuses to
+/// create a context whose default include path it cannot add, and the
+/// `xkbcommon` crate's `Context::new` keeps the NULL pointer it then gets,
+/// so a system without `/usr/share/X11/xkb` crashed vtium in the first
+/// keymap it compiled. Adding the path afterwards reports the same lack as
+/// a `false` that vtium can act on, in every libxkbcommon. The directories
+/// are the ones libxkbcommon's documentation lists: `XKB_CONFIG_ROOT` or
+/// the compiled-in root, `XKB_CONFIG_EXTRA_PATH`, and the user's own under
+/// `$XDG_CONFIG_HOME` and `$HOME`. A keymap file or the built-in keymap
+/// compiles without any of them.
+fn context() -> Option<(xkb::Context, bool)> {
+    let mut context = checked_context(xkb::CONTEXT_NO_DEFAULT_INCLUDES)?;
+    let layouts = context.include_path_append_default();
+    Some((context, layouts))
+}
+
+/// A libxkbcommon context with `flags`, or `None` where libxkbcommon
+/// returns no context. With `CONTEXT_NO_DEFAULT_INCLUDES` that happens only
+/// when it cannot allocate one. The `xkbcommon` crate wraps whatever
+/// pointer libxkbcommon returns, so vtium checks it before any keymap or
+/// compose table is made with it, each of which would read through it.
+fn checked_context(flags: xkb::ContextFlags) -> Option<xkb::Context> {
+    let context = xkb::Context::new(flags);
+    if context.get_raw_ptr().is_null() {
+        // There is no context to release, so dropping the wrapper would
+        // only hand NULL to xkb_context_unref.
+        std::mem::forget(context);
+        log::error!(target: "input", "libxkbcommon cannot create a context, so vtium has no keymap");
+        return None;
+    }
+    Some(context)
 }
 
 fn from_file(context: &xkb::Context, path: &Path) -> Option<xkb::Keymap> {
@@ -313,6 +379,39 @@ fn fallback(context: &xkb::Context) -> Option<xkb::Keymap> {
         log::error!(target: "input", "cannot compile the built-in keymap");
     }
     keymap
+}
+
+/// A keyboard state on `keymap`.
+///
+/// libxkbcommon returns no state only when it cannot allocate one, and the
+/// `xkbcommon` crate wraps the NULL pointer it then gets, which every later
+/// call on the state would read through. vtium treats that the way Rust
+/// treats any allocation that fails: it stops at once, before the pointer
+/// is used.
+fn new_state(keymap: &xkb::Keymap) -> xkb::State {
+    let state = xkb::State::new(keymap);
+    if state.get_raw_ptr().is_null() {
+        std::mem::forget(state);
+        out_of_memory("a keyboard state");
+    }
+    state
+}
+
+/// A compose state on `table`, checked as [`new_state`] checks a keyboard
+/// state: libxkbcommon returns none only when it cannot allocate one.
+fn new_compose_state(table: &compose::Table) -> compose::State {
+    let state = compose::State::new(table, compose::STATE_NO_FLAGS);
+    if state.get_raw_ptr().is_null() {
+        std::mem::forget(state);
+        out_of_memory("a compose state");
+    }
+    state
+}
+
+/// Stops vtium because libxkbcommon could not allocate `what`.
+fn out_of_memory(what: &str) -> ! {
+    log::error!(target: "input", "libxkbcommon is out of memory and cannot create {what}, so vtium stops");
+    std::process::abort()
 }
 
 /// An evdev key's value.
@@ -443,7 +542,7 @@ fn set_by(keymap: &xkb::Keymap, syms: &[u32]) -> xkb::ModMask {
             let mut masks = [0; 8];
             let n = keymap.key_get_mods_for_level(key, 0, level, &mut masks);
             let held = masks.get(..n).and_then(|m| m.first()).copied().unwrap_or(0);
-            let mut state = xkb::State::new(keymap);
+            let mut state = new_state(keymap);
             state.update_mask(held, 0, 0, 0, 0, 0);
             let before = state.serialize_mods(xkb::STATE_MODS_EFFECTIVE);
             state.update_key(key, xkb::KeyDirection::Down);
@@ -504,11 +603,8 @@ pub(crate) struct Keyboard {
 impl Keyboard {
     pub(crate) fn new(keymap: &Keymap) -> Keyboard {
         Keyboard {
-            state: xkb::State::new(&keymap.keymap),
-            compose: keymap
-                .compose
-                .as_ref()
-                .map(|table| compose::State::new(table, compose::STATE_NO_FLAGS)),
+            state: new_state(&keymap.keymap),
+            compose: keymap.compose.as_ref().map(new_compose_state),
             repeat: None,
             held: Vec::new(),
             special: Special::of(&keymap.keymap),
@@ -762,7 +858,7 @@ impl Keyboard {
     pub(crate) fn wake_up(&mut self, keymap: &Keymap) -> Leds {
         let locked_mods = self.state.serialize_mods(xkb::STATE_MODS_LOCKED);
         let locked_layout = self.state.serialize_layout(xkb::STATE_LAYOUT_LOCKED);
-        self.state = xkb::State::new(&keymap.keymap);
+        self.state = new_state(&keymap.keymap);
         self.state
             .update_mask(0, 0, locked_mods, 0, 0, locked_layout);
         if let Some(compose) = self.compose.as_mut() {

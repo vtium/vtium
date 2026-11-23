@@ -8,8 +8,7 @@ description: "flow.new-card at 100×30, keys: 4 e Enter"
  THE NEW PATH'S TERMINAL · every VT
 
    Name                            desk   Enter types a new name
-   Font set                       proof
-   Size                           automatic
+   Look                           proof
    VTs                            every VT
    Consoles                       1
    Login                          Default: /bin/login -p
@@ -23,6 +22,7 @@ description: "flow.new-card at 100×30, keys: 4 e Enter"
    Font set proof  →  look proof  →  All displays
    Filters and requirements: vtium-config does not read a look's vtlook file yet, so this card
    names the look and shows no filters.
+
 
 
 

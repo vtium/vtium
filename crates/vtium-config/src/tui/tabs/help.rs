@@ -355,8 +355,7 @@ impl Tab for Help {
         Some((Help::page(self, shared, size), self.top()))
     }
 
-    /// Install and Save do not act where the tab bar shows no action;
-    /// `o` still turns `allow-font-ops` on.
+    /// Install and Save do not act where the tab bar shows no action.
     fn takes_action(&self, action: char) -> bool {
         !matches!(action, 'i' | 's')
     }

@@ -26,6 +26,7 @@ The screen is the display the grid fills, so `CSI 19 t` gets the same numbers as
 These tests check what vtium does with the sequences on this page.
 
 - `no_reply_carries_the_requests_bytes` in [crates/vtium-term/src/terminal/reply.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/src/terminal/reply.rs)
+- `held_replies_go_out_in_order_with_the_sizes_at_the_release` in [crates/vtium-term/tests/hold.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/hold.rs)
 - `xtwinops_reports_the_sizes_vtium_has` in [crates/vtium-term/tests/replies.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/replies.rs)
 - `the_size_report_after_a_request_answers_the_size_the_host_made` in [crates/vtium-term/tests/window.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/window.rs)
 

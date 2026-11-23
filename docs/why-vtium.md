@@ -26,7 +26,7 @@ vtium has heads. A head is a terminal for one or more displays. vtium places eac
 
 - **Fonts are read by a separate, locked-down program.** vtium's main process never opens a font file. A helper program reads the fonts in a sandbox and never runs as root. vtium only checks and draws the glyphs that the helper sends.
 - **It is built so that a program's output cannot crash it.** A panic is how a Rust program stops on an unexpected state. In the parts of vtium that read a program's output, a lint check refuses the operations that commonly panic, such as an unchecked index, unchecked arithmetic or an unwrap. Every change must pass that check. Only the part that talks to the kernel may use Rust's `unsafe`. [Architecture](architecture.md) lists the check behind each rule.
-- **It is measured on a small machine.** Its tests run vtium in a virtual machine with one CPU and 512 MB, and record vtium's peak memory there. The tests fail if the minspec binary grows past 4 MiB and 64 KiB. They also draw on a 320×240 display.
+- **It is measured on a small machine.** Its tests run vtium in a virtual machine with one CPU and 512 MB, and record vtium's peak memory there. The tests fail if the minspec binary grows past 4 MiB and 192 KiB. They also draw on a 320×240 display.
 - **It is tested without systemd.** vtium runs from systemd's units. It also runs from sysvinit's inittab, from a script, or by hand. Its tests boot it under systemd, and on Debian 13 with sysvinit.
 
 [How vtium is judged](concepts/how-vtium-is-judged.md) describes how vtium is tested.
@@ -39,7 +39,7 @@ The figure follows a Linux machine from power on. The left column shows the kern
 
 Several things make vtium suit this early stage of the boot:
 
-- **It shows text at once.** vtium carries two bitmap fonts inside its own program, Unscii-8 and Unifont. It draws its first screen with them. Meanwhile, its font helper reads the fonts that its frit names. A frit is a font set file, a short text file that lists fonts in order.
+- **It shows text at once.** vtium carries three bitmap fonts inside its own program: Unscii-8, Unifont, and a small font of its own cut from Unscii-8 and Terminus. It draws its first screen with them. Meanwhile, its font helper reads the fonts that its frit names. A frit is a font set file, a short text file that lists fonts in order.
 - **It never leaves a dead screen.** When vtium cannot start, for example because no display appears, it exits with a failure. With systemd, vtium's unit then starts a getty on that VT. It starts none when vtium.conf sets `policy = closed`, or when the getty would stop another program, such as a display manager. Under another init system, the line that starts vtium in that init's configuration decides what happens next.
 - **It follows displays as they arrive.** vtium also starts drawing on a display that is plugged in after it starts.
 
@@ -47,7 +47,7 @@ Several things make vtium suit this early stage of the boot:
 
 ## From a small board to a large monitor
 
-vtium is built for small machines first. Its default build, called minspec, is the smallest build that is still a complete terminal. It renders on the CPU into a plain memory buffer that the display shows, and it carries two bitmap fonts of its own. minspec is measured against a single-board computer with ARM cores and 512 MB of memory or less. Its smallest display is a 320×240 panel, where an 8×8 font gives 40 columns by 30 rows. The same build renders on large monitors too. There, a frit lets it draw desktop fonts with color emoji.
+vtium is built for small machines first. Its default build, called minspec, is the smallest build that is still a complete terminal. It renders on the CPU into a plain memory buffer that the display shows, and it carries three bitmap fonts of its own. minspec is measured against a single-board computer with ARM cores and 512 MB of memory or less. Its smallest display is a 320×240 panel, where an 8×8 font gives 40 columns by 30 rows. The same build renders on large monitors too. There, a frit lets it draw desktop fonts with color emoji.
 
 vtium's test card is a fixed set of sample screens. The figure shows, to scale, five of the displays that vtium draws the test card at. For each display, it shows the character cell size and the grid that the display gets. Where a test run measures it, the figure also shows vtium's peak memory. The grids and fonts are those of vtium's test card for each display ([specimens](specimens/README.md)). The memory figures come from a test run on 2026-11-01. See [Small machines](features.md#small-machines) for details.
 

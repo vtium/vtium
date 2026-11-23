@@ -51,8 +51,17 @@ fn screens(bare: bool) -> Vec<(String, Screen)> {
     parse_screens(&tsv.join("\n"))
 }
 
-/// The dashed cells of screen `name`: column, row, cells and line color.
-fn dashed(name: &str) -> Vec<(u32, u32, u32, u32)> {
+/// A dashed cell of a screen: its column, row, width in cells, background
+/// and line color, as `0x00RRGGBB`.
+type Dashed = (u32, u32, u32, u32, u32);
+
+fn hex(color: &str) -> u32 {
+    let c = rgb(color);
+    u32::from(c.r) << 16 | u32::from(c.g) << 8 | u32::from(c.b)
+}
+
+/// The dashed cells of screen `name`.
+fn dashed(name: &str) -> Vec<Dashed> {
     let mut screen = String::new();
     let mut out = Vec::new();
     for line in digest_screens_tsv().lines() {
@@ -61,12 +70,12 @@ fn dashed(name: &str) -> Vec<(u32, u32, u32, u32)> {
             "screen" => screen = f[1].to_owned(),
             "cell" if screen == name && f[8] == "5" => {
                 let color = if f[10] == "-" { f[5] } else { f[10] };
-                let c = rgb(color);
                 out.push((
                     f[1].parse().unwrap(),
                     f[2].parse().unwrap(),
                     f[4].parse().unwrap(),
-                    u32::from(c.r) << 16 | u32::from(c.g) << 8 | u32::from(c.b),
+                    hex(f[6]),
+                    hex(color),
                 ));
             }
             _ => {}
@@ -76,16 +85,29 @@ fn dashed(name: &str) -> Vec<(u32, u32, u32, u32)> {
 }
 
 /// `bare`'s pixels with a dash over columns `[x0, x1)` of each of `cells`'
-/// 8-pixel cells, on unifont's underline.
-fn with_dash(bare: &Canvas, cells: &[(u32, u32, u32, u32)], x0: u32, x1: u32) -> Vec<u32> {
+/// 8-pixel cells, on unifont's underline. The dash skips ink the way vtium
+/// draws every underline: it leaves out each pixel that has glyph ink in
+/// itself or in the pixel on either side of it, along the same pixel row and
+/// inside the same character cell. `bare` draws no underline, so a pixel of
+/// it in the underline's rows that differs from the cell's background is
+/// glyph ink.
+fn with_dash(bare: &Canvas, cells: &[Dashed], x0: u32, x1: u32) -> Vec<u32> {
     let m = Decorations::for_height(16);
     let w = bare.width();
-    let mut px = bare.pixels().to_vec();
-    for &(col, row, n, color) in cells {
+    let ink = bare.pixels();
+    let mut px = ink.to_vec();
+    for &(col, row, n, bg, color) in cells {
+        let (left, right) = (col * 8, (col + n) * 8);
         for y in m.underline..m.underline + m.underline_thickness {
+            let line = (row * 16 + y) * w;
             for c in col..col + n {
-                for x in x0..x1 {
-                    px[((row * 16 + y) * w + c * 8 + x) as usize] = color;
+                for x in (x0..x1).map(|x| c * 8 + x) {
+                    let near_ink = (x.saturating_sub(1)..=x + 1)
+                        .filter(|&i| (left..right).contains(&i))
+                        .any(|i| ink[(line + i) as usize] != bg);
+                    if !near_ink {
+                        px[(line + x) as usize] = color;
+                    }
                 }
             }
         }
@@ -145,7 +167,8 @@ fn every_screen_matches_its_digest() {
 // drawn with no dash, then given the stored digest's dash over each cell's
 // middle two thirds (columns 1 to 6 of 8), it matches the digest; given
 // vtium's dash from the cell's left edge for five eighths (columns 0 to
-// 4), it is what vtium draws.
+// 4), it is what vtium draws. Both dashes leave a gap around the glyph's
+// ink, as vtium's underlines do.
 // covers: platform.compositor
 #[test]
 fn a_dashed_screen_matches_its_digest_but_for_its_dashes() {

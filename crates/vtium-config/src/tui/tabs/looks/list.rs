@@ -21,6 +21,9 @@ pub struct Look {
     pub size: Option<String>,
     pub palette: Option<String>,
     pub vtlook: Option<String>,
+    /// The look's own `pointer-theme`: the SVG file or cursor theme folder
+    /// whose pictures its pointer takes.
+    pub pointer: Option<String>,
 }
 
 /// The looks of the configuration the tab shows, the draft or else the
@@ -50,6 +53,7 @@ pub fn looks(shared: &Shared) -> Vec<Look> {
                 size: value("font-size"),
                 palette: value("palette"),
                 vtlook: l.vtlook.clone(),
+                pointer: value("pointer-theme"),
                 name: l.name,
             }
         })

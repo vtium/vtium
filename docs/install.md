@@ -26,7 +26,7 @@ Sessions in vtium run with `TERM=xterm-vtium`, the entry that the terminfo packa
 
 A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's environment. There are six features:
 
-- The `images` feature renders sixel and kitty graphics images.
+- The `images` feature renders sixel, kitty graphics and iTerm2 inline images.
 - The `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine.
 - The `gpu` feature builds in the path that renders through the GPU.
 - The `bidi` feature lays out right-to-left text, such as Arabic and Hebrew.
@@ -76,8 +76,8 @@ The packages install these files:
 | `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment. They are documentation, and they are never active. |
 | `/usr/share/terminfo/x/xterm-vtium`, `/usr/share/terminfo/v/vtium` | the terminfo entry, under its name and its alias `vtium`, from the terminfo package |
 | `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
-| `/usr/share/licenses/<package>/COPYING` | vtium's authors, and the notices for the third-party code and data that vtium builds in. Every package carries it except `vtium-fonts`, which carries only its own `LICENSE`. |
-| `/usr/share/licenses/<package>/OFL-1.1.txt`, `rgb-license.txt` | the two license texts that `COPYING` points to: the SIL Open Font License of the Unifont font, and the license of X.Org's color names. Each of the six packages that hold vtium carries them. |
+| `/usr/share/licenses/<package>/COPYING` | vtium's authors, and the notices for the third-party code and data that vtium builds in. Every package carries it. |
+| `/usr/share/licenses/<package>/OFL-1.1.txt`, `rgb-license.txt`, `tiny-skia-LICENSE` | the license texts that `COPYING` points to: the SIL Open Font License of Unifont and Terminus, the license of X.Org's color names, and tiny-skia's license. Each of the six packages that hold vtium carries them. |
 
 The commands in these guides belong to two of those programs, `vtium` and `vtium-config`. `vtium-config` is vtium's setup tool, and `vtium config` runs it with the words that follow, so `vtium config tui` and `vtium-config tui` both open its full-screen view. `vtium-config serve` is the font helper, which vtium starts by itself, so you never run it. `vtium console` gives VTs to vtium and takes them back. `vtium check-config` checks a vtium.conf before you install it.
 
@@ -125,7 +125,7 @@ vtium is packaged only for Arch so far. [The issue for Fedora, RHEL, Debian and 
 - `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files that the `vtium` package ships.
 - `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry.
 
-`make install` builds vtium with the features that `FEATURES='...'` names. By default it names none. `make install` also stages the frits that `FRITS='...'` names. By default these are `terminus`, `cullet-mono`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, with the layers they use, and the font files of `terminus`, `cullet-mono` and Unifont. `make install-fonts` stages the frits that the `vtium-fonts` package ships. Two more variables set defaults that the build compiles in. `HWACCEL=on` or `off` sets the default of `hwaccel`. `DISPLAY_BUFFERS=1`, `2` or `3` sets the default of `display-buffers`. The Arch recipes name all four of these variables: `FEATURES`, `FRITS`, `HWACCEL` and `DISPLAY_BUFFERS`. Both make targets refuse an empty DESTDIR, and they refuse `/`. So neither of them installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
+`make install` builds vtium with the features that `FEATURES='...'` names. By default it names none. `make install` also stages the frits that `FRITS='...'` names. By default these are `terminus`, `cullet-mono`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, with the layers they use, and the font files of `terminus`, `cullet-mono` and Unifont. `make install-fonts` stages the frits that the `vtium-fonts` package ships. Two more variables set defaults that the build compiles in. `HWACCEL=on` or `off` sets the default of `hwaccel`. `DISPLAY_BUFFERS=1`, `2` or `3` sets the default of `display-buffers`. The Arch recipes name `FEATURES`, `HWACCEL` and `DISPLAY_BUFFERS`, and leave `FRITS` at its default. Both make targets refuse an empty DESTDIR, and they refuse `/`. So neither of them installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
 
 Some package builds run with no network, as Debian's does. Such a build takes the crates that vtium builds with from the release:
 
@@ -133,7 +133,15 @@ Some package builds run with no network, as Debian's does. Such a build takes th
 - The archive holds the source of every outside crate in `Cargo.lock`, for every architecture. It also holds a `.cargo/config.toml` that tells Cargo to read those crates from `vendor/`.
 - Unpack the archive at the top of the release's source tree, beside `Cargo.toml`, with `tar -xf vtium-VERSION-vendor.tar.zst -C DIR`. It adds `vendor/` and `.cargo/config.toml`, and it replaces none of vtium's files. `make install` and `cargo build --offline --locked` then build with no network.
 
-When a release is published, a CI workflow packs the archive. The workflow builds vtium offline from the archive before it attaches the archive to the release. In a checkout, `make vendor-archive` packs the same archive for the commit you have checked out. `make vendor-archive-check` also builds vtium offline from that archive.
+Each release from 0.1.0-alpha.11 on carries more files, which the same workflow makes from the tagged commit:
+
+- `vtium-VERSION.tar.gz` and `vtium-VERSION.zip` hold the release's source, made with `git archive`. The same commit always gives the same bytes, so a recipe can pin their checksums.
+- `vtium-VERSION-dependencies.tsv` lists each crate in the vendor archive with its version, source, license and checksum.
+- `SHA256SUMS` lists the SHA-256 of the vendor archive and of each file above.
+
+To check a download, put it beside `SHA256SUMS` and run `sha256sum --check --ignore-missing SHA256SUMS`. Each file also has a build provenance attestation, which shows that vtium's release workflow made the file from the tagged commit. With the [GitHub CLI](https://cli.github.com/), `gh attestation verify vtium-VERSION.tar.gz --repo vtium/vtium` checks a file's attestation. The "Source code" links that GitHub adds to every release page are made on the fly, so `SHA256SUMS` does not list them.
+
+When a release is published, a CI workflow makes these files. The workflow builds vtium offline from the vendor archive before it attaches the files to the release. In a checkout, `make vendor-archive` writes the same files for the commit you have checked out. `make vendor-archive-check` also checks them against `SHA256SUMS` and the commit, and builds vtium offline from the vendor archive.
 
 With both `libseat` and `logind` in `FEATURES`, `make install` also stages a second unit, `vtium-seat@.service`, and the PAM file `/etc/pam.d/vtium`. These two files run vtium in seat mode, which [Direct mode and seat mode](#direct-mode-and-seat-mode) describes. See [systemd.md](systemd.md) for details.
 

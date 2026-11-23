@@ -37,7 +37,6 @@ use super::explore::ALPHABET;
 use super::reference::{self, Expect};
 use super::sim::{Sim, Term};
 use super::state;
-use super::tabs::looks::FORM_FIELDS;
 
 /// How many random sequences each run tries.
 const CASES: u32 = 64;
@@ -55,10 +54,6 @@ pub struct RefState {
     under: Vec<String>,
     /// The TUI has left, with this status.
     left: Option<u8>,
-    /// The field of the new-frit form being typed, counted from 0. The
-    /// form opens on its first field, Enter on a field goes to the next,
-    /// and Enter on the last field goes to the form's add row.
-    field: usize,
 }
 
 impl RefState {
@@ -71,13 +66,6 @@ impl RefState {
         }
         if self.node == "any.too-small" && key == "Grow" {
             next.node = next.under.pop()?;
-            return Some(next);
-        }
-        if self.node == "looks.new-frit.typing" && key == "Enter" {
-            next.field = self.field.saturating_add(1);
-            if next.field == FORM_FIELDS {
-                "looks.new-frit".clone_into(&mut next.node);
-            }
             return Some(next);
         }
         match reference::expect(&self.node, key)? {
@@ -110,11 +98,6 @@ impl RefState {
             Expect::LeavesQuestion => next.node = next.under.pop()?,
             Expect::LeavesTrial => return None,
         }
-        // the form opens on its first field each time, so a key that
-        // leaves it for a tab starts it again from there
-        if !next.node.starts_with("looks.new-frit") && !next.node.starts_with("any.") {
-            next.field = 0;
-        }
         Some(next)
     }
 
@@ -127,7 +110,6 @@ impl RefState {
             tab: "fonts".to_owned(),
             under: Vec::new(),
             left: None,
-            field: 0,
         }
     }
 }
@@ -146,8 +128,6 @@ impl ReferenceStateMachine for Reference {
 
     /// The keys the tables decide here, the keys that leave the TUI
     /// pressed a twelfth as often as the rest, so most sequences run long.
-    /// In a field of the new-frit form, Enter comes as often as every other
-    /// key together, so that sequences reach the form's add row.
     fn transitions(state: &RefState) -> BoxedStrategy<&'static str> {
         let (mut end, mut go) = (Vec::new(), Vec::new());
         for (name, _) in ALPHABET {
@@ -157,15 +137,11 @@ impl ReferenceStateMachine for Reference {
                 None => {}
             }
         }
-        let keys = match (go.is_empty(), end.is_empty()) {
+        match (go.is_empty(), end.is_empty()) {
             (false, false) => prop_oneof![12 => select(go), 1 => select(end)].boxed(),
             (false, true) => select(go).boxed(),
             _ => select(end).boxed(),
-        };
-        if state.node == "looks.new-frit.typing" {
-            return prop_oneof![1 => keys, 1 => Just("Enter")].boxed();
         }
-        keys
     }
 
     fn preconditions(state: &RefState, key: &&'static str) -> bool {
@@ -238,7 +214,7 @@ pub fn replay(term: Term, keys: &[&str]) -> Result<(), String> {
         for key in TO_FORM {
             sim.press(super::press_of(key));
         }
-        "looks.new-frit.typing".clone_into(&mut want.node);
+        "looks.new-frit".clone_into(&mut want.node);
         "looks".clone_into(&mut want.tab);
         compare(&sim, &want).map_err(|e| format!("{}: {}: {e}", term.name(), TO_FORM.join(" ")))?;
         from = TO_FORM.len();
@@ -356,19 +332,19 @@ fn the_sequences_proptest_found_replay_as_the_tables_say() {
     );
 }
 
-/// The new-frit form opens on its first field each time `n` opens it,
-/// after Esc left it on its add row or on a field in the middle. The
-/// reference counts the six fields, so it knows on which Enter the form
-/// reaches its add row. [`TO_FORM`] opens the form from the Looks tab's
-/// first font set, and Esc goes back to that font set, where `n` opens the
-/// form again. The reference cannot decide that second `n`, so the test
-/// replays the keys after it from the form, as a sequence of its own, once
-/// it has checked that the second `n` opens the form on its first field.
+/// The new-frit form opens on its first row each time `n` opens it,
+/// after Esc left it on its add row or on a row in the middle. Down moves
+/// from row to row, seven times from the text font to the add row.
+/// [`TO_FORM`] opens the form from the Looks tab's first font set, and Esc
+/// goes back to that font set, where `n` opens the form again. The
+/// reference cannot decide that second `n`, so the test replays the keys
+/// after it from the form, as a sequence of its own, once it has checked
+/// that the second `n` opens the form on its first row.
 #[test]
-fn the_new_frit_form_opens_on_its_first_field_after_esc() {
-    let fields = ["Enter"; FORM_FIELDS];
+fn the_new_frit_form_opens_on_its_first_row_after_esc() {
+    let rows = ["Down"; 7];
     for term in Term::ALL {
-        for before in [&fields[..], &fields[..2]] {
+        for before in [&rows[..], &rows[..2]] {
             let first = [&TO_FORM[..], before, &["Esc"]].concat();
             replay(term, &first).unwrap_or_else(|e| panic!("{e}"));
             let mut sim = Sim::start(term, 80, 25);
@@ -378,7 +354,7 @@ fn the_new_frit_form_opens_on_its_first_field_after_esc() {
             sim.press(super::press_of("n"));
             assert_eq!(
                 state::of(&sim).node(),
-                "looks.new-frit.typing",
+                "looks.new-frit",
                 "{}: {} n",
                 term.name(),
                 first.join(" ")
@@ -390,7 +366,7 @@ fn the_new_frit_form_opens_on_its_first_field_after_esc() {
                 term.name(),
                 first.join(" ")
             );
-            let again = [&TO_FORM[..], &fields, &["Esc"]].concat();
+            let again = [&TO_FORM[..], &rows, &["Esc"]].concat();
             replay(term, &again).unwrap_or_else(|e| panic!("{e}"));
         }
     }

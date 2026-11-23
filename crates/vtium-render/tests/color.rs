@@ -127,6 +127,11 @@ fn a_color_glyph_composes_over_its_background_in_its_own_colors() {
     }
 }
 
+// In a cell 16 pixels tall, the underline runs whole under a color glyph,
+// whose picture covers it: each pixel of the underline's row is the glyph
+// over the line, from the clear first column, which shows the line, to the
+// opaque last. The strike crosses the glyph. tests/emoji_ink.rs covers the
+// gap a taller cell keeps around the glyph's ink.
 // covers: text.emoji
 #[test]
 fn a_color_glyph_lies_over_the_underline_and_under_the_strike() {
@@ -134,16 +139,16 @@ fn a_color_glyph_lies_over_the_underline_and_under_the_strike() {
     st.attrs.set_underline(UnderlineStyle::Single);
     st.attrs.insert(Attrs::STRIKE);
     let c = draw(st, 16, Config::default());
-    // clear: the underline and the strike in the foreground
-    assert_eq!(c.pixel(0, UNDERLINE_ROW), Some(px(FG)));
+    for x in 0..16 {
+        assert_eq!(
+            c.pixel(x, UNDERLINE_ROW),
+            Some(over(glyph_px(x, UNDERLINE_ROW), px(FG))),
+            "underline row, {x}"
+        );
+    }
+    // clear: the strike in the foreground
     assert_eq!(c.pixel(0, STRIKE_ROW), Some(px(FG)));
-    // opaque: the glyph hides the underline, the strike crosses the glyph
-    let opaque = |y| glyph_px(15, y);
-    let solid = |p: [u8; 4]| u32::from(p[0]) << 16 | u32::from(p[1]) << 8 | u32::from(p[2]);
-    assert_eq!(
-        c.pixel(15, UNDERLINE_ROW),
-        Some(solid(opaque(UNDERLINE_ROW)))
-    );
+    // opaque: the strike crosses the glyph
     assert_eq!(c.pixel(15, STRIKE_ROW), Some(px(FG)));
     // rows with neither are the glyph over the background
     assert_eq!(c.pixel(7, 3), Some(over(glyph_px(7, 3), px(BG))));

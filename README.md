@@ -80,6 +80,6 @@ Contributions are welcome, whether you write them by hand or with a large langua
 
 ## License
 
-vtium is licensed under the [MIT License](LICENSE). The bundled Unifont glyphs are licensed under the SIL Open Font License 1.1, and Unscii-8 is in the public domain.
+vtium is licensed under the [MIT License](LICENSE). The bundled Unifont glyphs and the parts of Terminus Font in vtium's built-in font are licensed under the SIL Open Font License 1.1, and Unscii-8 is in the public domain. [COPYING](COPYING) lists every third-party notice.
 
 See [COPYING](COPYING) for licensing details and [crates/vtium-font/README.md](crates/vtium-font/README.md) for information about the built-in fonts.

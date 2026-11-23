@@ -68,13 +68,7 @@ pub fn uses(shared: &Shared, path: &Path) -> Vec<Use> {
 /// `font:` source of one of `families`, each with case and blanks
 /// ignored.
 fn names_family(shared: &Shared, name: &str, families: &[String]) -> bool {
-    let text = shared
-        .pending
-        .frits
-        .iter()
-        .find(|(n, _)| n == name)
-        .map(|(_, t)| t.as_bytes())
-        .or_else(|| shared.inputs.installed.get(name).map(Vec::as_slice));
+    let text = shared.frit_text(name);
     let Some(frit) = text.and_then(|t| crate::frit::Frit::parse(t, Path::new(name), name).ok())
     else {
         return false;

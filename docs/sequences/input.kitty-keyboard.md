@@ -79,6 +79,7 @@ These tests check what vtium does with the sequences on this page.
 - `flag_2_alone_sends_super_with_enter_and_escape_as_csi_u` in [crates/vtium-term/tests/kitty_keyboard.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/kitty_keyboard.rs)
 - `flag_2_alone_swaps_backspace_and_ctrl_backspace` in [crates/vtium-term/tests/kitty_keyboard.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/kitty_keyboard.rs)
 - `flag_2_sends_no_release_for_enter_tab_backspace_or_text` in [crates/vtium-term/tests/kitty_keyboard.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/kitty_keyboard.rs)
+- `flags_at_0_keep_xterms_bytes_where_the_legacy_section_differs` in [crates/vtium-term/tests/kitty_keyboard.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/kitty_keyboard.rs)
 - `flags_at_0_send_xterms_bytes` in [crates/vtium-term/tests/kitty_keyboard.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/kitty_keyboard.rs)
 - `modify_other_keys_waits_while_the_flags_are_not_0` in [crates/vtium-term/tests/kitty_keyboard.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/kitty_keyboard.rs)
 - `ris_and_decstr_clear_both_stacks` in [crates/vtium-term/tests/kitty_keyboard.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/kitty_keyboard.rs)

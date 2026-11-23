@@ -164,13 +164,65 @@ fn sgr_color(out: &mut String, color: Color, base: u8, bright: u8, ext: u8) {
     }
 }
 
+/// What one of XTWINOPS's size reports asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Size {
+    /// 14: the text area in pixels.
+    TextArea,
+    /// 16: the cell in pixels.
+    Cell,
+    /// 18: the text area in cells.
+    Grid,
+    /// 19: the screen in cells, which is the text area.
+    Screen,
+}
+
+/// What a held size report weighs against
+/// [`REPLIES_PENDING_MAX`](crate::REPLIES_PENDING_MAX). A held report takes
+/// at most 16 bytes in the hold, and becomes at most 46 bytes at the release:
+/// `CSI 4 ; height ; width t` with two numbers of 20 digits. Weighing it at
+/// 48 bytes keeps both the hold and the replies the release writes inside
+/// the bound, whatever the program asks for in a loop.
+const LATE_WEIGHT: usize = 48;
+
+/// The replies the host holds
+/// ([`Terminal::hold_replies`](crate::Terminal::hold_replies)): their
+/// bytes, in the order the program asked, and each size report still to
+/// answer, with the place in the bytes where it goes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Hold {
+    bytes: Vec<u8>,
+    late: Vec<(usize, Size)>,
+}
+
+impl Hold {
+    fn weight(&self) -> usize {
+        self.bytes
+            .len()
+            .saturating_add(self.late.len().saturating_mul(LATE_WEIGHT))
+    }
+}
+
 impl State {
-    /// Writes a reply to the program.
+    /// Writes a reply to the program. While the host holds the replies,
+    /// the reply waits in the hold, after the replies held before it.
     pub(super) fn reply(&mut self, query: Query, bytes: &[u8]) {
         #[cfg(test)]
         self.answered.push(query);
         let _ = query;
-        self.out.extend_from_slice(bytes);
+        match &mut self.hold {
+            Some(hold) => hold.bytes.extend_from_slice(bytes),
+            None => self.out.extend_from_slice(bytes),
+        }
+    }
+
+    /// The bytes of replies and input reports waiting for the host, and
+    /// what the held replies weigh: the figure
+    /// [`REPLIES_PENDING_MAX`](crate::REPLIES_PENDING_MAX) bounds.
+    pub(super) fn pending(&self) -> usize {
+        self.out
+            .len()
+            .saturating_add(self.hold.as_ref().map_or(0, Hold::weight))
     }
 
     /// DECRQM: the mode table's report for the number asked about.
@@ -330,28 +382,67 @@ impl State {
     /// measures (ADR-1000, "Replies and policy"), and a fixed empty title.
     /// The window's state, position and pixels (11, 13, 14;2) and the
     /// icon's label (20) get no reply, as vtium has no window or icon.
+    /// While the host holds the replies, the reports of the text area, the
+    /// cell and the grid (14, 16, 18 and 19) wait in the hold as the size
+    /// they ask for, and are answered from the sizes the terminal has when
+    /// the host releases them.
     pub(super) fn reply_window(&mut self, params: &Params) {
-        let (cols, rows) = (self.screen.cols(), self.screen.rows());
-        let px = |n: usize, cell: u32| u64::try_from(n).unwrap_or(0).saturating_mul(cell.into());
-        let reply = match (
-            params.get(0),
-            params.get(1),
-            self.host.cell,
-            self.host.display,
-        ) {
-            (Some(14), None | Some(0 | 1), Some((w, h)), _) => {
-                format!("\x1b[4;{};{}t", px(rows, h), px(cols, w))
+        let size = match (params.get(0), params.get(1)) {
+            (Some(14), None | Some(0 | 1)) => Size::TextArea,
+            (Some(16), _) => Size::Cell,
+            (Some(18), _) => Size::Grid,
+            (Some(19), _) => Size::Screen,
+            (Some(15), _) => {
+                if let Some((w, h)) = self.host.display {
+                    let reply = format!("\x1b[5;{h};{w}t");
+                    self.reply(Query::WindowSize, reply.as_bytes());
+                }
+                return;
             }
-            (Some(15), _, _, Some((w, h))) => format!("\x1b[5;{h};{w}t"),
-            (Some(16), _, Some((w, h)), _) => format!("\x1b[6;{h};{w}t"),
-            (Some(18), _, _, _) => format!("\x1b[8;{rows};{cols}t"),
-            (Some(19), _, _, _) => format!("\x1b[9;{rows};{cols}t"),
-            (Some(21), _, _, _) => {
+            (Some(21), _) => {
                 return self.reply(Query::Title, b"\x1b]l\x1b\\");
             }
             _ => return,
         };
+        match &mut self.hold {
+            Some(hold) => hold.late.push((hold.bytes.len(), size)),
+            None => self.reply_size(size),
+        }
+    }
+
+    /// XTWINOPS's report of `size`, from the sizes the terminal has now:
+    /// none for a size in pixels while the cell size is unknown.
+    fn reply_size(&mut self, size: Size) {
+        let (cols, rows) = (self.screen.cols(), self.screen.rows());
+        let px = |n: usize, cell: u32| u64::try_from(n).unwrap_or(0).saturating_mul(cell.into());
+        let reply = match (size, self.host.cell) {
+            (Size::TextArea, Some((w, h))) => {
+                format!("\x1b[4;{};{}t", px(rows, h), px(cols, w))
+            }
+            (Size::Cell, Some((w, h))) => format!("\x1b[6;{h};{w}t"),
+            (Size::Grid, _) => format!("\x1b[8;{rows};{cols}t"),
+            (Size::Screen, _) => format!("\x1b[9;{rows};{cols}t"),
+            (Size::TextArea | Size::Cell, None) => return,
+        };
         self.reply(Query::WindowSize, reply.as_bytes());
+    }
+
+    /// Ends the hold: the held replies join the bytes waiting for the
+    /// host, in the order the program asked, and each size report is
+    /// answered now.
+    pub(super) fn release_replies(&mut self) {
+        let Some(hold) = self.hold.take() else {
+            return;
+        };
+        let mut at = 0;
+        for (offset, size) in hold.late {
+            self.out
+                .extend_from_slice(hold.bytes.get(at..offset).unwrap_or_default());
+            at = offset;
+            self.reply_size(size);
+        }
+        self.out
+            .extend_from_slice(hold.bytes.get(at..).unwrap_or_default());
     }
 
     /// DECRQSS: the setting asked for, `DCS 1 $ r Pt ST`, for SGR, DECSTBM,
@@ -464,6 +555,16 @@ pub(super) fn decimal(text: &[u8]) -> Option<u32> {
 mod tests {
     use super::*;
     use crate::{Termcap, Terminal};
+
+    // A held size report weighs at least what it takes in the hold and
+    // what the longest report it becomes takes, two numbers of 20 digits.
+    #[test]
+    fn a_held_size_report_weighs_what_it_can_become() {
+        assert!(core::mem::size_of::<(usize, Size)>() <= LATE_WEIGHT);
+        let longest = format!("\x1b[4;{};{}t", u64::MAX, u64::MAX);
+        assert_eq!(longest.len(), 46);
+        assert!(longest.len() <= LATE_WEIGHT);
+    }
 
     /// splitmix64, seeded.
     struct Rng(u64);

@@ -60,13 +60,13 @@ Find the first words of the notice on your screen in this table, and read the se
 
 `vtium console status` first says two things about the machine. It says which console logind starts on a VT with no link of its own. It also says which display manager the machine has. Then it prints a line for each VT, with these columns:
 
-- **at boot** names what systemd starts on the VT at boot. Examples are `getty@tty1`, `vtium@tty1`, `display manager (sddm.service)`, or another unit that runs on the VT, such as `cage@tty3`. `getty recorded` means that `vtium console` disabled the VT's getty, and keeps a record of it, which `disable` puts back. `no getty recorded` means that `vtium console` recorded that no getty was enabled on the VT. So `disable` enables none there. `vtium@ttyN masked` means that someone masked vtium's unit there.
+- **at boot** names what systemd starts on the VT at boot. Examples are `getty@tty1`, `vtium@tty1`, `display manager (sddm.service)`, or another unit that runs on the VT, such as `cage@tty3`. `getty to restore` means that `vtium console` disabled the VT's getty, and keeps a record of it, which `disable` puts back. `no getty to restore` means that `vtium console` recorded that no getty was enabled on the VT. So `disable` enables none there. `vtium@ttyN masked` means that someone masked vtium's unit there.
 - **when switched to** names what logind starts when you switch to the VT while nothing runs there. It shows `-` on VT 1 and on VTs 7 and above, where logind starts no console. See [Giving vtium a VT](install.md#giving-vtium-a-vt) for details.
 - **running** names what runs on the VT now, a graphical session included.
 
 A VT whose **at boot** column names a getty keeps that getty when you switch to it, whatever the **when switched to** column says. The getty already runs there.
 
-Under the table, `status` gives a line for each VT that a unit starting at boot holds. The line gives the reason, such as `VT 1: the display manager sddm.service holds VT 1 at boot: a display manager is enabled, and by common convention VT 1 stays the display manager's and its getty's ...`. [VTs that other programs hold](install.md#vts-that-other-programs-hold) lists the reasons.
+Under the table, `status` gives a line for each VT that a unit starting at boot holds. The line gives the reason, such as `VT 1: the display manager sddm.service uses VT 1 at boot: a display manager is enabled, and by convention VT 1 belongs to the display manager and its login prompt, whatever VT it uses now`. [VTs that other programs hold](install.md#vts-that-other-programs-hold) lists the reasons.
 
 When `autovt@.service` links to vtium, `status` can also print a line under the table that starts `vtium does not start at boot on`. It names each VT from 2 to 5 where logind would start vtium when you switch to it. On such a VT, nothing starts at boot, and no other program holds the VT. Nothing holds such a VT open until you switch to it. So a display manager that puts a new desktop session on the first free VT can take it.
 
@@ -95,7 +95,7 @@ If the font still does not render, read the log of that VT's vtium:
 # journalctl -b -u vtium@tty2.service
 ```
 
-A line such as `the font monoid is not drawn (...)`, or `the font's glyphs are not generated (...)`, gives the reason. Check these too:
+A line such as `the font monoid is not drawn (...)`, or `the font helper could not draw the font (...)`, gives the reason. A line such as `the font set monoid leaves out source=... until vtium starts again` means that one font of the set made the font helper crash or hang. vtium then draws the set without that font. Check these too:
 
 - vtium finds a frit by its file's name. For example, `font-name=monoid` reads `/etc/vtium/fonts/monoid.vtfrit`. vtium does not find a file that is named otherwise, such as `Monoid.vtfrit`. It then looks for a kbd font named `monoid` instead.
 - A frit names its fonts as a list of sources. When the font helper cannot find a source, it skips that source without a warning, and the next source renders in its place. When everything renders in the emoji font or the built-in font, the font helper did not find your font. It looks for an outline font's family in `/usr/share/fonts` and `/usr/local/share/fonts`, or in the folders that `font-paths` names, and takes only the active files there. See [An outline font](fonts.md#an-outline-font) for details.
@@ -119,7 +119,7 @@ When a head does not show the color scheme that its look names, vtium could not 
 
 - The file must also pass the trust rule. The check names the rule that the file fails, such as a symbolic link on its path.
 - vtium reads the `palette` key and the palette files when it starts. A change to either takes effect when vtium next starts on the VT. [The file](configure.md#the-file) says what vtium reads when.
-- A program can change the colors in its own console, with OSC 4 and OSC 10 to 19. RIS, the full reset, returns them to the color scheme's. See [Programs that change the colors](palettes.md#programs-that-change-the-colors) for details.
+- A program can change the colors in its own console, with OSC 4, OSC 10 to 14, OSC 17 and 19, and OSC 21. RIS, the full reset, returns them to the color scheme's. See [Programs that change the colors](palettes.md#programs-that-change-the-colors) for details.
 - An effect changes every color after the color scheme applies. Under the vtlook `amber`, for example, every color scheme shows in shades of amber.
 
 ## An effect that does not apply
@@ -161,11 +161,11 @@ A getty that ran on the VT before you gave it to vtium also keeps the VT until i
 
 ## A VT that stays black after you switch back to it
 
-Sometimes you switch from the desktop back to a VT where vtium runs, and the screen stays black. A key press does not bring it back. This is a known defect, which [issue #249](https://github.com/vtium/vtium/issues/249) follows. Until it is fixed, restart that VT's vtium, as [Getting out](#getting-out) shows. The restart keeps the sessions on the VT running. If the screen stayed black until you rebooted, collect a report of the previous boot with `vtium-config report --previous-boot --save`. See [Collecting a report and filing an issue](#collecting-a-report-and-filing-an-issue) for details.
+Sometimes you switch from the desktop back to a VT where vtium runs, and the screen stays black. A key press does not bring it back. Another program may still hold the display. While the VT is shown, vtium tries to wake its displays again once a second, so the screen comes back soon after that program lets go. If the screen stays black, restart that VT's vtium, as [Getting out](#getting-out) shows. The restart keeps the sessions on the VT running. If the screen stayed black until you rebooted, collect a report of the previous boot with `vtium-config report --previous-boot --save`. See [Collecting a report and filing an issue](#collecting-a-report-and-filing-an-issue) for details.
 
 ## Images that do not show
 
-A program that draws sixel or kitty graphics images shows nothing, or shows text where the image should be. Check these in turn:
+A program that draws sixel, kitty graphics or iTerm2 images shows nothing, or shows text where the image should be. Check these in turn:
 
 - vtium renders images only in a build with the `images` feature. In such a build, `vtium --version` names `images` on its `features` line. So does the vtium part of `vtium-config report`, which [Collecting a report and filing an issue](#collecting-a-report-and-filing-an-issue) describes. The `vtium` and `vtium-git` packages are built with this feature, and the minspec packages are not. See [Arch Linux](install.md#arch-linux) for details.
 - `image-storage-limit` must be above 0, because `0` turns images off. Neither `sixel` nor `kitty-graphics` may be turned off. See [config.md](config.md) for these keys.

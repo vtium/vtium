@@ -29,10 +29,20 @@ impl App {
         Vec::new()
     }
 
+    /// Closes the question with nothing done, as Esc does.
+    fn cancel_question(&mut self, leaves: bool) -> Vec<Effect> {
+        self.nav.confirm = None;
+        self.shared.font_install = None;
+        self.say(if leaves {
+            words::NOT_LEFT
+        } else {
+            words::NOT_DONE
+        })
+    }
+
     /// A key while a question is asked. `y` does what the question asks.
     /// The quit question also takes `n`, which quits without the unsaved
-    /// changes, and the leave question takes `n`, which quits without
-    /// installing. Esc and Ctrl-C cancel the question and change nothing.
+    /// changes. Esc and Ctrl-C cancel the question and change nothing.
     /// Every other key does nothing, and the question stays, so a stray
     /// key cannot answer it.
     ///
@@ -42,23 +52,16 @@ impl App {
     pub(crate) fn confirm_key(&mut self, key: Key) -> Vec<Effect> {
         let leaves = matches!(
             self.nav.confirm.as_ref().map(|c| &c.then),
-            Some(Then::Quit(_) | Then::Leave(_))
+            Some(Then::Quit(_))
         );
+        // the question whether to let programs resize the grid takes `n`
+        // as a no, as Esc is
+        let no = super::nav::node(self) == "any.question.window-ops";
         match key {
             Key::Char('y') => {}
             Key::Char('n') if leaves => {}
-            Key::Escape | Key::Interrupt => {
-                self.nav.confirm = None;
-                self.shared.font_install = None;
-                // going back from the install the leave question started
-                // leaves no install waiting
-                self.shared.quit_after_install = None;
-                return self.say(if leaves {
-                    words::NOT_LEFT
-                } else {
-                    words::NOT_DONE
-                });
-            }
+            Key::Escape | Key::Interrupt => return self.cancel_question(leaves),
+            Key::Char('n') if no => return self.cancel_question(leaves),
             _ => return Vec::new(),
         }
         let Some(confirm) = self.nav.confirm.take() else {
@@ -68,15 +71,6 @@ impl App {
         match confirm.then {
             Then::Quit(status) if key == Key::Char('n') => self.leave(status),
             Then::Quit(status) => self.save_and_leave(status),
-            Then::Leave(status) if key == Key::Char('n') => self.save_and_leave(status),
-            // Install saves first, and the TUI leaves once it ends well;
-            // with no draft there is nothing to install, and nothing waits
-            Then::Leave(status) => {
-                if self.shared.draft.is_some() {
-                    self.shared.quit_after_install = Some(status);
-                }
-                self.action('i')
-            }
             Then::Change(change) => self.make(vec![change], None),
             Then::Desk(op) => vec![Effect::Desk(op)],
             Then::Install(plan) => {
@@ -93,37 +87,23 @@ impl App {
         }
     }
 
-    /// `q`: leaves, or asks first. While changes wait for Save, it asks
-    /// the quit question. While new frits or frit removals wait for an
-    /// install, it asks the leave question instead, since leaving loses
-    /// them. The leave question also names the changes that wait for
-    /// Save, and its `y` saves them before the TUI leaves, as the quit
-    /// question's does.
+    /// `q`: leaves, or asks the quit question first while changes wait
+    /// for Save. The new and removed font sets that wait for an install
+    /// stay in the draft's folder, so leaving loses none of them, and `q`
+    /// asks nothing about them.
     ///
     /// References:
-    /// - ADR-1403 D7, "The same keys in every view": what `q` asks, and
-    ///   that the leave question names and saves the unsaved changes.
+    /// - ADR-1403 D7, "The same keys in every view": what `q` asks.
+    /// - ADR-1403 D8, "A draft's font set changes": the folder keeps the
+    ///   font set changes, so quitting loses nothing.
     pub(crate) fn quit(&mut self, status: u8) -> Vec<Effect> {
-        if self.shared.pending.is_empty() && self.shared.unsaved > 0 {
-            self.ask(
-                words::quit_question(self.shared.unsaved),
-                Then::Quit(status),
-            );
-            return Vec::new();
-        }
-        if self.shared.pending.is_empty() {
+        if self.shared.unsaved == 0 {
             return self.leave(status);
         }
-        let added: Vec<String> = self
-            .shared
-            .pending
-            .frits
-            .iter()
-            .map(|(n, _)| n.clone())
-            .collect();
-        let question =
-            words::leave_question(&added, &self.shared.pending.removals, self.shared.unsaved);
-        self.ask(question, Then::Leave(status));
+        self.ask(
+            words::quit_question(self.shared.unsaved),
+            Then::Quit(status),
+        );
         Vec::new()
     }
 
@@ -245,7 +225,6 @@ impl App {
             Ok(done) => done,
             Err(why) => {
                 self.flow.select_after(None);
-                self.shared.quit_after_install = None;
                 return self.say(&why);
             }
         };
@@ -255,10 +234,11 @@ impl App {
                     self.shared.present = present;
                 }
                 self.shared.came = None;
-                // a check keeps the unsaved changes; every other op leaves
-                // the draft as the store holds it
+                // a check, and a font set kept in the draft's folder, keep
+                // the unsaved changes; every other op leaves the draft as
+                // the store holds it
                 match op {
-                    Op::Check(_) => {}
+                    Op::Check(_) | Op::FontSet { .. } => {}
                     Op::Write(_) if self.shared.unsaved > 0 => {
                         self.shared.message =
                             Some(words::saved_draft(self.shared.unsaved, &opened.name));
@@ -287,33 +267,21 @@ impl App {
                     self.flow.restart(&self.shared.inputs.flow);
                 }
             }
-            Done::Plan(mut plan) => {
-                // the frits go first, so vtium.conf never names a frit that
-                // is not there yet (ADR-1403 D8)
-                let frits = match self.frit_plan() {
-                    Ok(frits) => frits,
-                    Err(why) => {
-                        self.shared.quit_after_install = None;
-                        return self.say(&why);
-                    }
-                };
-                let n = frits.files.len().saturating_add(frits.removals.len());
-                let mut files = frits.files;
-                files.append(&mut plan.files);
-                plan.files = files;
-                plan.removals = frits.removals;
+            // the desk's plan holds the draft's font sets from its folder,
+            // frits first, so vtium.conf never names a frit that is not
+            // there yet
+            //
+            // References:
+            // - ADR-1403 D8: an install writes the frits before vtium.conf.
+            Done::Plan(plan) => {
+                let n = plan
+                    .files
+                    .iter()
+                    .filter(|f| f.path.extension().is_some_and(|e| e == "vtfrit"))
+                    .count()
+                    .saturating_add(plan.removals.len());
                 if plan.is_empty() {
-                    return match self.shared.quit_after_install.take() {
-                        Some(status) => self.leave(status),
-                        None => self.say(words::NOTHING_TO_INSTALL),
-                    };
-                }
-                // `y` at the leave question already said to install; a draft
-                // with no complete route still asks its own question first
-                if self.shared.quit_after_install.is_some() && !plan.no_route {
-                    self.shared.installing = true;
-                    self.shared.message = Some(words::INSTALLING.to_owned());
-                    return vec![Effect::Install(plan)];
+                    return self.say(words::NOTHING_TO_INSTALL);
                 }
                 let (added, removed) = match plan.files.last() {
                     Some(f) if self.shared.draft.as_ref().is_some_and(|d| d.text == f.new) => self
@@ -337,7 +305,6 @@ impl App {
                 self.ask(question, Then::Install(plan));
             }
             Done::Refused(why, problems) => {
-                self.shared.quit_after_install = None;
                 let mut lines = vec![why];
                 lines.extend(problems);
                 self.shared.message = Some(lines.join("\n"));
@@ -408,7 +375,6 @@ impl App {
             }) => return self.font_installed(&target, &said, untrusted.as_deref(), found),
             Ok(_) => return Vec::new(),
             Err(why) => {
-                self.shared.quit_after_install = None;
                 return self.say(&words::install_failed(&why));
             }
         };
@@ -418,13 +384,27 @@ impl App {
         };
         self.shared.inputs.effects.set_states(&opened.resources);
         self.shared.inputs.font_files.set_states(&opened.resources);
-        self.shared.draft = Some(opened);
-        self.frits_installed();
-        self.rebuild(None);
-        if let Some(status) = self.shared.quit_after_install.take() {
-            self.shared.message = Some(message);
-            return self.leave(status);
+        // the font sets the install wrote and removed: those the folder
+        // held before and no longer holds, since the install takes out of
+        // the folder each change the system now matches
+        let before = self.shared.frits().clone();
+        let mut done = crate::store::FritChanges::default();
+        for (name, text) in before.kept {
+            if !opened.frits.kept.contains_key(&name) {
+                done.kept.insert(name, text);
+            }
         }
+        for name in before.removed {
+            if !opened.frits.removed.contains(&name) {
+                done.removed.insert(name);
+            }
+        }
+        // the Looks tab's place, read while the list still holds the font
+        // sets only the old draft added
+        let spot = self.looks.spot(&self.shared);
+        self.shared.draft = Some(opened);
+        self.frits_installed(done, spot);
+        self.rebuild(None);
         self.say(&message)
     }
 

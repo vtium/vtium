@@ -18,7 +18,7 @@ why vtium ends: exit status 0 or 1	crates/vtium/src/app.rs	Exit::status
 exit 0: SIGTERM or SIGINT	crates/vtium/src/app.rs	Exit::Signal
 exit 0: oneshot sessions ended	crates/vtium/src/head/session.rs	exit_due
 exit 1: the VT hung up	crates/vtium-platform/src/vt.rs	VtEvent::Hangup
-exit 1: no display in time	crates/vtium-settings/src/keys.rs	key display-wait
+exit 1: no display in time, under the open policy	crates/vtium-settings/src/keys.rs	key display-wait
 exit 1: a session cannot start	crates/vtium/src/app.rs	App::spawn
 exit 1: sessions end too fast	crates/vtium/src/app.rs	Exit::TooQuick
 ending: switches back, if it switched at its start	crates/vtium-platform/src/vt.rs	Vt::leave

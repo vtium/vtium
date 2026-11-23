@@ -526,3 +526,64 @@ fn a_writable_folder_reached_through_a_chain_of_folder_links_is_checked() {
         found.trusted
     );
 }
+
+// A program that writes font sets checks their folder with the walk the
+// console reads them through: `folder` approves the folder exactly when a
+// file in it would pass. Through `entry -> open/link -> real`, it refuses
+// the folder once `open` is writable by others, as a read of
+// `entry/x.vtfrit` refuses the file, and it refuses a folder others can
+// write itself, a missing folder, and a path that ends at a file.
+#[test]
+fn a_folder_passes_the_walk_exactly_when_a_file_in_it_would() {
+    let dir = fixture("folder");
+    let (real, open) = (dir.join("real"), dir.join("open"));
+    for d in [&real, &open] {
+        fs::create_dir(d).expect("a folder");
+        fs::set_permissions(d, fs::Permissions::from_mode(0o755)).expect("mode");
+    }
+    write(&real.join("x.vtfrit"), "source=kbd:x\n", 0o644);
+    symlink(&real, open.join("link")).expect("the inner link");
+    symlink(open.join("link"), dir.join("entry")).expect("the entry link");
+    let trust = me(&dir);
+    let entry = dir.join("entry");
+    let walked = vtium_settings::folder(&entry, &trust)
+        .expect("walked")
+        .expect("present");
+    assert_eq!(walked.trusted, Ok(()));
+    // the descriptor is the folder the walk reached
+    let st = rustix::fs::fstat(&walked.fd).expect("fstat");
+    let real_ino = fs::metadata(&real).expect("real").ino();
+    assert_eq!(st.st_ino, real_ino);
+    fs::set_permissions(&open, fs::Permissions::from_mode(0o777)).expect("mode");
+    let walked = vtium_settings::folder(&entry, &trust)
+        .expect("walked")
+        .expect("present");
+    let file = problem(read(&entry.join("x.vtfrit"), &trust));
+    assert!(
+        matches!(&walked.trusted, Err(Untrusted::Writable { path, mode: 0o777 }) if path.raw() == open.to_string_lossy()),
+        "{:?}",
+        walked.trusted
+    );
+    assert_eq!(
+        file,
+        Problem::Untrusted(walked.trusted.clone().unwrap_err())
+    );
+    fs::set_permissions(&open, fs::Permissions::from_mode(0o755)).expect("mode");
+    fs::set_permissions(&real, fs::Permissions::from_mode(0o775)).expect("mode");
+    let walked = vtium_settings::folder(&real, &trust)
+        .expect("walked")
+        .expect("present");
+    assert!(
+        matches!(&walked.trusted, Err(Untrusted::Writable { path, mode: 0o775 }) if path.raw() == real.to_string_lossy()),
+        "{:?}",
+        walked.trusted
+    );
+    fs::set_permissions(&real, fs::Permissions::from_mode(0o755)).expect("mode");
+    assert!(
+        vtium_settings::folder(&dir.join("missing"), &trust)
+            .expect("walked")
+            .is_none()
+    );
+    let at_file = vtium_settings::folder(&real.join("x.vtfrit"), &trust).expect_err("a file");
+    assert_eq!(at_file.errors[0].problem, Problem::NotAFile);
+}

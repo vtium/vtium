@@ -22,6 +22,7 @@ pub const TAB: Tab = Tab {
         ("looks.palette", "detail"),
         ("looks.pointer", "detail"),
         ("looks.new-frit.typing", "new-frit"),
+        ("looks.new-frit.list", "new-frit"),
         ("looks.new-frit", "new-frit"),
     ],
     focus,
@@ -30,22 +31,17 @@ pub const TAB: Tab = Tab {
     today: TODAY,
 };
 
-/// Where Esc goes in the form for a new font set, which the key table's
-/// rows for Esc do not decide alone: `esc.typing` says that Esc on a field
-/// closes the form, and the tree's `looks.new-frit` leaves to the Looks
-/// tab, so Esc on a field or on the add row goes back to the Looks tab.
+/// What the moving keys do on the rows of the form for a new font set,
+/// which the key table's rows say only in words: each moves the highlight
+/// between the rows and stays in the form.
 const TODAY: &[(&str, &str, &str)] = &[
-    ("looks.new-frit.typing", "Esc", "looks"),
-    ("looks.new-frit", "Esc", "looks"),
+    ("looks.new-frit", "Up", "looks.new-frit"),
+    ("looks.new-frit", "Down", "looks.new-frit"),
+    ("looks.new-frit", "Home", "looks.new-frit"),
+    ("looks.new-frit", "End", "looks.new-frit"),
+    ("looks.new-frit", "PgUp", "looks.new-frit"),
+    ("looks.new-frit", "PgDn", "looks.new-frit"),
 ];
-
-/// The fields of the form for a new font set, as the TUI has them today:
-/// the name, three fonts, the character cell and the size. Enter on a
-/// field goes to the next, and Enter on the last field goes to the form's
-/// add row, as the tree's `looks.new-frit.typing` says. The tree plans a
-/// field for each role in place of these, so the count is not in the
-/// tables yet.
-pub const FORM_FIELDS: usize = 6;
 
 /// What the highlight is on in the list decides what Enter, `n`, `r`,
 /// `t` and Space do: a look, the row that says there is none, a font set
@@ -65,7 +61,7 @@ fn focus(app: &App) -> String {
         Some(Entry::NoLooks) => "no looks".to_owned(),
         Some(Entry::FontSet(at)) => match shared.inputs.fonts.get(at) {
             None => "none".to_owned(),
-            Some(font) if shared.pending.removals.contains(&font.name) => "marked".to_owned(),
+            Some(font) if shared.frits().removed.contains(&font.name) => "marked".to_owned(),
             Some(font) => match font.state {
                 FontState::Reads => "frit",
                 FontState::BuiltIn => "builtin",
@@ -111,17 +107,18 @@ pub fn line_name(line: Line) -> &'static str {
     }
 }
 
-/// The form for a new font set shows its add row, a list of choices marks
-/// each choice with a circle, a card starts with its name line, a font
-/// set's detail starts with its title, and the tab's list is the rest.
+/// The form for a new font set shows its list's hint while a role's list
+/// is open, its typing hint while a value is typed, and its add row on its
+/// rows. A list of choices marks each choice with a circle, a card starts
+/// with its name line, a font set's detail starts with its title, and the
+/// tab's list is the rest.
 fn shown(s: &Shown) -> &'static [&'static str] {
-    if s.rows()
-        .iter()
-        .any(|r| r.starts_with(" > Add this font set"))
-    {
-        &["looks.new-frit"]
-    } else if s.rows().iter().any(|r| r.contains("Add this font set")) {
+    if s.any(" Enter picks, and Esc closes the list.") {
+        &["looks.new-frit.list"]
+    } else if s.any(" Type a font by its family") {
         &["looks.new-frit.typing"]
+    } else if s.rows().iter().any(|r| r.contains("Add this font set")) {
+        &["looks.new-frit"]
     } else if s.any("   ● ") || s.any("   ○ ") {
         &["looks.look.list"]
     } else if s.any(" Type the look's name") {
