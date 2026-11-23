@@ -4,7 +4,7 @@ This file covers work under `docs/`. The root [AGENTS.md](../AGENTS.md) still go
 
 ## Pages for users and pages for contributors
 
-The site's menu, in `zensical.toml`, sorts the pages. The pages under "For contributors" are for contributors: `architecture.md`, `vt-review.md` and `vt-review-linux.md`. So are the decision records under `architecture/`, the acceptance passes under `acceptance/`, and the pages on the crates' interfaces under `api/`. Every other page is for users.
+The site's menu, in `zensical.toml`, sorts the pages. The pages under "For contributors" are for contributors: `architecture.md`, `vt-review.md` and `vt-review-linux.md`. So are the decision records under `architecture/`, the acceptance passes under `acceptance/`, the design notes under `design-notes/`, and the pages on the crates' interfaces under `api/`. Every other page is for users.
 
 The two kinds differ in two ways:
 
