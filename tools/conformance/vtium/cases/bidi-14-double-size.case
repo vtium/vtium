@@ -8,7 +8,7 @@
 # cells, so ab stands at the screen's right edge. SCP 1 on the fourth
 # line, at its first column, makes that paragraph left to right, so the
 # cursor stays at the left of an empty row.
-# spec: ADR-1004 D8, "Double-size rows": "A double-width or double-height row reorders as any row does, over its half as many cells."; ADR-1004 D3: "The erased cells after a row's last written cell take no part in the algorithm, and they are drawn at the row's end in the paragraph's direction: at the right in a left-to-right paragraph and at the left in a right-to-left one, as the recommendation's chapter on erased cells says."; the VT100 User Guide, DECDWL: "The use of double-width characters reduces the number of characters per line by half"
+# spec: ADR-1004 D8, "Double-size rows": "A double-width or double-height row reorders as any row does, over its half as many cells."; ADR-1004 D3: "Rules X1 to I2 run over the whole paragraph, and rules L1 and L2 run a row at a time, so text never moves from one row to another."; ADR-1004 D3: "The erased cells after a row's last written cell take no part in the algorithm, and they are drawn at the row's end in the paragraph's direction: at the right in a left-to-right paragraph and at the left in a right-to-left one, as the recommendation's chapter on erased cells says."; the VT100 User Guide, DECDWL: "The use of double-width characters reduces the number of characters per line by half"
 # covers: text.bidi
 size 10 4
 send "\e[2 k\e#6ab\r\n\e#6\u{5D0}b\r\nab\r\n\e[1 k"
