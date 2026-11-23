@@ -74,6 +74,9 @@ considered:
     said: "locale scripts that just switch modes"
     via: the maintainer, in the steering session on 2026-11-22, when the demonstrator was first planned
     covers: [what the scripts do]
+  - operator: aaronsb
+    said: "the scripts are intended to be more for test or verification, not something that ships with vtium. therefore, vtium shouldn't be built to accomodate them."
+    via: the maintainer, in the steering session on 2026-11-22, on whether vtium switches the keyboard layout for the locale mode scripts, as the steering session's notes of that day record it
 status: accepted
 date: 2026-11-22
 deciders:
@@ -130,7 +133,8 @@ Four words recur below. The **demo image** is the system that the builder makes.
 
 ### D3: the locale mode scripts
 
-- **Each script switches the session into one locale and returns.** It sets the keyboard layout, a font set that covers the locale's script, and `LANG`. It shows no lesson, no sample text and no guided steps.
+- **Each script switches the session into one locale and returns.** It sets a font set that covers the locale's script and `LANG`, and names the keyboard layout that the locale uses. It shows no lesson, no sample text and no guided steps. The scripts are tools for testing and verification, so vtium gets no way to switch a console's keyboard layout for them.
+  > Edited 2026-11-22: the maintainer decided that the scripts are test and verification tools and that vtium is not built to suit them (`considered`). So a script names the keyboard layout and does not switch it. The bullet's second sentence read: "It sets the keyboard layout, a font set that covers the locale's script, and `LANG`."
 - **One of the locales is written right to left,** so a person can try vtium's right-to-left text.
 - **The scripts live in vtium's tree** beside the VT review's tools, as a testing tool that tours and tests can use too. A test of their own runs under `make test-tools`.
 - **The builder copies the scripts into the image,** and the motd and the image's instructions say how to use them.

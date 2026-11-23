@@ -28,6 +28,7 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1007](./term/ADR-1007-vtium-clipboard-copies-text-to-the-console-s-clipboard-through-osc-52-and-its-short-name-is-vticlip.md) | vtium-clipboard copies text to the console's clipboard through OSC 52, and its short name is vticlip | accepted |
 | [ADR-1008](./term/ADR-1008-which-programs-may-read-the-console-s-clipboard-and-how-vtium-guards-it.md) | Which programs may read the console's clipboard, and how vtium guards it | accepted |
 | [ADR-1009](./term/ADR-1009-a-line-s-memory-bound-counts-its-sized-runs-and-the-line-s-tables-compact-at-one-and-a-half-times-what-its-cells-name.md) | A line's memory bound counts its sized runs, and the line's tables compact at one and a half times what its cells name | accepted |
+| [ADR-1010](./term/ADR-1010-ansi-art-from-the-bbs-days-is-shown-by-vtium-ansi-a-viewer-that-converts-each-file-into-the-text-and-colors-vtium-already-draws.md) | ANSI art from the BBS days is shown by vtium-ansi, a viewer that converts each file into the text and colors vtium already draws | accepted |
 
 ## Image
 _Inline images - sixel and the kitty graphics protocol, storage and placement_
