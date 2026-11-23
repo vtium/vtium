@@ -7672,12 +7672,18 @@ class SeatTest(unittest.TestCase):
     def test_a_stop_of_the_seat_manager_is_judged_both_ways(self):
         good = ["vtium 512", "stopped seatd",
                 "exited vtium@tty2.service: Main process exited, code=exited, status=1/FAILURE",
-                "restarts 1"]
+                "getty active", "restarts 0"]
         stop = t3_seat.parse_stop(good)
         self.assertEqual(stop["vtium"], 512)
         self.assertTrue(stop["stopped"])
-        self.assertEqual(stop["restarts"], 1)
+        self.assertEqual((stop["getty"], stop["restarts"]), ("active", 0))
         self.assertIsNone(t3_seat.stop_verdict(stop))
+        # Under a closed policy systemd starts vtium again in place of the getty.
+        again = [l for l in good if l.split()[0] not in ("getty", "restarts")]
+        self.assertIsNone(t3_seat.stop_verdict(t3_seat.parse_stop(
+            again + ["getty inactive", "restarts 1"])))
+        self.assertIn("neither the getty fallback nor vtium", t3_seat.stop_verdict(
+            t3_seat.parse_stop(again + ["getty inactive", "restarts 0"])))
         bad = {
             "refused: vtium@tty2.service runs no process": "stopped nothing",
             "vtium 0": "ran no process",
@@ -7686,7 +7692,6 @@ class SeatTest(unittest.TestCase):
                 "did not exit with status 1",
             "exited vtium@tty2.service: Main process exited, code=exited, status=0/SUCCESS":
                 "did not exit with status 1",
-            "restarts 0": "did not restart",
         }
         for line, want in bad.items():
             word = line.split()[0]

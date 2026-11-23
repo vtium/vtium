@@ -76,9 +76,11 @@
 #                    (t3_seat.py's seat-busy check)
 #   seat-stop        stops seatd's service while vtium's unit on tty2
 #                    holds the seat, waits up to 10 s for systemd's line
-#                    that the unit's main process exited, and answers
-#                    vtium's PID before the stop, that line and the unit's
-#                    restarts (t3_seat.py's seat-stop check)
+#                    that the unit's main process exited, then up to 10 s
+#                    for systemd to start the getty fallback on tty2 or
+#                    vtium again, and answers vtium's PID before the stop,
+#                    that line, the getty's state and the unit's restarts
+#                    (t3_seat.py's seat-stop check)
 #   chvt 1, chvt 2   logs that it switches to VT 1 or VT 2, with the
 #                    guest's monotonic clock, then switches there with chvt, which returns once the VT is shown,
 #                    and answers the VT shown and the PID and age of vtium
@@ -647,8 +649,11 @@ while True:
             ;;
         # vtium exits once libseat reports that the connection to seatd
         # failed, and systemd logs the exit of the unit's main process with
-        # its status before Restart=on-failure starts vtium again. The
-        # agent counts those lines before the stop and waits for one more.
+        # its status. The agent counts those lines before the stop and
+        # waits for one more. systemd then handles the failure: OnFailure=
+        # starts the getty fallback, whose getty stops vtium's unit under
+        # an open policy, and Restart=on-failure starts vtium again under a
+        # closed one.
         seat-stop)
             u=${units[0]}
             exits() {
@@ -669,6 +674,12 @@ while True:
                 done
                 journalctl -b -q -o cat -u "$u" | grep "Main process exited" |
                     tail -n +$((before + 1)) | head -n 1 | sed 's/^/exited /'
+                for _ in $(seq 100); do
+                    [ "$(systemctl show -P ActiveState "getty@$vt.service")" = active ] && break
+                    [ "$(systemctl show -P NRestarts "$u")" -gt 0 ] && break
+                    sleep 0.1
+                done
+                echo "getty $(systemctl show -P ActiveState "getty@$vt.service")"
                 echo "restarts $(systemctl show -P NRestarts "$u")"
             fi
             ;;

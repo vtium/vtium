@@ -279,7 +279,7 @@ The maintainer ran seat mode on a laptop with logind on 2026-11-13, with vtium 0
 
 Tier 3, vtium's test of the installed console in a virtual machine, runs seat mode under logind, and the libseat build under seatd, both on a systemd machine. It logs in, checks that the login gets a session with no seat, and switches VTs through the seat manager. It also logs in twice on one VT, and restarts vtium while a shell is logged in.
 
-Tier 3 also stops seatd while vtium holds the seat. When libseat reports that the connection to the seat manager failed, vtium logs an error and exits with a failure status. systemd then handles the exit as any failure of vtium and starts vtium again. See [When vtium fails on a VT](../install.md#when-vtium-fails-on-a-vt) for details, and [How vtium is judged](how-vtium-is-judged.md) for the tiers.
+Tier 3 also stops seatd while vtium holds the seat. When libseat reports that the connection to the seat manager failed, vtium logs an error and exits with a failure status. systemd then handles the exit as any failure of vtium. See [When vtium fails on a VT](../install.md#when-vtium-fails-on-a-vt) for details, and [How vtium is judged](how-vtium-is-judged.md) for the tiers.
 
 No test checks these cases yet:
 

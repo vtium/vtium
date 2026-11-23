@@ -23,8 +23,9 @@ login prompt.
 The variant seat-seatd-stop stops the seat manager while vtium runs. Its
 check `seat-stop` has the agent stop seatd's service while the vtium on
 tty2 holds the seat. The check passes when that vtium logs that the seat
-manager's connection failed and its process exits with status 1, which
-systemd counts as a failure of the unit and restarts it.
+manager's connection failed and its process exits with status 1, and
+systemd handles that as a failure of the unit: it starts the VT's getty
+fallback, or vtium again.
 
 The panic variant crashes the guest's kernel with `echo c >
 /proc/sysrq-trigger`, through the agent (guest/t3-agent), while vtium shows
@@ -102,9 +103,11 @@ CHECKS = {
                  "a restart, and draws its login prompt.",
     "seat-stop": "vtium built with libseat on seatd, holding the seat on tty2, when the agent "
                  "stops seatd's service. Correct: that vtium logs that the seat manager's "
-                 "connection failed and exits with status 1, which systemd counts as a failure "
-                 "of the unit, so Restart=on-failure starts vtium again. The capture is the VT "
-                 "once the new vtium has drawn it, which the check does not judge.",
+                 "connection failed and exits with status 1, which systemd handles as a "
+                 "failure of the unit: under the open policy the variant runs, OnFailure= "
+                 "starts the getty fallback, which takes tty2, and under a closed one "
+                 "Restart=on-failure starts vtium again. The capture is tty2 afterwards, which "
+                 "the check does not judge.",
     "kernel-panic": "The display after echo c > /proc/sysrq-trigger, while vtium shows its login "
              "prompt on tty2. It judges nothing of the picture: the capture is the evidence "
              "of what a person sees at a kernel panic while vtium holds the VT. Correct: the "
@@ -312,8 +315,9 @@ def check_seat_busy(v, vm, work, caps, errors, log):
 def parse_stop(answer):
     """The agent's answer to `seat-stop` as a dict: "vtium" the PID of vtium
     on tty2 before the stop, "stopped" whether seatd's service stopped,
-    "exited" systemd's line for that vtium's exit, "restarts" the unit's
-    restarts, and "refused" the agent's reason when it stopped nothing."""
+    "exited" systemd's line for that vtium's exit, "getty" the state of the
+    getty on tty2, "restarts" the unit's restarts, and "refused" the agent's
+    reason when it stopped nothing."""
     out = {}
     for line in answer:
         word, _, rest = line.partition(" ")
@@ -323,15 +327,16 @@ def parse_stop(answer):
             out[word] = int(rest)
         elif word == "stopped":
             out["stopped"] = rest == "seatd"
-        elif word == "exited":
-            out["exited"] = rest
+        elif word in ("exited", "getty"):
+            out[word] = rest
     return out
 
 
 def stop_verdict(stop):
     """Why the seat-stop check fails on the agent's parsed answer, or None:
     seatd stopped while vtium ran, vtium's process exited with status 1,
-    and systemd restarted the unit."""
+    and systemd handled the failure, with the getty fallback active on tty2
+    or the unit restarted."""
     if "refused" in stop:
         return "the agent stopped nothing: %s" % stop["refused"]
     if not stop.get("vtium"):
@@ -342,8 +347,8 @@ def stop_verdict(stop):
         return "vtium %d did not exit once seatd stopped" % stop["vtium"]
     if SEAT_LOST_EXIT not in stop["exited"]:
         return "vtium %d did not exit with status 1: %s" % (stop["vtium"], stop["exited"])
-    if stop.get("restarts", 0) < 1:
-        return "systemd did not restart vtium's unit"
+    if stop.get("getty") != "active" and stop.get("restarts", 0) < 1:
+        return "systemd started neither the getty fallback nor vtium again"
     return None
 
 
