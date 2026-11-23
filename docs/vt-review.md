@@ -409,9 +409,27 @@ The pass record names each font file with its SHA-256 and its package. The compa
 
 A page is one file, `tools/vt/sections/NN-name.sh`. Its output is deterministic. It is at most 17 rows of 80 columns, so that it fits 80×25 with its header and footer. Both guidance fields are written in terms that a person can check by eye. ADR-1501 lists the pages and what each shows. A change that adds something visible adds its page.
 
+## Locale mode scripts
+
+The locale mode scripts in `tools/vt/locale/` switch a vtium console into one language, for a tour, a test or the demo image. Each script switches the console's font set to one that covers the language's script, and sets `LANG` in the shell. Then it prints what it set and returns. ADR-1511 D3 decides what the scripts do, and the demo image's builder copies them in.
+
+| Script | Language | Font set | `LANG` | Keyboard layout |
+|---|---|---|---|---|
+| `de.sh` | German | `terminus` | `de_DE.UTF-8` | `de` |
+| `ja.sh` | Japanese | `noto-cjk-jp` | `ja_JP.UTF-8` | `jp` |
+| `hi.sh` | Hindi | `noto-indic` | `hi_IN.UTF-8` | `in` |
+| `ar.sh` | Arabic, written right to left | `noto-arabic` | `ar_EG.UTF-8` | `ara` |
+| `he.sh` | Hebrew, written right to left | `noto-hebrew` | `he_IL.UTF-8` | `il` |
+
+A script is sourced, as in `. tools/vt/locale/ja.sh`, because a program cannot change the environment of the shell that started it. The font set switches through `vtium-config use-frit`, which sends OSC 50 and checks that vtium took the set. When vtium does not take it, the script leaves `LANG` as it was and returns 1. The switch lasts until the console's session ends. The font sets must be in vtium's frits directory, and the font helper leaves out any font they name that the machine lacks. The locale must be generated too, or programs fall back to the C locale.
+
+vtium sets the keyboard layout when it starts, so the scripts cannot switch it. Each script names its language's layout instead, for the `xkb-layout` key in vtium.conf. A build with logind also follows a change to the system's keyboard layout while it runs, but that change reaches every console.
+
 ## Testing the tools
 
 `make test-tools`, part of CI, runs the tests of the tools under `tools/` and shellcheck over their shell scripts. The Makefile's `test-tools` target lists every suite. Two of them test the review tools: `tools/vt/tests/test_vt.py` and `tools/vt/tests/test_accept.py`. `test_accept.py` drives the acceptance pass through stand-in pages on a pseudo-terminal. It checks the pass record, the resume and the comparison. It checks each real page's guidance and size, and what the image pages send to a terminal with and without images.
+
+`tools/vt/tests/test_locale.py` sources each locale mode script on a pseudo-terminal that answers as vtium does. It uses sh, bash and zsh, and dash and busybox's ash where the machine has them. The scripts run the real vtium-config, which checks each font set's name against the catalog in `crates/vtium-config/frits`. The test checks each script's output, and that the script changes only `LANG` and the font set. It also checks that a script changes nothing when vtium keeps its font, when the terminal is not vtium, and when vtium-config is missing.
 
 The tests run every path without a VT, sudo or logind. `VTIUM_VT_STANDINS` names a directory of stand-ins, which the tools run from there by full path. There are stand-ins for `systemctl`, `loginctl`, `setpriv`, `getent`, `systemd-analyze`, `sudo`, the VT's `/dev/ttyN`, `/etc/shells`, `/etc/locale.conf`, `/run/user` and the VT on screen. A stand-in vtium exits, crashes, waits for a signal, starts a stand-in holder, or runs its session. The tests check that:
 
