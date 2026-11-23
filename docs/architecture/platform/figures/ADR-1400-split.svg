@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1076" viewBox="0 0 1000 1076" font-family="DejaVu Sans Mono, monospace">
+<title>The privilege split in direct mode: the broker, the drawer, the helpers, the sessions and the messages between them</title>
+<rect width="1000" height="1076" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<text x="16" y="40" font-size="17" fill="#1f2933">The privilege split in direct mode</text>
+<text x="16" y="62" font-size="13" fill="#1f2933">as the first slice builds it, and what the third slice adds</text>
+<!-- outside vtium -->
+<rect x="684" y="16" width="300" height="104" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="696" y="36" font-size="15" fill="#1f2933">outside vtium</text>
+<rect x="700" y="46" width="264" height="60" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="832" y="68" font-size="14" text-anchor="middle" fill="#1f2933">systemd, PID 1</text>
+<text x="832" y="88" font-size="13" text-anchor="middle" fill="#1f2933">starts vtium@ttyN,</text>
+<text x="832" y="102" font-size="13" text-anchor="middle" fill="#1f2933">keeps the fd store</text>
+<!-- the kernel -->
+<rect x="16" y="140" width="232" height="400" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="28" y="162" font-size="15" fill="#1f2933">the kernel</text>
+<rect x="28" y="176" width="208" height="48" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="132" y="196" font-size="14" text-anchor="middle" fill="#1f2933">the VT</text>
+<text x="132" y="214" font-size="13" text-anchor="middle" fill="#1f2933">/dev/ttyN</text>
+<rect x="28" y="244" width="208" height="48" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="132" y="264" font-size="14" text-anchor="middle" fill="#1f2933">/dev/kmsg</text>
+<text x="132" y="282" font-size="13" text-anchor="middle" fill="#1f2933">kernel messages</text>
+<rect x="24" y="400" width="104" height="48" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="76" y="420" font-size="14" text-anchor="middle" fill="#1f2933">KMS/DRM</text>
+<text x="76" y="438" font-size="13" text-anchor="middle" fill="#1f2933">or fbdev</text>
+<rect x="136" y="400" width="104" height="48" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="188" y="420" font-size="14" text-anchor="middle" fill="#1f2933">evdev</text>
+<text x="188" y="438" font-size="13" text-anchor="middle" fill="#1f2933">input</text>
+<text x="132" y="352" font-size="12" text-anchor="middle" fill="#1f2933">the broker's</text>
+<text x="132" y="368" font-size="12" text-anchor="middle" fill="#1f2933">copies</text>
+<text x="132" y="490" font-size="12" text-anchor="middle" fill="#1f2933">the drawer's</text>
+<text x="132" y="506" font-size="12" text-anchor="middle" fill="#1f2933">copies</text>
+<!-- runs as root -->
+<rect x="268" y="140" width="716" height="196" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="280" y="160" font-size="15" fill="#1f2933">runs as root</text>
+<rect x="288" y="168" width="412" height="158" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="494" y="190" font-size="17" text-anchor="middle" fill="#1f2933">the broker</text>
+<text x="300" y="214" font-size="13" fill="#1f2933">holds the VT and its switch signals</text>
+<text x="300" y="230" font-size="13" fill="#1f2933">sets and drops DRM master on its copies</text>
+<text x="300" y="246" font-size="13" fill="#1f2933">opens the input devices, revokes them</text>
+<text x="300" y="262" font-size="13" fill="#1f2933">makes each pty and starts login on it</text>
+<text x="300" y="278" font-size="13" fill="#1f2933">starts the drawer and the helpers, reaps</text>
+<text x="300" y="294" font-size="13" fill="#1f2933">runs the power keys</text>
+<text x="300" y="310" font-size="13" fill="#1f2933">restores the VT when the drawer ends</text>
+<text x="716" y="290" font-size="12" fill="#1f2933">one SOCK_SEQPACKET socket:</text>
+<text x="716" y="306" font-size="12" fill="#1f2933">fixed-size messages, each</text>
+<text x="716" y="322" font-size="12" fill="#1f2933">field checked, SCM_RIGHTS</text>
+<!-- systemd to the broker -->
+<path d="M 832 108 L 832 246 L 702 246" fill="none" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text x="840" y="170" font-size="12" fill="#1f2933">READY=1;</text>
+<text x="840" y="186" font-size="12" fill="#1f2933">pty masters</text>
+<text x="840" y="202" font-size="12" fill="#1f2933">in and out</text>
+<!-- the kernel to the broker -->
+<line x1="238" y1="200" x2="286" y2="200" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<line x1="238" y1="268" x2="286" y2="268" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path d="M 76 398 L 76 310 L 286 310" fill="none" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path d="M 188 398 L 188 318 L 286 318" fill="none" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<!-- the messages -->
+<rect x="300" y="364" width="320" height="186" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="312" y="384" font-size="14" fill="#1f2933">drawer to broker</text>
+<text x="312" y="404" font-size="12" fill="#1f2933">open or close a device by its path</text>
+<text x="312" y="419" font-size="12" fill="#1f2933">take master on a card, let it go</text>
+<text x="312" y="434" font-size="12" fill="#1f2933">the release is done</text>
+<text x="312" y="449" font-size="12" fill="#1f2933">switch to VT n</text>
+<text x="312" y="464" font-size="12" fill="#1f2933">put the VT's modes back</text>
+<text x="312" y="479" font-size="12" fill="#1f2933">open a console's session, with its</text>
+<text x="328" y="494" font-size="12" fill="#1f2933">size and two hints; close it</text>
+<text x="312" y="509" font-size="12" fill="#1f2933">send SIGWINCH to a session</text>
+<text x="312" y="524" font-size="12" fill="#1f2933">start or stop a helper</text>
+<text x="312" y="539" font-size="12" fill="#1f2933">run a power key; ready</text>
+<rect x="640" y="364" width="324" height="186" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="652" y="384" font-size="14" fill="#1f2933">broker to drawer</text>
+<text x="652" y="404" font-size="12" fill="#1f2933">a device's descriptor</text>
+<text x="652" y="419" font-size="12" fill="#1f2933">whether master was taken</text>
+<text x="652" y="434" font-size="12" fill="#1f2933">release the devices</text>
+<text x="652" y="449" font-size="12" fill="#1f2933">the devices are back, with new</text>
+<text x="668" y="464" font-size="12" fill="#1f2933">input descriptors</text>
+<text x="652" y="479" font-size="12" fill="#1f2933">a console's pty master</text>
+<text x="652" y="494" font-size="12" fill="#1f2933">a helper's socket</text>
+<text x="652" y="509" font-size="12" fill="#1f2933">a process's exit</text>
+<text x="652" y="524" font-size="12" fill="#1f2933">blank, wake</text>
+<text x="652" y="539" font-size="12" fill="#1f2933">stop</text>
+<!-- runs as vtium -->
+<rect x="268" y="566" width="432" height="160" fill="#e5f1e1" stroke="#9aa5b1" stroke-width="1"/>
+<text x="280" y="584" font-size="14" fill="#1f2933">runs as vtium: no capabilities</text>
+<rect x="288" y="590" width="396" height="124" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="486" y="612" font-size="17" text-anchor="middle" fill="#1f2933">the drawer</text>
+<text x="300" y="634" font-size="13" fill="#1f2933">the heads, the input, every terminal</text>
+<text x="300" y="650" font-size="13" fill="#1f2933">parses every byte the sessions print</text>
+<text x="300" y="666" font-size="13" fill="#1f2933">holds every console's pty master</text>
+<text x="300" y="682" font-size="13" fill="#1f2933">draws through its copies of the cards</text>
+<text x="300" y="698" font-size="13" fill="#1f2933">not dumpable, no new privileges</text>
+<!-- runs as nobody -->
+<rect x="716" y="566" width="268" height="160" fill="#e5f1e1" stroke="#9aa5b1" stroke-width="1"/>
+<text x="728" y="584" font-size="14" fill="#1f2933">runs as nobody</text>
+<rect x="732" y="600" width="236" height="64" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="850" y="622" font-size="14" text-anchor="middle" fill="#1f2933">the font helper</text>
+<text x="850" y="640" font-size="13" text-anchor="middle" fill="#1f2933">vtium-config serve</text>
+<text x="850" y="656" font-size="13" text-anchor="middle" fill="#1f2933">draws glyphs</text>
+<line x1="686" y1="632" x2="730" y2="632" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text x="732" y="690" font-size="12" fill="#1f2933">each helper's socket:</text>
+<text x="732" y="706" font-size="12" fill="#1f2933">the broker starts the</text>
+<text x="732" y="722" font-size="12" fill="#1f2933">helper and passes it</text>
+<!-- the kernel to the drawer, through passed copies -->
+<path d="M 76 450 L 76 650 L 286 650" fill="none" stroke="#1f2933" stroke-width="1.5" stroke-dasharray="6 4" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path d="M 188 450 L 188 620 L 286 620" fill="none" stroke="#1f2933" stroke-width="1.5" stroke-dasharray="6 4" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<!-- the socket -->
+<line x1="630" y1="330" x2="630" y2="586" stroke="#1f2933" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<!-- the pty -->
+<line x1="440" y1="716" x2="440" y2="736" stroke="#2f6fb0" stroke-width="2"/>
+<rect x="390" y="736" width="100" height="28" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="440" y="755" font-size="14" text-anchor="middle" fill="#1f2933">the pty</text>
+<text x="500" y="755" font-size="12" fill="#2f6fb0">bytes, both ways</text>
+<!-- runs as the user -->
+<rect x="268" y="776" width="716" height="96" fill="#fbecd0" stroke="#9aa5b1" stroke-width="1"/>
+<text x="280" y="864" font-size="14" fill="#1f2933">runs as the user who logged in</text>
+<line x1="440" y1="764" x2="440" y2="790" stroke="#2f6fb0" stroke-width="2"/>
+<rect x="300" y="790" width="280" height="50" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="440" y="810" font-size="14" text-anchor="middle" fill="#1f2933">the session</text>
+<text x="440" y="828" font-size="13" text-anchor="middle" fill="#1f2933">login, the shell, programs</text>
+<rect x="732" y="790" width="236" height="64" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="850" y="810" font-size="14" text-anchor="middle" fill="#1f2933">the image helper</text>
+<text x="850" y="828" font-size="13" text-anchor="middle" fill="#1f2933">as the session's user;</text>
+<text x="850" y="844" font-size="13" text-anchor="middle" fill="#1f2933">before login, not root</text>
+<path d="M 670 716 L 670 760 L 850 760 L 850 788" fill="none" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<!-- the third slice -->
+<rect x="268" y="888" width="716" height="112" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="280" y="908" font-size="14" fill="#1f2933">the third slice: the drawer splits in two</text>
+<rect x="288" y="920" width="300" height="68" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="438" y="940" font-size="14" text-anchor="middle" fill="#1f2933">the compositor, as vtium</text>
+<text x="438" y="958" font-size="13" text-anchor="middle" fill="#1f2933">displays, input, keymaps,</text>
+<text x="438" y="974" font-size="13" text-anchor="middle" fill="#1f2933">fonts, drawing</text>
+<rect x="668" y="920" width="300" height="68" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="818" y="940" font-size="14" text-anchor="middle" fill="#1f2933">a session process for each</text>
+<text x="818" y="958" font-size="13" text-anchor="middle" fill="#1f2933">console, as vtium-session:</text>
+<text x="818" y="974" font-size="13" text-anchor="middle" fill="#1f2933">its pty, parser and terminal</text>
+<line x1="590" y1="954" x2="666" y2="954" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text x="628" y="946" font-size="12" text-anchor="middle" fill="#1f2933">screens</text>
+<text x="628" y="972" font-size="12" text-anchor="middle" fill="#1f2933">keys</text>
+<!-- legend -->
+<line x1="16" y1="1030" x2="56" y2="1030" stroke="#2f6fb0" stroke-width="2"/>
+<text x="64" y="1035" font-size="13" fill="#1f2933">a session's bytes, through its pty</text>
+<line x1="380" y1="1030" x2="420" y2="1030" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="428" y="1035" font-size="13" fill="#1f2933">messages and descriptors</text>
+<line x1="660" y1="1030" x2="700" y2="1030" stroke="#1f2933" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="708" y="1035" font-size="13" fill="#1f2933">a copy the broker passed</text>
+<text x="16" y="1060" font-size="13" fill="#1f2933">The VT, DRM master and every process start stay with root. Every byte a session prints reaches only the drawer.</text>
+</svg>

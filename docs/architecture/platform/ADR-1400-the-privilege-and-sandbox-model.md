@@ -130,6 +130,62 @@ considered:
     said: "Per-session processes (slice 3) require Linux 6.12 (landlock ABI 6 with LANDLOCK_SCOPE_SIGNAL and LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET). On an older kernel vtium keeps one drawer for all sessions, as slice 1 builds it, and the security page says what the split protects there [D4, slice 3 and the limits, after check 8]."
     via: the maintainer, in the steering session, after the tier 3 checks, 2026-11-13
     paraphrase: true
+  - operator: aaronsb
+    said: "In slices 1 and 2 the drawer gets basic hardening: no-new-privileges, an empty bounding set, its ids read back, not dumpable, and PR_SET_PDEATHSIG; no seccomp or landlock yet. A design study follows on hardening kept out of the main program, in a crate of security profiles chosen by hardware class or driver, with detection modules others can add, after the model of lm-sensors, starting from precedent and criteria."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 1
+    paraphrase: true
+  - operator: aaronsb
+    said: "The accounts are vtium for the drawer, later the compositor, and vtium-session for the session processes. When an account is missing, vtium runs as one process, as today, and logs one line."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 2
+    paraphrase: true
+  - operator: aaronsb
+    said: "When vtium starts without root there is no broker; vtium runs as one process, as today."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 3
+    paraphrase: true
+  - operator: aaronsb
+    said: "Add the missing messages to D4's lists before slice 1 builds: take and release a card for the wake-up retry and a failed wake-up, restore the VT's modes, SIGWINCH to a pty, stop a helper, and the size and two environment hints when opening a session."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 4
+    paraphrase: true
+  - operator: aaronsb
+    said: "The broker waits 10,000 ms for the drawer at a release, a constant in the code and not a vtium.conf key. A hung drawer stalls a VT switch away for up to 10 s."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 5
+    paraphrase: true
+  - operator: aaronsb
+    said: "The seam refactor between the terminal side and the drawing side is a card of its own, beside slice 2; D4's note changes."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 6
+    paraphrase: true
+  - operator: aaronsb
+    said: "vtium blank signals the broker, which passes the order to the drawer."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 7
+    paraphrase: true
+  - operator: aaronsb
+    said: "Seat mode's unit drops PAMName= and goes back to KillMode=process; the broker opens the drawer's greeter session; tier 3 measures it; D3's notes change."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 8
+    paraphrase: true
+  - operator: aaronsb
+    said: "The package adds the drawer's account to seatd's group; tier 3 checks it."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 9
+    paraphrase: true
+  - operator: aaronsb
+    said: "Keeping the terminal modes through a restart lands in slice 3; a restarted vtium sends a focus-in to each shown console whose kept modes have mode 1004 on, and D16 is amended."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 10
+    paraphrase: true
+  - operator: aaronsb
+    said: "A restart keeps every terminal mode, the keyboard protocol's flags, the cursor's visibility and style, and the active screen; not the contents, margins, tab stops, character sets, title or palette."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 11
+    paraphrase: true
+  - operator: aaronsb
+    said: "The broker exits with the drawer's own status; a drawer killed by a signal counts as a failure."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 12
+    paraphrase: true
+  - operator: aaronsb
+    said: "The drawer reads vtium.conf itself; vtium check-config warns when the drawer's account cannot read it."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 13
+    paraphrase: true
+  - operator: aaronsb
+    said: "READY=1 goes out once the broker holds the VT, ADR-1500 D7 unchanged; the drawer's ready ends a start bound, and without it the broker restores the VT and fails."
+    via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 14
+    paraphrase: true
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
@@ -146,7 +202,7 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium carries the C reference's security model forward as its logic flow, not its C. The main process holds root for life, launched by a plain unit, an init script or by hand, and forks the login child as root to run `/bin/login`; nothing else drops. Image media are read and decoded in a helper process following the C reference's flow, as the session's user and never as root by fallback. The units keep getty's ordering and TTY settings, as the C reference's did, and set no hardening directive, since the login session would inherit it. They differ from the C reference's units in one place: under a closed head-file policy, the getty fallback skips the getty (ADR-1401 D9). logind and libseat are an optional layer, each a Cargo feature, and vtium runs without them as the C reference did. vtium departs only where the C reference had a listed defect or gap: a test of the login child's descriptors, the helper controls that the image helper's issue does not yet list, and the shared-memory unlink consequence. D4 replaces root for life with a split. A small root broker keeps the jobs that need root, and the processes that read the sessions' output and draw run without root, one for each session in the end. Until D4's first slice is built, vtium runs as D1 says.
+- **Decided:** vtium carries the C reference's security model forward as its logic flow, not its C. The main process holds root for life, launched by a plain unit, an init script or by hand, and forks the login child as root to run `/bin/login`; nothing else drops. Image media are read and decoded in a helper process following the C reference's flow, as the session's user and never as root by fallback. The units keep getty's ordering and TTY settings, as the C reference's did, and set no hardening directive, since the login session would inherit it. They differ from the C reference's units in one place: under a closed head-file policy, the getty fallback skips the getty (ADR-1401 D9). logind and libseat are an optional layer, each a Cargo feature, and vtium runs without them as the C reference did. vtium departs only where the C reference had a listed defect or gap: a test of the login child's descriptors, the helper controls that the image helper's issue does not yet list, and the shared-memory unlink consequence. D4 replaces root for life with a split. A small root broker keeps the jobs that need root, and the processes that read the sessions' output and draw run without root, one for each session in the end. A vtium started without root, or on a machine without the drawer's account, runs as one process. Until D4's first slice is built, vtium runs as D1 says.
 - **Trades away:** A defect in the code that reads the pty stream runs as root, as it did in the C reference, until D4's first slice is built. The unit uses none of systemd's sandboxing. Under D4, the broker and its protocol are new privilege code, and each VT switch costs a round trip between two processes.
 - **One-way?** No. D4 is built in slices, and the first slice is shaped so that the later ones do not undo it.
 - **Probes:**
@@ -155,6 +211,8 @@ related: []
 - **Inversion:** Between "port the C reference's C" and "design a novel privilege model" (a root parent with an unprivileged terminal process, a sandboxed unit). The answer is neither: the C reference's logic flow, in idiomatic Rust, with fixes only where the C reference's own trackers listed a defect or gap. Since 2026-11-13 the answer moves to the second end in one part: D4 separates a root parent from the processes that read output. The unit still sets no sandboxing directive.
 
 > Edited 2026-11-13: the maintainer decided the privilege split of D4 (`considered`, 2026-11-13). The Summary did not name D4. "Trades away" ended at "The unit uses none of systemd's sandboxing.", "One-way?" read "No. A privilege split stays open (Alternatives), and nothing here forecloses it.", and the inversion ended at "listed a defect or gap."
+
+> Edited 2026-11-22: the maintainer answered the gap-check's fourteen questions on the privilege split on 2026-11-21 (`considered`, 2026-11-21, questions 1 to 14), and D3 and D4 take each answer where it belongs. The Summary's "Decided" did not say when vtium runs as one process.
 
 ## Context
 
@@ -281,8 +339,10 @@ vtium's units match the C reference's, with getty parity and no hardening direct
 
 - getty's `TTYPath`, `TTYReset`, `TTYVHangup`, `TTYVTDisallocate` and `UtmpIdentifier`, its ordering, `Conflicts=getty@%i`, and a getty fallback: `OnFailure=` starts `vtium-getty@%i`, which starts `getty@%i` unless vtium's closed marker exists (ADR-1401 D9);
 - vtium's own unit names, `vtium@.service` and `vtium-getty@.service`, which every install and tier 3 use (ADR-1500 D3);
-- two ways of running, direct mode and seat mode, from one install, chosen for each VT when vtium is turned on there (ADR-1500 D7). In direct mode, `vtium@.service` runs vtium as root. vtium opens the screen and the keyboards itself and holds no logind session, and each login registers with logind on seat0 with its VT, as a getty's login does. In seat mode, `vtium-seat@.service` runs vtium. That unit is `vtium@.service` with `User=root`, `PAMName=vtium` and `KillMode=mixed` added (the notes below). It opens a logind session of vtium's own, libseat's logind backend takes the seat from that session, and each login runs in a systemd scope of its own. vtium ships the PAM file `vtium` for it, with the session stack of the C reference's greeter PAM file, which opens the session in the class `greeter` (the note on the session's class below). Every install of a build with `libseat` and `logind` ships both units and the PAM file, and an install of any other build ships `vtium@.service` alone. `vtium-seat@.service` has `Conflicts=vtium@%i.service` and `After=vtium@%i.service`, so a VT runs one mode at a time;
-- an optional sysusers file creating the pre-login account, with no home, shell or files.
+- two ways of running, direct mode and seat mode, from one install, chosen for each VT when vtium is turned on there (ADR-1500 D7). In direct mode, `vtium@.service` runs vtium as root. vtium opens the screen and the keyboards itself and holds no logind session, and each login registers with logind on seat0 with its VT, as a getty's login does. In seat mode, `vtium-seat@.service` runs vtium. That unit is `vtium@.service` with `User=root`, `PAMName=vtium` and `KillMode=mixed` added (the notes below). It opens a logind session of vtium's own, libseat's logind backend takes the seat from that session, and each login runs in a systemd scope of its own. vtium ships the PAM file `vtium` for it, with the session stack of the C reference's greeter PAM file, which opens the session in the class `greeter` (the note on the session's class below). Every install of a build with `libseat` and `logind` ships both units and the PAM file, and an install of any other build ships `vtium@.service` alone. `vtium-seat@.service` has `Conflicts=vtium@%i.service` and `After=vtium@%i.service`, so a VT runs one mode at a time. Once D4's second slice is built, `vtium-seat@.service` adds `User=root` alone and keeps `KillMode=process`, and the broker opens the drawer's greeter session itself through the same PAM file (the note on seat mode under the split, below);
+- an optional sysusers file creating the pre-login account, with no home, shell or files. From D4's first slice on, a sysusers file also creates the drawer's account `vtium` and the session processes' account `vtium-session`, each with no home, shell or files, and the package adds `vtium` to the group whose members may reach seatd's socket (D4, "The accounts").
+
+> Edited 2026-11-22: the maintainer decided seat mode's unit under the split, the accounts and seatd's group (`considered`, 2026-11-21, questions 2, 8 and 9). The bullet on the two modes ended at "so a VT runs one mode at a time;", and the bullet on the sysusers file ended at "with no home, shell or files."
 
 > Edited 2026-11-10: the maintainer confirmed that the libseat build's unit opens its own PAM session and that vtium ships the PAM file (`considered`, 2026-11-10, card 1b question Q12). The bullet read: "in a `libseat` build, `User=root` and `PAMName` with the C reference's greeter PAM file." The file's name, `vtium`, is the agent's call, which the maintainer accepted on 2026-11-10.
 
@@ -308,6 +368,8 @@ vtium's units match the C reference's, with getty parity and no hardening direct
 
 > Note 2026-11-11, on the class of vtium's own session: the maintainer chose the class `greeter` for the session that seat mode opens, answering "Greeter (Recommended)" (`considered`, 2026-11-11). `vtium.pam` passes `class=greeter` to `pam_systemd`. With no class, `pam_systemd` gives a root session on a tty the class `user-early` (systemd 78ab4b1, `src/login/pam_systemd.c:1039`), and tier 3's guest showed that class on vtium's session. logind stops an idle session of a user class when `StopIdleSessionSec=` is set (`logind-session.h:62`), and it judges a tty session idle by the access time of its tty (`logind-session.c:1184-1218`). vtium never reads its tty, so its session would always look idle, and logind would stop vtium. `Restart=on-failure` and `OnFailure=` take that stop as a clean one, so the VT would be left with no console. At power-off, logind asks polkit for more when another user's session exists, and it does not count a greeter's session (`logind-shutdown.c:35-40`). The class has one cost: logind lets another session register on a greeter's VT (`logind-dbus.c:946-956`). vtium's claim keeps a display manager off its VTs by holding them. Tier 3's `login-session` check asserts that vtium's session has the class `greeter`. The PAM file carries `-session optional pam_elogind.so class=greeter` beside `-session optional pam_systemd.so class=greeter`, so the stack registers the session with elogind where elogind runs, and the `-` keeps PAM quiet about the module a machine lacks. Seat mode under elogind is untested.
 
+> Note 2026-11-22, on seat mode under the split: the maintainer decided that once D4's second slice is built, seat mode's unit drops `PAMName=` and goes back to `KillMode=process`, and the broker opens the drawer's greeter session (`considered`, 2026-11-21, question 8). Two greeter sessions would otherwise sit on one VT: the unit's own, which root holds, and the drawer's, which the drawer needs because logind lets only a session's own user or root call `TakeControl` (D4, open question 2). The broker opens the drawer's session through the PAM file `vtium`, with the class `greeter`, and starts the drawer in it, so the note on the class above holds for the drawer's session. Without `PAMName=`, systemd accepts `KillMode=process` again (the note of 2026-11-10 above), so a restart of the unit signals the broker alone, as in direct mode. The broker then stops the drawer itself (D4, "Start, stop and exit"), because `pam_systemd` moves the drawer into its session's scope, out of the unit's control group. Each login starts in the unit's control group, outside every logind session. So `pam_systemd` may give each login a logind session of its own without the scope that the note on each login's own session describes. Tier 3 measures where the logins land, whether they still need the scope, and whether a logged-in session survives a restart of the unit, before the second slice changes the unit.
+
 > Edited 2026-11-02: the units carry vtium's own names, after the maintainer's decision that kmscon is an independent product (ADR-1500). The first bullet named the fallback `kmsconvt-getty@%i`, and the second read: "the names tier 3 needs, `kmsconvt@.service` among them;".
 
 > Edited 2026-10-31: slice S6 of the head-file wiring work sends the getty fallback through `kmsconvt-getty@%i`, which starts `getty@%i` unless the closed marker exists (ADR-1401 D9), a departure from the C reference's unit. The bullet read: "`Conflicts=getty@%i` and `OnFailure=getty@%i`;", and the Summary read: "The units match the C reference's: getty parity and no hardening directives".
@@ -318,22 +380,28 @@ vtium splits into a broker that keeps root and processes that draw without it (t
 
 This decision uses four names. The *broker* is the root process. The *drawer* is everything else that vtium does today: the heads, the input, the terminals and the drawing. In the final shape the drawer is two kinds of process. The *compositor* is one process that shows the heads on the displays. A *session process* reads one console's output and keeps that console's terminal. A session is what runs on one console: its pty, its `login` or its command, and the programs started from it (ADR-1401 D1).
 
+The figure shows the split in direct mode, as the first slice builds it: the broker as root with the VT, DRM master and the input devices, the drawer as `vtium` reading every byte the sessions print, the helpers and the sessions, and the messages between them. It also shows what the third slice adds.
+
+![The privilege split in direct mode. The broker runs as root. It holds the VT, sets and drops DRM master on its copy of each card, opens and revokes the input devices, makes each pty, starts login, the helpers and the drawer, keeps the pty masters in systemd's store, and runs the power keys. The drawer runs as the account vtium, with no capabilities and not dumpable. It holds every console's pty master, parses every byte the sessions print, keeps the terminals and draws them, through its copies of the cards and input devices. One SOCK_SEQPACKET socket joins the two: the drawer asks to open devices, take and let go of cards, switch VTs, put the VT's modes back, open and close sessions, send SIGWINCH, start and stop helpers, run power keys, and says ready; the broker answers with descriptors, the release, the devices back, pty masters, helper sockets, exits, blank, wake and stop. The sessions run as the user who logged in, joined to the drawer only by their pty. The image helper runs as the session's user and the font helper as nobody, each over a socket the broker passed to the drawer. A dashed box shows the third slice: one session process for each console, as vtium-session, beside a compositor that keeps the displays.](figures/ADR-1400-split.svg)
+
 #### What the broker does
 
 In direct mode, the broker serves the devices the way a seat manager does:
 
-- **It owns the VT.** It opens the VT and calls `VT_SETMODE`, so the kernel sends it the switch signals. It sets `KDSETMODE` and `KDSKBMODE` at start, at each retake and at exit. It calls `VT_RELDISP` and `VT_ACTIVATE` when the drawer asks.
+- **It owns the VT.** It opens the VT and calls `VT_SETMODE`, so the kernel sends it the switch signals. It sets `KDSETMODE` and `KDSKBMODE` at start, at each retake and at exit. It calls `VT_RELDISP` and `VT_ACTIVATE` when the drawer asks. When a display hand-over ends (ADR-1401 D16), it puts the VT's modes back when the drawer asks, as `Vt::restore` does today.
 - **It opens the devices.** It opens the cards, the fbdev devices and the input devices, and it passes each descriptor to the drawer. It opens only a device node of those kinds that belongs to its seat, whatever path the drawer names. It keeps its own copy of each descriptor.
-- **It hands the devices over at each switch.** At a release it tells the drawer, waits for the drawer's answer within a bound, drops master on each card, revokes each input device and acknowledges the release. A drawer that does not answer within the bound loses the devices all the same, so a hung drawer cannot keep the VT. At an acquire it sets master on each card again, opens each input device anew and passes the new descriptors, since a revoked descriptor never works again.
-- **It makes each session's pty and starts `login` on it.** The drawer asks for a console's session by its head's name and its console's id. The broker makes the pty, starts `login` or the head's command on the pty's slave, and passes the pty's master to the drawer. The broker takes the command line from its own reading of vtium.conf, under ADR-1401 D10's ownership check, and never from the drawer.
+- **It holds DRM master for the drawer.** It sets master on its copy of a card when the drawer asks to take the card, and answers whether that worked. It drops master when the drawer lets the card go. The drawer asks for a card at each try of its wake-up, the slow retry included (ADR-1000, "Replies and policy"), and lets the card go after a failed wake-up and at a display hand-over (ADR-1401 D16). The drawer never sets or drops master itself. The kernel checks a caller's permission before it checks whether the file already holds master (`drm_setmaster_ioctl` in `drivers/gpu/drm/drm_auth.c`), so the drawer's own call fails even on a file that holds master. The gap-check read this in the source, and check 10 measures it.
+- **It hands the devices over at each switch.** At a release it tells the drawer, waits for the drawer's answer within a bound, drops master on each card, revokes each input device and acknowledges the release. A drawer that does not answer within the bound loses the devices all the same, so a hung drawer cannot keep the VT. The bound is 10,000 ms, a constant in the code and not a key of vtium.conf, so a hung drawer holds up a switch away from vtium's VT for up to 10 s. At an acquire it sets master on each card again, opens each input device anew and passes the new descriptors, since a revoked descriptor never works again.
+- **It makes each session's pty and starts `login` on it.** The drawer asks for a console's session by its head's name and its console's id. The request also carries what only the drawer knows: the console's grid and cell size, which the broker sets on the pty before the session starts, and two hints for the session's environment. One hint is the kind of display, which `TERM_SESSION_TYPE` names, and the other is whether the head shows 24-bit color, which decides `COLORTERM` (`Place` in `crates/vtium/src/child.rs`). The broker checks each against the values it allows. The broker makes the pty, starts `login` or the head's command on the pty's slave, and passes the pty's master to the drawer. The broker takes the command line from its own reading of vtium.conf, under ADR-1401 D10's ownership check, and never from the drawer.
 - **It keeps the pty masters through a restart.** The broker is the unit's main process, so it sends the copies to systemd's store, or to the holder where systemd is absent (ADR-1401 D13).
-- **It starts the helpers.** The drawer asks for a console's image helper, or for the font helper. The broker chooses the user by D2's rules and by ADR-1200 D15 itself, and passes the helper's socket to the drawer. The drawer never names a user id.
+- **It starts and stops the helpers.** The drawer asks for a console's image helper, or for the font helper. The broker chooses the user by D2's rules and by ADR-1200 D15 itself, and passes the helper's socket to the drawer. The drawer never names a user id. The drawer also asks the broker to stop a helper: at the image helper's 2,000 ms timeout, at an idle exit, and when the font helper must go. A helper runs as another account, so the drawer cannot signal it.
 - **It runs the power keys.** It reboots, powers off or suspends the machine when the drawer asks, for a key that vtium.conf binds.
-- **It reaps every process it starts.** It signals a session to hang up when the drawer closes a console, and it reports each exit to the drawer.
+- **It reaps every process it starts.** It signals a session to hang up when the drawer closes a console, and it reports each exit to the drawer. When the drawer asks, it sends `SIGWINCH` to the foreground process group of a console's session, as ADR-1401 D13's recovery does after a restart, because the session's processes run as another account.
+- **It passes `vtium blank` and `vtium wake` on.** Those commands signal the process that holds the VT open, which under the split is the broker. The broker sends the order to the drawer over the socket, and the drawer blanks or wakes its displays.
 - **It makes vtium's run directory,** `/run/vtium/<tty>/` (ADR-1401 D10), and passes the drawer the descriptors of what the drawer writes there. It opens `/dev/kmsg` and passes that descriptor too, if the check the build makes first shows a descriptor is enough.
 - **It restores the VT when the drawer dies** (below).
 
-In seat mode, the seat manager serves the cards, the input devices and the switch signals, through libseat. The broker keeps the jobs that start and end processes: `login`, the helpers, the power keys, reaping, the store of pty masters, the scope for each login and the run directory. The broker opens a greeter session through PAM for the drawer's account and starts the drawer in it, as display managers start their greeters, so that the session is the drawer's (open question 2, answered). The seat manager makes `KDSETMODE` and `KDSKBMODE`: logind does so when the drawer takes control of its session, and seatd when it enables the drawer's seat (checks 1 and 2). So the broker does not make them in seat mode. The broker makes `VT_ACTIVATE` when the drawer asks, until a check covers switching VTs through libseat (open question 3, answered).
+In seat mode, the seat manager serves the cards, the input devices and the switch signals, through libseat. The broker keeps the jobs that start and end processes: `login`, the helpers, the power keys, reaping, the store of pty masters, the scope for each login and the run directory. The broker opens a greeter session through PAM for the drawer's account and starts the drawer in it, as display managers start their greeters, so that the session is the drawer's (open question 2, answered). The unit then opens no PAM session of its own (D3, the note on seat mode under the split). The seat manager makes `KDSETMODE` and `KDSKBMODE`: logind does so when the drawer takes control of its session, and seatd when it enables the drawer's seat (checks 1 and 2). So the broker does not make them in seat mode. The broker makes `VT_ACTIVATE` when the drawer asks, until a check covers switching VTs through libseat (open question 3, answered).
 
 > Edited 2026-11-13: after checks 1 and 2, the maintainer decided that the broker stops making `KDSETMODE` and `KDSKBMODE` in seat mode and keeps `VT_ACTIVATE` (`considered`, 2026-11-13). The paragraph ended "The broker also makes the VT calls that `seat.rs` makes today, `KDSETMODE`, `KDSKBMODE` and `VT_ACTIVATE`, when the drawer asks. It stops making them only if checks 1 and 2 show that the seat manager makes them (open question 3, answered)."
 
@@ -341,10 +409,36 @@ In seat mode, the seat manager serves the cards, the input devices and the switc
 
 The broker and the drawer talk over one Unix socket of type `SOCK_SEQPACKET`, made with `socketpair` before the drawer starts. Each message has a fixed size, and the broker checks every field before it acts. Descriptors travel with the message as `SCM_RIGHTS`.
 
-- The drawer sends: open a device by its path, close a device, the release is done, switch to VT *n*, open a console's session, close it, start a helper, run a power key, and ready.
-- The broker sends: a device's descriptor, release the devices, the devices are back with new input descriptors, a console's pty master, a helper's socket, a process's exit, and stop.
+- The drawer sends: open a device by its path, close a device, take master on a card, let a card go, the release is done, switch to VT *n*, put the VT's modes back, open a console's session with its grid, cell size and two hints, close it, send `SIGWINCH` to a console's session, start a helper, stop a helper, run a power key, and ready.
+- The broker sends: a device's descriptor, whether master on a card was taken, release the devices, the devices are back with new input descriptors, a console's pty master, a helper's socket, a process's exit, blank, wake, and stop.
+
+> Edited 2026-11-22: the maintainer had the requests the code needs added to these lists before the first slice builds (`considered`, 2026-11-21, question 4), and `vtium blank` and `vtium wake` go through the broker (question 7). The drawer's list read: "open a device by its path, close a device, the release is done, switch to VT *n*, open a console's session, close it, start a helper, run a power key, and ready." The broker's list read: "a device's descriptor, release the devices, the devices are back with new input descriptors, a console's pty master, a helper's socket, a process's exit, and stop." "What the broker does" gained the bullets on DRM master and on `vtium blank`, the bound's value, the size and hints of a session, the stop of a helper, `SIGWINCH`, and putting the VT's modes back.
 
 The drawer speaks one device protocol in both modes. Its code reaches the devices through one interface with two backends: the broker's in direct mode, and libseat's in seat mode. `LibseatVt` in vtium-platform already takes its devices as passed descriptors with enable and disable messages, so it is the model for the broker's backend.
+
+#### The accounts
+
+The drawer runs as the system account `vtium`, which later becomes the compositor's account. The session processes of the third slice share the system account `vtium-session` (open question 1). vtium's sysusers file creates both accounts (D3). In seat mode the drawer reaches seatd's socket through seatd's group, so the package adds `vtium` to that group, and tier 3 checks that the drawer opens its seat through a distribution's own seatd unit (`considered`, 2026-11-21, questions 2 and 9).
+
+#### When vtium runs as one process
+
+vtium splits only when it starts as root and the drawer's account exists. A vtium started without root, as the tests and a run by hand start it, has nothing to drop, so it starts no broker and runs as one process, as today (question 3). A vtium started as root on a machine without the account `vtium`, such as a host without systemd-sysusers where nobody made the account, also runs as one process, as today, and logs one line that names the missing account (question 2). The first two slices use only `vtium`. From the third slice on, vtium needs both accounts to split, and runs as one process when either is missing.
+
+#### The drawer's setup
+
+The broker starts the drawer with fork and then an exec of its own binary, as it starts `vtium hold` today. Before the exec, the child takes the setup that D2 gives a helper, in the same order: credentials resolved before the fork, `setgroups`, `setresgid` and `setresuid` to the account `vtium` and read back, the bounding set emptied, the ambient capabilities cleared, and `PR_SET_NO_NEW_PRIVS`. It also sets `PR_SET_PDEATHSIG` to `SIGKILL` after `setresuid`, because prctl(2) clears that setting at a change of credentials. After the exec, the drawer makes itself not dumpable with `PR_SET_DUMPABLE`, because the kernel makes a process dumpable again at an exec that leaves its ids equal. In the first and second slices the drawer has no seccomp filter and no landlock domain, because a filter that the GPU drivers' calls must pass needs more study than these slices give it (question 1). A study of selectable security profiles, kept out of the main program and chosen by hardware class or driver, weighs how such filters could come later: [docs/design-notes/security-profiles.md](../../design-notes/security-profiles.md). The third slice's session processes keep their seccomp filter and landlock domain, which this decision already sets.
+
+#### Start, stop and exit
+
+- **Ready.** The broker sends `READY=1` to systemd once it holds the VT open, before it starts the drawer, as ADR-1500 D7 says (question 14). The drawer sends ready once it runs. The broker waits for that ready within a start bound, a constant in the code that the first slice sets. When the drawer exits or the bound passes first, the broker restores the VT, as below, and exits with a failure.
+- **Stop.** When systemd stops or restarts the unit, it signals the broker alone, under `KillMode=process`. The broker sends the drawer stop and waits for the drawer to exit within a bound. A drawer still running at the bound gets `SIGKILL`. Then the broker restores the VT and exits. Under seat mode the drawer runs in its session's scope, outside the unit's control group, so only the broker's stop ends it (D3, the note on seat mode under the split).
+- **Exit status.** The broker exits with the drawer's own exit status. A drawer that a signal killed counts as a failure, and the broker then exits with a failure status (question 12). So a drawer's clean exit is a clean exit of the unit, and ADR-1401 D9 and D13 judge a failure as they do today.
+
+#### vtium.conf under the split
+
+The drawer reads vtium.conf itself, as vtium does today. The broker reads it too, for what the broker decides on its own: the login command, the power keys that vtium.conf binds, and the closed policy. A vtium.conf that root owns with mode 0600 passes ADR-1401 D10's ownership check, but the account `vtium` cannot read it. `vtium check-config` warns when the drawer's account cannot read vtium.conf (question 13).
+
+> Added 2026-11-22: the five sections above follow the maintainer's answers to the gap-check's questions 1, 2, 3, 9, 12, 13 and 14 (`considered`, 2026-11-21). The stop's bound and the start bound are constants the first slice sets, and the agent added the stop to cover the unit's `KillMode=process`.
 
 #### One process for each session
 
@@ -382,13 +476,17 @@ A session process also cannot reach another console's pty, screen or pictures.
 
 #### When the drawer dies
 
-The broker sees the drawer's socket close or the drawer's exit. It then sets the VT back to text mode with `KDSETMODE`, sets `VT_AUTO` with `VT_SETMODE` and puts back the keyboard mode it saved at start. It drops master on each card and revokes each input device. The broker has to do this itself. The kernel's own reset of a VT (`reset_vc` in `vt_ioctl.c`) sets text mode and `VT_AUTO`, but it leaves the keyboard mode as it was. Today vtium's panic hook (`crates/vtium/src/hook.rs`) restores the VT, and a crash that kills the process outright skips the hook. Under the split, the broker restores the VT after any end of the drawer. The broker then exits with a failure, so ADR-1401 D9 and D13 decide what follows, as they do today (open question 4, answered).
+The broker sees the drawer's socket close or the drawer's exit. It then sets the VT back to text mode with `KDSETMODE`, sets `VT_AUTO` with `VT_SETMODE` and puts back the keyboard mode it saved at start. It drops master on each card and revokes each input device. The broker has to do this itself. The kernel's own reset of a VT (`reset_vc` in `vt_ioctl.c`) sets text mode and `VT_AUTO`, but it leaves the keyboard mode as it was. Today vtium's panic hook (`crates/vtium/src/hook.rs`) restores the VT, and a crash that kills the process outright skips the hook. Under the split, the broker restores the VT after any end of the drawer. The broker then exits with the drawer's own exit status, and with a failure when a signal killed the drawer, so ADR-1401 D9 and D13 decide what follows, as they do today (open question 4, answered; "Start, stop and exit" above).
+
+> Edited 2026-11-22: the maintainer decided the broker's exit status (`considered`, 2026-11-21, question 12). The sentence read: "The broker then exits with a failure, so ADR-1401 D9 and D13 decide what follows, as they do today (open question 4, answered)."
 
 That is direct mode. In seat mode the seat manager restores the VT when the drawer's session loses its controller or its seat closes. It sets text mode and the keyboard mode `K_UNICODE`, whatever mode the VT had before (checks 1 and 2). vtium accepts `K_UNICODE` there, and the broker does not put back the saved keyboard mode under a seat manager (the maintainer, `considered`, 2026-11-13).
 
 > Added 2026-11-13: the paragraph on seat mode follows the maintainer's answer to checks 1 and 2.
 
-When the broker dies, the drawer loses its socket and exits. The broker's own panic hook restores the VT, as vtium's does today.
+When the broker dies, the drawer loses its socket and exits. The broker's own panic hook restores the VT, as vtium's does today. A drawer that hangs would keep DRM master after the broker dies, because master belongs to the file description and the drawer's copy stays open. So the kernel kills the drawer when the broker dies, through `PR_SET_PDEATHSIG` ("The drawer's setup" above).
+
+> Edited 2026-11-22: the paragraph on the broker's death gained its last two sentences, from the drawer's setup that the maintainer decided (`considered`, 2026-11-21, question 1).
 
 When a session process dies, only its console loses its screen and scrollback. The broker still holds the pty's master, so it starts a new session process on that master. The new process shows an empty screen and sends a resize, as ADR-1401 D13's recovery does, and the console's respawn count bounds how often this happens (open question 5, answered).
 
@@ -418,31 +516,41 @@ The kernel check could not settle these. The first slice checks each one before 
 7. Whether a process without root can read `/dev/kmsg` through a descriptor that root opened, under `kernel.dmesg_restrict=1`. *Measured 2026-11-13:* Yes. With `kernel.dmesg_restrict` at 1, a process without root and with no capabilities reads the kernel's records through a descriptor of `/dev/kmsg` that root opened. The same process cannot open `/dev/kmsg` itself or call `syslog(2)`: each fails with EPERM.
 8. Whether processes of one account are kept apart: that a process that is not dumpable cannot be traced, have its `/proc/<pid>/fd` read or a descriptor taken with `pidfd_getfd` by another process of its account, and that landlock's scopes keep signals inside a domain. *Measured 2026-11-13:* Yes, with landlock's scopes, on landlock ABI 10. Another process of the same account cannot trace a process that is not dumpable. It cannot read the process's `/proc/<pid>/fd` or `environ`, or take a descriptor with `pidfd_getfd`. That holds for the process's parent too, with Yama's ptrace scope at 1 or at 0. Not being dumpable does not stop a signal, or a connection to the process's abstract unix socket. Two processes, each in a landlock domain of its own that scopes signals and abstract unix sockets, can do neither to each other. Such a process cannot signal its parent outside the domain either, and a process outside the domain can still signal into it. Between two domains, landlock also stops tracing and `pidfd_getfd` for a process that is dumpable. These scopes need landlock ABI 6, which came with Linux 6.12.
 9. That the drawer draws through its copy of a card's descriptor, with dumb buffers and page flips, after the broker sets master on the broker's copy. *Measured 2026-11-13:* Yes. A root process opens the card, sets master on its copy, and passes a copy over a socket with `SCM_RIGHTS`. A process without root cannot open the card itself. Through its copy, it sets a mode with a dumb buffer and makes 10 page flips, each waited for by its event. When root drops master on its copy, the other copy loses master, and a page flip fails with EACCES. The process without root cannot set master on its copy either. When root sets master again, the page flips work again.
+10. That the drawer's own `DRM_IOCTL_SET_MASTER` fails with `EACCES` while its copy of the card already holds master, because `drm_setmaster_ioctl` checks the caller's permission before it checks whether the file is master. *Not yet measured:* the gap-check read this in the source of Linux 7.2.14, and check 9 measured the call only after root had dropped master. The first slice measures it, since the drawer's wake-up must then ask the broker for master in every case.
+
+> Added 2026-11-22: check 10 comes from the gap-check's reading of `drm_auth.c`, which the bullet on DRM master in "What the broker does" rests on.
 
 On 2026-11-13 `make tier3-rootchecks` measured every check in the tier 3 guest, and each answer above gives what it found. The guest runs Linux 7.2.11, systemd 262.1, seatd 0.9.3, util-linux 2.42.4, PAM 1.7.3 and dbus-broker 37, from the Arch Linux Archive snapshot of 2026-10-20. polkit 128 comes from the same snapshot. The probes run as root and as a system account with no capabilities. `tools/tier3/README.md` says how to run the checks again, and the answers are in `target/tier3/rootchecks/answers.txt`.
 
 #### The slices
 
-1. **The broker in direct mode.** The broker does every job listed above, and one drawer holds every head and every console, as vtium does today. Tests show that the drawer's `/proc/<pid>/status` names an account other than root with no capabilities, that a VT switch drops master and revokes the input devices, and that a SIGKILL of the drawer leaves the VT in text mode with its keyboard mode restored.
+1. **The broker in direct mode.** The broker does every job listed above, and one drawer holds every head and every console, as vtium does today. Tests show that the drawer's `/proc/<pid>/status` names the account `vtium` with no effective and no bounding capabilities, `NoNewPrivs: 1`, and that the drawer is not dumpable. They also show that a VT switch drops master and revokes the input devices, and that a SIGKILL of the drawer leaves the VT in text mode with its keyboard mode restored.
 2. **Seat mode.** The drawer takes its devices from the seat manager, and the broker keeps the jobs that start and end processes, as open questions 2 and 3 settle it.
-3. **A process for each session.** The drawer splits into the compositor and one session process for each console, over the messages above. This slice needs Linux 6.12 or later: landlock ABI 6, with `LANDLOCK_SCOPE_SIGNAL` and `LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET` in each session process's domain. Without those scopes, a session process could signal another, SIGKILL included, and connect to its abstract unix sockets, since not being dumpable stops neither (check 8). On an older kernel vtium keeps one drawer for all sessions, as the first slice builds it (the maintainer, `considered`, 2026-11-13).
+3. **A process for each session.** The drawer splits into the compositor and one session process for each console, over the messages above. This slice needs Linux 6.12 or later: landlock ABI 6, with `LANDLOCK_SCOPE_SIGNAL` and `LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET` in each session process's domain. Without those scopes, a session process could signal another, SIGKILL included, and connect to its abstract unix sockets, since not being dumpable stops neither (check 8). On an older kernel vtium keeps one drawer for all sessions, as the first slice builds it (the maintainer, `considered`, 2026-11-13). The third slice also keeps each console's terminal state through a restart of vtium: every mode in the terminal's mode table, the keyboard protocol's flags, the cursor's visibility and style, and which screen is active. A restart does not keep the screen's contents, the margins, the tab stops, the character sets, the title or the palette (`considered`, 2026-11-21, question 11). A program's redraw after the restart brings back most of those, and the restart resizes the grid anyway. A restarted vtium then sends a focus-in to each shown console whose kept modes have mode 1004 on, so a program that reports focus learns that it has it (question 10). The kept state has to outlive both the broker and the drawer, and the broker never parses it, so where the state waits during a restart is the third slice's design.
 
 > Edited 2026-11-13: after check 8, the maintainer decided that the third slice needs Linux 6.12. The item ended at "over the messages above."
 
-The first slice is shaped so that the third does not undo it:
+> Edited 2026-11-22: the maintainer put the work that keeps the terminals' modes through a restart into the third slice, decided which state it keeps, and decided the focus-in after a restart (`considered`, 2026-11-21, questions 10 and 11). The third item ended at "as the first slice builds it (the maintainer, `considered`, 2026-11-13)." The first item's tests read: "Tests show that the drawer's `/proc/<pid>/status` names an account other than root with no capabilities, that a VT switch drops master and revokes the input devices, and that a SIGKILL of the drawer leaves the VT in text mode with its keyboard mode restored."
+
+The slices are shaped so that the third does not undo the first:
 
 - From the first slice on, the broker makes every pty and names it by its console. The third slice changes only which process receives the master.
 - From the first slice on, the broker starts every process vtium runs. A session process is one more kind it starts, with the setup it already gives a helper.
-- Inside the first slice's drawer, the code that becomes a session process (the terminal, the pty and the picture store) and the code that becomes the compositor (the heads, the views and the painter) talk only through the values that the third slice sends over a socket: `Snapshot` and the requests one way, the input and the console's size the other.
+- Before the third slice, the code that becomes a session process (the terminal, the pty and the picture store) and the code that becomes the compositor (the heads, the views and the painter) come to talk only through the values that the third slice sends over a socket: `Snapshot` and the requests one way, the input and the console's size the other. That change to the drawer's code is a card of its own, built beside the second slice. It holds no privilege code, and it would collide with the first slice's wiring in the same files (`considered`, 2026-11-21, question 6).
 - The broker never reads the screen, so the third slice adds no root code beyond starting session processes.
+
+> Edited 2026-11-22: the maintainer made the change to the drawer's code its own card, beside the second slice (`considered`, 2026-11-21, question 6). The list began "The first slice is shaped so that the third does not undo it:", and its third bullet read: "Inside the first slice's drawer, the code that becomes a session process (the terminal, the pty and the picture store) and the code that becomes the compositor (the heads, the views and the painter) talk only through the values that the third slice sends over a socket: `Snapshot` and the requests one way, the input and the console's size the other."
 
 #### What the other records change when the slices land
 
 - ADR-1401 D2 says that a display is a head inside vtium's one process, never a second process. That stays true of the compositor. Once the third slice lands, each console's session runs in a process of its own.
 - ADR-1401 D10 says that a crash a program provokes with crafted output ends every session. Once the third slice lands, such a crash ends that console's session process, unless it reaches the compositor.
-- ADR-1401 D13: the broker keeps the store of pty masters, as the unit's main process.
+- ADR-1401 D13: the broker keeps the store of pty masters, as the unit's main process. Once the third slice lands, a restart also keeps each console's terminal state, as the third slice says.
+- ADR-1401 D16 says that a restart sends no focus-in, and that a program turns mode 1004 on again after a restart. Once the third slice lands, a restarted vtium sends a focus-in to each shown console whose kept modes have mode 1004 on.
 - ADR-1101 and ADR-1200 D15: the broker starts each helper, at the drawer's request.
 - `docs/concepts/security.md` and SECURITY.md change as each slice lands.
+
+> Edited 2026-11-22: the bullets on ADR-1401 D13's kept state and on ADR-1401 D16 follow the maintainer's answers to questions 10 and 11 (`considered`, 2026-11-21). The bullet on D13 ended at "as the unit's main process."
 
 #### Open questions
 
@@ -493,12 +601,15 @@ No open question remains. The maintainer answered question 1 and then questions 
 - Until D4's first slice is built, a defect in the parser, screen, renderer or input path runs as root.
 - systemd's sandboxing goes unused.
 - A root console login on a system without logind gets no file media, as in the C reference.
-- D4 adds privilege code: the broker, and the protocol it reads from the drawer. Each VT switch costs a round trip between the broker and the drawer.
+- D4 adds privilege code: the broker, and the protocol it reads from the drawer. Each VT switch costs a round trip between the broker and the drawer, and a hung drawer holds up a switch away for up to 10 s.
+- Under D4, a machine that lacks the drawer's account gets no split, and vtium there runs as root for life, as D1 says.
 - D4's third slice adds a process and a socket for each console, and the screen crosses between processes for each frame.
 
 ### Neutral
 
 - SECURITY.md's scope, "vtium runs as root on a virtual console", stays true until D4's first slice is built.
+
+> Edited 2026-11-22: the Negative bullet on privilege code gained the release bound's cost, and the bullet on a missing account is new, from the maintainer's answers to questions 2 and 5 (`considered`, 2026-11-21).
 
 > Edited 2026-11-13: D4 adds the split's consequences. The first Negative bullet read "A defect in the parser, screen, renderer or input path runs as root.", and the Neutral bullet ended at "stays true".
 
