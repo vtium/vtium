@@ -420,6 +420,32 @@ const MOSAIC: &[u8] = concat!(
 )
 .as_bytes();
 
+/// The `legacy` screens: every block shape of Symbols for Legacy
+/// Computing and its Supplement that vtium-font draws as a sprite, in
+/// codepoint order; then shapes that join across cells and rows: chained
+/// diamonds of light diagonals, the checker board fill beside its
+/// inverse, the two diagonal fills side by side, circles of quarters and
+/// of halves, staircases of
+/// eighth blocks, and patterns of the one quarter blocks; then the
+/// diamonds, fills and circles in yellow on blue.
+const LEGACY: &[u8] = concat!(
+    "legacy  🬼🬽🬾🬿🭀🭁🭂🭃🭄🭅🭆🭇🭈🭉🭊🭋🭌🭍🭎🭏🭐🭑🭒🭓🭔🭕🭖🭗🭘🭙🭚🭛🭜🭝🭞🭟🭠🭡🭢🭣🭤🭥🭦🭧🭨🭩🭪🭫🭬🭭🭮🭯🭰🭱🭲🭳🭴🭵🭶🭷🭸🭹🭺🭻\r\n",
+    "        🭼🭽🭾🭿🮀🮁🮂🮃🮄🮅🮆🮇🮈🮉🮊🮋🮌🮍🮎🮏🮐🮑🮒🮔🮕🮖🮗🮘🮙🮚🮛🮜🮝🮞🮟🮠🮡🮢🮣🮤🮥🮦🮧🮨🮩🮪🮫🮬🮭🮮🮯\r\n",
+    "        🮽🮾🮿🯎🯏🯐🯑🯒🯓🯔🯕🯖🯗🯘🯙🯚🯛🯜🯝🯞🯟🯠🯡🯢🯣🯤🯥🯦🯧🯨🯩🯪🯫🯬🯭🯮🯯\r\n",
+    "quarters𜺠𜺡𜺢𜺣𜺤𜺥𜺦𜺧𜺨𜺩𜺪𜺫𜺬𜺭𜺮𜺯\r\n",
+    "\r\n",
+    "🮣🮢🮣🮢🮣🮢🮣🮢 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯮🯭 🯩🯫 🯪 ▔🭶🭷🭸🭹🭺🭻▁\r\n",
+    "🮡🮠🮡🮠🮡🮠🮡🮠 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯬🯯 🯩🯫 🯨 ▁🭻🭺🭹🭸🭷🭶▔\r\n",
+    "🮣🮢🮣🮢🮣🮢🮣🮢 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 ▏🭰🭱🭲🭳🭴🭵▕ 𜺨𜺬 𜺣𜺠\r\n",
+    "🮡🮠🮡🮠🮡🮠🮡🮠 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 ▕🭵🭴🭳🭲🭱🭰▏ 𜺣𜺠 𜺨𜺬\r\n",
+    "\r\n",
+    "\x1b[33;44m🮣🮢🮣🮢🮣🮢🮣🮢 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯮🯭 🯩🯫\r\n",
+    "🮡🮠🮡🮠🮡🮠🮡🮠 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯬🯯 🯩🯫\x1b[0m",
+)
+.as_bytes();
+
+const LEGACY_UNIFONT_DESC: &str = "Every block shape of Symbols for Legacy Computing and its Supplement that vtium draws as a sprite, in codepoint order: U+1FB3C to U+1FB92, U+1FB94 to U+1FBAF, U+1FBBD to U+1FBBF and U+1FBCE to U+1FBEF, then the one quarter blocks U+1CEA0 to U+1CEAF. Then shapes that join across cells and rows: chained diamonds of light diagonals, the checker board fill beside its inverse, the two diagonal fills side by side, a circle of four quarters and one of two halves, a circle of two halves stacked, staircases of horizontal and vertical eighth blocks, and patterns of the one quarter blocks; then the diamonds, fills and circles in yellow on blue. In unifont's 8x16 cells. Correct: each shape as the Unicode 18.0 code charts draw it, filling its part of the cell; the diagonals meet at the cells' edges, so the diamonds close; the checker boards and diagonal fills run across cells and rows with no seam; the quarters and halves close into round circles; each eighth block one step from its neighbour's.";
+
 /// The `emoji` screen.
 const EMOJI: &[u8] = concat!(
     "😀 👍 a☺b  wide, wide, narrow text\r\n",
@@ -2443,6 +2469,11 @@ const BASE: &[Case] = &[
     },
     Case {
         screen: Screen {
+            ..Screen::new("legacy-unifont", LEGACY_UNIFONT_DESC, LEGACY, 72, 12)
+        },
+    },
+    Case {
+        screen: Screen {
             ..Screen::new(
                 "emoji-unifont",
                 "The emoji screen in unifont, which has no color glyphs: two wide emoji and a narrow text smiley; a ZWJ family, a skin tone, a flag and a keycap; a heart with VS16, VS15 and no selector; an emoji between letters; emoji under underline, strike, reverse and a red curl; a codepoint of Unicode 15; and an emoji written at the last column, which wraps. Correct: each emoji its unifont glyph in the text color, a cluster drawn as its first character centred in its cells; the emoji and the VS16 heart two cells wide, the other hearts and the smiley one.",
@@ -2558,6 +2589,18 @@ const BASE: &[Case] = &[
                 UNDERLINE,
                 48,
                 10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "legacy-unifont-1bit",
+                "legacy-unifont on a 1-bit display. Correct: each shape lit where its coverage is at least half, so the diagonals and circles keep their edges as whole pixels and the fills keep their patterns; the diamonds, fills and circles in yellow on blue lit, on blue's unlit cells.",
+                LEGACY,
+                72,
+                12,
             )
         },
     },
@@ -3061,6 +3104,15 @@ const BASE: &[Case] = &[
             MOSAIC,
             72,
             16,
+        ),
+    },
+    Case {
+        screen: outline(
+            "legacy",
+            "The legacy-unifont screen in the 9x16 cell DejaVu Sans Mono gives at 16 pixels, whose width is not a whole number of halves or thirds of the shapes' own grids. Correct: vtium's sprites draw every shape, as legacy-unifont describes, each diagonal still meeting its neighbour's at the cell's edge and each fill keeping its period across cells.",
+            LEGACY,
+            72,
+            12,
         ),
     },
     Case {
