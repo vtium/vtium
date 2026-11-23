@@ -20,6 +20,8 @@ use std::time::Duration;
 
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::{LoopHandle, RegistrationToken};
+
+use crate::event_loop::Removals;
 use rustix::fs::{Mode as FileMode, OFlags, open};
 
 use super::{Density, DisplayId, Dpms, Event, Loan, Memory, Rect, SwapError, Swapped, Token, lock};
@@ -909,7 +911,7 @@ impl<F: Framebuffer + 'static> Fbdev<F> {
         A: Fn(&mut D) -> Option<&mut Fbdev<F>> + Clone + 'static,
     {
         self.link = Some(Box::new(LoopLink {
-            handle: handle.clone(),
+            removals: Removals::new(handle),
             access,
             dev: PhantomData::<fn(&F)>,
         }));
@@ -925,8 +927,11 @@ impl<F: Framebuffer> Drop for Fbdev<F> {
     }
 }
 
+/// The framebuffer's timer in the loop. A swap or a device removed in
+/// another source's callback disarms the timer, perhaps in the batch in
+/// which it expired, so it leaves the loop through [`Removals`].
 struct LoopLink<D: 'static, F, A> {
-    handle: LoopHandle<'static, D>,
+    removals: Removals<D>,
     access: A,
     dev: PhantomData<fn(&F)>,
 }
@@ -939,20 +944,24 @@ where
 {
     fn arm(&self, after: Duration) -> Option<RegistrationToken> {
         let access = self.access.clone();
-        self.handle
-            .insert_source(Timer::from_duration(after), move |_, _, data| {
-                if let Some(video) = access(data) {
-                    video.timer = None;
-                    video.fired();
-                }
-                TimeoutAction::Drop
-            })
-            .inspect_err(|e| log::error!("cannot arm the framebuffer's timer: {e}"))
+        self.removals
+            .insert(
+                Timer::from_duration(after),
+                move |_, _, data| {
+                    if let Some(video) = access(data) {
+                        video.timer = None;
+                        video.fired();
+                    }
+                    TimeoutAction::Drop
+                },
+                || TimeoutAction::Drop,
+            )
+            .inspect_err(|e| log::error!("cannot arm the framebuffer's timer: {}", e.error))
             .ok()
     }
 
     fn disarm(&self, token: RegistrationToken) {
-        self.handle.remove(token);
+        self.removals.remove(token);
     }
 }
 

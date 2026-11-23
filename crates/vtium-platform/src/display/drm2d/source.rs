@@ -15,6 +15,7 @@ use super::super::mode::ModePolicy;
 use super::super::token::Buffers;
 use super::Drm2d;
 use super::buffers::Source;
+use crate::event_loop::Removals;
 
 /// The loop's timers, while armed, besides each display's flip bound.
 #[derive(Default)]
@@ -78,8 +79,9 @@ impl<K: Kms + 'static, S: Source<K> + 'static> Drm2d<K, S> {
         D: 'static,
         A: Fn(&mut D) -> Option<&mut Drm2d<K, S>> + Clone + 'static,
     {
-        let source = handle
-            .insert_source(
+        let removals = Removals::new(handle);
+        let source = removals
+            .insert(
                 Generic::new(self.card.fd(), Interest::READ, Trigger::Level),
                 {
                     let access = access.clone();
@@ -97,10 +99,11 @@ impl<K: Kms + 'static, S: Source<K> + 'static> Drm2d<K, S> {
                         Ok(PostAction::Continue)
                     }
                 },
+                || Ok(PostAction::Continue),
             )
             .map_err(|e| io::Error::from(e.error))?;
         self.link = Some(Box::new(LoopLink {
-            handle: handle.clone(),
+            removals,
             source,
             access,
             card: PhantomData::<fn(&K, &S)>,
@@ -110,8 +113,13 @@ impl<K: Kms + 'static, S: Source<K> + 'static> Drm2d<K, S> {
     }
 }
 
+/// The card's sources in the loop. The card's descriptor and its timers
+/// leave the loop through [`Removals`], since a card goes away, and a
+/// timer is disarmed, from the callback of another source: udev's for a
+/// card removed, the card's own descriptor for a flip done in the batch in
+/// which its bound expired.
 struct LoopLink<D: 'static, K, S, A> {
-    handle: LoopHandle<'static, D>,
+    removals: Removals<D>,
     source: RegistrationToken,
     access: A,
     card: PhantomData<fn(&K, &S)>,
@@ -126,35 +134,39 @@ where
 {
     fn arm(&self, clock: Clock) -> Option<RegistrationToken> {
         let access = self.access.clone();
-        self.handle
-            .insert_source(Timer::from_duration(clock.after()), move |_, _, data| {
-                if let Some(video) = access(data) {
-                    match clock {
-                        Clock::Flip(crtc) => video.flip_expired(crtc),
-                        Clock::Stale(crtc) => video.stale_expired(crtc),
-                        Clock::WakeRetry => {
-                            video.timers.wake_retry = None;
-                            video.retry_wake();
-                        }
-                        Clock::SlowRetry => {
-                            video.timers.slow_retry = None;
-                            video.retry_slowly();
+        self.removals
+            .insert(
+                Timer::from_duration(clock.after()),
+                move |_, _, data| {
+                    if let Some(video) = access(data) {
+                        match clock {
+                            Clock::Flip(crtc) => video.flip_expired(crtc),
+                            Clock::Stale(crtc) => video.stale_expired(crtc),
+                            Clock::WakeRetry => {
+                                video.timers.wake_retry = None;
+                                video.retry_wake();
+                            }
+                            Clock::SlowRetry => {
+                                video.timers.slow_retry = None;
+                                video.retry_slowly();
+                            }
                         }
                     }
-                }
-                TimeoutAction::Drop
-            })
-            .inspect_err(|e| log::error!("cannot arm a display timer: {e}"))
+                    TimeoutAction::Drop
+                },
+                || TimeoutAction::Drop,
+            )
+            .inspect_err(|e| log::error!("cannot arm a display timer: {}", e.error))
             .ok()
     }
 
     fn disarm(&self, token: RegistrationToken) {
-        self.handle.remove(token);
+        self.removals.remove(token);
     }
 }
 
 impl<D: 'static, K, S, A> Drop for LoopLink<D, K, S, A> {
     fn drop(&mut self) {
-        self.handle.remove(self.source);
+        self.removals.remove(self.source);
     }
 }
