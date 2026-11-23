@@ -16,7 +16,7 @@ mod with {
     use std::collections::BTreeSet;
 
     use super::super::Screen;
-    use crate::line::{Line, LineId};
+    use crate::line::{Line, LineId, LineSize};
     use crate::placeholder;
     use crate::scrollback::{Change, Move};
 
@@ -33,28 +33,24 @@ mod with {
     /// in. The cells of it left of the screen are cut off, its visible part
     /// with them. Returns false when nothing of it is left to draw.
     ///
-    /// The placement's column is a screen column, but `r` orders the cells
-    /// the line shows. A line of double size shows one cell for every two
-    /// screen columns. So the placement's first column lies in the line's
-    /// cell at half that column, and a cell drawn in place `v` covers screen
-    /// columns `2v` and `2v + 1`.
+    /// On a line of `size` double, the placement's column counts the line's
+    /// cells, as `r` does, and the cell drawn in place `v` covers screen
+    /// columns `2v` and `2v + 1`. So the box ends at screen column
+    /// `2v + 2`, keeping its own width.
     ///
     /// References:
     /// - ADR-1004 D8, "Pictures": the box of a picture in a right-to-left
     ///   paragraph starts at the right edge of its first logical column's
-    ///   cell and extends left, and a double-size row reorders over its
-    ///   half as many cells.
+    ///   cell and extends left, and on a double-size row a picture starts
+    ///   on the screen columns where the cell it was placed in is drawn.
     #[cfg(feature = "bidi")]
-    fn mirror(
-        p: &mut FramePlacement,
-        r: &crate::order::RowOrder,
-        size: crate::line::LineSize,
-    ) -> bool {
+    fn mirror(p: &mut FramePlacement, r: &crate::order::RowOrder, size: LineSize) -> bool {
         let first = usize::try_from(p.col).unwrap_or(usize::MAX);
+        let end = r.visual_at(first).saturating_add(1);
         let end = if size.is_double() {
-            r.visual_at(first / 2).saturating_add(1).saturating_mul(2)
+            end.saturating_mul(2)
         } else {
-            r.visual_at(first).saturating_add(1)
+            end
         };
         let end = i64::try_from(end).unwrap_or(i64::MAX);
         let left = end.saturating_sub(i64::from(p.cols));
@@ -87,6 +83,34 @@ mod with {
         p.src_x = p.src_x.saturating_add(src_trim);
         p.src_width = p.src_width.saturating_sub(src_trim);
         true
+    }
+
+    /// Moves picture `p`, whose box's top row is a line of `size` on a
+    /// screen `cols` wide, to the screen column where its first cell is
+    /// drawn in written order. A double-size line shows one cell for every
+    /// two screen columns, and the placement's column counts the line's
+    /// cells, so the cell in column n starts at screen column 2n. Returns
+    /// false when the line does not show that cell, which happens when a
+    /// line made double after the picture was placed hides it.
+    ///
+    /// References:
+    /// - ADR-1004 D8, "Double-size rows": a picture starts on the screen
+    ///   columns where the cell it was placed in is drawn.
+    fn to_screen(p: &mut FramePlacement, size: LineSize, cols: usize) -> bool {
+        if !size.is_double() {
+            return true;
+        }
+        if !shown(p.col, size, cols) {
+            return false;
+        }
+        p.col = p.col.saturating_mul(2);
+        true
+    }
+
+    /// Whether a line of `size` on a screen `cols` wide shows its cell in
+    /// column `col`.
+    fn shown(col: u32, size: LineSize, cols: usize) -> bool {
+        usize::try_from(col).is_ok_and(|c| c < size.columns(cols))
     }
 
     /// One buffer's lines as the store reads them: the screen's rows, and
@@ -209,6 +233,16 @@ mod with {
         /// placement starts above its root, so a child whose root has left
         /// the bottom of a view moved back into the scrollback still draws
         /// (D13).
+        ///
+        /// A double-width or double-height line draws each of its cells
+        /// two screen columns wide. A picture on such a line starts at the
+        /// screen column where the cell it was placed in is drawn, and a
+        /// run of placeholder cells covers the screen columns where its
+        /// cells are drawn, twice as many as it has cells.
+        ///
+        /// References:
+        /// - ADR-1004 D8, "Double-size rows": where pictures and
+        ///   placeholder runs on a double-size line are drawn.
         pub fn placements(&self) -> Vec<FramePlacement> {
             if !self.images.has_placements() {
                 return Vec::new();
@@ -235,7 +269,31 @@ mod with {
             };
             let below = self.below_view(self.images.reach_below());
             let runs = self.frame_runs();
-            self.images.frame_with_runs(rows, &below, &runs, self.cols)
+            let top = self
+                .scrollback
+                .view_index()
+                .unwrap_or(self.scrollback.len());
+            let mut out = self.images.frame_with_runs(rows, &below, &runs, self.cols);
+            out.retain_mut(|p| {
+                // the store places an entry made from a placeholder run
+                p.from_placeholder_run() || to_screen(p, self.size_at(&view, top, p.row), self.cols)
+            });
+            out
+        }
+
+        /// The size of the line at view row `row` of `view`, a row above the
+        /// view when negative, counted back from the scrollback's line at
+        /// `top`. The alternate screen has no lines above its view.
+        fn size_at(&self, view: &[&Line], top: usize, row: i64) -> LineSize {
+            let line = match usize::try_from(row) {
+                Ok(y) => view.get(y).copied(),
+                Err(_) if self.flags.alternate => None,
+                Err(_) => {
+                    let back = usize::try_from(row.unsigned_abs()).unwrap_or(usize::MAX);
+                    top.checked_sub(back).and_then(|place| self.line_at(place))
+                }
+            };
+            line.map_or(LineSize::Single, |l| l.flags().size())
         }
 
         /// [`placements`](Self::placements), drawn through `order`
@@ -294,23 +352,22 @@ mod with {
                 if p.from_placeholder_run() {
                     return true;
                 }
-                // the order of the box's top row, and that line's size
+                // the size of the box's top row, and the row's order
+                let size = self.size_at(&view, top, p.row);
+                if size.is_double() && !shown(p.col, size, self.cols) {
+                    return false;
+                }
                 let anchored = match usize::try_from(p.row) {
-                    Ok(y) => order
-                        .row(y)
-                        .cloned()
-                        .zip(view.get(y).map(|l| l.flags().size())),
+                    Ok(y) => order.row(y).cloned(),
                     Err(_) => {
                         let back = usize::try_from(p.row.unsigned_abs()).unwrap_or(usize::MAX);
-                        top.checked_sub(back).and_then(|place| {
-                            let size = self.line_at(place)?.flags().size();
-                            Some((self.place_order(place)?, size))
-                        })
+                        top.checked_sub(back)
+                            .and_then(|place| self.place_order(place))
                     }
                 };
                 match anchored {
-                    Some((r, size)) if r.rtl => mirror(p, &r, size),
-                    _ => true,
+                    Some(r) if r.rtl => mirror(p, &r, size),
+                    _ => to_screen(p, size, self.cols),
                 }
             });
             out

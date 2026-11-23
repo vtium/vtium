@@ -180,17 +180,33 @@ pub(super) fn origins(
 }
 
 /// Virtual placement `p` as the entry run `run` draws, with the run's first
-/// cell at screen column `run.col`, on a screen `cols` wide: the part of
-/// the run's cells inside the placement's grid, its picture moved by the
-/// cells of the grid above and left of the run. `None` when no part of the
-/// run lies in the grid or on the screen, or when the fitted picture
+/// cell at place `run.col` of its line, on a screen `cols` wide: the part
+/// of the run's cells inside the placement's grid, its picture moved by
+/// the cells of the grid above and left of the run. `None` when no part of
+/// the run lies in the grid or on the screen, or when the fitted picture
 /// covers none of its cells; the picture lies inside its grid, so a run on
 /// a picture row past the grid's rows covers none.
+///
+/// A line of single size draws the cell in place n at screen column n. A
+/// double-size line draws it two screen columns wide, at screen columns 2n
+/// and 2n + 1. The entry of a run on such a line starts at screen column
+/// 2n and covers two screen columns for each of the run's cells that fits
+/// on the screen. The picture's horizontal offset and drawn width are
+/// doubled with it, so the part of the picture under the run fills the
+/// wider box. The picture keeps its height.
+///
+/// References:
+/// - ADR-1004 D8, "Double-size rows": a placeholder run covers the screen
+///   columns where its cells are drawn, twice as wide on a double-size
+///   line.
 pub(super) fn run_placement(p: &Placement, run: &PlaceholderRun, cols: usize) -> Option<Placement> {
-    let on_screen = usize::try_from(run.col)
+    let scale: u32 = if run.double { 2 } else { 1 };
+    let start = run.col.checked_mul(scale)?;
+    let on_screen = usize::try_from(start)
         .ok()
         .and_then(|c| cols.checked_sub(c))
-        .and_then(|left| u32::try_from(left).ok())?;
+        .and_then(|left| u32::try_from(left).ok())
+        .and_then(|left| left.checked_div(scale))?;
     let cells = run
         .cells
         .min(on_screen)
@@ -209,11 +225,12 @@ pub(super) fn run_placement(p: &Placement, run: &PlaceholderRun, cols: usize) ->
     let width = i64::from(cells).saturating_mul(cw);
     let covers = ox < width && ox.saturating_add(dw) > 0 && oy < ch && oy.saturating_add(dh) > 0;
     covers.then(|| Placement {
-        col: run.col,
-        cols: cells,
+        col: start,
+        cols: cells.saturating_mul(scale),
         rows: 1,
-        ox,
+        ox: ox.saturating_mul(i64::from(scale)),
         oy,
+        dw: p.dw.saturating_mul(u64::from(scale)),
         ..p.clone()
     })
 }
