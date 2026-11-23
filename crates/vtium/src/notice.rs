@@ -190,7 +190,7 @@ pub fn stopped() -> String {
 /// broken closed head file at `path` left.
 pub fn no_head_left(path: &std::path::Path) -> String {
     format!(
-        "No head can run because of the errors in {}, listed below.",
+        "No display head can run because of the errors in {}, listed below.",
         vtium_settings::Shown(path)
     )
 }

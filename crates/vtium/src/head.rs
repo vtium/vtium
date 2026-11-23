@@ -2165,7 +2165,7 @@ mod tests {
     /// The panic screen of [`a_broken_closed_files_start_shows_the_panic_screens_report`]'s file.
     const PANIC: &str = concat!(
         "vtium.conf has errors and counts as closed: all input is off.\n",
-        "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
+        "No display head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
         "/etc/vtium/vtium.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
         "/etc/vtium/vtium.conf:5: `isolated` cannot be \"maybe\". Change it to one of `yes`, `no`.\n",
         "/etc/vtium/vtium.conf:7: This rule sends devices to head \"k\\u{202e}x\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.\n",

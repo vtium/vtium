@@ -1587,7 +1587,7 @@ mod tests {
             crate::notices::panic().as_deref(),
             Ok(concat!(
                 "vtium.conf has errors and counts as closed: all input is off.\n",
-                "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
+                "No display head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
                 "/etc/vtium/vtium.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
                 "/etc/vtium/vtium.conf:5: `isolated` cannot be \"maybe\". Change it to one of `yes`, `no`.\n",
                 "/etc/vtium/vtium.conf:7: This rule sends devices to head \"kisok\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.\n",
@@ -1607,7 +1607,7 @@ mod tests {
         fn shown() -> Result<vtium_render::Notice, String> {
             Ok(vtium_render::Notice::new(concat!(
                 "vtium.conf has errors and counts as closed: all input is off.\n",
-                "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
+                "No display head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
                 "/etc/vtium/vtium.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
                 "More errors: 3\n",
                 "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",

@@ -5466,7 +5466,7 @@ const CLOSED_OFF: &str = "vtium.conf has errors and counts as closed: all input 
 /// each naming the file the start read.
 const PANIC: &str = concat!(
     "vtium.conf has errors and counts as closed: all input is off.\n",
-    "No head can run because of the errors in heads.conf, listed below.\n",
+    "No display head can run because of the errors in heads.conf, listed below.\n",
     "heads.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
     "This console takes no input. For the full report, run vtium check-config heads.conf over ssh or from other boot media.",
 );
@@ -5580,7 +5580,9 @@ fn d7_row(row: &Row) {
                 };
                 let want = [
                     "vtium.conf has errors and counts as closed: all input is off.".to_owned(),
-                    format!("No head can run because of the errors in {path}, listed below."),
+                    format!(
+                        "No display head can run because of the errors in {path}, listed below."
+                    ),
                     error,
                     format!(
                         "This console takes no input. For the full report, run vtium check-config {path} over ssh or from other boot media."
