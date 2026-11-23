@@ -346,7 +346,11 @@ The step is one short process. Most of its time goes to the one run of `vtium ch
 
 ## Frits
 
-A frit has one `key=value` a line. Blanks around the key and the value are dropped. A `#` starts a comment that runs to the line's end, as vtium.conf reads it. Unlike vtium.conf, a frit is refused whole for any of four faults, and the refusal names the file and line. The faults are an unknown key, a malformed line, a value with a control character, and a key that this build does not build yet.
+A frit has one `key=value` a line. Blanks around the key and the value are dropped. A `#` starts a comment that runs to the line's end, as vtium.conf reads it.
+
+A key that vtium does not know changes one setting at most. The frit reader reports the key with the file and line, ignores the line, and reads the rest of the frit. A frit written for a newer release then loads in an older one, without the keys it adds. A known key where it cannot apply counts as an unknown key. Examples are `render=` under a bitmap source, `cp-size=` under a font that is not a CPI font, and a `cover=` line above the first `source=` line. `vtium-config check` prints each such line as a warning, and the console logs the helper's warning.
+
+A malformed line, or a value that a key cannot take, refuses the whole frit, and the refusal names the file and line. A value with a control character and a key given twice count as bad values. The helper runs unattended, and a half-read frit draws the wrong glyphs, so the frit has no smaller part that vtium could leave out (ADR-1200 D1, ADR-1510 D2).
 
 This slice reads ADR-1200 D1's keys and ADR-1301 D4's `antialias=`:
 
@@ -380,7 +384,7 @@ source=kbd:ter-v16n
 source=font:Noto Sans CJK SC
 ```
 
-Color glyphs keep their color under both values, and vtium's own sprites draw as the sprite policy says. The line under a bitmap source refuses the frit, naming its line. The line under a `font:` source that turns out to be a console font is ignored, with a warning (ADR-1200 D1).
+Color glyphs keep their color under both values, and vtium's own sprites draw as the sprite policy says. A bitmap source takes no `render=` line, so vtium ignores one under a bitmap source, with a warning naming its line. The line under a `font:` source that turns out to be a console font is ignored too, with a warning (ADR-1200 D1).
 
 `script-source=` names a smaller size of the same font as the bitmap `source=` line above it, as `kbd:NAME`, `file:PATH` or `bdf:PATH`. The line can repeat (ADR-1202 D12). The source's superscripts and subscripts (SGR 73 and 74) come from one of its smaller sizes (ADR-1202 D3). It is the tallest smaller size whose characters are from one half to three quarters as high as the source's characters in the cell. Those smaller sizes are these, each at any whole multiple that fits the cell:
 
@@ -388,7 +392,7 @@ Color glyphs keep their color under both values, and vtium's own sprites draw as
 - a CPI source's other heights;
 - the fonts that the `script-source=` lines name.
 
-The glyph is placed whole, against the top of the row for a superscript and against the bottom for a subscript. A font that this machine lacks is left out quietly. A font that the helper refuses is left out with a warning naming its line. The font keeps its own Unicode table, and takes the source's `unimap=` where it has none. The line under an `outline:` source refuses the frit, naming its line. The line under a `font:` source that turns out to be an outline font is ignored, with a warning. `vtium-config check` asks the helper about a frit with `script-source=` lines. It notes each font whose height gives no superscript or subscript in the frit's own cell. For example, a frit of Terminus at 16 pixels takes its superscripts from Terminus at 12:
+The glyph is placed whole, against the top of the row for a superscript and against the bottom for a subscript. A font that this machine lacks is left out quietly. A font that the helper refuses is left out with a warning naming its line. The font keeps its own Unicode table, and takes the source's `unimap=` where it has none. vtium ignores the line under an `outline:` source, with a warning naming its line. The line under a `font:` source that turns out to be an outline font is ignored, with a warning. `vtium-config check` asks the helper about a frit with `script-source=` lines. It notes each font whose height gives no superscript or subscript in the frit's own cell. For example, a frit of Terminus at 16 pixels takes its superscripts from Terminus at 12:
 
 ```ini
 source=kbd:ter-116n
@@ -460,10 +464,10 @@ Four keys under a `source=` line say which font the source needs. The helper mat
 
 - `version=` is the lowest version of the font that the frit was written against, as numbers separated by dots, such as `2.304`, eight numbers at most. The helper reads a font's version from an outline font's name table (name ID 5) or a BDF font's `FONT_VERSION` property, and takes the first run of numbers in it. A Nerd Fonts build states its base font's version first and its Nerd Fonts release after the words `Nerd Fonts`, as in `Version 001.000;Nerd Fonts 3.5.1`, so the helper takes the release there. It compares versions number by number, so `2.10` is later than `2.9`, and `3.4` is the same version as `3.4.0`. A font of a lower version still draws, and `vtium-config fonts` reports it. A font that states no version, such as a PSF font, is not compared.
 - `check=` names a character that the right font holds, as `U+XXXX`, or a range of characters as `U+XXXX-U+YYYY`. The line can repeat, and its ranges join. A font that lacks any of them counts as missing, so the next source gives its characters. For example, `check=U+E0B0` tells a Nerd Fonts build from the plain font of a similar name.
-- `sha256=` is the SHA-256 of the file that a `file:`, `bdf:`, `hex:` or `outline:` source names, as 64 hexadecimal digits, in either case. The hash is of the file as it is stored, compressed or not. A file with another hash still draws, and `vtium-config fonts` reports it. Under a source that names no file, `sha256=` refuses the frit. On the lines after a `strike=` line, `sha256=` gives that strike's file's hash, because each strike is a file of its own. `version=`, `check=` and `url=` there still describe the source's font. A strike whose file has another hash still draws, and the report names the strike's file.
+- `sha256=` is the SHA-256 of the file that a `file:`, `bdf:`, `hex:` or `outline:` source names, as 64 hexadecimal digits, in either case. The hash is of the file as it is stored, compressed or not. A file with another hash still draws, and `vtium-config fonts` reports it. Under a source that names no file, vtium ignores `sha256=`, with a warning. On the lines after a `strike=` line, `sha256=` gives that strike's file's hash, because each strike is a file of its own. `version=`, `check=` and `url=` there still describe the source's font. A strike whose file has another hash still draws, and the report names the strike's file.
 - `url=` is the font's upstream page, with the version, as an address that starts with `https://` or `http://`. `vtium-config fonts` names it beside the font. A `#` starts a comment in a frit, so the address cannot hold one.
 
-Each key but `check=` comes once for each source. A malformed value, a second line of a key, and a key above the first `source=` line each refuse the frit, naming the line. `version=` and `check=` under a `builtin:`, `vconsole` or `console:` source refuse it too, because such a source names no font you install.
+Each key but `check=` comes once for each source. A malformed value and a second line of a key each refuse the frit, naming the line. vtium ignores a key above the first `source=` line, with a warning, because it has no source to describe. It also ignores `version=` and `check=` under a `builtin:`, `vconsole` or `console:` source, because such a source names no font you install.
 
 ```ini
 source=font:JetBrainsMono Nerd Font Mono
