@@ -51,6 +51,10 @@ considered:
     via: the steering session's interview on 2026-11-22, late (question tool), as the steering session's notes of the maintainer's record answers give it
     paraphrase: true
     covers: [an older vtium and a newer file]
+  - operator: aaronsb
+    said: "we don't have to keep a hardline stance on no changes in beta. it's ok - 'soft beta' basically."
+    via: the maintainer reading the wave 6a records in the steering session on 2026-11-22, as the steering session's notes of the maintainer's record answers give it
+    covers: [when it binds]
 status: proposed
 date: 2026-11-20
 deciders:
@@ -65,12 +69,15 @@ related:
 
 ## Summary
 
-- **Decided:** The maintainer decided on 2026-11-20 that vtium's formats and interfaces are provisional, and on 2026-11-22 that this record binds from the first beta. This record writes down what vtium does now with each of them: vtium.conf's keys and its sections, frits and their layers, the replay interface, the command lines of `vtium`, `vtium check-config` and `vtium-config`, and what vtium answers to a program's queries. vtium tries to stay consistent with what the record says. Until the first beta, nobody depends on vtium's formats, so vtium changes a format when there is a practical reason, and the release notes and this record say what changed. From the first beta on, vtium keeps each format as D3 says, and a change that would break a file or a program is a decision of its own. For each format the record also says what an older vtium does with a file written for a newer one. The rule is the same everywhere: the person gets a clear message that names the file and the line, and never a silent wrong result. In vtium.conf and in a font set, vtium ignores only a key it does not know, or a known key that stands where it does not apply. It keeps the rest of that key's section, or the rest of the font set. The record names, for each format, the test that would show a break.
+- **Decided:** The maintainer decided on 2026-11-20 that vtium's formats and interfaces are provisional. On 2026-11-22 the maintainer decided that this record binds softly from the first beta and fully from 0.1.0. This record writes down what vtium does now with each of them: vtium.conf's keys and its sections, frits and their layers, the replay interface, the command lines of `vtium`, `vtium check-config` and `vtium-config`, and what vtium answers to a program's queries. vtium tries to stay consistent with what the record says. Until the first beta, nobody depends on vtium's formats, so vtium changes a format when there is a practical reason, and the release notes and this record say what changed. The beta is a soft beta: vtium keeps each format as D3 says, but a format may still change when there is a reason. Each such change gets a line in the release notes that says what changed and how to update a file, and vtium still reads the older form where that is cheap. From 0.1.0 on, a change that would break a file or a program is a decision of its own. For each format the record also says what an older vtium does with a file written for a newer one. The rule is the same everywhere: the person gets a clear message that names the file and the line, and never a silent wrong result. In vtium.conf and in a font set, vtium ignores only a key it does not know, or a known key that stands where it does not apply. It keeps the rest of that key's section, or the rest of the font set. The record names, for each format, the test that would show a break.
   > Edited 2026-11-22: the maintainer answered both probes (`considered`, 2026-11-22): "At the first beta", and "Ignore just the unknown key", the second against the record's lean. The bullet named no point at which the record binds, and said nothing of what an older vtium keeps of a section.
   > Edited 2026-11-22, later the same day: the maintainer extended the second answer to font sets, and to a known key in a section that does not take it (`considered`, the third and fourth entries of 2026-11-22). The sentence read: "In vtium.conf, an older vtium ignores only the key it does not know, and keeps the rest of that key's section."
-- **Trades away:** No promise of compatibility before the first beta. Until then, a person who keeps a vtium.conf or a frit may have to edit it after an upgrade, and a tool that reads vtium's output may have to change. From the first beta, a format changes only through a decision of its own, so a name that turns out to mislead stays until that decision. Writing the rules down also binds vtium to say each change in the record and the release notes.
-- **One-way?** No while vtium is alpha. The record is provisional until the first beta, and each format can still change until then. From the first beta the record binds, and a format becomes expensive to change because people keep files in it.
+  > Edited 2026-11-22, after the maintainer read the wave's records: the maintainer said "we don't have to keep a hardline stance on no changes in beta. it's ok - 'soft beta' basically." (`considered`, the fifth entry). The bullet's first sentence ended: "and on 2026-11-22 that this record binds from the first beta." The sentence after "say what changed" read: "From the first beta on, vtium keeps each format as D3 says, and a change that would break a file or a program is a decision of its own."
+- **Trades away:** No promise of compatibility before the first beta. Until then, a person who keeps a vtium.conf or a frit may have to edit it after an upgrade, and a tool that reads vtium's output may have to change. During the beta that can still happen, though each change comes with a release note that says how to update the file. From 0.1.0, a format changes only through a decision of its own, so a name that turns out to mislead stays until that decision. Writing the rules down also binds vtium to say each change in the record and the release notes.
+  > Edited 2026-11-22, after the maintainer read the wave's records: the soft beta (`considered`, the fifth entry). The bullet's third and fourth sentences read: "From the first beta, a format changes only through a decision of its own, so a name that turns out to mislead stays until that decision."
+- **One-way?** No while vtium is alpha or beta. The record is provisional until the first beta, and during the beta a format can still change with a release note. From 0.1.0 the record binds fully, and a format becomes expensive to change because people keep files in it.
   > Edited 2026-11-22: the maintainer chose the first beta as the point where the record binds (`considered`, 2026-11-22). The bullet read: "No. The record is provisional by the maintainer's decision, and each format can still change. A format becomes expensive to change once people keep files in it, which is what a later, binding version of this record would settle."
+  > Edited 2026-11-22, after the maintainer read the wave's records: the soft beta (`considered`, the fifth entry). The bullet read: "No while vtium is alpha. The record is provisional until the first beta, and each format can still change until then. From the first beta the record binds, and a format becomes expensive to change because people keep files in it."
 - **Probes:**
   - *Not confident (when it binds):* the record stays provisional until the maintainer says otherwise. Should it become binding at the first beta, at 0.1.0, or only when someone outside the project relies on a format?
   - *Confident (an older vtium and a newer file):* an older vtium never guesses at a key or a line it does not know. It reports the key and ignores it at vtium.conf's top level, drops the section that holds it, or refuses the frit, and each time it names the file and the line. Is that the behaviour you want?
@@ -84,13 +91,14 @@ Three words recur below. A **format** is a file layout or an interface that a pe
 
 ## Decision
 
-### D1: the formats are provisional until the first beta
+### D1: the formats are provisional until the first beta, bind softly during the beta, and bind fully from 0.1.0
 
 - **vtium keeps to what this record says** while there is no practical reason to change. A release that changes a format says so in its release notes, as ADR-1508 has a release's notes written once, and edits this record with a dated note at the format's section.
 - **Until the first beta, vtium changes a format when there is a practical reason,** such as a key whose name misleads, or a layout that blocks a feature. Nobody depends on the formats yet, so vtium carries no migration and no period of deprecation for such a change while the record is provisional.
 - **A rename keeps a message for the old name where that costs little.** vtium.conf's renamed head keys show how: `on-loss`, `rescue` and `profile` each get a message that names the new key. A key binding given by its old name on vtium's command line still works (ADR-1005 D10).
-- **The record binds from the first beta.** From then on, vtium keeps each format as D3 says, so a file or a program that works with one release works with the next. A change that would break one is a decision of its own: the maintainer decides it through an edit of this record, and the release notes name it.
-- **Three tests prove the promise, and the first beta waits for them.** Each one reads the files the release before it shipped, and fails when the newer vtium no longer reads them as before:
+- **During the beta, the record binds softly.** vtium keeps each format as D3 says, so a file or a program that works with one beta release normally works with the next. A format may still change when there is a reason. Each such change gets a line in the release notes that says what changed and how to update a file, and the change edits this record with a dated note. vtium still reads the older form where that is cheap, as the renamed head keys show.
+- **The record binds fully from 0.1.0.** From then on, a change that would break a file or a program is a decision of its own: the maintainer decides it through an edit of this record, and the release notes name it.
+- **Three tests prove the promise, and the first beta waits for them.** Each one reads the files the release before it shipped, and fails when the newer vtium no longer reads them as before. During the beta, a test that turns red shows a break, which the release notes then have to name, so no beta release breaks a file without saying so:
   - In vtium's config tests (`crates/vtium/src/config/tests.rs`), a test that loads the previous release's `vtium.conf.example` and expects no report.
   - The head template test: a test in vtium-settings that reads the previous release's head file template, `crates/vtium-settings/templates/heads.conf`, and expects no error.
   - The frit catalog test: a test in vtium-config that reads every frit and layer of the previous release's catalog and expects each one to read.
@@ -98,6 +106,8 @@ Three words recur below. A **format** is a file layout or an interface that a pe
   None of the three exists yet. D3 names each one in its row, and the gap-check of D4 writes them.
 
 > Edited 2026-11-22: the maintainer answered "At the first beta" (`considered`, 2026-11-22). D1 was headed "the formats are provisional", and its second bullet did not say until when. The last two bullets are new.
+
+> Edited 2026-11-22, after the maintainer read the wave's records: the maintainer said "we don't have to keep a hardline stance on no changes in beta. it's ok - 'soft beta' basically." (`considered`, the fifth entry). D1 was headed "the formats are provisional until the first beta". The bullet before the tests read: "**The record binds from the first beta.** From then on, vtium keeps each format as D3 says, so a file or a program that works with one release works with the next. A change that would break one is a decision of its own: the maintainer decides it through an edit of this record, and the release notes name it." The tests' bullet ended at "no longer reads them as before".
 
 ### D2: one rule for an older vtium and a newer file
 
@@ -134,18 +144,20 @@ A gap-check reads the code against D3, row by row, and lists each place where vt
 
 ### Positive
 
-- From the first beta, a person's vtium.conf and frits keep working across an upgrade.
+- During the beta, a person's vtium.conf and frits keep working across an upgrade, or the release notes say how to update them. From 0.1.0, they keep working.
 - A person who upgrades vtium sees a message that names each key, section or frit line the new release does not take, instead of a setting that silently stops working.
 - A change to a format is said in one place, the release notes, and recorded here.
 - Each format has a test that a break would turn red, so a change is a deliberate edit rather than an accident.
 
 ### Negative
 
-- vtium promises no compatibility before the first beta, so until then a person may have to edit a vtium.conf or a frit after an upgrade.
-- Each change of a format costs an edit of this record and a line in the release notes, and from the first beta a decision of its own.
+- vtium promises no compatibility before the first beta, so until then a person may have to edit a vtium.conf or a frit after an upgrade. During the beta that can still happen, with a release note that says how.
+- Each change of a format costs an edit of this record and a line in the release notes, and from 0.1.0 a decision of its own.
 - Three of the tests that D3 names do not exist yet, and the gap-check has to write them before the first beta.
 - A section that holds an unknown key keeps its other keys, so a head can run with all but one of the settings its file names. The report that names the key is what tells the person.
 - A font set that holds an unknown key draws without that key's effect. A newer key that narrows what a source covers, for example, is lost, so an older vtium draws more of that source's glyphs than the file meant. The report that names the key is again what tells the person.
+
+> Edited 2026-11-22, after the maintainer read the wave's records: the soft beta (`considered`, the fifth entry). The first positive consequence read: "From the first beta, a person's vtium.conf and frits keep working across an upgrade." The first negative consequence ended at "after an upgrade", and the second read "and from the first beta a decision of its own".
 
 ### Neutral
 
@@ -160,5 +172,8 @@ A gap-check reads the code against D3, row by row, and lists each place where vt
 
 > Edited 2026-11-22, later the same day: the maintainer's answer that font sets follow vtium.conf's rule (D2). The alternative read: "**Ignore every unknown line everywhere, with a notice, frits and sections included.** Not taken: an unknown frit line can change which glyphs a whole set draws, and an unknown section can hold anything, so reading the rest would draw or route something the file did not intend."
 - **Drop the whole section at an unknown key in it.** This was the record's lean. Not taken: the maintainer chose on 2026-11-22 that an older vtium ignores only the key, so one new key in a head costs the person that one setting, not the head and its rules.
-- **Bind the record at 0.1.0, or only once someone outside the project relies on a format.** Not taken: the maintainer chose the first beta on 2026-11-22.
+- **Bind the record fully at the first beta.** Not taken: the maintainer chose a soft beta on 2026-11-22, so the beta can still change a format for a reason, with a release note, and the full promise waits for 0.1.0.
+- **Bind the record only once someone outside the project relies on a format.** Not taken: the maintainer chose the first beta on 2026-11-22, softly, and 0.1.0 fully.
+
+> Edited 2026-11-22, after the maintainer read the wave's records: the soft beta (`considered`, the fifth entry). The two alternatives were one: "**Bind the record at 0.1.0, or only once someone outside the project relies on a format.** Not taken: the maintainer chose the first beta on 2026-11-22."
 - **Refuse the whole vtium.conf at any unknown key.** Not taken: one unknown top-level setting would cost the person every other setting, and the top level has always been read the forgiving way.
