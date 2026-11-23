@@ -32,12 +32,31 @@ mod with {
     /// its box ends at the right edge of the cell its first column is drawn
     /// in. The cells of it left of the screen are cut off, its visible part
     /// with them. Returns false when nothing of it is left to draw.
+    ///
+    /// The placement's column is a screen column, but `r` orders the cells
+    /// the line shows. A line of double size shows one cell for every two
+    /// screen columns. So the placement's first column lies in the line's
+    /// cell at half that column, and a cell drawn in place `v` covers screen
+    /// columns `2v` and `2v + 1`.
+    ///
+    /// References:
+    /// - ADR-1004 D8, "Pictures": the box of a picture in a right-to-left
+    ///   paragraph starts at the right edge of its first logical column's
+    ///   cell and extends left, and a double-size row reorders over its
+    ///   half as many cells.
     #[cfg(feature = "bidi")]
-    fn mirror(p: &mut FramePlacement, r: &crate::order::RowOrder) -> bool {
+    fn mirror(
+        p: &mut FramePlacement,
+        r: &crate::order::RowOrder,
+        size: crate::line::LineSize,
+    ) -> bool {
         let first = usize::try_from(p.col).unwrap_or(usize::MAX);
-        let end = i64::try_from(r.visual_at(first))
-            .unwrap_or(i64::MAX)
-            .saturating_add(1);
+        let end = if size.is_double() {
+            r.visual_at(first / 2).saturating_add(1).saturating_mul(2)
+        } else {
+            r.visual_at(first).saturating_add(1)
+        };
+        let end = i64::try_from(end).unwrap_or(i64::MAX);
         let left = end.saturating_sub(i64::from(p.cols));
         let cut = u32::try_from(left.min(0).unsigned_abs()).unwrap_or(u32::MAX);
         if cut >= p.cols {
@@ -275,16 +294,22 @@ mod with {
                 if p.from_placeholder_run() {
                     return true;
                 }
+                // the order of the box's top row, and that line's size
                 let anchored = match usize::try_from(p.row) {
-                    Ok(y) => order.row(y).cloned(),
+                    Ok(y) => order
+                        .row(y)
+                        .cloned()
+                        .zip(view.get(y).map(|l| l.flags().size())),
                     Err(_) => {
                         let back = usize::try_from(p.row.unsigned_abs()).unwrap_or(usize::MAX);
-                        top.checked_sub(back)
-                            .and_then(|place| self.place_order(place))
+                        top.checked_sub(back).and_then(|place| {
+                            let size = self.line_at(place)?.flags().size();
+                            Some((self.place_order(place)?, size))
+                        })
                     }
                 };
                 match anchored {
-                    Some(r) if r.rtl => mirror(p, &r),
+                    Some((r, size)) if r.rtl => mirror(p, &r, size),
                     _ => true,
                 }
             });
