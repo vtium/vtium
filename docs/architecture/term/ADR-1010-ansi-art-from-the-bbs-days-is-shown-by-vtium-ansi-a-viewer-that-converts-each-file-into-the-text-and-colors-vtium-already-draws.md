@@ -32,7 +32,24 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
-status: proposed
+considered:
+  - operator: aaronsb
+    said: "Full-screen view (Recommended)"
+    via: the maintainer, through the question tool in the steering session, 2026-11-22
+    covers: [the view]
+  - operator: aaronsb
+    said: "we built blinking into the terminal might as well support it!"
+    via: "the maintainer, through the question tool in the steering session, 2026-11-22; against the lean, and the steering session reads it as following SAUCE: SGR 5 blinks unless the file's SAUCE record sets the iCE flag, and a flag forces bright backgrounds for a file that lacks it"
+    covers: [iCE colors without a flag]
+  - operator: aaronsb
+    said: "24-bit, palette untouched (Recommended)"
+    via: the maintainer, through the question tool in the steering session, 2026-11-22
+    covers: [colors]
+  - operator: aaronsb
+    said: "Rust program (Recommended)"
+    via: the maintainer, through the question tool in the steering session, 2026-11-22
+    covers: ['a program, not a script']
+status: accepted
 date: 2026-11-22
 deciders:
   - aaronsb
@@ -44,13 +61,14 @@ related: [ADR-1000, ADR-1007, ADR-1200, ADR-1204, ADR-1205]
 ## Summary
 
 - **Decided:** ANSI art, the pictures made of text that bulletin board systems (BBSes) showed on the IBM PC, shows on vtium through a viewer of its own, `vtium-ansi`. The viewer reads a `.ans` file and its SAUCE record, the block of metadata at the file's end. It converts the file's code page 437 (CP437) bytes to Unicode and plays the file's cursor moves into a grid of its own, wrapping at column 80 as DOS did. It then writes that grid to the terminal as UTF-8 text with VGA's 16 colors as 24-bit colors. On a vtium console it switches to a font set made for the art, from the Px437 fonts, and switches back when you leave. vtium's terminal engine gets no new sequence, mode or character set, and ADR-1000 gains no row. The viewer and its font sets ship as a package of their own, `vtium-ansi`, beside vtium-fonts.
-- **Trades away:** A raw `cat picture.ans` still shows garbage, because only the viewer knows CP437. A BBS client that sends ANSI art straight to the terminal gets no help from vtium, and SyncTERM's iCE color mode stays unbuilt in the engine. VGA's tall pixels draw square for now.
+- **Trades away:** A raw `cat picture.ans` still shows garbage, because only the viewer knows CP437. A BBS client that sends ANSI art straight to the terminal gets no help from vtium, and SyncTERM's iCE color mode stays unbuilt in the engine. A file that uses SGR 5 for bright backgrounds without SAUCE's iCE flag blinks unless you pass `--ice`. VGA's tall pixels draw square for now.
+  > Edited 2026-11-22: the maintainer answered the probe *iCE colors without a flag* against its lean (`considered`), so SGR 5 blinks unless the SAUCE record sets the iCE flag. The sentence on such files is new.
 - **One-way?** No. The viewer is a separate program that nothing else depends on, and the engine stays as it is. The program's name and its font sets' names become expensive to change once the package ships.
 - **Probes:**
-  - *Not confident (the view):* `vtium-ansi FILE` opens a full-screen view: the picture in its own font set, scrolled with the arrow keys, and q gives your screen and font back. `vtium-ansi --print FILE` writes the picture to the terminal as `cat` would, and keeps the current font. The font set has to be given back while the picture is off the screen, so the view is the default. Should the default be the full-screen view, or print only?
-  - *Not confident (iCE colors without a flag):* half of the files that use SGR 5 as a bright background, the iCE colors, carry no SAUCE flag that says so. Lean: iCE colors unless the file's SAUCE record says otherwise, with `--blink` to make SGR 5 blink. The other choices are blinking text unless the flag is set, as SAUCE reads, and iCE colors always.
-  - *Confident (colors):* the viewer writes VGA's 16 colors as 24-bit colors and leaves the console's palette alone, so the picture keeps its colors after the viewer exits and in the scrollback. Changing the palette with OSC 4 would recolor everything on the screen and change back when the viewer left. Is that what you want?
-  - *Not confident (a program, not a script):* you called it "almost just a shell tool". The record makes it a small Rust program in vtium's workspace, because the conversion reads untrusted bytes, needs bounds and tests, and vtium's tools are Rust. Is a Rust program right, or do you want a shell script that pipes through `iconv` first?
+  - *Not confident (the view):* `vtium-ansi FILE` opens a full-screen view: the picture in its own font set, scrolled with the arrow keys, and q gives your screen and font back. `vtium-ansi --print FILE` writes the picture to the terminal as `cat` would, and keeps the current font. The font set has to be given back while the picture is off the screen, so the view is the default. Should the default be the full-screen view, or print only? (Answered 2026-11-22; see `considered`.)
+  - *Not confident (iCE colors without a flag):* half of the files that use SGR 5 as a bright background, the iCE colors, carry no SAUCE flag that says so. Lean: iCE colors unless the file's SAUCE record says otherwise, with `--blink` to make SGR 5 blink. The other choices are blinking text unless the flag is set, as SAUCE reads, and iCE colors always. (Answered 2026-11-22; see `considered`.)
+  - *Confident (colors):* the viewer writes VGA's 16 colors as 24-bit colors and leaves the console's palette alone, so the picture keeps its colors after the viewer exits and in the scrollback. Changing the palette with OSC 4 would recolor everything on the screen and change back when the viewer left. Is that what you want? (Answered 2026-11-22; see `considered`.)
+  - *Not confident (a program, not a script):* you called it "almost just a shell tool". The record makes it a small Rust program in vtium's workspace, because the conversion reads untrusted bytes, needs bounds and tests, and vtium's tools are Rust. Is a Rust program right, or do you want a shell script that pipes through `iconv` first? (Answered 2026-11-22; see `considered`.)
 - **Inversion:** Between "the terminal speaks ANSI.SYS and CP437 itself, so any program can send ANSI art" and "only a docs page with an `iconv` recipe". The answer sits between them: a viewer that uses what vtium already draws, and leaves the engine to the specifications it follows.
 
 ## Context
@@ -88,7 +106,8 @@ The maintainer answered the issue's eight questions on 2026-11-16 with one theme
   - `TInfo2`, the height in rows. The viewer uses it only to check its own count, and logs a difference with `--verbose`.
   - `TFlags`. Bit 0 is the non-blink mode, which turns SGR 5 into a bright background (D4). Bits 1 and 2 give the letter spacing, 8 or 9 pixels. Bits 3 and 4 give the aspect ratio, which the viewer reads but does not apply (D7).
   - `TInfoS`, the font's name, such as `IBM VGA`, which picks the font set (D5).
-- **Without a SAUCE record,** the picture is 80 columns wide, in IBM VGA with 9-pixel spacing, and SGR 5 follows the default that the probe on iCE colors settles. A malformed record counts as none, and the viewer says which field it could not read.
+- **Without a SAUCE record,** the picture is 80 columns wide, in IBM VGA with 9-pixel spacing, and SGR 5 makes the text blink, as it does in a file whose record lacks the iCE flag (D4). A malformed record counts as none, and the viewer says which field it could not read.
+  > Edited 2026-11-22: the maintainer answered the probe *iCE colors without a flag* against its lean (`considered`). The bullet read: "and SGR 5 follows the default that the probe on iCE colors settles."
 
 ### D3: playing the file into a grid of the viewer's own
 
@@ -105,7 +124,8 @@ The viewer does not pass the file's sequences on. It plays the file into a grid 
 
 - **The 16 colors** are VGA's, the values of vtium's `vga` palette: 0 and 170 for the eight dark colors, with brown at 170, 85, 0, and 85 and 255 for the eight bright ones. The viewer writes every cell's colors as 24-bit SGR, `38;2` and `48;2`, so the picture looks the same whatever palette the console uses, and the console's palette never changes.
 - **SGR 1** makes the foreground bright, as DOS did. The viewer never sends SGR 1 itself, so vtium draws no bold face. SGR 22 makes the foreground dark again.
-- **SGR 5.** With iCE colors on, SGR 5 makes the background bright, so the art can use all 16 background colors. With iCE colors off, it marks the cell as blinking, and the viewer sends SGR 5 for the cell, which vtium blinks. SGR 25 clears it.
+- **SGR 5.** With iCE colors on, SGR 5 makes the background bright, so the art can use all 16 background colors. With iCE colors off, it marks the cell as blinking, and the viewer sends SGR 5 for the cell, which vtium blinks. SGR 25 clears it. iCE colors start on when the file's SAUCE record sets the iCE flag, or when you pass `--ice`, and start off otherwise, as SAUCE reads a file without the flag. SyncTERM's `CSI ? 33 h` and `l` in the file then turn them on and off (D3).
+  > Edited 2026-11-22: the maintainer answered the probe *iCE colors without a flag* against its lean (`considered`): "we built blinking into the terminal might as well support it!" The sentences on when iCE colors start on are new. The probe's lean was iCE colors unless the SAUCE record said otherwise, with `--blink` to make SGR 5 blink.
 - **SGR 7** swaps the cell's two colors. SGR 8 draws the cell's character in its background color. SGR 0 returns to light grey on black, with iCE colors as they were. vtium.conf's `blink-text` decides how blinking text looks, as for any program.
 
 ### D5: the font sets
@@ -128,7 +148,8 @@ The viewer does not pass the file's sequences on. It plays the file into a grid 
 
 - **`vtium-ansi FILE...`** opens a full-screen view on the alternate screen, in the picture's font set, with the picture at the top left. The arrow keys, Page Up, Page Down, Home and End scroll it, and n and p go to the next and the previous file. q or Esc leaves: the viewer switches the font set back, leaves the alternate screen, and your screen is as it was. A picture wider than the grid scrolls left and right as well. Where the grid is wider than the picture, the columns to its right stay black.
 - **`vtium-ansi --print FILE...`** writes each picture to standard output, one row at a time, each row ending with SGR 0 and CR LF, and sends no OSC 50. The picture stays in the scrollback and works over ssh and in a pipe. When standard output is a terminal narrower than the picture, the viewer cuts each row at the terminal's width, so the terminal's own wrap does not break the picture.
-- **The options.** `--ice` and `--blink` set how SGR 5 reads, over the SAUCE record. `--width N` sets the width of a file that has no SAUCE record. `--font NAME` picks the font set. `--verbose` reports the SAUCE fields and what the viewer dropped. The viewer reads no configuration file.
+- **The options.** `--ice` makes SGR 5 a bright background in a file whose SAUCE record lacks the iCE flag, or that has no record. `--width N` sets the width of a file that has no SAUCE record. `--font NAME` picks the font set. `--verbose` reports the SAUCE fields and what the viewer dropped. The viewer reads no configuration file.
+  > Edited 2026-11-22: the maintainer answered the probe *iCE colors without a flag* against its lean (`considered`), so `--blink` is gone. The bullet began: "`--ice` and `--blink` set how SGR 5 reads, over the SAUCE record."
 - **Signals.** Ctrl+C, SIGINT, SIGTERM, SIGHUP and SIGQUIT in the view do what q does, and the viewer holds them while the terminal is raw, as vtium-config's `use-frit` does. After SIGKILL the console keeps the picture's font set until someone switches it back or the session ends (ADR-1201 D4).
 
 ### D7: what stays out
@@ -144,7 +165,8 @@ The viewer does not pass the file's sequences on. It plays the file into a grid 
 
 ### D8: how it is judged
 
-- **The conversion.** Unit tests feed the converter files that the project makes, each a few hundred bytes, and compare its grid with an expected grid written from SAUCE, CP437's table and ANSI.SYS's behaviour. The cases: all 256 bytes in a 16×16 grid; an 80-character row followed by more text, which wraps; an 80-character row followed by CR LF, which leaves a blank row; `CSI 2 J` then text with no CUP; SGR 5 with and without the iCE flag, and under `--blink`; SGR 1 on each color; a file ending in 0x1A, a comment block and a SAUCE record; PabloDraw's 24-bit form; a tune that must not delete a row; and a file at `FILE_MAX` and one byte over.
+- **The conversion.** Unit tests feed the converter files that the project makes, each a few hundred bytes, and compare its grid with an expected grid written from SAUCE, CP437's table and ANSI.SYS's behaviour. The cases: all 256 bytes in a 16×16 grid; an 80-character row followed by more text, which wraps; an 80-character row followed by CR LF, which leaves a blank row; `CSI 2 J` then text with no CUP; SGR 5 with and without the iCE flag, and under `--ice`; SGR 1 on each color; a file ending in 0x1A, a comment block and a SAUCE record; PabloDraw's 24-bit form; a tune that must not delete a row; and a file at `FILE_MAX` and one byte over.
+  > Edited 2026-11-22: the maintainer answered the probe *iCE colors without a flag* against its lean (`considered`), so `--blink` is gone. The list of cases read "SGR 5 with and without the iCE flag, and under `--blink`".
 - **The output.** A test compares `--print`'s bytes for each case with expected bytes, and a tier 1 scenario feeds those bytes to vtium through the replay interface, so tier 1 judges what vtium shows. Its expected results come from ctlseqs, not from vtium's output.
 - **The look.** A tier 2 picture draws ░, ▒, ▓ and the line drawing under `ansi/ibm-vga-9x16`, recorded as provisional for the maintainer.
 - **A fuzz target** feeds the converter generated files.
@@ -165,6 +187,8 @@ The viewer does not pass the file's sequences on. It plays the file into a grid 
 - A raw `cat` of a `.ans` file, or a BBS client that sends art straight to the terminal, still shows the wrong characters.
 - The package depends on vtium-fonts, and carries three font files of its own.
 - An art file that needs another family's font, such as an Amiga picture, draws in the VGA font until its font set exists.
+- About half of the files that use SGR 5 for bright backgrounds lack SAUCE's iCE flag, so they blink unless you pass `--ice`.
+  > Added 2026-11-22, after the maintainer's answer on iCE colors (`considered`).
 
 ### Neutral
 
