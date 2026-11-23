@@ -1,0 +1,10 @@
+
+  Welcome to the VTium demo.
+
+  You are logged in on a Linux virtual terminal, and vtium draws it.
+  Ctrl+Alt+F1 and Ctrl+Alt+F2 switch between two vtium consoles.
+
+  Try these:
+    vtium-gallery /usr/share/vtium-demo/pictures   pictures through kitty graphics
+    vtium-config                                    pick a font set and try it live
+

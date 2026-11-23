@@ -1,0 +1,5 @@
+::sysinit:/etc/init.d/rcS
+tty1::respawn:/bin/sh -c 'exec /usr/bin/vtium --vt=tty1 --no-switchvt 2>&1 | sed -u "s/^/[tty1] /" >/dev/ttyS0'
+tty2::respawn:/bin/sh -c 'exec /usr/bin/vtium --vt=tty2 --no-switchvt 2>&1 | sed -u "s/^/[tty2] /" >/dev/ttyS0'
+::ctrlaltdel:/bin/reboot
+::shutdown:/bin/umount -a -r
