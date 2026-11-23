@@ -3493,6 +3493,40 @@ pub(crate) fn stand_in_shell() -> &'static Path {
     })
 }
 
+/// `script` for the stand-in shell, with traps first that end the shell
+/// without a core dump when SIGSEGV or SIGXCPU reaches it. The tests end
+/// the stand-in with those signals on purpose, and the kernel would write a
+/// core dump of the shell for each one. Where `core_pattern` pipes to
+/// systemd-coredump, the kernel ignores the core limit, so each dump lands
+/// in the journal and the coredump store of the machine that runs the
+/// tests. A process can turn its own dumps off with
+/// `prctl(PR_SET_DUMPABLE, 0)`, but each exec turns them on again, and the
+/// shell cannot make that call. So each trap runs this test binary in the
+/// shell's place, its [`tests::the_stand_in_dies_without_a_core_dump`]
+/// alone, which turns its dumps off and then sends itself the signal. The
+/// process that vtium started still ends by the signal the script sent.
+#[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+pub(crate) fn undumpable(script: &str) -> String {
+    let exe = std::env::current_exe().expect("the test binary");
+    let exe = exe.to_str().expect("the test binary's path in UTF-8");
+    assert!(
+        !exe.contains(['\'', '"', '$', '`', '\\']),
+        "the test binary's path needs no quoting: {exe}"
+    );
+    let trap = |signal: &str| {
+        format!(
+            "trap '{DIE_BY}={signal} exec \"{exe}\" --exact helper::tests::the_stand_in_dies_without_a_core_dump -q >/dev/null 2>&1' {signal}; "
+        )
+    };
+    format!("{}{}{script}", trap("SEGV"), trap("XCPU"))
+}
+
+/// The environment variable that names the signal by which
+/// [`tests::the_stand_in_dies_without_a_core_dump`] ends its process.
+#[cfg(test)]
+const DIE_BY: &str = "VTIUM_TEST_DIE_BY";
+
 #[cfg(test)]
 #[expect(
     clippy::unwrap_used,
@@ -3502,6 +3536,50 @@ pub(crate) fn stand_in_shell() -> &'static Path {
 )]
 mod tests {
     use super::*;
+
+    /// Not a test of the helper: run by a trap of [`undumpable`] with
+    /// [`DIE_BY`] set, it turns off this process's core dumps and ends the
+    /// process by the signal [`DIE_BY`] names; run by the test harness, it
+    /// does nothing. The standard library catches SIGSEGV to report a
+    /// stack overflow, and its handler puts back the default action and
+    /// returns. So the first SIGSEGV can end in that handler, and the
+    /// signal is sent until one ends the process.
+    #[test]
+    fn the_stand_in_dies_without_a_core_dump() {
+        let Ok(name) = std::env::var(DIE_BY) else {
+            return;
+        };
+        assert!(["SEGV", "XCPU"].contains(&name.as_str()), "{name}");
+        let signal = if name == "SEGV" {
+            rustix::process::Signal::SEGV
+        } else {
+            rustix::process::Signal::XCPU
+        };
+        rustix::process::set_dumpable_behavior(rustix::process::DumpableBehavior::NotDumpable)
+            .unwrap();
+        loop {
+            let _ = rustix::process::kill_process(rustix::process::getpid(), signal);
+            std::thread::yield_now();
+        }
+    }
+
+    // vtium/vtium#451: a stand-in shell that a script ends by SIGSEGV or
+    // SIGXCPU ends by that signal and leaves no core dump. The kernel says
+    // in the wait status whether it wrote one, a pipe to systemd-coredump
+    // included.
+    #[test]
+    fn a_stand_in_ended_by_a_signal_leaves_no_core_dump() {
+        use std::os::unix::process::ExitStatusExt;
+        for (signal, number) in [("SEGV", 11), ("XCPU", 24)] {
+            let status = std::process::Command::new(stand_in_shell())
+                .arg("-c")
+                .arg(undumpable(&format!("kill -{signal} $$; sleep 5")))
+                .status()
+                .unwrap();
+            assert_eq!(status.signal(), Some(number), "{signal}: {status:?}");
+            assert!(!status.core_dumped(), "{signal}: a core dump was written");
+        }
+    }
     use crate::scratch::Scratch;
     use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
     use vtium_font::{Face, Style, Width};
@@ -3619,7 +3697,7 @@ mod tests {
                 program: stand_in_shell().to_path_buf(),
                 args: vec![
                     "-c".into(),
-                    script.into(),
+                    undumpable(script).into(),
                     "stand-in".into(),
                     fixture_path.into(),
                 ],

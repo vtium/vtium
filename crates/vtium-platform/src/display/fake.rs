@@ -88,6 +88,7 @@ use rustix::io::Errno;
 
 use super::kms::{
     Connector, ConnectorRead, CrtcEvent, Dumb, Encoder, Kms, Object, Property, Request, Resources,
+    SetCrtc,
 };
 use super::{Mode, lock};
 
@@ -204,6 +205,10 @@ pub(crate) struct State {
     pub(crate) master_elsewhere: bool,
     /// The times master was let go while held.
     pub(crate) master_drops: usize,
+    /// The times a drop of master was refused with EINVAL, as the kernel
+    /// refuses it on an open file that is not the master
+    /// (`drm_dropmaster_ioctl`).
+    pub(crate) master_drops_refused: usize,
     /// The kernel removed the card, as when a native driver takes the
     /// display over from simpledrm: every ioctl fails with ENODEV
     /// (`drm_ioctl` checks `drm_dev_is_unplugged`), and a read of the
@@ -1168,11 +1173,17 @@ impl Kms for FakeCard {
         self.unplugged("drop_master")?;
         let mut s = self.state.borrow_mut();
         if !s.master {
+            s.master_drops_refused += 1;
             return Err(err(Errno::INVAL));
         }
         s.master = false;
         s.master_drops += 1;
         Ok(())
+    }
+
+    fn is_master(&self) -> io::Result<bool> {
+        self.unplugged("is_master")?;
+        Ok(self.state.borrow().master)
     }
 
     fn resources(&self) -> io::Result<Resources> {
@@ -1631,78 +1642,35 @@ impl Kms for FakeCard {
         Ok(())
     }
 
-    fn set_crtc(&self, crtc: u32, fb: u32, connector: u32, mode: &Mode) -> io::Result<()> {
-        self.unplugged("set_crtc")?;
-        let mut s = self.state.borrow_mut();
-        if !s.master {
-            return Err(err(Errno::ACCESS));
+    /// A legacy SETCRTC, refused as `drm_mode_setcrtc` refuses it. Without
+    /// DRM master the call is refused with EACCES, as the kernel lets only
+    /// the master call it, and a CRTC the card does not have with ENOENT.
+    /// A mode needs a framebuffer the card holds, or the call is refused
+    /// with ENOENT. A mode with no connector, and a connector with no mode,
+    /// are refused with EINVAL. A request with neither turns the CRTC off.
+    /// drm2d sets one connector at a time, so the stand-in takes at most
+    /// one.
+    fn setcrtc(&self, set: &SetCrtc<'_>) -> io::Result<()> {
+        let off = set.mode.is_none();
+        self.unplugged(if off { "disable_crtc" } else { "set_crtc" })?;
+        {
+            let s = self.state.borrow();
+            if !s.master {
+                return Err(err(Errno::ACCESS));
+            }
+            if !s.crtcs.contains(&set.crtc) {
+                return Err(err(Errno::NOENT));
+            }
+            if set.mode.is_some() && !s.fbs.contains_key(&set.fb) {
+                return Err(err(Errno::NOENT));
+            }
         }
-        if let Some(e) = s.set_crtc_errors.pop_front() {
-            s.planted(e);
-            return Err(err(e));
+        match (set.mode, set.connectors) {
+            (None, []) => self.crtc_off(set.crtc),
+            (Some(mode), &[connector]) => self.crtc_on(set.crtc, set.fb, connector, mode),
+            (Some(_), []) | (None, [_, ..]) => Err(err(Errno::INVAL)),
+            (Some(_), [_, _, ..]) => panic!("the stand-in sets one connector on a CRTC"),
         }
-        if s.busy_size == Some(mode.size()) {
-            return Err(err(Errno::BUSY));
-        }
-        if smaller_than(&s, fb, mode) {
-            return Err(err(Errno::NOSPC));
-        }
-        if s.refused.contains(&crtc) || s.refused_on.contains(&(connector, crtc)) {
-            return Err(err(Errno::INVAL));
-        }
-        s.set_crtcs.push((crtc, fb, connector, *mode));
-        // The CRTC drives the connector set alone, so the kernel takes
-        // every other connector off it, and the CRTC the connector leaves
-        // with no connector on it loses its mode and goes off
-        // (`update_output_state`).
-        let others: Vec<u32> = s
-            .bound
-            .iter()
-            .filter(|&(&c, &on)| on == crtc && c != connector)
-            .map(|(&c, _)| c)
-            .collect();
-        for other in others {
-            s.bind(other, 0);
-        }
-        let left = s.bound.get(&connector).copied().filter(|&c| c != crtc);
-        s.bound.retain(|_, c| *c != 0);
-        s.bind(connector, crtc);
-        if let Some(left) = left.filter(|&c| !s.bound.values().any(|&on| on == c)) {
-            s.crtc_modes.remove(&left);
-            s.modes.remove(&left);
-            s.enabled.insert(left, false);
-            s.active.insert(left, false);
-            s.console_lit.retain(|&c| c != left);
-        }
-        s.crtc_modes.insert(crtc, *mode);
-        s.active.insert(crtc, true);
-        s.dpms.insert(connector, 0);
-        self.vblank_off(&mut s);
-        Ok(())
-    }
-
-    fn disable_crtc(&self, crtc: u32) -> io::Result<()> {
-        self.unplugged("disable_crtc")?;
-        let mut s = self.state.borrow_mut();
-        if !s.master {
-            return Err(err(Errno::ACCESS));
-        }
-        s.disabled_crtcs.push(crtc);
-        let on: Vec<u32> = s
-            .bound
-            .iter()
-            .filter(|&(_, &c)| c == crtc)
-            .map(|(&conn, _)| conn)
-            .collect();
-        for conn in on {
-            s.bind(conn, 0);
-        }
-        s.bound.retain(|_, c| *c != 0);
-        s.crtc_modes.remove(&crtc);
-        s.active.insert(crtc, false);
-        s.enabled.insert(crtc, false);
-        self.vblank_off(&mut s);
-        Ok(())
     }
 
     fn page_flip(&self, crtc: u32, fb: u32) -> io::Result<()> {
@@ -1795,6 +1763,77 @@ impl Kms for FakeCard {
     }
 }
 
+impl FakeCard {
+    /// A legacy SETCRTC that sets `connector` alone on `crtc` at `mode`.
+    fn crtc_on(&self, crtc: u32, fb: u32, connector: u32, mode: &Mode) -> io::Result<()> {
+        let mut s = self.state.borrow_mut();
+        if let Some(e) = s.set_crtc_errors.pop_front() {
+            s.planted(e);
+            return Err(err(e));
+        }
+        if s.busy_size == Some(mode.size()) {
+            return Err(err(Errno::BUSY));
+        }
+        if smaller_than(&s, fb, mode) {
+            return Err(err(Errno::NOSPC));
+        }
+        if s.refused.contains(&crtc) || s.refused_on.contains(&(connector, crtc)) {
+            return Err(err(Errno::INVAL));
+        }
+        s.set_crtcs.push((crtc, fb, connector, *mode));
+        // The CRTC drives the connector set alone, so the kernel takes
+        // every other connector off it, and the CRTC the connector leaves
+        // with no connector on it loses its mode and goes off
+        // (`update_output_state`).
+        let others: Vec<u32> = s
+            .bound
+            .iter()
+            .filter(|&(&c, &on)| on == crtc && c != connector)
+            .map(|(&c, _)| c)
+            .collect();
+        for other in others {
+            s.bind(other, 0);
+        }
+        let left = s.bound.get(&connector).copied().filter(|&c| c != crtc);
+        s.bound.retain(|_, c| *c != 0);
+        s.bind(connector, crtc);
+        if let Some(left) = left.filter(|&c| !s.bound.values().any(|&on| on == c)) {
+            s.crtc_modes.remove(&left);
+            s.modes.remove(&left);
+            s.enabled.insert(left, false);
+            s.active.insert(left, false);
+            s.console_lit.retain(|&c| c != left);
+        }
+        s.crtc_modes.insert(crtc, *mode);
+        s.active.insert(crtc, true);
+        s.dpms.insert(connector, 0);
+        self.vblank_off(&mut s);
+        Ok(())
+    }
+
+    /// A legacy SETCRTC with no mode and no connector, which turns `crtc`
+    /// off and takes every connector off it.
+    fn crtc_off(&self, crtc: u32) -> io::Result<()> {
+        let mut s = self.state.borrow_mut();
+        s.disabled_crtcs.push(crtc);
+        let on: Vec<u32> = s
+            .bound
+            .iter()
+            .filter(|&(_, &c)| c == crtc)
+            .map(|(&conn, _)| conn)
+            .collect();
+        for conn in on {
+            s.bind(conn, 0);
+        }
+        s.bound.retain(|_, c| *c != 0);
+        s.crtc_modes.remove(&crtc);
+        s.active.insert(crtc, false);
+        s.enabled.insert(crtc, false);
+        self.vblank_off(&mut s);
+        Ok(())
+    }
+}
+
 /// Log records, captured per thread, so a test reads what it logged.
 pub(crate) mod logs {
     use std::cell::RefCell;
@@ -1851,7 +1890,7 @@ mod tests {
 
     use rustix::io::Errno;
 
-    use super::super::kms::{CrtcEvent, Kms, Request};
+    use super::super::kms::{CrtcEvent, Kms, Request, SetCrtc};
     use super::super::mode::mode;
     use super::FakeCard;
 
@@ -1885,6 +1924,42 @@ mod tests {
             req.set(PRIMARY_PLANE, card.prop_id("SRC_H"), h << 16);
         }
         card.commit(&req, 0)
+    }
+
+    // A legacy SETCRTC is refused as `drm_mode_setcrtc` refuses it: a mode
+    // with no connector and a connector with no mode with EINVAL, a mode
+    // over a framebuffer the card does not hold and a CRTC it does not
+    // have with ENOENT, and any of them without master with EACCES. The
+    // request that turns a CRTC off, the one `disable_crtc` sends, is
+    // taken, and the CRTC goes off with its connector taken off it.
+    #[test]
+    fn a_legacy_crtc_set_is_refused_as_the_kernel_refuses_it() {
+        let card = FakeCard::new(&[(CONN, vec![mode(640, 480, 60, true)])]);
+        let at_640 = mode(640, 480, 60, true);
+        let shown = fb(&card, 640, 480);
+        let set = |crtc, fb, connectors: &[u32], mode| {
+            errno(card.setcrtc(&SetCrtc {
+                crtc,
+                fb,
+                connectors,
+                mode,
+            }))
+        };
+        assert_eq!(set(CRTC, shown, &[], Some(&at_640)), Some(Errno::INVAL));
+        assert_eq!(set(CRTC, 0, &[CONN], None), Some(Errno::INVAL));
+        assert_eq!(set(CRTC, 0, &[CONN], Some(&at_640)), Some(Errno::NOENT));
+        assert_eq!(set(CRTC + 50, 0, &[], None), Some(Errno::NOENT));
+        assert_eq!(set(CRTC, shown, &[CONN], Some(&at_640)), None);
+        assert_eq!(card.state().bound.get(&CONN), Some(&CRTC));
+        card.state().master = false;
+        assert_eq!(errno(card.disable_crtc(CRTC)), Some(Errno::ACCESS));
+        card.state().master = true;
+        assert_eq!(errno(card.disable_crtc(CRTC)), None);
+        let s = card.state();
+        assert_eq!(s.disabled_crtcs, [CRTC]);
+        assert_eq!(s.active.get(&CRTC), Some(&false));
+        assert_eq!(s.bound.get(&CONN), None, "the connector is off the CRTC");
+        assert_eq!(s.crtc_modes.get(&CRTC), None);
     }
 
     // vtium/vtium#224: a legacy CRTC set or page flip whose framebuffer is

@@ -42,6 +42,18 @@ fn one() -> Drm2d<FakeCard> {
     Drm2d::with(card, ModePolicy::default()).unwrap()
 }
 
+/// [`one`], opened while another process holds the card's DRM master, so
+/// the open does not make this file the master.
+fn one_elsewhere() -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
+    {
+        let mut s = card.state();
+        s.master = false;
+        s.master_elsewhere = true;
+    }
+    Drm2d::with(card, ModePolicy::default()).unwrap()
+}
+
 fn events(v: &mut Drm2d<FakeCard>) -> Vec<Event> {
     v.events().collect()
 }
@@ -2678,18 +2690,34 @@ fn a_card_opened_while_the_vt_is_shown_keeps_master() {
 }
 
 // A card opened while another process holds master, as after the shown
-// VT's vtium took it, sleeps with nothing to let go.
+// VT's vtium took it, sleeps with nothing to let go: it never asks the
+// kernel to drop a master its file does not hold, which the kernel would
+// refuse with EINVAL. The second vtium of the demonstrator's prototype
+// logged that refusal while it waited for its VT to be shown.
 #[test]
 fn a_card_opened_without_master_sleeps_quietly() {
-    let mut v = one();
-    {
-        let mut s = v.card().state();
-        s.master = false;
-        s.master_elsewhere = true;
-    }
+    let mut v = one_elsewhere();
     v.sleep();
     assert_eq!(events(&mut v), [Event::Asleep]);
-    assert!(!v.card().state().master);
+    let s = v.card().state();
+    assert!(!s.master);
+    assert_eq!(s.master_drops_refused, 0, "no drop of a master not held");
+}
+
+// A seat manager shares the card's open file with vtium and drops master
+// on it before it tells vtium to let the card go, as seatd does at a VT
+// switch. The sleep then hides no plane and drops no master, both of
+// which the kernel would refuse.
+#[test]
+fn a_card_whose_seat_manager_dropped_master_sleeps_quietly() {
+    let mut v = awake(one());
+    v.card().state().master = false;
+    v.sleep();
+    flip(&mut v);
+    assert!(events(&mut v).contains(&Event::Asleep));
+    let s = v.card().state();
+    assert!(!s.master);
+    assert_eq!(s.master_drops_refused, 0, "no drop of a master not held");
 }
 
 // A monitor's power cycle: the connector goes, and another comes, as an
@@ -2830,8 +2858,7 @@ fn use_original_keeps_the_crtcs_mode() {
 
 #[test]
 fn the_wake_up_retries_while_master_is_held_elsewhere() {
-    let mut v = one();
-    v.card().state().master_elsewhere = true;
+    let mut v = one_elsewhere();
     assert!(v.wake_up().is_err());
     assert_eq!(v.waits(), (false, true));
     for _ in 0..3 {
@@ -2846,8 +2873,7 @@ fn the_wake_up_retries_while_master_is_held_elsewhere() {
 
 #[test]
 fn the_wake_up_retries_run_out() {
-    let mut v = one();
-    v.card().state().master_elsewhere = true;
+    let mut v = one_elsewhere();
     assert!(v.wake_up().is_err());
     let mut tries = 0;
     while v.waits().1 {
@@ -3034,7 +3060,7 @@ fn the_loop_delivers_flips_and_bounds_the_wait() {
 
 #[test]
 fn the_loop_retries_the_wake_up() {
-    let (mut lp, mut app) = in_loop(one());
+    let (mut lp, mut app) = in_loop(one_elsewhere());
     app.0.card().state().master_elsewhere = true;
     assert!(app.0.wake_up().is_err());
     turn_until(&mut lp, &mut app, |app| {
@@ -3453,8 +3479,7 @@ fn a_new_display_that_cannot_be_set_is_left_off() {
 // wake-up again.
 #[test]
 fn a_hotplug_after_the_retries_ran_out_wakes_the_card() {
-    let mut v = one();
-    v.card().state().master_elsewhere = true;
+    let mut v = one_elsewhere();
     assert!(v.wake_up().is_err());
     while v.waits().1 {
         v.retry_wake();
@@ -3566,7 +3591,7 @@ fn slow_after_wake_failed(v: &mut Drm2d<FakeCard>) {
 // covers: platform.hand-back
 #[test]
 fn a_slow_retry_wakes_the_card_once_master_is_let_go() {
-    let mut v = one();
+    let mut v = one_elsewhere();
     slow_after_wake_failed(&mut v);
     for _ in 0..3 {
         v.retry_slowly();
@@ -3587,7 +3612,7 @@ fn a_slow_retry_wakes_the_card_once_master_is_let_go() {
 // of master. The test counts the loop's turns until the card wakes.
 #[test]
 fn the_loop_wakes_the_card_at_a_slow_retry() {
-    let (mut lp, mut app) = in_loop(one());
+    let (mut lp, mut app) = in_loop(one_elsewhere());
     slow_after_wake_failed(&mut app.0);
     assert!(app.0.slow_armed());
     app.0.card().state().master_elsewhere = false;
@@ -3606,7 +3631,7 @@ fn the_loop_wakes_the_card_at_a_slow_retry() {
 // the fast ones again.
 #[test]
 fn a_vt_release_stops_the_slow_retries() {
-    let (_lp, mut app) = in_loop(one());
+    let (_lp, mut app) = in_loop(one_elsewhere());
     let v = &mut app.0;
     slow_after_wake_failed(v);
     assert!(v.slow_armed());
@@ -3627,7 +3652,7 @@ fn a_vt_release_stops_the_slow_retries() {
 // wake-up at once, without waiting for the next slow try.
 #[test]
 fn input_tries_at_once_while_the_slow_retries_run() {
-    let mut v = one();
+    let mut v = one_elsewhere();
     slow_after_wake_failed(&mut v);
     v.card().state().master_elsewhere = false;
     v.input().unwrap();
@@ -5257,6 +5282,26 @@ fn a_display_plugged_back_in_on_a_crtc_left_on_shows_its_first_frame() {
     assert_eq!(off.get(A, "CRTC_ID"), Some(0));
     let fb = drawn(&mut v, A, 0x22);
     assert!(v.card().shows(100, fb), "{:?}", v.card().state());
+}
+
+// On a legacy card whose driver keeps a CRTC lit when its framebuffer
+// goes, as i915 does, the unplug turns the gone display's CRTC off, which
+// takes the unplugged connector off it.
+#[test]
+fn a_display_gone_from_a_legacy_card_has_its_crtc_turned_off() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().remove_fb = RemoveFb::PlaneOff;
+    card.state().atomic = false;
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x11);
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    let s = v.card().state();
+    assert_eq!(s.disabled_crtcs, [100]);
+    assert_eq!(s.active.get(&100), Some(&false), "the CRTC is off");
+    assert_eq!(s.bound.get(&A), None, "the connector is off the CRTC");
+    assert_eq!(s.crtc_modes.get(&100), None);
 }
 
 /// The debug lines since [`logs::capture`] that say a display's modeset

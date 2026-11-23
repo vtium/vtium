@@ -326,6 +326,9 @@ VARIANTS.update({
     # screens and its seat check.
     "seat-seatd-wait": dict(SEAT, seat="seatd", agent=True,
                             checks=["seat", "seat-shown", "seat-busy"]),
+    # The seat manager stopped while vtium runs (t3_seat.CHECKS "seat-stop"),
+    # after seat-seatd's screens and its seat check.
+    "seat-seatd-stop": dict(SEAT, seat="seatd", agent=True, checks=["seat", "seat-stop"]),
     "panic-sysrq": dict(POWER, conf="vtium-minimal.conf", panic=True, agent=True),
     "kmsg-notice": dict(POWER, conf="vtium-minimal.conf", kmsg=True, agent=True),
 })
@@ -336,8 +339,8 @@ VARIANTS.update({
 # the session received. The variant runs only when named.
 VARIANTS["hand-over"] = dict(SEAT, tree_features=[], checks=["hand-over"], agent=True,
                              probe=True)
-SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait", "panic-sysrq",
-                 "kmsg-notice"]
+SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait",
+                 "seat-seatd-stop", "panic-sysrq", "kmsg-notice"]
 
 # builtin-font checks vtium with nothing installed (ADR-1204 D1, t3_builtin)
 # on the minspec machine, in make tier3-minimal. vtium starts with the
@@ -1837,6 +1840,7 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               "seat": t3_seat.check_seat,
               "seat-shown": t3_seat.check_seat_shown,
               "seat-busy": t3_seat.check_seat_busy,
+              "seat-stop": t3_seat.check_seat_stop,
               "direct": t3_seat.check_direct,
               "seat-cgroup": t3_seat.check_cgroup,
               "boot-claim": t3_seat.check_boot_claim,
