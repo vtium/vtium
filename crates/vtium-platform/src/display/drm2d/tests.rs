@@ -2720,6 +2720,21 @@ fn a_card_whose_seat_manager_dropped_master_sleeps_quietly() {
     assert_eq!(s.master_drops_refused, 0, "no drop of a master not held");
 }
 
+// The open made the card master, and the seat manager dropped that master
+// on the shared file before vtium ever woke the card. The sleep asks the
+// kernel again before it lets master go, so it drops no master the file
+// no longer holds.
+#[test]
+fn a_card_whose_seat_manager_dropped_master_before_the_wake_up_sleeps_quietly() {
+    let mut v = one();
+    v.card().state().master = false;
+    v.sleep();
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    let s = v.card().state();
+    assert!(!s.master);
+    assert_eq!(s.master_drops_refused, 0, "no drop of a master not held");
+}
+
 // A monitor's power cycle: the connector goes, and another comes, as an
 // MST connector is replaced. With no display left the
 // card keeps master, as its VT is still shown.
