@@ -5,3 +5,5 @@ palette-ink	the shipped color scheme Ink (crates/vtium/install/palettes/ink.pale
 legacy	the Legacy Computing sprites, drawn on 2026-11-22 by tier2 render from fix/w6-underlines at 54df7cd6; vtium-font's sprites as the renderer draws them, which no one has reviewed by eye
 legacy-unifont	the Legacy Computing sprites, drawn on 2026-11-22 by tier2 render from fix/w6-underlines at 54df7cd6; vtium-font's sprites as the renderer draws them, which no one has reviewed by eye
 legacy-unifont-1bit	the Legacy Computing sprites, drawn on 2026-11-22 by tier2 render from fix/w6-underlines at 54df7cd6; vtium-font's sprites as the renderer draws them, which no one has reviewed by eye
+underline-spaces	underlined spaces alone in the test font set, drawn on 2026-11-22 by tier2 render from fix/w6-underlines at 5812c475; the lines where DejaVu Sans Mono puts them once the fill has answered, which no one has reviewed by eye
+underline-unifont-2x	unifont's underlines in 16x32 cells, drawn on 2026-11-22 by tier2 render from fix/w6-underlines at 5812c475; the double underline thinned to two one-row lines below the letters, which the maintainer has not seen
