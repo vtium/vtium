@@ -190,8 +190,10 @@ fn status(app: &App) -> String {
 fn small(app: &App) -> Vec<String> {
     let cols = app.size.cols;
     let mut lines: Vec<String> = Vec::new();
-    // the live trial's countdown, and its keys, first
-    if app.nav.trial.is_some()
+    // the message line first: the live trial's countdown and its keys,
+    // or what the last key said; a question's own words wait for the
+    // question's keys at the top, as they do today
+    if (app.nav.trial.is_some() || app.nav.confirm.is_none())
         && let Some(message) = &app.shared.message
     {
         lines.extend(wrap(message, cols, usize::MAX));
@@ -227,13 +229,11 @@ fn small(app: &App) -> Vec<String> {
         Some(_) => item_rows(key_line(app), cols),
     };
     // the keys that stay on the screen however few its rows: the
-    // question's, at the top, or the screen's own, at the bottom
-    // the screen's own keys are its generated key line, and a sentence
-    // about u while the key line leaves u out
+    // question's, at the top, or the screen's own generated key line, at
+    // the bottom
     let keys = if question.is_empty() {
         lines.push(String::new());
-        let mut keys = item_rows(key_line(app), cols);
-        keys.extend(wrap(words::TOO_SMALL_UNDO, cols, usize::MAX));
+        let keys = item_rows(key_line(app), cols);
         lines.extend(keys.clone());
         keys
     } else {

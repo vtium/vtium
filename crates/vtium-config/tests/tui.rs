@@ -288,18 +288,13 @@ fn a_grid_too_small_draws_the_way_out() {
         joined.starts_with(&vtium_config::tui::words::too_small(30, 8)),
         "{screen}"
     );
-    // the generated key line of the screen below the minimum size, and
-    // the sentence about u under it
+    // the generated key line of the screen below the minimum size, which
+    // names u
     let keys = vtium_config::tui::contract::key_pages("any.too-small")
         .and_then(|p| p.first())
         .expect("the key line below the minimum size");
-    assert!(
-        joined.ends_with(&format!(
-            "{keys} {}",
-            vtium_config::tui::words::TOO_SMALL_UNDO
-        )),
-        "{screen}"
-    );
+    assert!(keys.contains("u undo"), "{keys}");
+    assert!(joined.ends_with(keys), "{screen}");
     assert!(rows.iter().all(|r| r.chars().count() <= 30), "{screen}");
 }
 
@@ -1459,7 +1454,6 @@ fn below_the_minimum_the_screen_says_so_and_u_undoes_the_preview() {
             .and_then(|p| p.first())
             .expect("the key line below the minimum size");
         assert!(joined.contains(keys), "{screen}");
-        assert!(joined.contains(words::TOO_SMALL_UNDO), "{screen}");
         // keys that would move are ignored below the minimum; u gives the
         // console its start font back, and the views come back
         let mut c = Console::vtium(80, 25, true, "unifont")

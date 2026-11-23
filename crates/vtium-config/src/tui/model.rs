@@ -1332,27 +1332,38 @@ impl App {
 
     /// A key below the TUI's minimum size, where no view is drawn: `q`
     /// quits, or asks the quit question first while changes are not
-    /// saved, and `u` puts back the font the console had when the TUI
-    /// started, where a preview changed it. Ctrl-C saves and leaves, as
-    /// it does everywhere.
+    /// saved, and `u` puts back the font and the grid the console had
+    /// when the TUI started, where a trial changed them, or says that it
+    /// has nothing to put back. Ctrl-C saves and
+    /// leaves, as it does everywhere. `u` sends the font switch before
+    /// the grid request, as leaving does, because a font switch changes
+    /// the console's grid too.
     ///
     /// References:
     /// - ADR-1201 D3: below the minimum size only `q`, `u` and Ctrl-C act.
+    /// - ADR-1201 D4, "Giving the console back": the start font and the
+    ///   start grid that leaving gives back, which `u` gives back too.
     /// - ADR-1403 D7: `q` asks before it drops changes that are not saved.
     fn small_key(&mut self, key: Key) -> Vec<Effect> {
         match key {
             Key::Char('q') => self.quit(0),
             Key::Char('u') => {
+                let font_moved = self.shared.in_flight.is_some()
+                    || self.shared.shown_font != self.shared.start_font;
+                if !font_moved && !self.shared.grid_moved {
+                    self.shared.message = Some(super::words::NOTHING_TO_UNDO.to_owned());
+                    return Vec::new();
+                }
                 let mut out = Vec::new();
+                if let Some(start) = self.shared.start_font.clone() {
+                    self.shared.want = Some(start);
+                    out.extend(self.follow());
+                }
                 if self.shared.grid_moved {
                     self.shared.grid_moved = false;
                     out.push(Effect::Write(super::shot::grid_request(
                         self.shared.start_grid,
                     )));
-                }
-                if let Some(start) = self.shared.start_font.clone() {
-                    self.shared.want = Some(start);
-                    out.extend(self.follow());
                 }
                 out
             }
