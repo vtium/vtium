@@ -302,6 +302,20 @@ const UNDERLINE: &[u8] = concat!(
 )
 .as_bytes();
 
+/// The `underline-spaces` screen: each underline style, the strike and the
+/// overline over spaces alone, so no character the font draws is on
+/// screen.
+const UNDERLINE_SPACES: &[u8] = concat!(
+    "\x1b[4m            \x1b[0m  \x1b[4;58:5:196m            \x1b[0m\r\n",
+    "\x1b[4:2m            \x1b[0m  \x1b[4:2;58:2::0:200:255m            \x1b[0m\r\n",
+    "\x1b[4:3m            \x1b[0m  \x1b[4:3;58:5:46m            \x1b[0m\r\n",
+    "\x1b[4:4m            \x1b[0m  \x1b[4:4;58:2::255:128:0m            \x1b[0m\r\n",
+    "\x1b[4:5m            \x1b[0m  \x1b[4:5;58:5:201m            \x1b[0m\r\n",
+    "\x1b[9m            \x1b[0m  \x1b[53m            \x1b[0m\r\n",
+    "\x1b[44;4m            \x1b[0m  \x1b[7;4m            \x1b[0m",
+)
+.as_bytes();
+
 /// The `strike` screen.
 const STRIKE: &[u8] = concat!(
     "\x1b[9mstruck through gjpqy\x1b[0m plain\r\n",
@@ -2382,6 +2396,18 @@ const BASE: &[Case] = &[
     },
     Case {
         screen: Screen {
+            font: FontKind::UnifontAt(2),
+            ..Screen::new(
+                "underline-unifont-2x",
+                "The underline-unifont screen in unifont drawn at twice its size, in 16x32 cells, as a high-DPI display draws it. Unifont's letters end on row 27 of each cell, and its single underline is two rows thick in rows 30 and 31. Correct: each double underline two lines one row thick, in rows 29 and 31, below the letters, so the bottom rows of the letters stay whole; the other styles as underline-unifont draws them, every pixel doubled.",
+                UNDERLINE,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
             font: FontKind::UnifontAt(3),
             ..Screen::new(
                 "script-unifont-3x",
@@ -3032,6 +3058,15 @@ const BASE: &[Case] = &[
             UNDERLINE,
             48,
             10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "underline-spaces",
+            "Underlined spaces alone, with no character the font draws on screen: each underline style (single, double, curly, dotted, dashed) in the text color and in an SGR 58 color, the strike and the overline, and an underline on blue and in reverse. In DejaVu Sans Mono at 16 pixels, the lines placed where the font's own tables put them, as the console holds them once the helper's fill has answered. Correct: every underline in the rows the underline screen draws its lines in, the single line on row 13 of each 16-row cell and not on the cell's bottom row; the strike on the underline screen's strike row; the overline on the cell's top row.",
+            UNDERLINE_SPACES,
+            28,
+            7,
         ),
     },
     Case {
