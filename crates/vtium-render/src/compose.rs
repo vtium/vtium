@@ -18,6 +18,11 @@
 //! gives the same pixels as drawing it over the glyph, and it stays under
 //! the ink the cell receives from its neighbours. The underline cursor
 //! keeps its whole line ([`Line::skips_ink`]).
+//!
+//! A color glyph's ink is only its pixels at or above an alpha threshold,
+//! and its underline skips that ink only in a tall enough cell. Elsewhere
+//! the line runs whole under the glyph, whose picture covers it. The rule
+//! is in [`crate::skip`].
 
 use vtium_font::{Face, Font, Variant, Width as FontWidth};
 use vtium_term::Rgb;
@@ -28,6 +33,7 @@ use crate::deco::{Line, Sprites, magnification};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, Pictures, Under, over_px, tint};
 use crate::renderer::double::Piece;
+use crate::skip;
 use crate::stored::{Pens, Rows, Stored};
 use crate::target::{Orientation, Target};
 
@@ -713,6 +719,7 @@ fn deco_over(
         return;
     };
     let o = sprites.orientation();
+    let color = sprites.skips_color();
     let mut skip = skip.filter(|_| line.skips_ink);
     let mut near_found = false;
     for (col, t) in (job.posx..).zip(job.tiles.get(..job.ncells).unwrap_or_default()) {
@@ -730,14 +737,14 @@ fn deco_over(
             if o.turned() {
                 if let Some(i) = columns.line(job, y) {
                     for (x, a) in cov.iter_mut().enumerate().filter(|(_, a)| **a != 0) {
-                        if columns.near(job, glyph, o, (x, i)) {
+                        if columns.near(job, (glyph, color), o, (x, i)) {
                             *a = 0;
                         }
                     }
                 }
             } else {
                 if !near_found {
-                    near_ink(job, glyph, o, y, (ink, near));
+                    near_ink(job, (glyph, color), o, y, (ink, near));
                     near_found = true;
                 }
                 for (a, &n) in cov.iter_mut().zip(near.iter()) {
@@ -759,14 +766,15 @@ fn deco_over(
 /// works on a display that is upright or turned half round by `o`, where
 /// the cell's row runs along the display line. The gap is one pixel of the
 /// normal cell, so a magnified cell's gap is [`magnification`] display
-/// pixels wide. Ink is any pixel of the glyph, or of its color layer, with
-/// a coverage above 0. Only the ink inside the job's area counts, and in a
-/// piece of a magnified character the ink of the character's pieces beside
-/// it, which the glyph carries ([`Stored::beside`]). `ink` is scratch for
-/// the glyph's line.
+/// pixels wide. Ink is any pixel of a text glyph with a coverage above 0,
+/// and, when `color` is set, any pixel of a color glyph or of the color
+/// layer whose alpha reaches the threshold ([`skip::inked`]). Only the ink
+/// inside the job's area counts, and in a piece of a magnified character
+/// the ink of the character's pieces beside it, which the glyph carries
+/// ([`Stored::beside`]). `ink` is scratch for the glyph's line.
 fn near_ink(
     job: &Job,
-    glyph: &Stored,
+    (glyph, color): (&Stored, bool),
     o: Orientation,
     y: i64,
     (ink, near): (&mut [u8], &mut [u8]),
@@ -784,7 +792,12 @@ fn near_ink(
     let gx = job.r.x.saturating_sub(job.g.x);
     for g in core::iter::once(glyph).chain(glyph.layer()) {
         g.mask_line(gx, y.saturating_sub(job.g.y), ink);
-        for (x, _) in ink.iter().enumerate().filter(|&(_, &a)| a != 0) {
+        let rgba = g.is_rgba();
+        for (x, _) in ink
+            .iter()
+            .enumerate()
+            .filter(|&(_, &a)| skip::inked(rgba, a, color))
+        {
             // the pixel, and the pixels before and after it that lie in
             // the job
             let end = x.saturating_add(gap).saturating_add(1);
@@ -846,11 +859,18 @@ impl Columns {
 
     /// Whether display pixel `x`, `i` of `job`'s area, counted from its top
     /// left, lies near `glyph`'s ink on a display turned a quarter by `o`,
-    /// as [`near_ink`] decides it along an upright row: within the gap of
+    /// with whether its color ink counts, as [`near_ink`] decides it along
+    /// an upright row: within the gap of
     /// ink in the lines above and below it inside the area, or near the ink
     /// beside a piece. They must be `job`'s ([`Columns::line`]). `false`
     /// for a pixel outside the area.
-    fn near(&mut self, job: &Job, glyph: &Stored, o: Orientation, (x, i): (usize, usize)) -> bool {
+    fn near(
+        &mut self,
+        job: &Job,
+        glyph: (&Stored, bool),
+        o: Orientation,
+        (x, i): (usize, usize),
+    ) -> bool {
         let Some(at) = self.at.get(x).copied() else {
             return false;
         };
@@ -874,8 +894,9 @@ impl Columns {
     /// whole height: each pixel within the gap of `glyph`'s ink, or of its
     /// color layer's, in the lines above and below it inside the area, the
     /// ink's own pixels among them, and each pixel near the ink beside a
-    /// piece.
-    fn column(&mut self, job: &Job, glyph: &Stored, o: Orientation, x: usize) {
+    /// piece. `color` says whether a color glyph's ink counts, as for
+    /// [`near_ink`].
+    fn column(&mut self, job: &Job, (glyph, color): (&Stored, bool), o: Orientation, x: usize) {
         let h = usize::try_from(job.r.h).unwrap_or(0);
         let gx = job.r.x.saturating_sub(job.g.x).saturating_add(int(x));
         let dy = job.r.y.saturating_sub(job.g.y);
@@ -883,7 +904,7 @@ impl Columns {
         for line in (dy..).take(h) {
             let ink = core::iter::once(glyph)
                 .chain(glyph.layer())
-                .any(|g| g.coverage(gx, line) != 0);
+                .any(|g| skip::inked(g.is_rgba(), g.coverage(gx, line), color));
             self.ink.push(u8::from(ink));
         }
         let gap = usize::try_from(magnification(job.piece)).unwrap_or(1);

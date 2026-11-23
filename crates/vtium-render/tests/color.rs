@@ -1,8 +1,8 @@
 //! Color glyphs through the renderer (vtium/vtium#23): a premultiplied
 //! RGBA glyph from a vitrified set composes over its cell's background
 //! with `src + bg (255 - a) / 255`, takes no color from the foreground,
-//! bold or reverse but the background reverse gives it, is skipped by the
-//! underline and lies under the strike, and draws the same at a whole scale
+//! bold or reverse but the background reverse gives it, lies over the
+//! underline and under the strike, and draws the same at a whole scale
 //! however the cache stores it. Each expected pixel is computed here,
 //! apart from the renderer's blend.
 
@@ -127,10 +127,11 @@ fn a_color_glyph_composes_over_its_background_in_its_own_colors() {
     }
 }
 
-// A color glyph's ink is wherever its alpha is above 0, and the underline
-// skips it as it skips a letter's: this glyph has ink in every column but
-// the first, which lies beside the second, so the underline leaves out
-// both cells. The strike crosses the glyph.
+// In a cell 16 pixels tall, the underline runs whole under a color glyph,
+// whose picture covers it: each pixel of the underline's row is the glyph
+// over the line, from the clear first column, which shows the line, to the
+// opaque last. The strike crosses the glyph. tests/emoji_ink.rs covers the
+// gap a taller cell keeps around the glyph's ink.
 // covers: text.emoji
 #[test]
 fn a_color_glyph_lies_over_the_underline_and_under_the_strike() {
@@ -141,7 +142,7 @@ fn a_color_glyph_lies_over_the_underline_and_under_the_strike() {
     for x in 0..16 {
         assert_eq!(
             c.pixel(x, UNDERLINE_ROW),
-            Some(over(glyph_px(x, UNDERLINE_ROW), px(BG))),
+            Some(over(glyph_px(x, UNDERLINE_ROW), px(FG))),
             "underline row, {x}"
         );
     }

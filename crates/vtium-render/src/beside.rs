@@ -21,6 +21,7 @@
 
 use vtium_font::{Format, Glyph};
 
+use crate::skip;
 use crate::target::Orientation;
 
 /// A piece's glyph as its ink is read: the glyph, the color layer drawn
@@ -34,16 +35,17 @@ pub(crate) struct Ink<'a> {
 }
 
 impl Ink<'_> {
-    /// Whether it has ink at the display pixel `x`, `y` of its cell,
-    /// upright: a coverage above 0 in the glyph's pixels, or an alpha above
-    /// 0 in a color glyph or the color layer. Its pixels are its ink cut
-    /// to its cell, so ink past its cell does not count.
-    fn at(&self, x: u32, y: u32) -> bool {
+    /// Whether it has ink an underline skips at the display pixel `x`, `y`
+    /// of its cell, upright: a coverage above 0 in a text glyph's pixels,
+    /// and when `color` is set, an alpha at the threshold in a color glyph
+    /// or the color layer ([`skip::inked`]). Its pixels are its ink cut to
+    /// its cell, so ink past its cell does not count.
+    fn at(&self, x: u32, y: u32, color: bool) -> bool {
         let s = self.scale.max(1);
         let (gx, gy) = (x.checked_div(s).unwrap_or(0), y.checked_div(s).unwrap_or(0));
         core::iter::once(self.glyph)
             .chain(self.layer)
-            .any(|g| coverage(g, gx, gy) != 0)
+            .any(|g| skip::inked(g.format() == Format::Rgba, coverage(g, gx, gy), color))
     }
 }
 
@@ -88,7 +90,9 @@ impl Beside {
     /// pixel `a` pixels from the edge lies within the gap of ink `d`
     /// pixels past the edge, both counted from 1, when `a + d - 1` is at
     /// most the gap, so the nearest ink keeps `gap + 1 - d` pixels clear.
-    /// `None` when no ink beside the piece comes that near.
+    /// A color glyph's ink counts only where the cell's height says the
+    /// underline skips it ([`skip::skips_color`]). `None` when no ink
+    /// beside the piece comes that near.
     pub(crate) fn of(
         (width, height): (u32, u32),
         gap: u32,
@@ -98,6 +102,7 @@ impl Beside {
         if width == 0 || gap == 0 {
             return None;
         }
+        let color = skip::skips_color(height);
         // the pixel `d` pixels past an edge, counted from 1, lies in the
         // piece `(d - 1) / width` further on, at `(d - 1) % width` pixels
         // from its own edge on this side
@@ -117,7 +122,7 @@ impl Beside {
                     usize::try_from(k)
                         .ok()
                         .and_then(|k| pieces.get(k).copied().flatten())
-                        .is_some_and(|p| p.at(x, y))
+                        .is_some_and(|p| p.at(x, y, color))
                 })
                 .map_or(0, |d| {
                     u8::try_from(gap.saturating_add(1).saturating_sub(d)).unwrap_or(u8::MAX)

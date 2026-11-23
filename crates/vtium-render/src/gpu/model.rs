@@ -14,6 +14,7 @@ use vtium_term::Rgb;
 
 use super::gl::{Format, Quad, Size};
 use crate::blend::{argb_over, mask, over_bg, pixel, tint_over};
+use crate::skip;
 
 /// A texture's pixels as the stand-in holds them.
 #[derive(Clone, Copy, Debug)]
@@ -98,7 +99,8 @@ struct Job {
 const RECEIVES: u32 = 1;
 const MARKED: u32 = 2;
 const DOWN: u32 = 4;
-const GAP: u32 = 3;
+const COLOR: u32 = 8;
+const GAP: u32 = 4;
 /// The first bit of `src[3]` that holds a dotted underline's dot width.
 const DOTS: u32 = 25;
 
@@ -190,7 +192,8 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
         let gap = i64::from(flags >> GAP);
         if a != 0
             && gap != 0
-            && (near_ink(i, kind, at, (local.0, dw), gap) || beside(i, entry, local, dw))
+            && (near_ink(i, (kind, flags & COLOR != 0), at, (local.0, dw), gap)
+                || beside(i, entry, local, dw))
         {
             a = 0;
         }
@@ -215,28 +218,39 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     over_bg(bg, p)
 }
 
-/// The shader's `ink_at`: the coverage of the glyph of kind `kind` at its
-/// texel `at`, the color layer's and the text's together for a sized run's
-/// piece.
-fn ink_at(i: &Inputs<'_>, kind: u32, at: (i64, i64)) -> u8 {
+/// The shader's `ink_at`: whether the glyph of kind `kind` has ink an
+/// underline skips at its texel `at` ([`skip::inked`]): the mask's
+/// coverage, and when `color` is set the color glyph's alpha; for a sized
+/// run's piece, the text's mask and the color layer's alpha.
+fn ink_at(i: &Inputs<'_>, (kind, color): (u32, bool), at: (i64, i64)) -> bool {
     match kind {
-        1 => i.masks.byte(at, 0),
-        2 => i.colors.byte(at, 3),
-        3 => i
-            .colors
-            .byte(at, 3)
-            .max(i.colors.byte((at.0.saturating_add(i.cell.0), at.1), 3)),
-        _ => 0,
+        1 => skip::inked(false, i.masks.byte(at, 0), color),
+        2 => skip::inked(true, i.colors.byte(at, 3), color),
+        3 => {
+            skip::inked(true, i.colors.byte(at, 3), color)
+                || skip::inked(
+                    false,
+                    i.colors.byte((at.0.saturating_add(i.cell.0), at.1), 3),
+                    color,
+                )
+        }
+        _ => false,
     }
 }
 
 /// The shader's `near_ink`: whether the glyph has ink at its texel `at` or
 /// at a texel up to `gap` before or after it, among the pixels of the
 /// quad, `w` wide, whose pixel `x` across it the texel `at` draws.
-fn near_ink(i: &Inputs<'_>, kind: u32, at: (i64, i64), (x, w): (i64, i64), gap: i64) -> bool {
+fn near_ink(
+    i: &Inputs<'_>,
+    glyph: (u32, bool),
+    at: (i64, i64),
+    (x, w): (i64, i64),
+    gap: i64,
+) -> bool {
     (gap.saturating_neg()..=gap).any(|d| {
         let n = x.saturating_add(d);
-        n >= 0 && n < w && ink_at(i, kind, (at.0.saturating_add(d), at.1)) != 0
+        n >= 0 && n < w && ink_at(i, glyph, (at.0.saturating_add(d), at.1))
     })
 }
 
