@@ -197,7 +197,7 @@ ifneq ($(origin FEATURES),command line)
 ifeq ($(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),)
 FEATURES := $(if $(shell grep -qaF -- '$(VT_IMAGES_MARKER)' '$(VTIUM_BIN)' 2>/dev/null && echo images),images)
 else
-FEATURES := images bidi$(if $(filter gpu,$(RENDER_PATH)), gpu)
+FEATURES := images bidi filters$(if $(filter gpu,$(RENDER_PATH)), gpu)
 endif
 else ifeq ($(RENDER_PATH),gpu)
 ifeq ($(filter gpu,$(subst $(comma), ,$(FEATURES))),)
