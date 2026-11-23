@@ -32,12 +32,15 @@ considered:
     said: "Shrink the grid"
     via: the steering session's interview on 2026-11-22 (question tool, brief/for/against/lean per probe); the figure ADR-1404-joined-displays.svg was rendered and shown first; the maintainer chose the lean
     covers: [an unplugged display]
+  - operator: aaronsb
+    said: "overall it's reasonable"
+    via: the maintainer, reading the wave 6a records page, 2026-11-22
 observable:
   - "A head with `arrange = stacked` over two displays of the same size shows one grid with the rows of both, and a line that a program writes on the last row of the top display continues on the first row of the bottom one"
   - "The same head with `arrange = side-by-side` shows one grid with the columns of both, and a line wraps only at the right edge of the right display"
   - "Unplugging one of the two displays resizes the grid to the display that remains, and the shell redraws its prompt at the new size; plugging the display in again gives back the joined grid"
   - "A head with no `arrange` key mirrors its displays as it does today"
-status: proposed
+status: accepted
 date: 2026-11-20
 deciders:
   - aaronsb

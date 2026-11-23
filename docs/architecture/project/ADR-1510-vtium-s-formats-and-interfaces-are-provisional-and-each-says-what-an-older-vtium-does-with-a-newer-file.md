@@ -55,7 +55,10 @@ considered:
     said: "we don't have to keep a hardline stance on no changes in beta. it's ok - 'soft beta' basically."
     via: the maintainer reading the wave 6a records in the steering session on 2026-11-22, as the steering session's notes of the maintainer's record answers give it
     covers: [when it binds]
-status: proposed
+  - operator: aaronsb
+    said: "overall it's reasonable"
+    via: the maintainer, reading the wave 6a records page, 2026-11-22
+status: accepted
 date: 2026-11-20
 deciders:
   - aaronsb

@@ -48,7 +48,10 @@ considered:
     via: the steering session's notes of the maintainer's record answers on 2026-11-22, late, after the survey and benchmark of Rust path fillers reported
     paraphrase: true
     covers: [the rasterizer]
-status: proposed
+  - operator: aaronsb
+    said: "overall it's reasonable"
+    via: the maintainer, reading the wave 6a records page, 2026-11-22
+status: accepted
 date: 2026-11-22
 deciders:
   - aaronsb

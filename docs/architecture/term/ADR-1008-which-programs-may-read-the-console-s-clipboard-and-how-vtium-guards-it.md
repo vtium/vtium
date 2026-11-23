@@ -37,7 +37,10 @@ considered:
     said: "Off until turned on"
     via: "the steering session's interview on 2026-11-22 (question tool, brief/for/against/lean per probe); the maintainer chose against the lean (on, each read confirmed): a fresh install refuses every read until clipboard-read = on"
     covers: [reads on by default]
-status: proposed
+  - operator: aaronsb
+    said: "overall it's reasonable"
+    via: the maintainer, reading the wave 6a records page, 2026-11-22
+status: accepted
 date: 2026-11-14
 deciders:
   - aaronsb

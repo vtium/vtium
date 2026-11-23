@@ -26,7 +26,7 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1005](./term/ADR-1005-the-kitty-keyboard-protocol-vtium-term-encodes-keys-by-a-stack-of-flags-for-each-screen-and-vtium-platform-reports-key-releases-and-each-key-s-other-forms.md) | The kitty keyboard protocol: vtium-term encodes keys by a stack of flags for each screen, and vtium-platform reports key releases and each key's other forms | accepted |
 | [ADR-1006](./term/ADR-1006-a-grapheme-cluster-with-a-spacing-mark-or-a-virama-conjunct-takes-two-cells-by-python-wcwidth-s-rule.md) | A grapheme cluster with a spacing mark or a virama conjunct takes two cells, by Python wcwidth's rule | accepted |
 | [ADR-1007](./term/ADR-1007-vtium-clipboard-copies-text-to-the-console-s-clipboard-through-osc-52-and-its-short-name-is-vticlip.md) | vtium-clipboard copies text to the console's clipboard through OSC 52, and its short name is vticlip | accepted |
-| [ADR-1008](./term/ADR-1008-which-programs-may-read-the-console-s-clipboard-and-how-vtium-guards-it.md) | Which programs may read the console's clipboard, and how vtium guards it | proposed |
+| [ADR-1008](./term/ADR-1008-which-programs-may-read-the-console-s-clipboard-and-how-vtium-guards-it.md) | Which programs may read the console's clipboard, and how vtium guards it | accepted |
 | [ADR-1009](./term/ADR-1009-a-line-s-memory-bound-counts-its-sized-runs-and-the-line-s-tables-compact-at-one-and-a-half-times-what-its-cells-name.md) | A line's memory bound counts its sized runs, and the line's tables compact at one and a half times what its cells name | accepted |
 
 ## Image
@@ -51,7 +51,7 @@ _Font loading, glyph rasterisation, color glyphs and fallback_
 | [ADR-1204](./font/ADR-1204-vtium-draws-its-own-messages-in-one-small-built-in-font-and-ships-a-catalog-of-font-sets-built-from-layers-with-terminus-working-out-of-the-box.md) | vtium draws its own messages in one small built-in font and ships a catalog of font sets built from layers, with Terminus working out of the box | accepted |
 | [ADR-1205](./font/ADR-1205-a-look-is-assembled-from-the-active-resources-and-a-resource-can-be-activated-only-from-a-root-owned-folder-on-a-filesystem-that-stays-mounted.md) | A look is assembled from the active resources, and a resource can be activated only from a root-owned folder on a filesystem that stays mounted | accepted |
 | [ADR-1206](./font/ADR-1206-vtium-config-s-tui-draws-through-ratatui-s-core-and-widgets-over-its-own-terminal-layer-and-each-tab-is-a-module-that-one-navigation-module-and-one-update-loop-connect.md) | vtium-config's TUI draws through ratatui's core and widgets over its own terminal layer, and each tab is a module that one navigation module and one update loop connect | accepted |
-| [ADR-1207](./font/ADR-1207-vtium-config-reads-outline-fonts-with-skrifa-and-read-fonts-and-no-longer-builds-swash.md) | vtium-config reads outline fonts with skrifa and read-fonts and no longer builds swash | proposed |
+| [ADR-1207](./font/ADR-1207-vtium-config-reads-outline-fonts-with-skrifa-and-read-fonts-and-no-longer-builds-swash.md) | vtium-config reads outline fonts with skrifa and read-fonts and no longer builds swash | accepted |
 
 ## Render
 _Cells and images to pixels - the renderer and its display interface_
@@ -79,7 +79,7 @@ _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
 | [ADR-1401](./platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) | Heads: a terminal per physical display, placed by a first-match ruleset | accepted |
 | [ADR-1402](./platform/ADR-1402-vtium-s-own-text-is-translated-through-gettext-catalogs-in-the-system-s-language.md) | vtium's own text is translated through gettext catalogs in the system's language | accepted |
 | [ADR-1403](./platform/ADR-1403-vtium-conf-holds-the-configuration-as-one-flow-from-the-displays-to-the-input-devices-and-vtium-config-draws-it.md) | vtium.conf holds the configuration as one flow from the displays to the input devices, and vtium-config draws it | accepted |
-| [ADR-1404](./platform/ADR-1404-a-head-can-join-its-displays-into-one-larger-terminal-stacked-or-side-by-side-and-mirroring-stays-the-default.md) | A head can join its displays into one larger terminal, stacked or side by side, and mirroring stays the default | proposed |
+| [ADR-1404](./platform/ADR-1404-a-head-can-join-its-displays-into-one-larger-terminal-stacked-or-side-by-side-and-mirroring-stays-the-default.md) | A head can join its displays into one larger terminal, stacked or side by side, and mirroring stays the default | accepted |
 
 ## Project
 _Process, harness and contributions - how vtium is built, tested and judged_
@@ -96,4 +96,5 @@ _Process, harness and contributions - how vtium is built, tested and judged_
 | [ADR-1507](./project/ADR-1507-the-reference-pages-for-escape-sequences-and-the-man-pages-are-generated-from-vtium-s-tables-and-code-and-a-test-fails-when-one-is-stale.md) | The reference pages for escape sequences and the man pages are generated from vtium's tables and code, and a test fails when one is stale | accepted |
 | [ADR-1508](./project/ADR-1508-the-site-publishes-the-crates-interfaces-under-api-and-a-page-for-each-release-and-each-release-s-notes-are-written-once.md) | The site publishes the crates' interfaces under /api/ and a page for each release, and each release's notes are written once | accepted |
 | [ADR-1509](./project/ADR-1509-vtium-is-the-terminal-a-linux-machine-boots-into-and-its-front-pages-tell-what-it-does-there-in-its-own-terms.md) | vtium is the terminal a Linux machine boots into, and its front pages tell what it does there in its own terms | accepted |
-| [ADR-1510](./project/ADR-1510-vtium-s-formats-and-interfaces-are-provisional-and-each-says-what-an-older-vtium-does-with-a-newer-file.md) | vtium's formats and interfaces are provisional, and each says what an older vtium does with a newer file | proposed |
+| [ADR-1510](./project/ADR-1510-vtium-s-formats-and-interfaces-are-provisional-and-each-says-what-an-older-vtium-does-with-a-newer-file.md) | vtium's formats and interfaces are provisional, and each says what an older vtium does with a newer file | accepted |
+| [ADR-1511](./project/ADR-1511-a-demo-image-built-from-each-release-s-tree-boots-into-vtium-and-a-page-on-vtium-s-site-boots-it-in-a-browser.md) | A demo image built from each release's tree boots into vtium, and a page on vtium's site boots it in a browser | proposed |
