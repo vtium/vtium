@@ -48,8 +48,9 @@ related: [ADR-1007, ADR-1002]
 
 ## Summary
 
-- **Decided:** The maintainer decided on 2026-11-20 how paste works. A person pastes the console's clipboard with a key that vtium owns, `key-paste`, Shift+Insert by default. vtium takes the key before any program sees it and types the clipboard into the program as a bracketed paste, as the middle mouse button does. A program reads the clipboard only through `vtium-clipboard paste`. That command asks vtium through a socket that vtium offers to the console's sessions, and vtium shows a prompt on the console that the person confirms with a key. Only after the confirmation does vtium hand the clipboard to the command, which prints it. Each of the two can be turned off: an empty `key-paste` gives the key to the program, and `clipboard-read = off` makes vtium refuse every request. A program that implements its own copy and paste keys then receives its keys, and vtium intercepts nothing. OSC 52 reads stay refused, and no byte of the clipboard reaches the pty except through a person's paste.
-- **Trades away:** Editors that read the clipboard through OSC 52, such as neovim's OSC 52 provider, still cannot read it, and `vtium-clipboard paste` does not work over ssh. vtium's root process gains a socket that its users' programs can reach, with its own bounds and tests. Every read waits for a key on the console, so a script that reads the clipboard needs a person at the console.
+- **Decided:** The maintainer decided on 2026-11-20 how paste works. A person pastes the console's clipboard with a key that vtium owns, `key-paste`, Shift+Insert by default. vtium takes the key before any program sees it and types the clipboard into the program as a bracketed paste, as the middle mouse button does. A program reads the clipboard only through `vtium-clipboard paste`. That command asks vtium through a socket that vtium offers to the console's sessions, and vtium shows a prompt on the console that the person confirms with a key. Only after the confirmation does vtium hand the clipboard to the command, which prints it. Reads through `vtium-clipboard paste` are off until a person turns them on with `clipboard-read = on`, so a fresh install refuses every request. The paste key can be turned off too: an empty `key-paste` gives the key to the program. A program that implements its own copy and paste keys then receives its keys, and vtium intercepts nothing. OSC 52 reads stay refused, and no byte of the clipboard reaches the pty except through a person's paste.
+  > Edited 2026-11-22: the maintainer answered the second probe "Off until turned on", against the record's lean, and chose the socket in answer to the first (`considered`, 2026-11-22). The bullet read: "Each of the two can be turned off: an empty `key-paste` gives the key to the program, and `clipboard-read = off` makes vtium refuse every request."
+- **Trades away:** Editors that read the clipboard through OSC 52, such as neovim's OSC 52 provider, still cannot read it, and `vtium-clipboard paste` does not work over ssh. vtium's root process gains a socket that its users' programs can reach, with its own bounds and tests. Every read waits for a key on the console, so a script that reads the clipboard needs a person at the console, and someone must first turn reads on in vtium.conf.
 - **One-way?** No while nothing relies on the read path. Once scripts use `vtium-clipboard paste`, removing it becomes expensive, and a read, once confirmed, cannot take back the text it handed out.
 - **Probes:**
   - *Not confident (the channel):* the record takes the author's earlier lean for how `vtium-clipboard paste` asks: a socket that vtium checks, so the prompt can name the program and no byte touches the pty. The other way types the clipboard into the program's input as a bracketed paste after the prompt, which works over ssh but reaches whatever program reads the pty at that moment. Is the socket what you want?
@@ -79,8 +80,10 @@ The maintainer decided that `vtium-clipboard` builds copy alone at first, and th
 - **The command asks through a socket that vtium offers to the session.** vtium reads the caller's user and process from the socket (`SO_PEERCRED`). It takes the request only from a process that runs as the session's user and has that console's pty as its controlling terminal, and refuses every other caller. A remote host cannot ask, because the socket exists only on the machine.
 - **vtium shows a prompt on the console, and the person confirms with a key.** The prompt names the program that asks and says how many bytes the clipboard holds, and it never shows the text. When the person confirms, vtium sends the clipboard over the socket, and `vtium-clipboard paste` prints it on its standard output. When the person refuses, vtium answers with a refusal, and the command exits with a status of its own and a message that says the paste was refused.
 - **No byte of the clipboard touches the pty,** so the reply rule and the refusal of OSC 52 reads stay whole.
-- **`clipboard-read` turns the command's reads on or off.** It is a switch beside `clipboard-write`, and it is on by default, since every read waits for a key on the console. With `clipboard-read = off`, vtium shows no prompt and refuses each request at once, and `vtium-clipboard paste` says that reads are turned off and which key turns them on.
-- This record's agent made two calls here, which the probes put to the maintainer: the socket as the channel, from the record's earlier lean, and reads on by default.
+- **`clipboard-read` turns the command's reads on or off, and it is off by default.** It is a switch beside `clipboard-write`. A fresh install refuses every read until a person sets `clipboard-read = on`. With `clipboard-read = off`, vtium shows no prompt and refuses each request at once, and `vtium-clipboard paste` says that reads are turned off and that `clipboard-read = on` in vtium.conf turns them on.
+- The maintainer chose the socket as the channel on 2026-11-22, as the record's earlier lean had it, and chose reads off by default against the lean (`considered`).
+
+> Edited 2026-11-22: the maintainer answered both probes (`considered`, 2026-11-22): "A socket vtium checks", and "Off until turned on". The first bullet read: "It is a switch beside `clipboard-write`, and it is on by default, since every read waits for a key on the console." The second read: "This record's agent made two calls here, which the probes put to the maintainer: the socket as the channel, from the record's earlier lean, and reads on by default."
 
 ### D3: the guards on a confirmed read
 
@@ -103,11 +106,12 @@ The maintainer decided that `vtium-clipboard` builds copy alone at first, and th
 - vtium's root process gains a socket that its users' programs can reach, and its bounds and tests come with it.
 - `vtium-clipboard paste` works only on the machine, not over ssh, and editors that speak OSC 52 still cannot read the clipboard.
 - A read needs a person at the console, so an unattended script cannot read the clipboard.
+- A fresh install refuses every read, so a person who wants `vtium-clipboard paste` turns on `clipboard-read` first.
 
 ### Neutral
 
 - `osc.52.read` in ADR-1000 stays refused, and the reply rule gains no exception.
-- `vtium-clipboard paste` is built as D2 says, after the screen lock, and ADR-1007's exit status 2 for `paste` gives way to it. vtium-settings gains `clipboard-read`.
+- `vtium-clipboard paste` is built as D2 says, after the screen lock, and ADR-1007's exit status 2 for `paste` gives way to it. vtium-settings gains `clipboard-read`, off by default.
 
 ## Alternatives Considered
 
