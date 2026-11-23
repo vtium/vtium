@@ -99,7 +99,8 @@ RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 # so that variant's goldens judge it.
 GOLDENS_OF = {"gl-1280x800": "2d-1280x800", "seat-seatd": "2d-potato-min",
               "seat-logind": "2d-potato-min", "direct-logind": "2d-potato-min",
-              "seat-seatd-wait": "2d-potato-min", "hand-over": "2d-potato-min",
+              "seat-seatd-wait": "2d-potato-min", "seat-seatd-stop": "2d-potato-min",
+              "hand-over": "2d-potato-min",
               "two-cards-mirror-hotplug": "two-cards-mirror",
               "novt-closed-broken": "heads-closed-broken", "novt-open": "2d-640x480-psf16"}
 

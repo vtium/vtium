@@ -4331,6 +4331,7 @@ class HeadsTest(unittest.TestCase):
                     "restart;id", "ptys tty2", "Ptys", "ptys;id", "stop now", "Stop", "stop;id",
                     "vts 7", "Vts", "vts;id", "seat-wait 4", "Seat-wait", "seat-wait;id",
                     "seat-hold 8", "seat-hold;id", "Seat-hold", "seat-release",
+                    "seat-stop now", "Seat-stop", "seat-stop;id", "seat-stop && touch pwned-stop",
                     "chvt", "chvt 3", "chvt 12", "Chvt 1", "chvt 1;id", "chvt 2 now",
                     "chvt 1 && touch pwned-chvt", "chvt $(touch %s/pwned-chvt)" % d.name,
                     "bare now", "Bare", "bare;id", "bare && touch pwned-bare",
@@ -7641,7 +7642,8 @@ class SeatTest(unittest.TestCase):
                                "seat.rs")) as f:
             source = f.read()
         for line in (t3_seat.SEAT_OPEN.replace("seat0", "{name}"), t3_seat.SEAT_WAITS,
-                     t3_seat.SEAT_BUSY, t3_seat.SEAT_SHOWN.replace("%d", "{num}")):
+                     t3_seat.SEAT_BUSY, t3_seat.SEAT_SHOWN.replace("%d", "{num}"),
+                     t3_seat.SEAT_LOST):
             self.assertIn(line.split(": ", 1)[1], source)
 
     def test_a_hold_is_judged_both_ways(self):
@@ -7666,6 +7668,46 @@ class SeatTest(unittest.TestCase):
                 self.assertIn(want, t3_seat.hold_verdict(t3_seat.parse_hold(answer)))
         self.assertIn("did not end", t3_seat.hold_verdict(
             t3_seat.parse_hold([l for l in good if not l.startswith("released")])))
+
+    def test_a_stop_of_the_seat_manager_is_judged_both_ways(self):
+        good = ["vtium 512", "stopped seatd",
+                "exited vtium@tty2.service: Main process exited, code=exited, status=1/FAILURE",
+                "restarts 1"]
+        stop = t3_seat.parse_stop(good)
+        self.assertEqual(stop["vtium"], 512)
+        self.assertTrue(stop["stopped"])
+        self.assertEqual(stop["restarts"], 1)
+        self.assertIsNone(t3_seat.stop_verdict(stop))
+        bad = {
+            "refused: vtium@tty2.service runs no process": "stopped nothing",
+            "vtium 0": "ran no process",
+            "stopped nothing": "did not stop",
+            "exited vtium@tty2.service: Main process exited, code=killed, status=11/SEGV":
+                "did not exit with status 1",
+            "exited vtium@tty2.service: Main process exited, code=exited, status=0/SUCCESS":
+                "did not exit with status 1",
+            "restarts 0": "did not restart",
+        }
+        for line, want in bad.items():
+            word = line.split()[0]
+            answer = [l for l in good if l.split()[0] != word.rstrip(":")] + [line]
+            with self.subTest(line):
+                self.assertIn(want, t3_seat.stop_verdict(t3_seat.parse_stop(answer)))
+        self.assertIn("did not exit once seatd stopped", t3_seat.stop_verdict(
+            t3_seat.parse_stop([l for l in good if not l.startswith("exited")])))
+
+    def test_the_seat_manager_stops_on_seatd(self):
+        v = t3_scenario.VARIANTS["seat-seatd-stop"]
+        self.assertEqual(v["seat"], "seatd")
+        self.assertTrue(v["agent"])
+        self.assertNotIn("mode", v)
+        self.assertEqual(v["tree_features"], ["libseat", "logind"])
+        self.assertEqual(t3_scenario.variant_cases("seat-seatd-stop")[-2:], ["seat", "seat-stop"])
+        self.assertIn("seat-seatd-stop", t3_scenario.SEAT_VARIANTS)
+        self.assertEqual(t3_evaluate.GOLDENS_OF["seat-seatd-stop"], "2d-potato-min")
+        self.assertIs(t3_scenario.CHECK_RUNS["seat-stop"], t3_seat.check_seat_stop)
+        self.assertIn("seat-stop", t3_seat.CHECKS)
+        self.assertIn("seat-stop", t3_evaluate.NO_GOLDEN)
 
     def test_the_seat_waits_run_on_seatd(self):
         v = t3_scenario.VARIANTS["seat-seatd-wait"]
