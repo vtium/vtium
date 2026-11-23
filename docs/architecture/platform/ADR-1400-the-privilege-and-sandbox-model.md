@@ -546,7 +546,7 @@ The slices are shaped so that the third does not undo the first:
 - ADR-1401 D2 says that a display is a head inside vtium's one process, never a second process. That stays true of the compositor. Once the third slice lands, each console's session runs in a process of its own.
 - ADR-1401 D10 says that a crash a program provokes with crafted output ends every session. Once the third slice lands, such a crash ends that console's session process, unless it reaches the compositor.
 - ADR-1401 D13: the broker keeps the store of pty masters, as the unit's main process. Once the third slice lands, a restart also keeps each console's terminal state, as the third slice says.
-- ADR-1401 D16 says that a restart sends no focus-in, and that a program turns mode 1004 on again after a restart. Once the third slice lands, a restarted vtium sends a focus-in to each shown console whose kept modes have mode 1004 on.
+- ADR-1401 D16: until the third slice lands, a restart sends no focus-in, and a program turns mode 1004 on again after a restart. Once the third slice lands, a restarted vtium sends a focus-in to each shown console whose kept modes have mode 1004 on. D16's bullet on the end of a hand-over carries this, with a dated edit.
 - ADR-1101 and ADR-1200 D15: the broker starts each helper, at the drawer's request.
 - `docs/concepts/security.md` and SECURITY.md change as each slice lands.
 
