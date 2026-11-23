@@ -451,6 +451,8 @@ A frit (a font set file) is a file named `<name>.vtfrit` in the frits' directory
 
 > Edited 2026-11-02: the maintainer moved vtium's configuration file to `/etc/vtium/vtium.conf` (ADR-1500 D4), so this record names it `vtium.conf` wherever it read `kmscon.conf` as vtium's file, and `vtium.conf.example` for the example vtium ships. The record's other text is unchanged.
 
+> Note 2026-11-22: ADR-1510 D2, which the maintainer decided on 2026-11-22, amends this paragraph for keys. vtium reports an unknown key with the file and the line, ignores the key, and reads the rest of the frit. A known key that stands where it does not apply counts as an unknown key. Such a key is one that the `source=` line above it cannot take, such as `render=` under a bitmap source, `cp-size=` under a font that is not a CPI font or `script-source=` under an outline source. A source's key with no source line above it is out of place too, and so is a key of the whole set inside a layer (ADR-1204 D5). A layer's lines follow the same rule as the frit's. A malformed line, or a value that a key cannot take, still refuses the whole frit, because a half-read frit draws the wrong glyphs.
+
 | Key | Meaning |
 |---|---|
 | `name=` | The frit's name. Unset, it is the file's name without `.vtfrit`. It is 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, does not start with `.`, and is matched case-sensitively. `unifont` and `unscii-8` are reserved. |

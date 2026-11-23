@@ -25,6 +25,14 @@ amends:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "We had previously avoided os2 because many fonts incorrectly set this option and would fool it"
+    via: the steering session's interview on 2026-11-22, late (question tool), as the steering session's notes of the maintainer's record answers give it; the maintainer chose to keep refusing a face whose hhea ascent and descent are both 0, and the same concern keeps vtium-config's own choice of metrics over skrifa's USE_TYPO_METRICS rule
+    covers: [metrics]
+  - operator: aaronsb
+    said: "Should we do a little research for which libraries are 1) well known 2) active 3) license compatible 4) performant ? I'm not against building our own rasterizer but it has to be extremely performant with tight loops and predictable"
+    via: the steering session's interview on 2026-11-22, late (question tool), as the steering session's notes of the maintainer's record answers give it; the rasterizer probe stays open until that survey reports
 status: proposed
 date: 2026-11-22
 deciders:
@@ -40,13 +48,15 @@ related:
 ## Summary
 
 - **Decided by the maintainer (2026-11-22):** swash is unmaintained, so vtium-config stops building it. The library work on vtium's renderer waits until swash is gone.
-- **Proposed by this record's agent, for the maintainer to confirm:** vtium-config reads each face, its metrics, advances, character map and names with read-fonts and skrifa (D1). It already draws outlines with them. COLR color glyphs are read through skrifa's color painter (D2). The font check keeps only what read-fonts itself still needs (D4). The work runs as three cards (D5).
-- **Left to the maintainer:** which code fills a glyph's outline into pixels (D3). The choices are zeno kept as a direct dependency, tiny-skia's path filler, or a small coverage rasterizer of vtium's own.
+- **Proposed by this record's agent, for the maintainer to confirm:** vtium-config reads each face, its advances, character map and names with read-fonts and skrifa (D1). It reads a face's ascent and descent with read-fonts under its own rule, the one it follows today, and not under skrifa's (D1, as the maintainer decided on 2026-11-22). It already draws outlines with them. COLR color glyphs are read through skrifa's color painter (D2). The font check keeps only what read-fonts itself still needs (D4). The work runs as three cards (D5).
+- **Left to the maintainer:** which code fills a glyph's outline into pixels (D3), once a survey of maintained libraries reports. The fillers measured so far are zeno kept as a direct dependency, tiny-skia's path filler, and a small coverage rasterizer of vtium's own. vtium's own stays a choice only if it is extremely fast, with tight loops and predictable timing.
+  > Edited 2026-11-22: the maintainer answered both probes (`considered`, 2026-11-22). The bullet on what the agent proposed began: "vtium-config reads each face, its metrics, advances, character map and names with read-fonts and skrifa (D1)." This bullet read: "which code fills a glyph's outline into pixels (D3). The choices are zeno kept as a direct dependency, tiny-skia's path filler, or a small coverage rasterizer of vtium's own."
 - **Trades away:** Under tiny-skia or vtium's own rasterizer, every outline-font picture moves once by a few levels of gray and goes to the maintainer's picture sheet. Under vtium's own, vtium maintains and fuzzes the rasterizer itself.
 - **One-way?** No. The rasterizer sits behind one function, and the reader change keeps today's cells and baselines.
 - **Probes:**
   - *Confident (metrics):* a font whose `hhea` table gives no ascent or descent now draws from its `OS/2` metrics, as FreeType draws it, where vtium-config refused it before. Is that what you want?
   - *Not confident (the rasterizer):* lean, vtium's own rasterizer. See [Open questions](#open-questions).
+  > Edited 2026-11-22: the maintainer answered the metrics probe against its lean: vtium-config keeps refusing a face whose `hhea` gives no ascent or descent, because many fonts set their `OS/2` metrics wrongly (`considered`, 2026-11-22). The rasterizer probe stays open, with no lean, until the survey of D3 reports.
 
 ## Context
 
@@ -61,7 +71,10 @@ zeno comes from swash's author and is as inactive. The maintainer filed two zeno
 ### D1: faces, metrics and the character map come from read-fonts and skrifa
 
 - **Faces.** vtium-config opens a font file or collection with read-fonts and reads at most `FACES_MAX` faces of a collection, as it does now. The font check runs first, on every path that opens a face.
-- **Metrics.** vtium-config takes a face's ascent, descent and units per em from skrifa's metrics in font units. skrifa follows FreeType's rule: `OS/2`'s typographic metrics when the face sets USE_TYPO_METRICS, `hhea`'s otherwise, and when `hhea` gives 0 for both, the typographic and then the Windows metrics. A face that sets the flag but gives a typographic ascent of 0 takes that ascent, where swash took `hhea`'s.
+- **Metrics.** vtium-config keeps its own rule for a face's ascent and descent, the rule it follows today, and reads the tables for it with read-fonts. It takes `OS/2`'s typographic ascender and descender when the face sets USE_TYPO_METRICS (bit 7 of `OS/2`'s `fsSelection`) and the typographic ascender is not 0. Otherwise it takes `hhea`'s ascender and descender. It reads both in font units at the face's default instance, with no variation applied, and units per em from `head`. vtium-config refuses a face whose units per em is 0, or whose ascent plus the size of its descent is 0 or less. So a face whose `hhea` gives 0 for both, and that does not take the typographic metrics, is refused. A face with no `head` table or no `maxp` table gets no ascent from today's reader, and is refused too. vtium-config never takes `OS/2`'s typographic metrics while the flag is clear, and never its Windows metrics, because many fonts set those values wrongly.
+- **Not skrifa's metrics.** skrifa follows FreeType's rule, which differs from vtium-config's in two places. It takes the typographic metrics whenever the face sets USE_TYPO_METRICS, even with a typographic ascender of 0. When `hhea` gives 0 for both, it takes the typographic and then the Windows metrics. vtium-config takes neither path, so it does not use skrifa's ascent and descent.
+
+> Edited 2026-11-22: the maintainer answered the metrics probe: "We had previously avoided os2 because many fonts incorrectly set this option and would fool it" (`considered`, 2026-11-22). The bullet read: "**Metrics.** vtium-config takes a face's ascent, descent and units per em from skrifa's metrics in font units. skrifa follows FreeType's rule: `OS/2`'s typographic metrics when the face sets USE_TYPO_METRICS, `hhea`'s otherwise, and when `hhea` gives 0 for both, the typographic and then the Windows metrics. A face that sets the flag but gives a typographic ascent of 0 takes that ascent, where swash took `hhea`'s." The second bullet is new.
 - **Advances.** vtium-config reads each advance in font units and scales it in f32, as it scales it now. skrifa's own scaled advance uses 16.16 fixed point, which can round a W's advance to another whole pixel near a half and change a cell's width.
 - **Character map.** vtium-config maps characters through skrifa's character map. A character that maps to a glyph number past 65,535 counts as unmapped, because the glyph helper's glyph numbers are 16 bits. The list of mapped characters keeps its one-bit-per-codepoint set, so a character map that lists the same range many times still costs one entry for each codepoint.
 - **Names and tables.** `names.rs` reads every name a face gives: its family, style, version and license. Its reader of the `name` table is the one the search for a family already uses, so one reader answers every name. A raw table such as `post` or `OS/2` is read through read-fonts.
@@ -74,11 +87,15 @@ vtium-config reads a COLR glyph with skrifa's `ColorGlyphCollection`, asking for
 
 vtium-config fills every outline and every COLR layer through one function that takes a path and returns the glyph's coverage and its box. The box is today's: the path's points, control points included, rounded out to whole pixels. A glyph whose box is wider or taller than 4,096 pixels draws as empty, as now. The bound keeps every mask within 4,096 × 4,096 pixels, under the helper's memory limit. The W rule's ink measure goes through the same function.
 
-The function's filler is one of three. The maintainer picks it (Open questions, question 1).
+The maintainer picks the function's filler once the survey below reports (Open questions, question 1). This record measured three fillers:
 
 - **zeno, as a direct dependency.** Its pixels stay byte for byte, and no picture moves.
 - **tiny-skia's path filler.** resvg already builds tiny-skia into vtium-config to draw pointer files, so it adds no crate. tiny-skia samples four rows within each pixel, which moves every outline picture and puts its error at horizontal edges, up to 115 levels on straight edges. Ten of vtium-config's tests pin edge rules that it breaks.
 - **A coverage rasterizer of vtium's own,** about 200 lines in vtium-config. It accumulates each line's signed area into a buffer and sums each row, so its coverage is the area each pixel covers. It flattens curves to within 0.05 pixel and keeps zeno's edge rules: points snapped to 1/256 of a pixel, and coverage in 256ths with a full pixel at 255. Every outline picture moves by a few levels, at most 12 on DejaVu Sans Mono and 38 on Noto Sans CJK. Its coverage lies closer to the exact coverage than zeno's.
+
+**The survey runs first.** A research card lists the Rust libraries that fill a path with antialiased coverage. It keeps each one that is well known, actively maintained, fast, and under a license that vtium's `deny.toml` accepts. It measures each one beside zeno, as this record measured the three fillers above. The measures are the pixels it moves across tier 2's screens, its error against the exact coverage, and its time for a glyph. vtium's own rasterizer stays a choice only if it is extremely fast, with tight loops and a predictable time for each glyph. The record's measurement puts its fill at about 1.7 times zeno's time.
+
+> Edited 2026-11-22: the maintainer asked for the survey before a filler is picked (`considered`, 2026-11-22). The section's second paragraph read: "The function's filler is one of three. The maintainer picks it (Open questions, question 1)." The paragraph on the survey is new.
 
 ### D4: the font check keeps what read-fonts needs
 
@@ -89,12 +106,18 @@ The function's filler is one of three. The maintainer picks it (Open questions, 
 The move runs as three cards, one after another, because vtium-config has one owner at a time.
 
 1. **Reading.** D1, D4's reader changes, and the image and path types that the drawing code passes around become vtium-config's own. Afterwards, swash is used only to draw COLR layers and the W rule's ink, and zeno only to fill.
-2. **Drawing.** D2 and D3. Afterwards, nothing in vtium-config's source names swash, and zeno only when the maintainer keeps it.
+2. **Drawing.** D2 and D3. It starts once D3's survey has reported and the maintainer has picked the filler. Afterwards, nothing in vtium-config's source names swash, and zeno only when the maintainer keeps it.
 3. **Removal.** D4's checks retired, the fuzz targets retargeted, swash removed from both lock files, and the crate's README and the features page rewritten.
+
+D3's survey is a research card of its own. It changes no file of vtium-config, so it can run beside the reading card.
+
+> Edited 2026-11-22: the maintainer asked for the survey before a filler is picked (`considered`, 2026-11-22). The drawing card's item read: "**Drawing.** D2 and D3. Afterwards, nothing in vtium-config's source names swash, and zeno only when the maintainer keeps it." The paragraph on the survey is new.
 
 ## Open questions
 
-1. **Which filler draws outlines?** Lean, which stands as the lean and not as the maintainer's answer: vtium's own rasterizer. For: it removes the last crate of an inactive author, and vtium already pins the edge rules it follows in its tests. It is closer to the exact coverage than zeno on every font measured. It adds no crate, and it fills a glyph in under a microsecond at 16 pixels, a small part of a glyph's cost. Against: every outline picture in tier 2, tier 3 and the specimens moves once by a few levels of gray, 125 of tier 2's 296 screens. vtium must also fuzz and maintain the rasterizer itself. It fills a glyph about 1.7 times slower than zeno. If the pictures should not move yet, the reading card can land with zeno as a direct dependency. The drawing card then swaps the filler later, with one picture sheet.
+1. **Which filler draws outlines?** Open until D3's survey reports, and the record holds no lean until then. The maintainer asked for the survey first, and keeps vtium's own rasterizer as a choice only if it is extremely fast, with tight loops and predictable timing. What this record measured of vtium's own rasterizer stands as evidence. It removes the last crate of an inactive author, keeps the edge rules that vtium's tests pin, and lies closer to the exact coverage than zeno on every font measured. It fills a glyph about 1.7 times slower than zeno. Every outline picture in tier 2, tier 3 and the specimens moves once by a few levels of gray, 125 of tier 2's 296 screens. vtium would also fuzz and maintain the rasterizer itself. If the pictures should not move yet, the reading card can land with zeno as a direct dependency. The drawing card then swaps the filler later, with one picture sheet.
+
+> Edited 2026-11-22: the maintainer answered: "Should we do a little research for which libraries are 1) well known 2) active 3) license compatible 4) performant ? I'm not against building our own rasterizer but it has to be extremely performant with tight loops and predictable" (`considered`, 2026-11-22). The question read: "**Which filler draws outlines?** Lean, which stands as the lean and not as the maintainer's answer: vtium's own rasterizer. For: it removes the last crate of an inactive author, and vtium already pins the edge rules it follows in its tests. It is closer to the exact coverage than zeno on every font measured. It adds no crate, and it fills a glyph in under a microsecond at 16 pixels, a small part of a glyph's cost. Against: every outline picture in tier 2, tier 3 and the specimens moves once by a few levels of gray, 125 of tier 2's 296 screens. vtium must also fuzz and maintain the rasterizer itself. It fills a glyph about 1.7 times slower than zeno. If the pictures should not move yet, the reading card can land with zeno as a direct dependency. The drawing card then swaps the filler later, with one picture sheet."
 
 ## Consequences
 
@@ -107,7 +130,9 @@ The move runs as three cards, one after another, because vtium-config has one ow
 ### Negative
 
 - Under tiny-skia or vtium's own rasterizer, every outline-font golden moves once and the maintainer reviews them.
-- A font whose `hhea` table gives no metrics now draws, from its `OS/2` metrics, so the tests that expected it refused change.
+- A font whose `hhea` table gives no ascent and descent stays refused, though FreeType draws it from its `OS/2` metrics. The helper leaves such a font out of a font set, with a warning that gives the reason.
+
+> Edited 2026-11-22: the maintainer's answer to the metrics probe (D1). The bullet read: "A font whose `hhea` table gives no metrics now draws, from its `OS/2` metrics, so the tests that expected it refused change."
 
 ### Neutral
 
