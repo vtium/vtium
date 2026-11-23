@@ -13,8 +13,9 @@
 //! child runs ([`crate::pty::Pty::spawn`]).
 //!
 //! A source that one callback takes out of the loop while the loop
-//! dispatches a batch of events leaves the loop through [`Removals`], so
-//! no event of that batch finds it gone.
+//! dispatches a batch of events leaves the loop through [`Removals`] when
+//! the dispatch returns, so no event of that batch finds it gone. A source
+//! removed between dispatches leaves at once.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -25,6 +26,59 @@ use std::time::Duration;
 pub use calloop::signals::Signal;
 use calloop::signals::Signals;
 use calloop::{Dispatcher, EventSource, InsertError, LoopHandle, LoopSignal, RegistrationToken};
+
+thread_local! {
+    /// The dispatches of a [`Loop`] running on this thread, and the
+    /// removals waiting for them to end.
+    static DISPATCH: RefCell<Dispatching> = RefCell::default();
+}
+
+/// A removal that [`Removals::remove`] put off until the dispatch returns.
+type Deferred = Box<dyn FnOnce()>;
+
+#[derive(Default)]
+struct Dispatching {
+    /// How many dispatches run, one inside another. vtium's loop never
+    /// nests them, but a count keeps the state right if a test does.
+    depth: usize,
+    pending: Vec<Deferred>,
+}
+
+/// Marks a dispatch of a [`Loop`] as running on this thread while it
+/// lives. When the outermost dispatch ends, the removals that callbacks
+/// asked for during it take their sources out of the loop.
+struct InDispatch;
+
+impl InDispatch {
+    fn enter() -> InDispatch {
+        DISPATCH.with_borrow_mut(|d| d.depth = d.depth.saturating_add(1));
+        InDispatch
+    }
+}
+
+impl Drop for InDispatch {
+    fn drop(&mut self) {
+        let pending = DISPATCH.with_borrow_mut(|d| {
+            d.depth = d.depth.saturating_sub(1);
+            if d.depth == 0 {
+                std::mem::take(&mut d.pending)
+            } else {
+                Vec::new()
+            }
+        });
+        // A panic in a callback unwinds through here, with the loop in an
+        // unknown state. The removals are then dropped undone, and the
+        // sources go when the loop drops.
+        if std::thread::panicking() {
+            return;
+        }
+        // The borrow is over, so a source whose drop removes another
+        // source removes it at once.
+        for removal in pending {
+            removal();
+        }
+    }
+}
 
 /// A signal's handler.
 type Handler<D> = Box<dyn FnMut(&mut D)>;
@@ -82,13 +136,21 @@ impl<D: 'static> Loop<D> {
     /// Waits for events, at most `timeout` (`None`: until one comes), and
     /// handles them.
     pub fn dispatch(&mut self, timeout: Option<Duration>, data: &mut D) -> io::Result<()> {
+        let _dispatch = InDispatch::enter();
         Ok(self.inner.dispatch(timeout, data)?)
     }
 
     /// Handles events until [`Loop::stopper`] stops it, calling `each_turn`
     /// after each turn.
-    pub fn run(&mut self, data: &mut D, each_turn: impl FnMut(&mut D)) -> io::Result<()> {
-        Ok(self.inner.run(None, data, each_turn)?)
+    pub fn run(&mut self, data: &mut D, mut each_turn: impl FnMut(&mut D)) -> io::Result<()> {
+        // Each turn's dispatch is marked as running, and `each_turn` runs
+        // outside the mark, as code between two calls of `dispatch` does.
+        let mut dispatch = Some(InDispatch::enter());
+        Ok(self.inner.run(None, data, |data| {
+            drop(dispatch.take());
+            each_turn(data);
+            dispatch = Some(InDispatch::enter());
+        })?)
     }
 }
 
@@ -105,14 +167,27 @@ impl<D: 'static> Loop<D> {
 /// meant for a source that left.
 ///
 /// A source inserted through [`Removals::insert`] and removed through
-/// [`Removals::remove`] is marked removed at once, so its callback skips
-/// its work and answers as the caller said. The loop takes the source out
-/// in an idle callback, which calloop runs after the whole batch, and the
-/// source holds its slot until then. A source that removes itself from its
-/// own callback needs none of this, since calloop handles that case.
+/// [`Removals::remove`] while [`Loop::dispatch`] or [`Loop::run`]
+/// dispatches is marked removed at once, so its callback skips its work
+/// and answers as the caller said. The source leaves the loop when the
+/// dispatch returns, and holds its slot until then. A source removed
+/// between dispatches leaves the loop at once, since no batch is waiting:
+/// its descriptor closes then, and does not wait for a later event to end a
+/// dispatch. A source that removes itself from its own callback needs none
+/// of this, since calloop handles that case.
+///
+/// The dispatch is tracked per thread, so a loop driven by calloop's own
+/// `dispatch`, outside [`Loop`], removes its sources at once.
+///
+/// In vtium the batch case comes from the card's descriptor, which disarms
+/// a flip's bound or a stale bound in the batch in which that bound
+/// expired, and from an input device, which removes itself after a read
+/// error. vtium removes whole cards and input devices between dispatches,
+/// as it handles udev's events and the VT's release.
 pub(crate) struct Removals<D: 'static> {
     handle: LoopHandle<'static, D>,
-    /// The sources removed whose idle callback has not run yet.
+    /// The sources removed during the dispatch that runs, which leave the
+    /// loop when it returns.
     removed: Rc<RefCell<Vec<RegistrationToken>>>,
 }
 
@@ -161,26 +236,45 @@ impl<D: 'static> Removals<D> {
         Ok(token)
     }
 
-    /// Removes the source of `token` from the loop once the batch being
-    /// dispatched is done, and marks it removed now. Outside a dispatch,
-    /// the next dispatch removes it.
+    /// Removes the source of `token` from the loop. During a dispatch,
+    /// the source is marked removed now and leaves the loop when the
+    /// dispatch returns. Between dispatches, it leaves at once.
     pub(crate) fn remove(&self, token: RegistrationToken) {
-        self.removed.borrow_mut().push(token);
-        let (handle, removed) = (self.handle.clone(), Rc::clone(&self.removed));
-        self.handle.insert_idle(move |_| {
-            handle.remove(token);
-            removed.borrow_mut().retain(|t| *t != token);
+        let deferred = DISPATCH.with_borrow_mut(|d| {
+            if d.depth == 0 {
+                return false;
+            }
+            // The removal holds the loop weakly, so a loop dropped before
+            // it runs is not kept alive by it.
+            let (handle, removed) = (self.handle.downgrade(), Rc::clone(&self.removed));
+            d.pending.push(Box::new(move || {
+                if let Some(handle) = handle.upgrade() {
+                    handle.remove(token);
+                }
+                removed.borrow_mut().retain(|t| *t != token);
+            }));
+            true
         });
+        if deferred {
+            self.removed.borrow_mut().push(token);
+        } else {
+            self.handle.remove(token);
+        }
     }
 }
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
+    use std::io::Read;
+    use std::os::unix::net::UnixStream;
+    use std::rc::Rc;
     use std::time::Duration;
 
+    use calloop::generic::Generic;
     use calloop::ping::make_ping;
     use calloop::timer::{TimeoutAction, Timer};
+    use calloop::{Interest, Mode, PostAction, RegistrationToken};
     use log::Level;
 
     use super::{Loop, Removals};
@@ -236,7 +330,126 @@ mod tests {
         assert_eq!(logs::at_least(Level::Warn), Vec::<String>::new());
         assert!(
             removals.removed.borrow().is_empty(),
-            "the idle callback ran"
+            "the removal ran when the dispatch ended"
         );
+    }
+
+    /// A descriptor source in `removals`' loop whose callback holds
+    /// `alive`, over one end of a socket pair; the other end, which reads
+    /// end of file once the source has closed its end.
+    fn watched(removals: &Removals<Seen>, alive: &Rc<()>) -> (RegistrationToken, UnixStream) {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        theirs.set_nonblocking(true).unwrap();
+        let alive = Rc::clone(alive);
+        let token = removals
+            .insert(
+                Generic::new(ours, Interest::READ, Mode::Level),
+                move |_, _, _: &mut Seen| {
+                    let _ = &alive;
+                    Ok(PostAction::Continue)
+                },
+                || Ok(PostAction::Continue),
+            )
+            .unwrap();
+        (token, theirs)
+    }
+
+    /// Whether the peer of `theirs` is closed.
+    fn closed(mut theirs: &UnixStream) -> bool {
+        matches!(theirs.read(&mut [0; 1]), Ok(0))
+    }
+
+    // vtium removes a card or an input device between dispatches, as it
+    // handles udev's events and the VT's release. The source leaves the
+    // loop at once: its descriptor closes and its callback is dropped,
+    // whether or not the loop ever dispatches again.
+    #[test]
+    fn a_source_removed_between_dispatches_leaves_the_loop_at_once() {
+        let lp = Loop::<Seen>::new().unwrap();
+        let removals = Removals::new(&lp.handle());
+        let alive = Rc::new(());
+        let (token, theirs) = watched(&removals, &alive);
+        assert!(!closed(&theirs));
+        removals.remove(token);
+        assert!(closed(&theirs), "the descriptor is closed");
+        assert_eq!(Rc::strong_count(&alive), 1, "the callback is dropped");
+        assert!(removals.removed.borrow().is_empty());
+    }
+
+    // A source removed inside a dispatch leaves the loop when that dispatch
+    // returns, not at a later one.
+    #[test]
+    fn a_source_removed_inside_a_dispatch_leaves_when_the_dispatch_returns() {
+        let mut lp = Loop::<Seen>::new().unwrap();
+        let removals = Removals::new(&lp.handle());
+        let alive = Rc::new(());
+        let (token, theirs) = watched(&removals, &alive);
+        let (ping, source) = make_ping().unwrap();
+        lp.handle()
+            .insert_source(source, {
+                let removals = removals.clone();
+                move |(), (), _: &mut Seen| removals.remove(token)
+            })
+            .unwrap();
+        ping.ping();
+        lp.dispatch(Some(Duration::ZERO), &mut Seen::default())
+            .unwrap();
+        assert!(closed(&theirs), "the descriptor is closed");
+        assert_eq!(Rc::strong_count(&alive), 1, "the callback is dropped");
+    }
+
+    // `Loop::run` calls `each_turn` between two dispatches, so a source
+    // removed there leaves the loop at once, as between two calls of
+    // `Loop::dispatch`.
+    #[test]
+    fn a_source_removed_between_the_turns_of_run_leaves_the_loop_at_once() {
+        let mut lp = Loop::<Seen>::new().unwrap();
+        let removals = Removals::new(&lp.handle());
+        let alive = Rc::new(());
+        let (token, theirs) = watched(&removals, &alive);
+        let (ping, source) = make_ping().unwrap();
+        lp.handle()
+            .insert_source(source, |(), (), _: &mut Seen| {})
+            .unwrap();
+        ping.ping();
+        let stop = lp.stopper();
+        let mut closed_at_once = None;
+        lp.run(&mut Seen::default(), |_| {
+            removals.remove(token);
+            closed_at_once = Some(closed(&theirs) && Rc::strong_count(&alive) == 1);
+            stop.stop();
+        })
+        .unwrap();
+        assert_eq!(closed_at_once, Some(true));
+    }
+
+    // A loop dropped after a removal takes every source with it: nothing
+    // that the removal left behind keeps the loop alive.
+    #[test]
+    fn a_loop_dropped_after_a_removal_leaks_no_source() {
+        let mut lp = Loop::<Seen>::new().unwrap();
+        let removals = Removals::new(&lp.handle());
+        let alive = Rc::new(());
+        let (gone, _) = watched(&removals, &alive);
+        let (_kept, theirs) = watched(&removals, &alive);
+        let (ping, source) = make_ping().unwrap();
+        let pinged = lp
+            .handle()
+            .insert_source(source, {
+                let removals = removals.clone();
+                move |(), (), _: &mut Seen| removals.remove(gone)
+            })
+            .unwrap();
+        ping.ping();
+        lp.dispatch(Some(Duration::ZERO), &mut Seen::default())
+            .unwrap();
+        removals.remove(gone);
+        // The ping's callback holds the loop through its own `Removals`, as
+        // any callback that holds a loop handle does, so it leaves first.
+        lp.handle().remove(pinged);
+        drop(removals);
+        drop(lp);
+        assert_eq!(Rc::strong_count(&alive), 1, "every source is dropped");
+        assert!(closed(&theirs), "the kept source's descriptor is closed");
     }
 }
