@@ -642,6 +642,63 @@ fn a_device_that_is_no_keyboard_or_pointer_is_dropped() {
     }
 }
 
+// A device that a rule places and whose bitmaps cannot be read is not
+// reported as used: the warning names the device, and vtium drops it.
+#[test]
+fn a_placed_device_that_cannot_be_probed_is_dropped_and_named() {
+    let nodes = Nodes::default();
+    let broken = nodes.add("/dev/input/event5", fake::keyboard());
+    broken.borrow_mut().unprobeable = true;
+    let mut input = Input::new(nodes, keymap(), InputConfig::default());
+    input.wake_up();
+    crate::display::fake::logs::capture();
+    assert!(
+        input
+            .add_with(Path::new("/dev/input/event5"), Disposition::Deliver)
+            .is_none()
+    );
+    assert_eq!(
+        crate::display::fake::logs::at_least(log::Level::Info),
+        [
+            "cannot probe /dev/input/event5 [stand-in]: Inappropriate ioctl for device (os error 25). vtium does not use the device."
+        ]
+    );
+    assert!(!broken.borrow().open);
+}
+
+// The line saying what a device is used as names each class it has: a
+// keyboard with a pointer is a keyboard and a mouse, and a device that a
+// rule places with neither says so.
+#[test]
+fn the_used_as_line_names_each_class() {
+    let nodes = Nodes::default();
+    let mut both = fake::keyboard();
+    let mouse = fake::mouse();
+    both.ev
+        .iter_mut()
+        .zip(mouse.ev)
+        .for_each(|(word, m)| *word |= m);
+    both.rel = mouse.rel;
+    nodes.add("/dev/input/event6", both);
+    nodes.add("/dev/input/event7", super::evdev::Bits::default());
+    let mut input = Input::new(nodes, keymap(), InputConfig::default());
+    input.wake_up();
+    crate::display::fake::logs::capture();
+    assert!(input.add(Path::new("/dev/input/event6")).is_some());
+    assert!(
+        input
+            .add_with(Path::new("/dev/input/event7"), Disposition::Deliver)
+            .is_some()
+    );
+    assert_eq!(
+        crate::display::fake::logs::at_least(log::Level::Info),
+        [
+            "using /dev/input/event6 [stand-in] 1d6b:0104 as keyboard and mouse",
+            "using /dev/input/event7 [stand-in] 1d6b:0104 as a device with no keys and no pointer",
+        ]
+    );
+}
+
 #[test]
 fn a_device_that_ends_is_closed_and_opened_again_at_the_wake_up() {
     let (mut input, node, id) = with_keyboard();

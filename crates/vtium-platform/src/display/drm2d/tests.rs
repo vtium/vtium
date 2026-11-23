@@ -3229,10 +3229,11 @@ fn a_card_removed_with_its_event_waiting_leaves_no_stale_event() {
     // flip's event goes back to pending, and completes with a wake.
     let mut s = new.card().state();
     let waiting = std::mem::take(&mut s.completed);
-    s.pending.extend(waiting.into_iter().filter_map(|e| match e {
-        CrtcEvent::Flipped(crtc) => Some(crtc),
-        CrtcEvent::Vblank(_) => None,
-    }));
+    s.pending
+        .extend(waiting.into_iter().filter_map(|e| match e {
+            CrtcEvent::Flipped(crtc) => Some(crtc),
+            CrtcEvent::Vblank(_) => None,
+        }));
     assert!(!s.pending.is_empty(), "the flip's event waited");
     drop(s);
     new.card().complete_flips();

@@ -27,10 +27,10 @@ impl Kind {
     pub(crate) fn name(self) -> &'static str {
         match self {
             Kind::None => "",
-            Kind::Mouse => "Mouse",
-            Kind::Touchpad => "Touchpad",
-            Kind::Touchscreen => "Touchscreen",
-            Kind::VirtualMouse => "Virtual mouse",
+            Kind::Mouse => "mouse",
+            Kind::Touchpad => "touchpad",
+            Kind::Touchscreen => "touchscreen",
+            Kind::VirtualMouse => "virtual mouse",
         }
     }
 }
