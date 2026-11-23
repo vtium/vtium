@@ -51,6 +51,7 @@ _Font loading, glyph rasterisation, color glyphs and fallback_
 | [ADR-1204](./font/ADR-1204-vtium-draws-its-own-messages-in-one-small-built-in-font-and-ships-a-catalog-of-font-sets-built-from-layers-with-terminus-working-out-of-the-box.md) | vtium draws its own messages in one small built-in font and ships a catalog of font sets built from layers, with Terminus working out of the box | accepted |
 | [ADR-1205](./font/ADR-1205-a-look-is-assembled-from-the-active-resources-and-a-resource-can-be-activated-only-from-a-root-owned-folder-on-a-filesystem-that-stays-mounted.md) | A look is assembled from the active resources, and a resource can be activated only from a root-owned folder on a filesystem that stays mounted | accepted |
 | [ADR-1206](./font/ADR-1206-vtium-config-s-tui-draws-through-ratatui-s-core-and-widgets-over-its-own-terminal-layer-and-each-tab-is-a-module-that-one-navigation-module-and-one-update-loop-connect.md) | vtium-config's TUI draws through ratatui's core and widgets over its own terminal layer, and each tab is a module that one navigation module and one update loop connect | accepted |
+| [ADR-1207](./font/ADR-1207-vtium-config-reads-outline-fonts-with-skrifa-and-read-fonts-and-no-longer-builds-swash.md) | vtium-config reads outline fonts with skrifa and read-fonts and no longer builds swash | proposed |
 
 ## Render
 _Cells and images to pixels - the renderer and its display interface_
