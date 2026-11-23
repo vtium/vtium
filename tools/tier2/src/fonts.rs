@@ -1316,10 +1316,19 @@ mod tests {
 
     /// The lines of the frit `text` in `dir` at 16 pixels, as the console
     /// holds it once the helper has answered for `chars` in the regular
-    /// style.
-    fn lines(dir: &Path, text: &str, chars: &[char]) -> vtium_font::Decorations {
+    /// style and the script `script`.
+    fn lines(
+        dir: &Path,
+        text: &str,
+        chars: &[char],
+        script: vtium_font::Script,
+    ) -> vtium_font::Decorations {
         let shown = vec![Shown {
             chars: chars.to_vec(),
+            variant: vtium_font::Variant {
+                script,
+                ..vtium_font::Variant::default()
+            },
             ..Shown::default()
         }];
         let chosen = chosen_frit(("underlined", text.to_owned()), dir, 16, |_| Ok(shown)).unwrap();
@@ -1334,13 +1343,23 @@ mod tests {
     fn a_screen_that_shows_no_character_takes_the_fonts_own_lines() {
         let scratch = Scratch::new("own-lines");
         let text = underlined_ink(&scratch.0);
-        let letters = lines(&scratch.0, &text, &['A']);
+        let letters = lines(&scratch.0, &text, &['A'], vtium_font::Script::Baseline);
         assert_ne!(
             letters,
             vtium_font::Decorations::for_height(16),
             "the test font's underline is its own"
         );
-        assert_eq!(lines(&scratch.0, &text, &[]), letters);
+        assert_eq!(
+            lines(&scratch.0, &text, &[], vtium_font::Script::Baseline),
+            letters
+        );
+        // A set of superscript glyphs brings no lines of the font's own, so
+        // a screen that shows only superscript text still holds the fill's
+        // regular glyphs, and its underlined spaces draw on the font's row.
+        assert_eq!(
+            lines(&scratch.0, &text, &['A'], vtium_font::Script::Super),
+            letters
+        );
     }
 
     #[test]
