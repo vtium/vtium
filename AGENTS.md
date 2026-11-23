@@ -208,7 +208,7 @@ Work meets reality as it is built, and the loop takes in what that finds without
 | A new feature or idea | An issue with the label `after-0.1.0`. It moves into the plan only when the maintainer pulls it in, with one line on the issue saying why. |
 | Something that changes a card's scope or a phase of the plan | A question for the maintainer before anyone builds it. |
 
-The scope of 0.1.0 is the list of open issues on the tracker, vtium/vtium#47, as of 2026-11-20. An issue filed after that starts as `after-0.1.0`. From the first beta on, the plan takes in only bugs and findings a card owns.
+The scope of 0.1.0 is the list of open issues on the tracker, vtium/vtium#47, as of 2026-11-20. An issue filed after that starts as `after-0.1.0`. The first beta is a soft beta with no feature freeze. The plan still takes in what the maintainer pulls in, and ADR-1510 D1 says how a format may change during the beta.
 
 Before each stage PR, the steering session checks that the README, the docs index and the showcase say what the wave added. The stage PR's body ends with a scope ledger: each item that came up during the wave, and where it went.
 
