@@ -281,8 +281,8 @@ An added path's terminal card, in CONFIGURATION.
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
-| t | try live | Tries the card's look on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | On the card's look, shows the looks to choose from as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| t | try live | Tries the card's look on this console for 10 seconds. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
+| Enter | choose | On the card's look, shows the looks to choose from as a list. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
 | Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
@@ -363,9 +363,9 @@ NEW PATH's terminal card: the new terminal's name, its settings, and the display
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
-| t | try live | Tries the card's look on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| t | try live | Tries the card's look on this console for 10 seconds. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
 | Enter | choose | Shows the card's displays, devices or VTs as a list inside the card. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
-| Enter | choose | On the card's look, shows the looks to choose from as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | choose | On the card's look, shows the looks to choose from as a list. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
 | Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |

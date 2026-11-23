@@ -59,7 +59,7 @@ t.view.looks	t	view:looks	Tries the highlighted look or font set on this console
 enter.view.looks	Enter	view:looks	On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail.	supported		ADR-1205 D1, D6, D10; ADR-1403 D10	#379	open	1
 p.view.looks	p	view:looks	On a look or a font set, switches the preview between the sample characters and the picture of the console. On a font set that vtium cannot read, also says that the font set has no preview.	supported	the label names the preview p switches to, picture or sample	ADR-1201 D4	#379	picture | sample	
 window-ops.view.looks	w	view:looks	Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing.	supported	the notice line shows w	ADR-1201 D4	#379	resize grid	
-t.layer.flow-card	t	layer:flow-card	Tries the card's look on this console for 10 seconds.	planned	today t does nothing on a card	ADR-1201 D4; ADR-1205 D1; ADR-1403 D10	#379	try live	
+t.layer.flow-card	t	layer:flow-card	Tries the card's look on this console for 10 seconds.	planned	today t does nothing on a card	ADR-1201 D4; ADR-1205 D1; ADR-1403 D10	#453	try live	
 o.view.looks	o	view:looks	Does nothing here.	supported		ADR-1201 D4; ADR-1403 D7	#412	-	
 looks-keys.view.resources	n, r, t, p	view:resources	Does nothing here, because these keys act on a look or a font set.	supported		ADR-1403 D7, D10	#379	-	
 o.view	o	view	Does nothing here.	supported		ADR-1403 D7	#412	-	
@@ -77,7 +77,7 @@ enter.layer.settings-section	Enter	layer:settings-section	Lets you type the high
 esc.layer.settings-section	Esc	layer:settings-section	Goes back to the list of sections.	supported		ADR-1201 D3		back	1
 list.flow-card	Enter	layer:flow-card	Shows the card's displays, devices or VTs as a list inside the card.	planned	today a card joins them with commas across rows	ADR-1403 D7	#453	choose	
 list.filter-picker	Enter	layer:picker	Shows the devices that each value matches as a list.	planned	today the filter picker joins each value's devices with commas	ADR-1403 D7	#453	choose	
-list.font-set-files	Enter	layer:flow-card	On the card's look, shows the looks to choose from as a list.	planned	today Enter on the card's look sets the look the highlight is on, and Left and Right step through the draft's looks	ADR-1205 D1; ADR-1403 D10	#379	choose	
+list.font-set-files	Enter	layer:flow-card	On the card's look, shows the looks to choose from as a list.	planned	today Enter on the card's look sets the look the highlight is on, and Left and Right step through the draft's looks	ADR-1205 D1; ADR-1403 D10	#453	choose	
 list.terminals	Enter	layer:flow-card	Shows the terminals this configuration defines as a list.	planned		ADR-1403 D7	#453	choose	
 list.font-sets	Enter	layer:look	On the look's font set, shows the font sets to choose from as a list.	supported		ADR-1403 D10	#379	choose	
 list.font-sizes	Enter	layer:look	On the look's size, shows the sizes that the look's fonts supply as a list.	supported	a bitmap text font offers the point sizes that draw the bitmap sizes of the files the console draws, at the lowest density of the connected displays; any other text font offers vtium-config's usual sizes, and the line says why	ADR-1205 D7; ADR-1403 D10	#379	choose	
