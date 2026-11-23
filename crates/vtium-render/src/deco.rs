@@ -694,20 +694,33 @@ mod tests {
 
     /// Whether the double at `w` by `h` is redrawn by the rule that a
     /// double thins its lines before it rises above the single line
-    /// (vtium/vtium#463): in a cell whose lines are two or three rows thick,
-    /// from 32 to 48 rows tall, `for_height` puts the single line on the
+    /// (vtium/vtium#463): in a cell 32 rows tall or more, whose lines are
+    /// two or more rows thick, `for_height` puts the single line on the
     /// bottom rows, and the double there is no longer two lines as thick
-    /// as the single line. `cells.tsv` holds that earlier shape's digest.
+    /// as the single line. `cells.tsv` holds that earlier shape's digest
+    /// for the heights it reaches, 32 to 48.
     fn thinned(kind: Kind, h: u32) -> bool {
         kind == Kind::Double && Decorations::for_height(h).underline_thickness >= 2
     }
 
-    /// Whether `px`, `w` by `h`, is two whole lines one row thick in the
-    /// cell's third row from the bottom and its bottom row, and nothing
-    /// else.
+    /// Whether `px`, `w` by `h`, is the double that the rule draws in the
+    /// single line's rows of `for_height`, which are the cell's bottom
+    /// rows, and nothing else. Its two lines are as thick as they can be
+    /// while a row is left between them, one row at least, and the gap
+    /// takes the rest of the single line's rows. The lower line ends on
+    /// the cell's bottom row, and where the single line is too thin to
+    /// hold two lines and a gap, the double rises just enough to hold them.
+    /// So lines two or three rows thick, from 32 to 63 rows, give one-row
+    /// lines in the cell's third row from the bottom and its bottom row,
+    /// and lines four rows thick, from 64 to 79 rows, give one-row lines
+    /// two rows apart.
     fn is_the_thinned_double(w: u32, h: u32, px: &[u8]) -> bool {
+        let t = Decorations::for_height(h).underline_thickness;
+        let line = ((t - 1) / 2).max(1);
+        let gap = t.saturating_sub(2 * line).max(1);
+        let upper = h - (2 * line + gap);
         (0..h).all(|y| {
-            let lit = y == h - 3 || y == h - 1;
+            let lit = (upper..upper + line).contains(&y) || y >= h - line;
             (0..w).all(|x| px[(y * w + x) as usize] == if lit { 0xff } else { 0 })
         })
     }
@@ -998,6 +1011,14 @@ mod tests {
         // had: two lines as thick as the single line, a line apart
         let px = draw(Kind::Double, 16, 32, &Decorations { underline: 24, ..m });
         assert_eq!(lit_rows(&px, 16, 24), "██··██··");
+        // unifont at four times its size takes the lines of a 64-pixel
+        // cell, four rows thick from row 60: the double draws two one-row
+        // lines in rows 60 and 63, so the gap between them is two rows
+        let m = Decorations::for_height(64);
+        assert_eq!((m.underline, m.underline_thickness), (60, 4));
+        let px = draw(Kind::Double, 16, 64, &m);
+        assert_eq!(lit_rows(&px, 16, 56), "····█··█");
+        assert!(is_the_thinned_double(16, 64, &px));
         // unifont at its own size: the single line is the cell's bottom
         // row, and the letters end on row 13, so no double fits below
         // them; the double rises to rows 13 and 15
