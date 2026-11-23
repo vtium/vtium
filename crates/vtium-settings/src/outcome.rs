@@ -549,7 +549,11 @@ impl Trusted {
     }
 }
 
-/// What the error `problem`, on a line `within` the file, takes down (ADR-1401 D7, "The rest"): an error inside a head's section drops that head, a bad rule drops that rule alone, and an error that leaves the file's structure or format untrustworthy drops the whole file. No error leaves a readable `policy` line unread: a trusted file always fails to its policy, and only one that fails the trust check or cannot be opened fails open. A problem that leaves the file unread is no scope: `scope` gives the first level's verdict as the error, [`Read::Untrusted`] or [`Read::Inaccessible`], so it never reaches [`Trusted::of`].
+/// What the error `problem`, on a line `within` the file, takes down. An error inside a head's section drops that head, but a key vtium does not know, or one that the section does not take, drops only its line. A bad rule drops that rule alone, and an error that leaves the file's structure or format untrustworthy drops the whole file. No error leaves a readable `policy` line unread: a trusted file always fails to its policy, and only one that fails the trust check or cannot be opened fails open. A problem that leaves the file unread is no scope: `scope` gives the first level's verdict as the error, [`Read::Untrusted`] or [`Read::Inaccessible`], so it never reaches [`Trusted::of`].
+///
+/// References:
+/// - ADR-1401 D7, "The rest": what each error drops.
+/// - ADR-1510 D2: an unknown or misplaced key drops only its line, and a bad value still drops its section.
 pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
     let fixed = match problem {
         Problem::NotAFile | Problem::Unreadable(_) => return Err(Read::Inaccessible),
@@ -579,20 +583,31 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         | Problem::WrongKind { .. }
         | Problem::TooManyTokens
         | Problem::PolicyInSection => Some(Scope::Line),
+        // A key vtium does not know drops only its line, so an older vtium
+        // keeps the rest of a section that a newer one wrote. A known key in
+        // a section that does not take it counts as an unknown key, and so
+        // does a head key that a later release renamed.
+        //
+        // References:
+        // - ADR-1510 D2: an unknown or misplaced key is ignored alone, and a bad value still drops the section.
+        Problem::UnknownKey(_)
+        | Problem::NotHere { .. }
+        | Problem::Renamed(Renamed::OnLoss | Renamed::Rescue | Renamed::Profile) => {
+            Some(Scope::Line)
+        }
         // a line that is not UTF-8 or holds a control character but a CRLF's carriage return is a bad line of its section
         Problem::NotUtf8
         | Problem::ControlCharacter(_)
         | Problem::Syntax(_)
         | Problem::VersionInSection
-        | Problem::UnknownKey(_)
         | Problem::DuplicateKey(_)
         | Problem::BadValue { .. }
         | Problem::OutOfRange { .. }
-        | Problem::NotHere { .. }
         | Problem::TooLong(_)
         | Problem::BadVt(_)
         | Problem::RepeatedVt(_)
-        | Problem::Renamed(_) => None,
+        | Problem::Renamed(Renamed::Focus | Renamed::Dark | Renamed::Nohup)
+        | Problem::Renamed(Renamed::Guards | Renamed::ProfileSection) => None,
     };
     Ok(match fixed {
         Some(scope) => scope,

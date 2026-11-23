@@ -795,7 +795,27 @@ fn every_problem_has_its_scope() {
             Scope::Section,
         ),
         (Problem::UnknownKey(q()), Within::Top, Scope::Line),
-        (Problem::UnknownKey(q()), Within::Head, Scope::Head),
+        // an unknown or misplaced key drops only its line (ADR-1510 D2)
+        (Problem::UnknownKey(q()), Within::Head, Scope::Line),
+        (Problem::UnknownKey(q()), Within::Look, Scope::Line),
+        (
+            Problem::NotHere {
+                key: "font-name",
+                section: crate::keys::Level::Head,
+                levels: crate::keys::Levels::TOP_LOOK,
+            },
+            Within::Head,
+            Scope::Line,
+        ),
+        (
+            Problem::NotHere {
+                key: "mouse",
+                section: crate::keys::Level::Look,
+                levels: crate::keys::Levels::TOP,
+            },
+            Within::Look,
+            Scope::Line,
+        ),
         (Problem::DuplicateKey("policy"), Within::Top, Scope::Line),
         (Problem::DuplicateKey("login"), Within::Head, Scope::Head),
         (Problem::BadName(q()), Within::Header, Scope::Head),
@@ -815,6 +835,11 @@ fn every_problem_has_its_scope() {
         ),
         (
             Problem::Renamed(crate::error::Renamed::OnLoss),
+            Within::Head,
+            Scope::Line,
+        ),
+        (
+            Problem::Renamed(crate::error::Renamed::Nohup),
             Within::Head,
             Scope::Head,
         ),

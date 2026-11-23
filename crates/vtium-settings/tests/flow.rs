@@ -313,7 +313,8 @@ fn a_look_takes_the_key_table_s_look_keys_and_its_vtlook() {
         (Some("amber"), 10)
     );
 
-    let cases: [(&str, Problem); 12] = [
+    // a bad value or a line vtium cannot read drops the look
+    let cases: [(&str, Problem); 9] = [
         (
             "cell = 5x16",
             Problem::BadValue {
@@ -333,22 +334,6 @@ fn a_look_takes_the_key_table_s_look_keys_and_its_vtlook() {
             Problem::BadValue {
                 key: "cell",
                 value: q("16"),
-            },
-        ),
-        (
-            "mouse = yes",
-            Problem::NotHere {
-                key: "mouse",
-                section: Level::Look,
-                levels: vtium_settings::keys::Levels::TOP,
-            },
-        ),
-        (
-            "login = /bin/sh",
-            Problem::NotHere {
-                key: "login",
-                section: Level::Look,
-                levels: vtium_settings::keys::Levels::TOP_HEAD,
             },
         ),
         (
@@ -386,7 +371,6 @@ fn a_look_takes_the_key_table_s_look_keys_and_its_vtlook() {
                 value: q("a/b"),
             },
         ),
-        ("frob = 1", Problem::UnknownKey(q("frob"))),
         ("font-name", Problem::Syntax(Syntax::NotKeyValue)),
     ];
     for (line, problem) in cases {
@@ -414,24 +398,8 @@ fn a_look_takes_the_key_table_s_look_keys_and_its_vtlook() {
 
 #[test]
 fn a_head_takes_its_keys_and_the_key_table_s_head_keys() {
-    let cases: [(&str, Problem); 5] = [
-        (
-            "font-size = 12",
-            Problem::NotHere {
-                key: "font-size",
-                section: Level::Head,
-                levels: vtium_settings::keys::Levels::TOP_LOOK,
-            },
-        ),
-        (
-            "cell = 8x16",
-            Problem::NotHere {
-                key: "cell",
-                section: Level::Head,
-                levels: vtium_settings::keys::Levels::LOOK,
-            },
-        ),
-        ("profile = big", Problem::Renamed(Renamed::Profile)),
+    // a bad value drops the head
+    let cases: [(&str, Problem); 2] = [
         (
             "look = no/such",
             Problem::BadValue {
@@ -464,6 +432,167 @@ fn a_head_takes_its_keys_and_the_key_table_s_head_keys() {
         errors(&read(&long)),
         [(Some(3), Problem::TooLong("login"), Some(Drops::Head))]
     );
+}
+
+// An older vtium meets keys that a newer one added. vtium reports each
+// unknown key with its line, ignores that key alone, and keeps the rest of
+// the look. A known key in a look that does not take it counts as an
+// unknown key.
+//
+// References:
+// - ADR-1510 D2: an unknown or misplaced key is ignored alone, and a bad value still drops the section.
+#[test]
+fn an_unknown_or_misplaced_key_in_a_look_is_ignored_alone() {
+    let cases: [(&str, Problem); 3] = [
+        ("frob = 1", Problem::UnknownKey(q("frob"))),
+        (
+            "mouse = yes",
+            Problem::NotHere {
+                key: "mouse",
+                section: Level::Look,
+                levels: vtium_settings::keys::Levels::TOP,
+            },
+        ),
+        (
+            "login = /bin/sh",
+            Problem::NotHere {
+                key: "login",
+                section: Level::Look,
+                levels: vtium_settings::keys::Levels::TOP_HEAD,
+            },
+        ),
+    ];
+    for (line, problem) in cases {
+        let text = format!("version = 1\n[look x]\n{line}\nfont-size = 14\n[head h]\nlook = x\n");
+        let r = read(&text);
+        assert_eq!(
+            errors(&r),
+            [(Some(3), problem, Some(Drops::Line))],
+            "{line}"
+        );
+        // the look stays with the keys it takes, and its head draws with it
+        let looks: Vec<LookRow> = r
+            .parsed
+            .config
+            .looks
+            .iter()
+            .map(|l| {
+                let set = l
+                    .settings
+                    .iter()
+                    .map(|s| (s.key.name, s.value.as_str(), s.line))
+                    .collect();
+                (l.name.as_str(), l.line, set)
+            })
+            .collect();
+        assert_eq!(looks, [("x", 2, vec![("font-size", "14", 4)])], "{line}");
+        assert_eq!(r.parsed.config.heads.len(), 1, "{line}");
+        assert_eq!(r.parsed.config.heads[0].look, "x", "{line}");
+    }
+}
+
+// An unknown key in a head, a key that only a look or the top level takes,
+// and a key that a later release renamed are each reported with their line.
+// vtium ignores that key alone: the head keeps its other keys and the rules
+// that name it.
+//
+// References:
+// - ADR-1510 D2: an unknown or misplaced key is ignored alone, and a bad value still drops the section.
+#[test]
+fn an_unknown_or_misplaced_key_in_a_head_is_ignored_alone() {
+    let cases: [(&str, Problem); 8] = [
+        ("frob = 1", Problem::UnknownKey(q("frob"))),
+        (
+            "font-name = monoid",
+            Problem::NotHere {
+                key: "font-name",
+                section: Level::Head,
+                levels: vtium_settings::keys::Levels::TOP_LOOK,
+            },
+        ),
+        (
+            "font-size = 12",
+            Problem::NotHere {
+                key: "font-size",
+                section: Level::Head,
+                levels: vtium_settings::keys::Levels::TOP_LOOK,
+            },
+        ),
+        (
+            "cell = 8x16",
+            Problem::NotHere {
+                key: "cell",
+                section: Level::Head,
+                levels: vtium_settings::keys::Levels::LOOK,
+            },
+        ),
+        (
+            "mouse = yes",
+            Problem::NotHere {
+                key: "mouse",
+                section: Level::Head,
+                levels: vtium_settings::keys::Levels::TOP,
+            },
+        ),
+        ("profile = big", Problem::Renamed(Renamed::Profile)),
+        ("on-loss = hangup", Problem::Renamed(Renamed::OnLoss)),
+        ("rescue = no", Problem::Renamed(Renamed::Rescue)),
+    ];
+    for (line, problem) in cases {
+        let text =
+            format!("version = 1\n[head h]\n{line}\nconsoles = 2\n[rules]\ndisplay * -> h\n");
+        let r = read(&text);
+        assert_eq!(
+            errors(&r),
+            [(Some(3), problem, Some(Drops::Line))],
+            "{line}"
+        );
+        // the head stays with the keys it takes, and so do the rules naming it
+        let heads: Vec<(&str, u32)> = r
+            .parsed
+            .config
+            .heads
+            .iter()
+            .map(|h| (h.name.as_str(), h.consoles))
+            .collect();
+        assert_eq!(heads, [("h", 2)], "{line}");
+        assert_eq!(r.parsed.config.rules.len(), 1, "{line}");
+    }
+}
+
+// The rule is about keys alone. A bad value of a key the head takes still
+// drops the head with its rules, even beside a key vtium ignores, and an
+// unknown key at the top level leaves every section as it is.
+//
+// References:
+// - ADR-1510 D2: a bad value of a key that applies still drops what holds the key.
+// - ADR-1403 D5: an error inside a head drops the head with its rules.
+#[test]
+fn a_bad_value_still_drops_the_head_beside_an_ignored_key() {
+    let r = read("version = 1\n[head h]\nfrob = 1\nconsoles = many\n[rules]\ndisplay * -> h\n");
+    assert_eq!(
+        errors(&r),
+        [
+            (Some(3), Problem::UnknownKey(q("frob")), Some(Drops::Line)),
+            (
+                Some(4),
+                Problem::BadValue {
+                    key: "consoles",
+                    value: q("many"),
+                },
+                Some(Drops::Head)
+            ),
+        ]
+    );
+    assert!(r.parsed.config.heads.is_empty());
+    assert!(r.parsed.config.rules.is_empty());
+
+    // the console reads and reports the top level's keys, so the section
+    // reader passes over an unknown one and reads every section
+    let top = read("frob = 1\nversion = 1\n[look x]\nfont-size = 14\n[head h]\nlook = x\n");
+    assert_eq!(errors(&top), []);
+    assert_eq!(top.parsed.config.looks.len(), 1);
+    assert_eq!(top.parsed.config.heads.len(), 1);
 }
 
 #[test]

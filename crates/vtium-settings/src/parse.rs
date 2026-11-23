@@ -21,10 +21,11 @@
 //!
 //! [`reading`] reads every line however many errors come before it, so a
 //! check names every error the file holds, each with its line. Each error
-//! drops what [`scope`] says it takes: a bad rule drops that rule, an
-//! error inside a head's section drops the head with every rule naming
-//! it, and an error that leaves the file's structure untrustworthy drops
-//! everything but the `policy` lines. A policy line, a line above the
+//! drops what [`scope`] says it takes. A bad rule drops that rule. A key
+//! that vtium does not know, or that its section does not take, drops only
+//! its line. Any other error inside a head's section drops the head with
+//! every rule naming it, and an error that leaves the file's structure
+//! untrustworthy drops everything but the `policy` lines. A policy line, a line above the
 //! first section whose bytes begin with `policy` in any case, is judged
 //! before its bytes are decoded: one vtium cannot read makes the file
 //! closed and broken (ADR-1401 D7). What survives is a [`Config`], and
@@ -1004,7 +1005,8 @@ impl Parser {
 
     /// One line of a look's section: `vtlook`, or a key of the key table a
     /// look may set, its value checked against the key's values and bounds
-    /// (ADR-1403 D5). An error drops the look.
+    /// (ADR-1403 D5). A key vtium does not know, or one a look does not
+    /// take, drops only its line, and any other error drops the look.
     fn look_key(&mut self, n: usize, index: usize, line: &str) {
         let Some((key, value)) = key_value(line) else {
             self.error(Some(n), Problem::Syntax(Syntax::NotKeyValue), Within::Look);
