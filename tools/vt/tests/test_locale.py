@@ -179,13 +179,14 @@ class Case(unittest.TestCase):
     def tearDown(self):
         subprocess.run(["rm", "-rf", "--", self.tmp], check=True)
 
-    def source(self, script, shell=("sh",), env=None, **terminal):
-        """Sources SCRIPT in SHELL on a Terminal. Returns the exit status of
-        the `.` command, what the script printed on its standard output and
-        on its standard error, the shell's state before and after, and the
+    def source(self, script, shell=("sh",), env=None, prefix="", **terminal):
+        """Sources SCRIPT in SHELL on a Terminal, after the shell runs the
+        commands in PREFIX, such as `set -e;`. Returns the exit status of the
+        `.` command, what the script printed on its standard output and on its
+        standard error, the shell's state before and after, and the
         Terminal."""
         t = self.tmp
-        command = (f". '{t}/snap.sh'; snap >'{t}/before'; "
+        command = (f"{prefix}. '{t}/snap.sh'; snap >'{t}/before'; "
                    f". '{os.path.join(LOCALE, script)}' >'{t}/out' 2>'{t}/err'; "
                    f"echo $? >'{t}/status'; snap >'{t}/after'")
         term = Terminal([*shell, "-c", command], {**self.env, **(env or {})}, **terminal)
@@ -207,19 +208,67 @@ class Case(unittest.TestCase):
 
     def test_each_script_switches_the_font_set_and_lang_and_nothing_else(self):
         for shell in SHELLS:
-            for script, (_, frit, lang, _) in SCRIPTS.items():
+            for script in SCRIPTS:
                 with self.subTest(shell=shell[-1], script=script):
-                    status, out, err, before, after, term = self.source(script, shell)
-                    self.assertEqual((status, err), (0, ""))
-                    self.assertEqual(out, expected_output(script))
-                    self.assertEqual(term.switches(), [frit])
-                    self.assertEqual(term.font, frit)
-                    self.assertEqual(term.others(), b"")
-                    added, lost = self.changed(before, after)
-                    self.assertEqual([line for line in lost if "LANG" not in line], [])
-                    self.assertEqual([line for line in added if "LANG" not in line], [])
-                    self.assertIn(f"LANG={lang}", added)
-                    self.assertIn("LANG=C.UTF-8", lost)
+                    self.assert_switched(script, self.source(script, shell))
+
+    def assert_switched(self, script, result):
+        """Checks that SCRIPT switched the font set and LANG and changed
+        nothing else, from what `source` returned."""
+        _, frit, lang, _ = SCRIPTS[script]
+        status, out, err, before, after, term = result
+        self.assertEqual((status, err), (0, ""))
+        self.assertEqual(out, expected_output(script))
+        self.assertEqual(term.switches(), [frit])
+        self.assertEqual(term.font, frit)
+        self.assertEqual(term.others(), b"")
+        added, lost = self.changed(before, after)
+        self.assertEqual([line for line in lost if "LANG" not in line], [])
+        self.assertEqual([line for line in added if "LANG" not in line], [])
+        self.assertIn(f"LANG={lang}", added)
+        self.assertIn("LANG=C.UTF-8", lost)
+
+    def test_each_script_switches_under_set_u_with_lc_all_unset(self):
+        # The scripts read LC_ALL, which is usually unset. A shell with set -u
+        # stops at a read of an unset variable that has no default.
+        for shell in SHELLS:
+            for script in SCRIPTS:
+                with self.subTest(shell=shell[-1], script=script):
+                    self.assert_switched(script, self.source(script, shell, prefix="set -u; "))
+
+    def test_a_failed_script_leaves_a_set_e_shell_running(self):
+        # A shell with set -e exits when a command fails, and the `.` command
+        # fails when the script returns a status other than 0.
+        for shell in SHELLS:
+            for script in SCRIPTS:
+                with self.subTest(shell=shell[-1], script=script):
+                    status, _, err, before, after, term = self.source(script, shell, prefix="set -e; ", takes=())
+                    self.assertEqual(before, after)
+                    self.assertEqual(term.font, "unifont")
+                    self.assertIn(f"{SCRIPTS[script][0]} mode failed", err)
+                    self.assertEqual(status, 0)
+
+    def test_a_failed_script_leaves_an_interactive_set_e_shell_running_without_vtium_config(self):
+        bare = os.path.join(self.tmp, "bare")
+        os.mkdir(bare)
+        for tool in ("env", "sort", "grep"):
+            os.symlink(shutil.which(tool), os.path.join(bare, tool))
+        status, _, err, before, after, term = self.source(
+            "hi.sh", ("bash", "--norc", "-i"), env={"PATH": bare}, prefix="set -e; ")
+        self.assertEqual((status, before), (0, after))
+        self.assertIn("Hindi mode failed", err)
+
+    @unittest.skipUnless(shutil.which("bash"), "needs bash")
+    def test_a_vtium_config_function_or_alias_does_not_decide_the_switch(self):
+        # Every shell runs a function before a command on PATH, and an
+        # interactive bash expands aliases in a sourced file. The scripts run
+        # the real vtium-config all the same.
+        interactive = ("bash", "--norc", "-i")
+        for name, prefix in (("function", "vtium-config() { return 0; }; "),
+                             ("alias", "alias vtium-config=:; ")):
+            for script in SCRIPTS:
+                with self.subTest(defines=name, script=script):
+                    self.assert_switched(script, self.source(script, interactive, prefix=prefix))
 
     def test_lang_stays_when_vtium_keeps_its_font(self):
         for script in SCRIPTS:
