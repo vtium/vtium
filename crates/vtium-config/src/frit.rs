@@ -505,6 +505,17 @@ fn known(key: &str) -> bool {
 /// What a message about a line that vtium ignores ends with.
 const IGNORED: &str = "vtium ignores this line and reads the rest of the font set.";
 
+/// The warning for the line `ignored` of the layer in `file`, which the
+/// layer reader leaves blank because a layer cannot hold it. The rest of
+/// the layer and of the font set still reads.
+pub(crate) fn ignored_warning(file: &Path, ignored: &layer::Ignored) -> FritError {
+    FritError {
+        file: file.to_owned(),
+        line: ignored.line,
+        why: format!("{} {IGNORED}", ignored.why),
+    }
+}
+
 /// A parsed frit.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Frit {
@@ -682,12 +693,12 @@ impl Frit {
         let mut frit = Frit::parse_spliced(expanded.text.as_bytes(), path, stem, layers)?;
         // the layers' lines that the splice left blank, which the spliced
         // text no longer holds for the reader to report
-        frit.warnings
-            .extend(expanded.ignored.iter().map(|ignored| FritError {
-                file: file_of(&ignored.layer),
-                line: ignored.ignored.line,
-                why: format!("{} {IGNORED}", ignored.ignored.why),
-            }));
+        frit.warnings.extend(
+            expanded
+                .ignored
+                .iter()
+                .map(|ignored| ignored_warning(&file_of(&ignored.layer), &ignored.ignored)),
+        );
         frit.warnings
             .extend(expanded.notes.iter().map(|note| FritError {
                 file: path.to_owned(),
@@ -700,10 +711,21 @@ impl Frit {
 
     /// Reads a layer's bytes strictly, as a frit's are read: its structure
     /// first, `role=` and then sources and the keys that describe them,
-    /// and then every value. `file` names it in errors, each naming the
-    /// layer's own line, and `name` is the layer's name. The layer's role
-    /// is the answer.
-    pub fn parse_layer(bytes: &[u8], file: &Path, name: &str) -> Result<layer::Role, FritError> {
+    /// and then every value. `file` names it in errors and warnings, each
+    /// naming the layer's own line, and `name` is the layer's name. The
+    /// answer is the layer's role and a warning for each line vtium
+    /// ignores, in the order of lines: a line the layer cannot hold, such
+    /// as a key vtium does not know, and a source's key where it does not
+    /// apply.
+    ///
+    /// References:
+    /// - ADR-1510 D2: an unknown or misplaced key is reported with its
+    ///   file and line, and ignored alone.
+    pub fn parse_layer(
+        bytes: &[u8],
+        file: &Path,
+        name: &str,
+    ) -> Result<(layer::Role, Vec<FritError>), FritError> {
         let err = |line: usize, why: String| FritError {
             file: file.to_owned(),
             line,
@@ -712,8 +734,15 @@ impl Frit {
         let text = std::str::from_utf8(bytes)
             .map_err(|_| err(0, "the file is not UTF-8 text.".to_owned()))?;
         let parsed = layer::parse(text).map_err(|e| err(e.line, e.why))?;
-        Frit::parse_part(parsed.body.as_bytes(), (file, &[]), name, Part::Layer)?;
-        Ok(parsed.role)
+        let read = Frit::parse_part(parsed.body.as_bytes(), (file, &[]), name, Part::Layer)?;
+        let mut warnings: Vec<FritError> = parsed
+            .ignored
+            .iter()
+            .map(|ignored| ignored_warning(file, ignored))
+            .chain(read.warnings)
+            .collect();
+        warnings.sort_by_key(|warning| warning.line);
+        Ok((parsed.role, warnings))
     }
 
     /// Parses a frit's bytes; `file` names it in errors and `stem` is the
@@ -3145,14 +3174,30 @@ sha256={c}
             );
         }
         // a layer checked on its own reads as far as its role, with the
-        // same rule for a key under a source that cannot take it
-        let role = Frit::parse_layer(
-            b"role=symbols\nsource=builtin:unifont\nrender=smooth\n",
+        // same rule for a key under a source that cannot take it, and
+        // gives a warning for each line it ignores, in the order of lines:
+        // the lines the layer reader leaves blank and the lines the frit
+        // reader ignores alike
+        let (role, warnings) = Frit::parse_layer(
+            b"role=symbols\nsource=builtin:unifont\nfrob=1\nrender=smooth\ncell=8x16\n",
             Path::new("layers/sym.vtlayer"),
             "sym",
         )
         .expect("the layer");
         assert_eq!(role, layer::Role::Symbols);
+        let warnings: Vec<String> = warnings.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            warnings,
+            [
+                format!("layers/sym.vtlayer:3: frob= is not a key vtium knows. {IGNORED}"),
+                format!(
+                    "layers/sym.vtlayer:4: the source above this render= line is a bitmap font, whose characters always have sharp edges, so render= does not apply to it. {IGNORED}"
+                ),
+                format!(
+                    "layers/sym.vtlayer:5: cell= is a font set's key, which applies to every source, so a layer cannot set it. {IGNORED}"
+                ),
+            ]
+        );
     }
 
     // A bad value of a key that applies, or a malformed line, still refuses
