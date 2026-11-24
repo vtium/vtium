@@ -347,13 +347,38 @@ pub fn decode_hello(packet: &[u8]) -> Result<Hello, Malformed> {
             "a hello whose seccomp filter is both in force and missing, or neither",
         ));
     }
+    let landlock = get32(packet, 12);
+    let no_landlock = NoLandlock::from_wire(get32(packet, 24))?;
+    if !landlock_pair_holds(landlock, no_landlock) {
+        return Err(Malformed(
+            "a hello whose landlock version and landlock reason contradict each other",
+        ));
+    }
+    if (no_seccomp == Some(NoSeccomp::Off)) != (no_landlock == Some(NoLandlock::Off)) {
+        return Err(Malformed(
+            "a hello that gives the setting as the reason for one part of its sandbox only",
+        ));
+    }
     Ok(Hello {
         version: VERSION,
-        landlock: get32(packet, 12),
+        landlock,
         seccomp,
         no_seccomp,
-        no_landlock: NoLandlock::from_wire(get32(packet, 24))?,
+        no_landlock,
     })
+}
+
+/// Whether a hello's landlock version and its reason for the workers'
+/// missing domains can both be true. The setting holds beside any
+/// version, since the helper still reports the version the kernel offers.
+/// A reason that the kernel gives holds only beside version 0, and
+/// version 0 needs a reason.
+fn landlock_pair_holds(landlock: u32, no_landlock: Option<NoLandlock>) -> bool {
+    match no_landlock {
+        Some(NoLandlock::Off) => true,
+        Some(NoLandlock::TooOld | NoLandlock::NotBuilt | NoLandlock::NotEnabled) => landlock == 0,
+        None => landlock > 0,
+    }
 }
 
 /// The flags `request` sets.
@@ -1063,8 +1088,9 @@ mod tests {
     // landlock domains are not in force, and a hello of the wire before
     // the reasons, version 4 and 20 bytes long, is refused whole, with
     // its version still read so vtium can say which version the helper
-    // speaks. A reason the wire does not number, and a filter both in
-    // force and missing, are refused too.
+    // speaks. A reason the wire does not number, a filter both in force
+    // and missing, and a landlock reason that contradicts the landlock
+    // version or the seccomp reason are refused too.
     //
     // References:
     // - ADR-1101 D7: the hello and its reasons.
@@ -1082,6 +1108,13 @@ mod tests {
         assert_eq!(bytes.len(), 28);
         assert_eq!(&bytes[20..], &[1, 0, 0, 0, 1, 0, 0, 0]);
         assert_eq!(decode_hello(&bytes).unwrap(), off);
+        let whole = Hello {
+            seccomp: true,
+            no_seccomp: None,
+            no_landlock: None,
+            ..off
+        };
+        assert_eq!(decode_hello(&encode_hello(&whole)).unwrap(), whole);
         for (no_seccomp, at) in [
             (NoSeccomp::NoTable, 2),
             (NoSeccomp::NotBuilt, 3),
@@ -1089,8 +1122,9 @@ mod tests {
             (NoSeccomp::TooOld, 5),
         ] {
             let h = Hello {
+                seccomp: false,
                 no_seccomp: Some(no_seccomp),
-                ..off
+                ..whole
             };
             assert_eq!(encode_hello(&h)[20], at);
             assert_eq!(decode_hello(&encode_hello(&h)).unwrap(), h);
@@ -1101,12 +1135,40 @@ mod tests {
             (NoLandlock::NotEnabled, 4),
         ] {
             let h = Hello {
+                landlock: 0,
                 no_landlock: Some(no_landlock),
-                ..off
+                ..whole
             };
             assert_eq!(encode_hello(&h)[24], at);
             assert_eq!(decode_hello(&encode_hello(&h)).unwrap(), h);
+            // the kernel's reason beside a landlock version the kernel offers
+            let offered = Hello { landlock: 6, ..h };
+            assert!(decode_hello(&encode_hello(&offered)).is_err(), "{h:?}");
         }
+        // no landlock and no reason for it
+        let unexplained = Hello {
+            landlock: 0,
+            ..whole
+        };
+        assert!(decode_hello(&encode_hello(&unexplained)).is_err());
+        // the setting given as the reason for one part only
+        let seccomp_off = Hello {
+            seccomp: false,
+            no_seccomp: Some(NoSeccomp::Off),
+            ..whole
+        };
+        assert!(decode_hello(&encode_hello(&seccomp_off)).is_err());
+        let landlock_off = Hello {
+            no_landlock: Some(NoLandlock::Off),
+            ..whole
+        };
+        assert!(decode_hello(&encode_hello(&landlock_off)).is_err());
+        let kernel_and_setting = Hello {
+            no_seccomp: Some(NoSeccomp::NotBuilt),
+            no_landlock: Some(NoLandlock::Off),
+            ..seccomp_off
+        };
+        assert!(decode_hello(&encode_hello(&kernel_and_setting)).is_err());
         // the hello of version 4: kind, length 20, version, landlock, seccomp
         let mut four = Vec::new();
         for word in [KIND_HELLO, 20, 4, 6, 1] {
