@@ -1500,6 +1500,68 @@ fn u_with_nothing_to_put_back_says_so() {
     assert!(joined.contains(words::NOTHING_TO_UNDO), "{screen}");
 }
 
+/// What `u` says when it has nothing to put back comes first on the
+/// screen below the minimum size, so the screen does not cut it where it
+/// has few rows. The whole sentence shows where the rows above the key
+/// line hold it, and its first clause shows where they do not. The key
+/// line keeps the way out at every size: where its rows outnumber the
+/// screen's, `u undo` is the item that goes, so `q quit` stays.
+#[test]
+fn u_with_nothing_to_put_back_says_so_at_every_small_size() {
+    const WHOLE: &str =
+        "u has nothing to put back: vtium-config has not changed this terminal's font or size.";
+    const TOPIC: &str = "u has nothing to put back.";
+    // how much of the sentence each size shows
+    enum Shows {
+        Whole,
+        Topic,
+        FirstRow(&'static str),
+        Nothing,
+    }
+    let sizes = [
+        (30, 8, Shows::Whole),
+        (30, 6, Shows::Whole),
+        (30, 4, Shows::Topic),
+        (25, 8, Shows::Whole),
+        (20, 5, Shows::Topic),
+        (16, 4, Shows::FirstRow("u has nothing to")),
+        (40, 2, Shows::Topic),
+        (79, 3, Shows::Whole),
+        (12, 3, Shows::Nothing),
+    ];
+    for (cols, rows, shows) in sizes {
+        let mut c = Console::vtium(cols, rows, true, "unifont")
+            .takes("unifont", (cols, rows))
+            .keys(&[b"u"]);
+        run(&mut c);
+        assert_eq!(c.switches(), Vec::<String>::new(), "{cols}x{rows}");
+        let screen = c.seen.clone().expect("the screen");
+        let lines: Vec<&str> = screen.lines().map(str::trim).collect();
+        let joined = lines.join(" ");
+        match shows {
+            Shows::Whole => assert!(joined.contains(WHOLE), "{cols}x{rows}:\n{screen}"),
+            Shows::Topic => {
+                assert!(joined.contains(TOPIC), "{cols}x{rows}:\n{screen}");
+                assert!(
+                    !joined.contains("has not changed"),
+                    "{cols}x{rows}:\n{screen}"
+                );
+            }
+            Shows::FirstRow(row) => {
+                assert_eq!(
+                    lines.first().copied(),
+                    Some(row),
+                    "{cols}x{rows}:\n{screen}"
+                )
+            }
+            Shows::Nothing => assert!(!joined.contains("nothing"), "{cols}x{rows}:\n{screen}"),
+        }
+        // the way out stays on the screen
+        assert!(joined.contains("q quit"), "{cols}x{rows}:\n{screen}");
+        assert!(joined.contains("Ctrl-C save"), "{cols}x{rows}:\n{screen}");
+    }
+}
+
 #[test]
 fn at_80x25_no_key_or_sentence_is_cut() {
     use vtium_config::tui::words;

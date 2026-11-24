@@ -267,7 +267,12 @@ pub const TOO_SMALL_COMMANDS: &str =
 /// What `u` says below the minimum size when no trial changed the font or
 /// the grid.
 pub const NOTHING_TO_UNDO: &str =
-    "vtium-config has not changed this terminal's font or size, so u has nothing to put back.";
+    "u has nothing to put back: vtium-config has not changed this terminal's font or size.";
+
+/// The first clause of [`NOTHING_TO_UNDO`], which the screen below the
+/// minimum size shows where the whole sentence does not fit above the key
+/// line.
+pub const NOTHING_TO_UNDO_SHORT: &str = "u has nothing to put back.";
 
 /// The status line (ADR-1403 D7).
 pub const NO_DRAFT: &str = "no draft";
