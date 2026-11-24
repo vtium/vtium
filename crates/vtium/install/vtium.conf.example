@@ -97,9 +97,8 @@
 ##
 ## `font` uses the font's characters, `sprites` uses vtium's own drawings, and
 ## `auto` uses the font's where the font has the character. When unset, vtium
-## uses the font for each range the font covers completely and its own
-## drawings for the rest; with the built-in unifont, vtium always draws them
-## itself.
+## draws all six ranges itself, unless a font set's own `glyph-source` lines
+## say otherwise. This key and the per-range keys override those lines.
 #
 ## glyph-source-box: Overrides `glyph-source` for box drawing (U+2500 to
 ## U+257F).
@@ -981,7 +980,7 @@
 # == Running vtium ===========================================================
 #
 # Where vtium finds its configuration, its log, the font helper that draws a
-# font's characters, and the character cache.
+# font's characters, the helpers' sandbox, and the character cache.
 
 # -- Debug log ---------------------------------------------------------------
 
@@ -1007,6 +1006,16 @@
 ## mounted.
 
 #font-helper=/usr/bin/vtium-config
+
+# -- Helper sandbox ----------------------------------------------------------
+
+## Whether the font helper and the image helper lock themselves in with
+## seccomp filters and landlock.
+##
+## When off, a font or an image that takes over a helper can reach the network
+## and change the files of the helper's account.
+
+#helper-sandbox=on
 
 # -- Character cache ---------------------------------------------------------
 

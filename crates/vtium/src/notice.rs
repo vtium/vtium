@@ -490,6 +490,13 @@ changes nothing.\n";
         )
     }
 
+    /// `helper-sandbox=off`, and what turning the helpers' sandbox off
+    /// gives up.
+    ///
+    /// References:
+    /// - ADR-1200 D15, "What turning it off gives up".
+    pub const HELPER_SANDBOX_OFF: &str = "helper-sandbox: the sandbox is off, so the font helper and the image helper run without their seccomp filters and landlock domains. A font or an image that takes over a helper can then open network connections, change any file that the helper's account may change, and signal and trace that account's other processes. Turn it off only when vtium runs inside another sandbox whose kernel refuses the helpers' filters.";
+
     /// A folder of `font-paths` that does not exist (ADR-1200 D25).
     pub fn font_path_missing(dir: &str) -> String {
         format!("font-paths: {dir:?} does not exist, so no fonts can be found there")

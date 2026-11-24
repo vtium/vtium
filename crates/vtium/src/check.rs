@@ -345,6 +345,7 @@ pub fn notes(config: &Config) -> Vec<String> {
     let me = rustix::process::geteuid().as_raw();
     let notes = std::iter::once(density)
         .chain(helper_note(&helper::program(config), me))
+        .chain(sandbox_note(config))
         .chain(font_paths_notes(config));
     #[cfg(feature = "images")]
     let notes = notes
@@ -484,6 +485,17 @@ fn image_helper_note(program: &Path, me: u32) -> Option<String> {
         check_config::image_helper_refused,
         check_config::image_helper_refused_as_root,
     )
+}
+
+/// What check-config notes when `config` turns the helpers' sandbox off:
+/// that the font helper and the image helper run without their seccomp
+/// filters and landlock domains, and what that gives up. Nothing when the
+/// sandbox is on.
+///
+/// References:
+/// - ADR-1200 D15, "What turning it off gives up": the note's content.
+fn sandbox_note(config: &Config) -> Option<String> {
+    (!helper::sandbox_on(config)).then(|| check_config::HELPER_SANDBOX_OFF.to_owned())
 }
 
 /// What check-config notes of a helper that `open` opens for an account:
@@ -1474,6 +1486,32 @@ mod tests {
             .into_iter()
             .filter(|n| !left_out.iter().any(|l| n.starts_with(l)))
             .collect()
+    }
+
+    // check-config notes helper-sandbox=off and what it gives up, and says
+    // nothing of the sandbox while it is on.
+    //
+    // References:
+    // - ADR-1200 D15, "A setting turns the sandbox off": `vtium
+    //   check-config` notes the setting.
+    #[test]
+    fn check_config_notes_the_helpers_sandbox_off() {
+        let about = |args: &[&str]| -> Vec<String> {
+            notes_but(&[], args)
+                .into_iter()
+                .filter(|n| n.starts_with("helper-sandbox"))
+                .collect()
+        };
+        let off = about(&["--helper-sandbox=off"]);
+        assert_eq!(off.len(), 1, "{off:?}");
+        let note = off.first().map(String::as_str).unwrap_or_default();
+        assert!(
+            note.starts_with("helper-sandbox: the sandbox is off, so the font helper and the image helper run without their seccomp filters and landlock domains."),
+            "{note}"
+        );
+        assert!(note.contains("open network connections"), "{note}");
+        assert!(about(&["--helper-sandbox=on"]).is_empty());
+        assert!(about(&[]).is_empty());
     }
 
     /// `/bin/sh`, a program root owns, for the assertions that root's own

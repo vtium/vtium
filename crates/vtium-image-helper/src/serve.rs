@@ -73,9 +73,10 @@ pub struct Settings {
     /// version the kernel offers: above 0, every worker must be in a
     /// landlock domain.
     pub filter: sandbox::WorkerFilter,
-    /// The seccomp filters the helper runs under once its own is in, where
-    /// it installs one and the kernel counts them: every worker must run
-    /// under one more.
+    /// The seccomp filters the helper runs under once its own is in, or
+    /// without it where it installs none, wherever the kernel counts them:
+    /// every worker must run under these and the ones it adds
+    /// ([`sandbox::WorkerFilter::added`]).
     pub filters: Option<u32>,
 }
 
@@ -547,8 +548,9 @@ fn one_off(
 /// A worker's first steps, before it reads anything: vtium's socket,
 /// descriptor 3, is closed in it, and it adds its second filter and then
 /// runs under one more seccomp filter than the helper, where the kernel
-/// counts them. `false` when any of these is wrong, and the worker exits
-/// without an outcome.
+/// counts them. A worker that adds no filter, under `helper-sandbox=off`
+/// or where no filter is in force, has no count to check. `false` when
+/// any of these is wrong, and the worker exits without an outcome.
 fn confined(settings: &Settings) -> bool {
     if fork::is_open(SOCKET_FD) {
         return false;
@@ -576,15 +578,22 @@ fn attested(mut outcome: Outcome) -> Outcome {
 /// seccomp filters and those every worker adds once it has locked itself
 /// in, its second and, on a kernel without landlock, its third, as the
 /// helper read from the kernel, wherever the kernel counts them; and it
-/// reports that it could open no directory, wherever the kernel offers
-/// landlock or the third filter is built. A worker that shows otherwise
-/// fails the request as a crash.
+/// reports that it could open no directory, wherever the workers enter a
+/// landlock domain or add the third filter. Under `helper-sandbox=off`
+/// the workers add no filter and enter no domain, so the helper expects
+/// no filter beyond its own count and no lock. A worker that shows
+/// otherwise fails the request as a crash.
+///
+/// References:
+/// - ADR-1101 D9, "Each worker checks its sandbox" and "The sandbox
+///   setting": what the helper checks, and what it skips under off.
 fn sandboxed(served: &Served, settings: &Settings) -> bool {
     let filters = settings.filters.is_none_or(|n| {
         n.checked_add(settings.filter.added())
             .is_some_and(|want| served.filters == Some(want))
     });
-    let locked = served.outcome.locked || (settings.filter.landlock() == 0 && !sandbox::SECCOMP);
+    let locks = settings.filter.landlock() > 0 || settings.filter.seccomp();
+    let locked = served.outcome.locked || !locks;
     filters && locked
 }
 
@@ -782,5 +791,65 @@ mod tests {
             !seals.contains(SealFlags::WRITE),
             "a pooled file is written again"
         );
+    }
+
+    // The helper's check of the worker that answered: with the sandbox
+    // on, a worker that could still open `/` failed to lock itself in,
+    // whether its landlock domain or its third filter was to do it, and
+    // so does a worker that runs under one filter fewer than it should.
+    // Only a worker that adds no filter and enters no domain, under
+    // helper-sandbox=off or on a kernel with neither, has no lock to show.
+    //
+    // References:
+    // - ADR-1101 D9, "Each worker checks its sandbox" and "The sandbox
+    //   setting": what the helper checks, and what it skips under off.
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    ))]
+    #[test]
+    fn a_worker_that_failed_to_lock_itself_in_fails_the_check_while_the_sandbox_is_on() {
+        let served = |locked: bool, filters: u32| Served {
+            outcome: Outcome {
+                locked,
+                ..Outcome::failed(Status::Ok, "")
+            },
+            reply: None,
+            pooled: false,
+            one_off: None,
+            filters: Some(filters),
+        };
+        let settings = |landlock: u32, seccomp: bool| Settings {
+            tmpdir: None,
+            filter: sandbox::WorkerFilter::build(landlock, seccomp).unwrap(),
+            filters: Some(3),
+        };
+        for (landlock, seccomp, what) in [
+            (6, true, "the landlock domain"),
+            (0, true, "the third filter"),
+            (
+                6,
+                false,
+                "a kernel without seccomp filters that has landlock",
+            ),
+        ] {
+            let s = settings(landlock, seccomp);
+            let want = 3 + s.filter.added();
+            assert!(sandboxed(&served(true, want), &s), "{what}: locked");
+            assert!(!sandboxed(&served(false, want), &s), "{what}: not locked");
+            if s.filter.added() > 0 {
+                assert!(
+                    !sandboxed(&served(true, want - 1), &s),
+                    "{what}: one filter short"
+                );
+            }
+        }
+        // helper-sandbox=off, or a kernel with neither seccomp filters nor
+        // landlock: no lock to show, and no filter beyond the helper's
+        let off = settings(0, false);
+        assert_eq!(off.filter.added(), 0);
+        assert!(sandboxed(&served(false, 3), &off));
+        assert!(!sandboxed(&served(false, 4), &off), "a filter too many");
     }
 }
