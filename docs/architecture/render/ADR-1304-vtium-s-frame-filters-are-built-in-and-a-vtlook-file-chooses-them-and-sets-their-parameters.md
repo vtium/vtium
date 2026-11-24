@@ -294,6 +294,12 @@ considered:
   - operator: aaronsb
     said: "let's write it up. you're right about milliseconds per shader for translation. I think systemd caching is great, but we should consider systems that don't have systemd. we should also ensure that support documentation for shaders (and some sort of outline for docs with shaders includes these things)"
     via: "the maintainer, in the steering session, 2026-11-24, on the steering session's proposal: a translator that runs at every load and keeps no cache of translations, root storing the shader's source while the GPU driver caches the compiled program, and an outline of the shader pages"
+  - operator: aaronsb
+    said: "read the adr. are we making the 'classic' mistake of interpeting something we shouldn't interpet?"
+    via: the maintainer, in the steering session, 2026-11-24, after reading the amendment of that day on a reading page
+  - operator: aaronsb
+    said: "I agree with this. let's amend. it's a better path than the somewhat sophmoric approach I suggested at first"
+    via: the maintainer, in the steering session, 2026-11-24, after reading the amendment of that day on a reading page
 status: accepted
 date: 2026-11-03
 deciders:
