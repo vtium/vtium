@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.13 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.14 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, a line that only a new command, feature or view prints, or a wider range of values that a command takes and a line prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -386,13 +386,13 @@ row 3 ||
 
 ## Font and window operations
 
-A program asks for a font set by name with OSC 50, and asks which font set is in use with `OSC 50 ; ? ST` (`text.font-change` in ADR-1000). A program asks for a text area of so many rows and columns with XTWINOPS 8, `CSI 8 ; height ; width t` (`window.resize`). The terminal takes each only while the host turns it on, as vtium's `allow-font-ops` and `allow-window-ops` keys do, and keeps the request until the host takes it. The reference host starts with both off and takes a request only when asked, with the `font-request` and `grid-request` commands. It acts on neither: a case that wants the size a host would make resizes with `resize`.
+A program asks for a font set by name, or for a font file by its path, with OSC 50, and asks which font is in use with `OSC 50 ; ? ST` (`text.font-change` in ADR-1000). A program asks for a text area of so many rows and columns with XTWINOPS 8, `CSI 8 ; height ; width t` (`window.resize`). The terminal takes each only while the host turns it on, as vtium's `allow-font-ops` and `allow-window-ops` keys do, and keeps the request until the host takes it. The reference host starts with both off and takes a request only when asked, with the `font-request` and `grid-request` commands. It acts on neither: a case that wants the size a host would make resizes with `resize`.
 
 | Command | Keys | Feature | What it does |
 |---|---|---|---|
 | `font-ops` | `on`: flag, default 1 | `font-ops` | Turns OSC 50 on (1) or off (0), as the host's `allow-font-ops` does. Turning it off drops a request the host has not taken. |
-| `font-name` | `name`: 1 to 64 bytes of `A-Z a-z 0-9 . _ + -`, not starting with `.` | `font-ops` | Names the font set in use, which OSC 50's query reports. Until it does, the query reports an empty name. |
-| `font-request` | none | `font-ops` | Takes the font set request as a host does, and prints `test font-request NAME`, NAME being the name the last OSC 50 asked for since the previous `font-request`, or `test font-request none` when none asked. |
+| `font-name` | `name`: 1 to 64 bytes of `A-Z a-z 0-9 . _ + -`, not starting with `.`, or an absolute path | `font-ops` | Names the font in use, which OSC 50's query reports: a font set's name, or the path of the font file the host switched to. Until it does, the query reports an empty name. |
+| `font-request` | none | `font-ops` | Takes the font request as a host does, and prints `test font-request NAME`, NAME being the name or font file path the last OSC 50 asked for since the previous `font-request`, or `test font-request none` when none asked. |
 | `window-ops` | `on`: flag, default 1 | `window-ops` | Turns XTWINOPS 8 on (1) or off (0), as the host's `allow-window-ops` does. Turning it off drops a request the host has not taken. |
 | `grid-request` | none | `window-ops` | Takes the text area request as a host does, and prints `test grid-request ROWS COLS`, from the last XTWINOPS 8 since the previous `grid-request`, or `test grid-request none` when none asked. Each of ROWS and COLS is the number of rows or columns asked for, `keep` for a parameter left out, which keeps that side, or `display` for 0, which takes the display's length on that side, as ctlseqs says. |
 
@@ -569,7 +569,7 @@ The worked examples, here and in 1.0, read each `send` string with the string sy
 The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links, the state, the font and text area requests and the display requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. It also adds the `frame-cursor` line's `span=` and `rows=` keys. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
 
 ```describe
-interface 1.13
+interface 1.14
 view display
 feature clipboard
 feature attrs-renditions
@@ -631,7 +631,7 @@ line test * test state modes ansi (?:{NUMS}) dec (?:{NUMS})
 line test * test state scrollback lines {N} view {N} max {N}
 line test * test state pen{RATTR}
 line test * test state colors fg={RGB} bg={RGB} cursor=(?:{RGB}|default)
-line test * test font-request (?:none|[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,63})
+line test * test font-request (?:none|[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,63}|[^/]*/.*)
 line test * test grid-request (?:none|(?:[1-9][0-9]*|keep|display) (?:[1-9][0-9]*|keep|display))
 line test * test display-request (?:none|background|foreground)
 line test * test cursor-blink (?:default|ms=[1-9][0-9]{1,4})

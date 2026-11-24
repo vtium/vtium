@@ -707,8 +707,8 @@ pub fn controls(spec: &Spec) -> Tally {
             format!("test state tabs 1,,8\n{GOOD}"),
         ),
         (
-            "a font request no font set can be named",
-            format!("test font-request a/b\n{GOOD}"),
+            "a font request that is neither a font set's name nor a path",
+            format!("test font-request .hidden\n{GOOD}"),
         ),
         (
             "a grid request of 0 rows",
@@ -810,6 +810,10 @@ pub fn controls(spec: &Spec) -> Tally {
     );
     // interface 1.13's cursor-blink lines join the control
     let good_host = format!("test cursor-blink ms=250\ntest cursor-blink default\n{good_host}");
+    // interface 1.14's font requests for a font file's path join it too
+    let good_host = format!(
+        "test font-request /usr/share/fonts/a b.ttf\ntest font-request fonts/a.ttf\n{good_host}"
+    );
     let mut tally = Tally {
         count: bad.len().saturating_add(anim.len()).saturating_add(4),
         ..Tally::default()

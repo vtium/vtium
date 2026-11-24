@@ -203,7 +203,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.13, in the order of its describe blocks:
+/// Every command of interface 1.14, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -610,14 +610,20 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
         "font-ops" => Command::FontOps(f.flag("on", Some(true))?),
         "font-name" => {
             let name = f.required("name")?;
-            // a frit's name (ADR-1200 D1), as OSC 50's query reports it
-            let ok = (1..=64).contains(&name.len())
+            // a frit's name (ADR-1200 D1), or the absolute path of a font
+            // file the host switched to (ADR-1200 D5), as OSC 50's query
+            // reports either; a command holds no control character
+            let set = (1..=64).contains(&name.len())
                 && !name.starts_with('.')
                 && name
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'));
-            if !ok {
-                return Err(f.fail("name", "not a font set's name"));
+            let path = name.starts_with('/');
+            if !set && !path {
+                return Err(f.fail(
+                    "name",
+                    "neither a font set's name nor a font file's absolute path",
+                ));
             }
             Command::FontName(name.to_owned())
         }
@@ -873,6 +879,10 @@ mod tests {
         assert_eq!(
             parse(b"font-name;name=ter-v16n"),
             Ok(Command::FontName("ter-v16n".to_owned()))
+        );
+        assert_eq!(
+            parse(b"font-name;name=/usr/share/fonts/a b.ttf"),
+            Ok(Command::FontName("/usr/share/fonts/a b.ttf".to_owned()))
         );
         for bad in [&b"font-name;name=.hidden"[..], b"font-name;name=a/b"] {
             assert!(parse(bad).is_err(), "{bad:?}");
