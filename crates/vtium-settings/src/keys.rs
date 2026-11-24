@@ -1383,6 +1383,20 @@ pub const FONT_HELPER: Key = Key {
            [docs] The default is the path vtium was built with.",
 };
 
+pub const HELPER_SANDBOX: Key = Key {
+    name: "helper-sandbox",
+    short: None,
+    kind: Kind::Choice(&["off", "on"]),
+    default: Default::Text("on"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    what: "Whether the font helper and the image helper lock themselves in with seccomp filters and landlock before they read a font or an image.\n\n\
+           When off, neither helper installs its seccomp filters or enters a landlock domain. The rest of their sandbox stays. Each helper runs as an account that is never root, with no capabilities and no new privileges, in an empty environment, under memory and CPU limits. vtium still checks everything a helper sends back.\n\n\
+           Turning it off lets a font or an image that takes over a helper open network connections and change any file that the helper's account may change. It can also signal and trace that account's other processes. Turn it off only when vtium runs inside another sandbox whose kernel refuses the helpers' filters, or to find out whether the sandbox causes a failure. vtium shows nothing on screen, and logs once a boot that the sandbox is off.\n\n\
+           Only vtium.conf and vtium's command line set it, so a font set, a look or a program cannot.\n\n\
+           [docs] On a kernel built without seccomp filters, the helpers run without them even when this key is on, and vtium logs why.",
+};
+
 pub const FONT_SIZE: Key = Key {
     name: "font-size",
     short: None,
@@ -2076,7 +2090,7 @@ pub const LOGIN_IMAGE_SCALE: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 139] = [
+pub static KEYS: [Key; 140] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2181,6 +2195,7 @@ pub static KEYS: [Key; 139] = [
     FONT_FRITS,
     FONT_PATHS,
     FONT_HELPER,
+    HELPER_SANDBOX,
     FONT_SIZE,
     FONT_HINTING,
     FONT_LINE_SPACING,
@@ -2560,7 +2575,7 @@ pub const SECTIONS: [Section; 11] = [
     },
     Section {
         title: "Running vtium",
-        about: "Where vtium finds its configuration, its log, the font helper that draws a font's characters, and the character cache.",
+        about: "Where vtium finds its configuration, its log, the font helper that draws a font's characters, the helpers' sandbox, and the character cache.",
         groups: &[
             Group {
                 title: "Command line",
@@ -2573,6 +2588,10 @@ pub const SECTIONS: [Section; 11] = [
             Group {
                 title: "Font helper",
                 keys: &[&FONT_HELPER],
+            },
+            Group {
+                title: "Helper sandbox",
+                keys: &[&HELPER_SANDBOX],
             },
             Group {
                 title: "Character cache",

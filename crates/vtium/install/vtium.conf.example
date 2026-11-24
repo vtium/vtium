@@ -981,7 +981,7 @@
 # == Running vtium ===========================================================
 #
 # Where vtium finds its configuration, its log, the font helper that draws a
-# font's characters, and the character cache.
+# font's characters, the helpers' sandbox, and the character cache.
 
 # -- Debug log ---------------------------------------------------------------
 
@@ -1007,6 +1007,30 @@
 ## mounted.
 
 #font-helper=/usr/bin/vtium-config
+
+# -- Helper sandbox ----------------------------------------------------------
+
+## Whether the font helper and the image helper lock themselves in with
+## seccomp filters and landlock before they read a font or an image.
+##
+## When off, neither helper installs its seccomp filters or enters a landlock
+## domain. The rest of their sandbox stays. Each helper runs as an account
+## that is never root, with no capabilities and no new privileges, in an empty
+## environment, under memory and CPU limits. vtium still checks everything a
+## helper sends back.
+##
+## Turning it off lets a font or an image that takes over a helper open
+## network connections and change any file that the helper's account may
+## change. It can also signal and trace that account's other processes. Turn
+## it off only when vtium runs inside another sandbox whose kernel refuses the
+## helpers' filters, or to find out whether the sandbox causes a failure.
+## vtium shows nothing on screen, and logs once a boot that the sandbox is
+## off.
+##
+## Only vtium.conf and vtium's command line set it, so a font set, a look or a
+## program cannot.
+
+#helper-sandbox=on
 
 # -- Character cache ---------------------------------------------------------
 
