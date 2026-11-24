@@ -302,6 +302,20 @@ const UNDERLINE: &[u8] = concat!(
 )
 .as_bytes();
 
+/// The `underline-spaces` screen: each underline style, the strike and the
+/// overline over spaces alone, so no character the font draws is on
+/// screen.
+const UNDERLINE_SPACES: &[u8] = concat!(
+    "\x1b[4m            \x1b[0m  \x1b[4;58:5:196m            \x1b[0m\r\n",
+    "\x1b[4:2m            \x1b[0m  \x1b[4:2;58:2::0:200:255m            \x1b[0m\r\n",
+    "\x1b[4:3m            \x1b[0m  \x1b[4:3;58:5:46m            \x1b[0m\r\n",
+    "\x1b[4:4m            \x1b[0m  \x1b[4:4;58:2::255:128:0m            \x1b[0m\r\n",
+    "\x1b[4:5m            \x1b[0m  \x1b[4:5;58:5:201m            \x1b[0m\r\n",
+    "\x1b[9m            \x1b[0m  \x1b[53m            \x1b[0m\r\n",
+    "\x1b[44;4m            \x1b[0m  \x1b[7;4m            \x1b[0m",
+)
+.as_bytes();
+
 /// The `strike` screen.
 const STRIKE: &[u8] = concat!(
     "\x1b[9mstruck through gjpqy\x1b[0m plain\r\n",
@@ -419,6 +433,32 @@ const MOSAIC: &[u8] = concat!(
     "🬤🬤🬤🬤🬤🬤🬤🬤 𜶉𜶉𜶉𜶉𜶉𜶉𜶉𜶉 ⣿⣿⣿⣿⣿⣿⣿⣿\x1b[0m",
 )
 .as_bytes();
+
+/// The `legacy` screens: every block shape of Symbols for Legacy
+/// Computing and its Supplement that vtium-font draws as a sprite, in
+/// codepoint order; then shapes that join across cells and rows: chained
+/// diamonds of light diagonals, the checker board fill beside its
+/// inverse, the two diagonal fills side by side, circles of quarters and
+/// of halves, staircases of
+/// eighth blocks, and patterns of the one quarter blocks; then the
+/// diamonds, fills and circles in yellow on blue.
+const LEGACY: &[u8] = concat!(
+    "legacy  🬼🬽🬾🬿🭀🭁🭂🭃🭄🭅🭆🭇🭈🭉🭊🭋🭌🭍🭎🭏🭐🭑🭒🭓🭔🭕🭖🭗🭘🭙🭚🭛🭜🭝🭞🭟🭠🭡🭢🭣🭤🭥🭦🭧🭨🭩🭪🭫🭬🭭🭮🭯🭰🭱🭲🭳🭴🭵🭶🭷🭸🭹🭺🭻\r\n",
+    "        🭼🭽🭾🭿🮀🮁🮂🮃🮄🮅🮆🮇🮈🮉🮊🮋🮌🮍🮎🮏🮐🮑🮒🮔🮕🮖🮗🮘🮙🮚🮛🮜🮝🮞🮟🮠🮡🮢🮣🮤🮥🮦🮧🮨🮩🮪🮫🮬🮭🮮🮯\r\n",
+    "        🮽🮾🮿🯎🯏🯐🯑🯒🯓🯔🯕🯖🯗🯘🯙🯚🯛🯜🯝🯞🯟🯠🯡🯢🯣🯤🯥🯦🯧🯨🯩🯪🯫🯬🯭🯮🯯\r\n",
+    "quarters𜺠𜺡𜺢𜺣𜺤𜺥𜺦𜺧𜺨𜺩𜺪𜺫𜺬𜺭𜺮𜺯\r\n",
+    "\r\n",
+    "🮣🮢🮣🮢🮣🮢🮣🮢 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯮🯭 🯩🯫 🯪 ▔🭶🭷🭸🭹🭺🭻▁\r\n",
+    "🮡🮠🮡🮠🮡🮠🮡🮠 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯬🯯 🯩🯫 🯨 ▁🭻🭺🭹🭸🭷🭶▔\r\n",
+    "🮣🮢🮣🮢🮣🮢🮣🮢 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 ▏🭰🭱🭲🭳🭴🭵▕ 𜺨𜺬 𜺣𜺠\r\n",
+    "🮡🮠🮡🮠🮡🮠🮡🮠 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 ▕🭵🭴🭳🭲🭱🭰▏ 𜺣𜺠 𜺨𜺬\r\n",
+    "\r\n",
+    "\x1b[33;44m🮣🮢🮣🮢🮣🮢🮣🮢 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯮🯭 🯩🯫\r\n",
+    "🮡🮠🮡🮠🮡🮠🮡🮠 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯬🯯 🯩🯫\x1b[0m",
+)
+.as_bytes();
+
+const LEGACY_UNIFONT_DESC: &str = "Every block shape of Symbols for Legacy Computing and its Supplement that vtium draws as a sprite, in codepoint order: U+1FB3C to U+1FB92, U+1FB94 to U+1FBAF, U+1FBBD to U+1FBBF and U+1FBCE to U+1FBEF, then the one quarter blocks U+1CEA0 to U+1CEAF. Then shapes that join across cells and rows: chained diamonds of light diagonals, the checker board fill beside its inverse, the two diagonal fills side by side, a circle of four quarters and one of two halves, a circle of two halves stacked, staircases of horizontal and vertical eighth blocks, and patterns of the one quarter blocks; then the diamonds, fills and circles in yellow on blue. In unifont's 8x16 cells. Correct: each shape as the Unicode 18.0 code charts draw it, filling its part of the cell; the diagonals meet at the cells' edges, so the diamonds close; the checker boards and diagonal fills run across cells and rows with no seam; the quarters and halves close into round circles; each eighth block one step from its neighbour's.";
 
 /// The `emoji` screen.
 const EMOJI: &[u8] = concat!(
@@ -2356,6 +2396,18 @@ const BASE: &[Case] = &[
     },
     Case {
         screen: Screen {
+            font: FontKind::UnifontAt(2),
+            ..Screen::new(
+                "underline-unifont-2x",
+                "The underline-unifont screen in unifont drawn at twice its size, in 16x32 cells, as a high-DPI display draws it. Unifont's letters end on row 27 of each cell, and its single underline is two rows thick in rows 30 and 31. Correct: each double underline two lines one row thick, in rows 29 and 31, below the letters, so the bottom rows of the letters stay whole; the other styles as underline-unifont draws them, every pixel doubled.",
+                UNDERLINE,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
             font: FontKind::UnifontAt(3),
             ..Screen::new(
                 "script-unifont-3x",
@@ -2439,6 +2491,11 @@ const BASE: &[Case] = &[
                 72,
                 16,
             )
+        },
+    },
+    Case {
+        screen: Screen {
+            ..Screen::new("legacy-unifont", LEGACY_UNIFONT_DESC, LEGACY, 72, 12)
         },
     },
     Case {
@@ -2558,6 +2615,18 @@ const BASE: &[Case] = &[
                 UNDERLINE,
                 48,
                 10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "legacy-unifont-1bit",
+                "legacy-unifont on a 1-bit display. Correct: each shape lit where its coverage is at least half, so the diagonals and circles keep their edges as whole pixels and the fills keep their patterns; the diamonds, fills and circles in yellow on blue lit, on blue's unlit cells.",
+                LEGACY,
+                72,
+                12,
             )
         },
     },
@@ -2993,6 +3062,15 @@ const BASE: &[Case] = &[
     },
     Case {
         screen: outline(
+            "underline-spaces",
+            "Underlined spaces alone, with no character the font draws on screen: each underline style (single, double, curly, dotted, dashed) in the text color and in an SGR 58 color, the strike and the overline, and an underline on blue and in reverse. In DejaVu Sans Mono at 16 pixels, the lines placed where the font's own tables put them, as the console holds them once the helper's fill has answered. Correct: every underline in the rows the underline screen draws its lines in, the single line on row 13 of each 16-row cell and not on the cell's bottom row; the strike on the underline screen's strike row; the overline on the cell's top row.",
+            UNDERLINE_SPACES,
+            28,
+            7,
+        ),
+    },
+    Case {
+        screen: outline(
             "strike",
             "Strike-through (SGR 9) alone, in color, on a background, with straight and curly underlines, in bold, in reverse, and over spaces. In DejaVu Sans Mono at 16 pixels, the strike placed where the font's own tables put it. Correct: a line through every struck cell, the spaces included, at the same height in every cell.",
             STRIKE,
@@ -3061,6 +3139,15 @@ const BASE: &[Case] = &[
             MOSAIC,
             72,
             16,
+        ),
+    },
+    Case {
+        screen: outline(
+            "legacy",
+            "The legacy-unifont screen in the 9x16 cell DejaVu Sans Mono gives at 16 pixels, whose width is not a whole number of halves or thirds of the shapes' own grids. Correct: vtium's sprites draw every shape, as legacy-unifont describes, each diagonal still meeting its neighbour's at the cell's edge and each fill keeping its period across cells.",
+            LEGACY,
+            72,
+            12,
         ),
     },
     Case {

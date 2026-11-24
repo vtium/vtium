@@ -92,7 +92,7 @@ The loader follows kbd's description of the format in Andries Brouwer's "The PSF
   - the saltire, pointing index, question mark, stick figures, chevrons, cross mark and bracket (U+1FBC0-U+1FBCD);
   - the segmented digits and alarm bell (U+1FBF0-U+1FBFA).
 
-  No cell-grid geometry defines the pictographs, so they draw from the face, and unifont carries them. `tests/legacy.rs` checks every Legacy Computing sprite against a model built from its Unicode name. It checks them at every cell size from 1×1 to 32×64 and in larger cells, and it also checks them against literal masks. The page digests of `tests/digests.rs` leave these characters out. Tier 2 has no screen of the ranges yet (vtium/vtium#457).
+  No cell-grid geometry defines the pictographs, so they draw from the face, and unifont carries them. `tests/legacy.rs` checks every Legacy Computing sprite against a model built from its Unicode name. It checks them at every cell size from 1×1 to 32×64 and in larger cells, and it also checks them against literal masks. The page digests of `tests/digests.rs` leave these characters out. Tier 2's `legacy`, `legacy-unifont` and `legacy-unifont-1bit` screens show every sprite of the ranges as the renderer draws it. They add shapes that join across cells and rows, on the CPU path and the GPU path.
 - **Each sprite range can be drawn from the font instead** (vtium/vtium#85). A `SpritePolicy` gives each `Range` a `Source`. The ranges are box drawing, block elements, Braille, sextants, octants and Legacy Computing. The sources are these:
   - `Sprites`: the sprite, whatever the face holds.
   - `Font`: the face's glyph, and the font's `Missing` glyph for a character the face lacks.

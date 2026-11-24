@@ -786,7 +786,9 @@ pub fn chosen(
 
 /// The frit `name` of `text`, whose fonts are in `dir`, as the console
 /// holds it at `height` pixels once the helper has answered for what the
-/// screen shows in each style, as [`chosen`] gives the test frit.
+/// screen shows in each style, as [`chosen`] gives the test frit. Where
+/// the screen shows nothing the helper draws, the store also holds the
+/// first answer of the helper's fill, which brings the font's own lines.
 pub fn chosen_frit(
     (name, text): (&str, String),
     dir: &Path,
@@ -848,8 +850,9 @@ pub fn chosen_frit(
     let Chosen::Frit { generated, .. } = &chosen else {
         return Err(format!("the frit {name} is not taken as a frit"));
     };
+    // whether a set of normal glyphs is held, which gives the font's lines
+    let mut lines = false;
     for one in &shown(at.cell)? {
-        let want: Vec<u32> = one.chars.iter().map(|&c| u32::from(c)).collect();
         let clusters: Vec<Vec<u32>> = one
             .clusters
             .iter()
@@ -865,28 +868,69 @@ pub fn chosen_frit(
             .map_err(|why| format!("the frit {name}: {why}"))?;
             continue;
         }
-        let Some(bytes) = engine.draw_variant(at, one.variant, &want, (&clusters, true))? else {
-            continue;
-        };
-        let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        let set = Arc::new(Set::from_bytes(bytes).map_err(|e| format!("the frit {name}: {e:?}"))?);
-        let face = SetFace::new(Arc::clone(&set), at.cell.height)
-            .ok_or_else(|| format!("the frit {name}: no strike at {}", at.cell.height))?;
-        // the codepoints the set maps in the variant, as the helper's frame
-        // names them
-        let held: Vec<char> = one
-            .chars
+        let added = hold(
+            &engine,
+            generated,
+            (at, one.variant),
+            (&one.chars, &clusters),
+        )
+        .map_err(|why| format!("the frit {name}: {why}"))?;
+        lines |= added && one.variant.script == vtium_font::Script::Baseline;
+    }
+    // the console starts the helper's fill at each cell it draws at, and
+    // the fill's first answer holds regular glyphs, printable Latin and
+    // box drawing first, whatever the screen shows; those glyphs bring the
+    // font's own lines, so a screen that shows no character, such as a
+    // line of underlined spaces, draws its lines where the font puts them.
+    // The fill's glyphs change no pixel of a screen whose asks hold a set,
+    // so tier 2 holds the fill's first answer only where they hold none.
+    if !lines {
+        let fill: Vec<char> = vtium_config::serve::LATIN_AND_BOX
             .iter()
-            .copied()
-            .filter(|&c| face.draw_variant(&[c], one.variant).is_some())
+            .flat_map(|&(a, b)| a..=b)
+            .filter_map(char::from_u32)
             .collect();
-        let mut store = lock(generated);
-        let fresh = store
-            .fresh((at, one.variant), set, &runs(&held), len)
-            .ok_or_else(|| format!("the frit {name}: the store refused its glyphs"))?;
-        store.add(fresh);
+        hold(
+            &engine,
+            generated,
+            (at, vtium_font::Variant::default()),
+            (&fill, &[]),
+        )
+        .map_err(|why| format!("the frit {name}: {why}"))?;
     }
     Ok(chosen)
+}
+
+/// Adds to the console's store `generated` the glyphs of `chars` and of
+/// `clusters` that the engine draws for the cell `at` in `variant`, as the
+/// helper answers an ask and the console takes the answer: whether the
+/// store took a set, which it does not when the engine draws none.
+fn hold(
+    engine: &vtium_config::serve::Engine,
+    generated: &vtium::deferred::Shared,
+    (at, variant): (vtium_font::spacing::SpacedCell, vtium_font::Variant),
+    (chars, clusters): (&[char], &[Vec<u32>]),
+) -> Result<bool, String> {
+    let want: Vec<u32> = chars.iter().map(|&c| u32::from(c)).collect();
+    let Some(bytes) = engine.draw_variant(at, variant, &want, (clusters, true))? else {
+        return Ok(false);
+    };
+    let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let set = Arc::new(Set::from_bytes(bytes).map_err(|e| format!("{e:?}"))?);
+    let face = SetFace::new(Arc::clone(&set), at.cell.height)
+        .ok_or_else(|| format!("no strike at {}", at.cell.height))?;
+    // the codepoints the set maps in the variant, as the helper's frame
+    // names them
+    let held: Vec<char> = chars
+        .iter()
+        .copied()
+        .filter(|&c| face.draw_variant(&[c], variant).is_some())
+        .collect();
+    let mut store = lock(generated);
+    let fresh = store
+        .fresh((at, variant), set, &runs(&held), len)
+        .ok_or("the store refused its glyphs")?;
+    Ok(store.add(fresh).is_some())
 }
 
 /// Adds to the console's store `generated` the glyphs of `chars` and of
@@ -1256,6 +1300,66 @@ mod tests {
             .collect();
         assert_eq!(pinned, named);
         assert_eq!(pinned.len(), SHIPPED_FONTS.len(), "each font pinned once");
+    }
+
+    /// The ink test font with an underline of its own, 40 units below the
+    /// baseline and 150 thick, written into `dir`: its frit's text.
+    fn underlined_ink(dir: &Path) -> String {
+        let font = vtium_testfont::ttf::Font {
+            underline: Some((-40, 150)),
+            ..crate::inkfont::font()
+        };
+        let path = dir.join("underlined-ink.ttf");
+        std::fs::write(&path, font.build()).unwrap();
+        format!("source=outline:{}\n", path.display())
+    }
+
+    /// The lines of the frit `text` in `dir` at 16 pixels, as the console
+    /// holds it once the helper has answered for `chars` in the regular
+    /// style and the script `script`.
+    fn lines(
+        dir: &Path,
+        text: &str,
+        chars: &[char],
+        script: vtium_font::Script,
+    ) -> vtium_font::Decorations {
+        let shown = vec![Shown {
+            chars: chars.to_vec(),
+            variant: vtium_font::Variant {
+                script,
+                ..vtium_font::Variant::default()
+            },
+            ..Shown::default()
+        }];
+        let chosen = chosen_frit(("underlined", text.to_owned()), dir, 16, |_| Ok(shown)).unwrap();
+        face_at(&chosen, 16).unwrap().decorations()
+    }
+
+    // vtium/vtium#462: the console starts the helper's fill at every cell
+    // it draws at, and the fill's first answer brings the font's lines
+    // whatever the screen shows, so a screen of underlined spaces draws its
+    // line in the font's row, as a screen of letters does
+    #[test]
+    fn a_screen_that_shows_no_character_takes_the_fonts_own_lines() {
+        let scratch = Scratch::new("own-lines");
+        let text = underlined_ink(&scratch.0);
+        let letters = lines(&scratch.0, &text, &['A'], vtium_font::Script::Baseline);
+        assert_ne!(
+            letters,
+            vtium_font::Decorations::for_height(16),
+            "the test font's underline is its own"
+        );
+        assert_eq!(
+            lines(&scratch.0, &text, &[], vtium_font::Script::Baseline),
+            letters
+        );
+        // A set of superscript glyphs brings no lines of the font's own, so
+        // a screen that shows only superscript text still holds the fill's
+        // regular glyphs, and its underlined spaces draw on the font's row.
+        assert_eq!(
+            lines(&scratch.0, &text, &['A'], vtium_font::Script::Super),
+            letters
+        );
     }
 
     #[test]
