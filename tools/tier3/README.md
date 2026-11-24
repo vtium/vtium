@@ -119,7 +119,7 @@ Each step waits for state the driver can observe: a line on the serial log or th
 | `builtin-font` | 1 vCPU, 512 MB | `virtio-vga`, EDID 1366x768 | cpu | `vtium-minimal.conf`, then nothing installed (The built-in font) |
 | `default-font-16`, `default-font-24`, `default-font-40` | 1 vCPU, 512 MB | `virtio-vga`, EDID 1366x768 | cpu | `vtium-default-font-N.conf`: no font named, so the set `terminus`, at a cell N pixels high (The default font sets) |
 | `cullet-mono-16`, `cullet-mono-24`, `cullet-mono-40` | 1 vCPU, 512 MB | `virtio-vga`, EDID 1366x768 | cpu | `vtium-cullet-mono-N.conf`: the set `cullet-mono` at a cell N pixels high, in vtium built with `bidi`, `gpu` and `images` (The default font sets) |
-| `images-640x480`, `images-640x480-nobody`, `images-login-640x480` | 1 vCPU, 512 MB | `virtio-vga`, EDID 640x480 | cpu | `vtium-images.conf`, and `vtium-login-image.conf` for the login picture, in vtium built with `images` (Pictures) |
+| `images-640x480`, `images-640x480-nobody`, `images-login-640x480`, `sandbox-off-640x480` | 1 vCPU, 512 MB | `virtio-vga`, EDID 640x480 | cpu | `vtium-images.conf`, `vtium-login-image.conf` for the login picture, and `vtium-sandbox-off.conf` for the helpers without their sandbox, in vtium built with `images` (Pictures) |
 
 Each of the other variants has a section of its own below, such as the seat variants, the head file variants, or those of the guest without systemd.
 
@@ -223,6 +223,8 @@ Three of ADR-1101 D10's gates run here. A gate is a check that must pass before 
 - **rpc_pipefs refused.** `guest/setup` mounts rpc_pipefs at `/run/t3-rpc` as root and lets everyone read its one regular file, `gssd/clntXX/info`. `img-png` checks that its user can read the file, then names it in a `t=f` command, and the reply must be EBADF: a helper that read the file would find no PNG and answer EINVAL, so only its refusal of the filesystem gives EBADF (ADR-1101 D5).
 
 `images-login-640x480` shows the login picture (ADR-1100 D17) on the same machine and tree. Its `vtium-login-image.conf` names the test disc picture as the login picture, fitted with `cover`. The driver never logs in: the one case, `login-image`, captures the login prompt once it settles, and its golden judges it. The variant runs only when named, as `make tier3-images VARIANTS=images-login-640x480`.
+
+`sandbox-off-640x480` turns the helpers' sandbox off, with the setting `helper-sandbox = off`, on the same machine and tree. Its `vtium-sandbox-off.conf` names the frit `dejavu-mono`, which the font helper generates at run time, and its one screen, `img-png`, starts the image helper. The check `sandbox-off` (`t3_images.py`) passes when the console's log holds each helper's line about the setting exactly once. No golden judges the variant's cases, since `images-640x480` judges `img-png`'s pictures. `img-png` still fails unless its replies are the ones `REPLIES` lists. The variant switches no VT, and it runs only when named, as `make tier3 VARIANTS=sandbox-off-640x480`.
 
 ## The showcase
 
