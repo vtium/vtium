@@ -3385,6 +3385,8 @@ sha256={c}
             ("cell=\nsource=kbd:x\n", 1, "cell= has no value"),
             ("source=kbd:x\nfit=\n", 2, "fit= has no value"),
             ("source=kbd:x\nlayer=\n", 2, "layer= has no value"),
+            ("source=kbd:x\ncompress=\n", 2, "compress= has no value"),
+            ("source=file:/a.psf\nurl=\n", 2, "url= has no value"),
             (
                 "source=kbd:x\nunimap=a\u{7}b\n",
                 2,
