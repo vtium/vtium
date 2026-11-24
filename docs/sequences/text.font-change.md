@@ -43,6 +43,7 @@ These tests check what vtium does with the sequences on this page.
 - `a_sessions_end_undoes_its_zoom` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `an_osc_50_switch_holds_the_programs_replies_until_the_late_cell` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
+- [tools/conformance/scenarios/reply-font-path.scenario](https://github.com/vtium/vtium/blob/main/tools/conformance/scenarios/reply-font-path.scenario)
 
 ## Where to read more
 
