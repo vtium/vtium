@@ -3120,6 +3120,184 @@ fn the_loop_retries_the_wake_up() {
     assert_eq!(app.0.waits(), (false, false));
 }
 
+/// The warning calloop logs when a batch of events holds one for a source
+/// that left the loop while the batch was dispatched.
+const STALE: &str = "non-existent source";
+
+fn stale_warnings() -> Vec<String> {
+    logs::at_least(Level::Warn)
+        .into_iter()
+        .filter(|line| line.contains(STALE))
+        .collect()
+}
+
+// A flip whose completion event and expired bound arrive in one turn, as
+// when a modeset's commit blocks the loop past the bound. The card's event
+// comes first in the batch, ends the flip and takes its bound out of the
+// loop, so the bound's own event, later in the same batch, finds a source
+// that left. The bound does nothing then: the flip is not taken as lost,
+// and calloop finds the source still there.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test holds the loop past the flip bound, as a blocking commit does"
+)]
+fn a_flip_done_in_the_turn_its_bound_expires_leaves_no_stale_event() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    logs::capture();
+    frame(&mut app.0, &[DOT]).unwrap();
+    assert!(app.0.is_flipping(DisplayId(A)));
+    std::thread::sleep(std::time::Duration::from_millis(
+        u64::try_from(crate::FLIP_WAIT_MS).unwrap() + 50,
+    ));
+    app.0.card().complete_flips();
+    lp.dispatch(Some(std::time::Duration::ZERO), &mut app)
+        .unwrap();
+    assert_eq!(events(&mut app.0), vec![Event::Flipped(DisplayId(A))]);
+    assert!(!app.0.is_flipping(DisplayId(A)));
+    assert_eq!(stale_warnings(), Vec::<String>::new());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        Vec::<String>::new(),
+        "no lost flip"
+    );
+}
+
+// The case the removed check in `Removals` exists for. A sleep leaves a
+// modeset's flip to the kernel, so CRTC 100 owes an event that no display
+// waits for, under a stale bound. The loop is held past that bound, and in
+// the next batch a callback reads the owed event, which ends the wait and
+// disarms the bound, and then wakes and sleeps the card again, which leaves
+// a new modeset flip on CRTC 100 under a new bound. The first bound's
+// expiry waits later in the same batch. It reaches nothing, so the new wait
+// stays until its own event or bound, and calloop finds the source still
+// there. Were the first bound's callback to run, it would end the new wait,
+// and the new flip's event would be taken for a later display's own.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test holds the loop past the stale bound, as a blocking commit does"
+)]
+fn a_stale_bound_disarmed_and_armed_again_in_one_batch_keeps_the_new_wait() {
+    use calloop::ping::make_ping;
+    let (mut lp, mut app) = in_loop(one());
+    app.0.wake_up().unwrap();
+    app.0.sleep();
+    assert_eq!(app.0.stale.len(), 1, "the sleep left the modeset's flip");
+    let (crtc, first) = app.0.stale[0];
+    assert!(first.is_some(), "under a bound");
+    let (ping, source) = make_ping().unwrap();
+    lp.handle()
+        .insert_source(source, |(), (), app: &mut App| {
+            app.0.card().complete_flips();
+            app.0.dispatch().unwrap();
+            assert!(app.0.stale.is_empty(), "the owed event ended the wait");
+            app.0.wake_up().unwrap();
+            app.0.sleep();
+        })
+        .unwrap();
+    logs::capture();
+    std::thread::sleep(std::time::Duration::from_millis(
+        u64::try_from(crate::FLIP_WAIT_MS).unwrap() + 50,
+    ));
+    ping.ping();
+    lp.dispatch(Some(std::time::Duration::ZERO), &mut app)
+        .unwrap();
+    let waits: Vec<_> = app.0.stale.iter().map(|&(c, t)| (c, t.is_some())).collect();
+    assert_eq!(
+        waits,
+        vec![(crtc, true)],
+        "the new wait stays, under its bound"
+    );
+    assert_ne!(app.0.stale[0].1, first, "a new bound");
+    assert_eq!(stale_warnings(), Vec::<String>::new());
+}
+
+/// Cards by the node they are at, as vtium keeps them.
+struct Cards(std::collections::BTreeMap<u32, Drm2d<FakeCard>>);
+
+fn card_at(node: u32) -> impl Fn(&mut Cards) -> Option<&mut Drm2d<FakeCard>> + Clone + 'static {
+    move |cards: &mut Cards| cards.0.get_mut(&node)
+}
+
+// A test of `Removals` through a whole card: a card dropped inside a
+// dispatch while its own event waits later in the same batch, and a new
+// card inserted at the same node in the same callback. vtium itself drops a
+// card between dispatches, where it leaves the loop at once, so the ping's
+// callback here stands for any callback that drops a card. The old card's
+// event is delivered to nothing, the new card reads nothing that was the
+// old card's, and calloop finds no event for a source that left. The stale
+// bound test above is the case that vtium meets.
+#[test]
+fn a_card_removed_with_its_event_waiting_leaves_no_stale_event() {
+    use calloop::ping::make_ping;
+    let mut lp = crate::event_loop::Loop::<Cards>::new().unwrap();
+    let handle = lp.handle();
+    let mut cards = Cards(std::collections::BTreeMap::new());
+    let mut old = awake(one());
+    old.insert(&handle, card_at(0)).unwrap();
+    cards.0.insert(0, old);
+    let (udev, source) = make_ping().unwrap();
+    handle
+        .insert_source(source, {
+            let handle = handle.clone();
+            move |(), (), cards: &mut Cards| {
+                cards.0.remove(&0);
+                // The new card has display B, so the test can tell it apart.
+                let card = FakeCard::new(&[(B, vec![mode(640, 480, 60, true)])]);
+                let mut new = Drm2d::with(card, ModePolicy::default()).unwrap();
+                new.insert(&handle, card_at(0)).unwrap();
+                // The new card's wake-up flips, and the flip's event waits
+                // with no wake of its descriptor: only a read that the old
+                // card's event set off would find it.
+                new.wake_up().unwrap();
+                new.events().for_each(drop);
+                let mut s = new.card().state();
+                let pending = std::mem::take(&mut s.pending);
+                s.completed
+                    .extend(pending.into_iter().map(CrtcEvent::Flipped));
+                drop(s);
+                cards.0.insert(0, new);
+            }
+        })
+        .unwrap();
+    logs::capture();
+    let old = cards.0.get_mut(&0).unwrap();
+    frame(old, &[DOT]).unwrap();
+    // udev's event comes first in the batch, the old card's flip after it.
+    udev.ping();
+    old.card().complete_flips();
+    lp.dispatch(Some(std::time::Duration::ZERO), &mut cards)
+        .unwrap();
+    let new = cards.0.get_mut(&0).unwrap();
+    assert!(
+        new.card().state().connectors.contains_key(&B),
+        "the new card is in"
+    );
+    let seen = events(new);
+    assert!(seen.is_empty(), "the new card read {seen:?}");
+    assert!(new.is_flipping(DisplayId(B)));
+    assert_eq!(stale_warnings(), Vec::<String>::new());
+    // The new card's own events reach it once its descriptor wakes: the
+    // flip's event goes back to pending, and completes with a wake.
+    let mut s = new.card().state();
+    let waiting = std::mem::take(&mut s.completed);
+    s.pending
+        .extend(waiting.into_iter().filter_map(|e| match e {
+            CrtcEvent::Flipped(crtc) => Some(crtc),
+            CrtcEvent::Vblank(_) => None,
+        }));
+    assert!(!s.pending.is_empty(), "the flip's event waited");
+    drop(s);
+    new.card().complete_flips();
+    lp.dispatch(Some(std::time::Duration::ZERO), &mut cards)
+        .unwrap();
+    let new = cards.0.get_mut(&0).unwrap();
+    assert_eq!(events(new), vec![Event::Flipped(DisplayId(B))]);
+    assert!(!new.is_flipping(DisplayId(B)));
+    assert_eq!(stale_warnings(), Vec::<String>::new());
+}
+
 // The frame contract, rule 3: a swap with nothing to send commits nothing.
 #[test]
 fn a_swap_with_nothing_to_send_commits_nothing() {

@@ -109,6 +109,10 @@ pub(crate) struct Node {
     pub(crate) opens: u32,
     /// The bitmaps cannot be read.
     pub(crate) unprobeable: bool,
+    /// The seat manager took the device back: every ioctl fails with
+    /// ENODEV, as evdev answers on a file that `EVIOCREVOKE` revoked
+    /// (`evdev_revoke`), so the device has no name and no bitmaps.
+    pub(crate) revoked: bool,
 }
 
 /// The stand-in devices by node, shared with the test.
@@ -171,11 +175,18 @@ pub(crate) struct FakeDevice(Rc<RefCell<Node>>);
 
 impl EventDevice for FakeDevice {
     fn name(&self) -> String {
+        // The real device's name is empty when the ioctl fails.
+        if self.0.borrow().revoked {
+            return String::new();
+        }
         String::from("stand-in")
     }
 
     fn bits(&self) -> io::Result<Bits> {
         let n = self.0.borrow();
+        if n.revoked {
+            return Err(io::Error::from(rustix::io::Errno::NODEV));
+        }
         if n.unprobeable {
             return Err(io::Error::from(rustix::io::Errno::NOTTY));
         }
