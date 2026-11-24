@@ -643,6 +643,35 @@ fn the_real_helper_with_the_sandbox_off_serves_every_request_without_its_filters
     a_stream(&mut ImageHost::new(Some(program().sandboxed(false)), None));
 }
 
+// A `--sandbox=` value other than on or off is a usage error: the helper
+// exits with status 2 before it looks for its socket, so a typo can
+// neither turn the sandbox off nor start a helper. `on` and `off` pass
+// the check, and the helper started here then exits with status 3,
+// because the test gives it no socket.
+//
+// References:
+// - ADR-1101 D9, "The sandbox setting": the option and its two values.
+#[test]
+fn a_sandbox_value_other_than_on_or_off_exits_with_status_2() {
+    let run = |arg: &str| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_vtium-image"))
+            .arg(arg)
+            .env_clear()
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .code()
+    };
+    for bad in ["--sandbox=OFF", "--sandbox=", "--sandbox", "--sandbox=yes"] {
+        assert_eq!(run(bad), Some(2), "{bad}");
+    }
+    for good in ["--sandbox=on", "--sandbox=off"] {
+        assert_eq!(run(good), Some(3), "{good}");
+    }
+}
+
 /// Set in the child process that the kernel-refusal test starts.
 #[cfg(any(
     target_arch = "x86_64",

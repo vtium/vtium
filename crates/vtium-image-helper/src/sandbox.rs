@@ -803,9 +803,24 @@ mod tests {
             lacks(SECCOMP_ONLY, Some((5, 9))),
             Some(NoSeccomp::NoFilters)
         );
+        assert_eq!(
+            lacks(SECCOMP_ONLY, Some((6, 1))),
+            Some(NoSeccomp::NoFilters)
+        );
+        // before 5.9 nothing tells a lack of filters from a refusal
         assert_eq!(lacks(SECCOMP_ONLY, Some((5, 8))), None);
+        assert_eq!(lacks(SECCOMP_ONLY, Some((4, 19))), None);
+        // a kernel that offers the filters refused them: the helper exits
         assert_eq!(lacks(WITH_FILTERS, Some((6, 7))), None);
+        assert_eq!(lacks(WITH_FILTERS, Some((5, 9))), None);
+        // a release the helper cannot read tells it nothing
         assert_eq!(lacks(NO_SECCOMP, None), None);
+        assert_eq!(lacks(SECCOMP_ONLY, None), None);
+        // a line that only starts like the one the check reads is not it
+        assert_eq!(
+            lacks("Seccomp_filters_x:\t1\n", Some((6, 7))),
+            Some(NoSeccomp::NotBuilt)
+        );
     }
 
     // Why the workers enter no landlock domain, from the version query's

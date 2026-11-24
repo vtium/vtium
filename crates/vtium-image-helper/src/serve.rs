@@ -792,4 +792,64 @@ mod tests {
             "a pooled file is written again"
         );
     }
+
+    // The helper's check of the worker that answered: with the sandbox
+    // on, a worker that could still open `/` failed to lock itself in,
+    // whether its landlock domain or its third filter was to do it, and
+    // so does a worker that runs under one filter fewer than it should.
+    // Only a worker that adds no filter and enters no domain, under
+    // helper-sandbox=off or on a kernel with neither, has no lock to show.
+    //
+    // References:
+    // - ADR-1101 D9, "Each worker checks its sandbox" and "The sandbox
+    //   setting": what the helper checks, and what it skips under off.
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    ))]
+    #[test]
+    fn a_worker_that_failed_to_lock_itself_in_fails_the_check_while_the_sandbox_is_on() {
+        let served = |locked: bool, filters: u32| Served {
+            outcome: Outcome {
+                locked,
+                ..Outcome::failed(Status::Ok, "")
+            },
+            reply: None,
+            pooled: false,
+            one_off: None,
+            filters: Some(filters),
+        };
+        let settings = |landlock: u32, seccomp: bool| Settings {
+            tmpdir: None,
+            filter: sandbox::WorkerFilter::build(landlock, seccomp).unwrap(),
+            filters: Some(3),
+        };
+        for (landlock, seccomp, what) in [
+            (6, true, "the landlock domain"),
+            (0, true, "the third filter"),
+            (
+                6,
+                false,
+                "a kernel without seccomp filters that has landlock",
+            ),
+        ] {
+            let s = settings(landlock, seccomp);
+            let want = 3 + s.filter.added();
+            assert!(sandboxed(&served(true, want), &s), "{what}: locked");
+            assert!(!sandboxed(&served(false, want), &s), "{what}: not locked");
+            if s.filter.added() > 0 {
+                assert!(
+                    !sandboxed(&served(true, want - 1), &s),
+                    "{what}: one filter short"
+                );
+            }
+        }
+        // helper-sandbox=off, or a kernel with neither seccomp filters nor
+        // landlock: no lock to show, and no filter beyond the helper's
+        let off = settings(0, false);
+        assert_eq!(off.filter.added(), 0);
+        assert!(sandboxed(&served(false, 3), &off));
+        assert!(!sandboxed(&served(false, 4), &off), "a filter too many");
+    }
 }
