@@ -950,7 +950,7 @@ impl Link {
     fn hung_up(&self) -> io::Result<bool> {
         use rustix::event::{PollFd, PollFlags};
         let mut fds = [PollFd::new(&self.0, PollFlags::IN)];
-        let now = rustix::time::Timespec {
+        let now = rustix::event::Timespec {
             tv_sec: 0,
             tv_nsec: 0,
         };
