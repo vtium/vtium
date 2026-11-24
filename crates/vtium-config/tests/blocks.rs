@@ -19,9 +19,16 @@
 //! ink on every row from the top to the bottom, and a horizontal line
 //! (U+2500) the same ink in every column from the left edge to the right.
 //! Each line keeps the font's stroke width, light and heavy.
+//!
+//! The same holds under synthetic italic, which leaves these glyphs
+//! upright, and synthetic bold grows their strokes as much as the text's.
+//! A font with no full block has its descent and ascent mapped onto the
+//! cell. A font whose full block lies far outside its line has these
+//! glyphs placed as text is placed.
 
 use vtium_config::frit::Hinting;
 use vtium_config::outline::{Outline, OutlineRequest, Placed, rasterise};
+use vtium_font::Style;
 use vtium_testfont::ttf;
 
 const FULL: u32 = 0x2588;
@@ -33,20 +40,22 @@ const HEAVY_HORIZONTAL: u32 = 0x2501;
 
 const HEIGHTS: [u32; 3] = [12, 16, 24];
 
-/// One font's block and box glyphs, in font units with y up: each as the
-/// rectangle `x0, y0` to `x1, y1`.
+/// A rectangle in font units with y up: `x0, y0` to `x1, y1`.
+type Rect = (i16, i16, i16, i16);
+
+/// One font's block and box glyphs, each as a [`Rect`].
 struct Shape {
     name: &'static str,
     upem: u16,
     ascent: i16,
     descent: i16,
     advance: u16,
-    full: (i16, i16, i16, i16),
-    upper_half: (i16, i16, i16, i16),
-    light_vertical: (i16, i16, i16, i16),
-    heavy_vertical: (i16, i16, i16, i16),
-    light_horizontal: (i16, i16, i16, i16),
-    heavy_horizontal: (i16, i16, i16, i16),
+    full: Rect,
+    upper_half: Rect,
+    light_vertical: Rect,
+    heavy_vertical: Rect,
+    light_horizontal: Rect,
+    heavy_horizontal: Rect,
 }
 
 const FIRA_CODE: Shape = Shape {
@@ -105,6 +114,23 @@ const DEJAVU_SANS_MONO: Shape = Shape {
     heavy_horizontal: (-20, 532, 1253, 876),
 };
 
+/// A font whose full block starts a quarter of its advance left of its
+/// pen, so its box lines sit as far left of where the advance would put
+/// them, and only the full block's left edge places them in the cell.
+const OVERHANG: Shape = Shape {
+    name: "a full block left of its pen",
+    upem: 1000,
+    ascent: 800,
+    descent: -200,
+    advance: 600,
+    full: (-150, -200, 450, 800),
+    upper_half: (-150, 300, 450, 800),
+    light_vertical: (100, -200, 200, 800),
+    heavy_vertical: (50, -200, 250, 800),
+    light_horizontal: (-150, 250, 450, 350),
+    heavy_horizontal: (-150, 200, 450, 400),
+};
+
 const SHAPES: [&Shape; 4] = [
     &FIRA_CODE,
     &JETBRAINS_MONO,
@@ -115,33 +141,40 @@ const SHAPES: [&Shape; 4] = [
 /// The test font for `shape`: its W fills its advance up to the ascent,
 /// so the W rule gives the advance as the cell's width.
 fn font(shape: &Shape) -> Vec<u8> {
+    font_of(
+        shape,
+        &[
+            (FULL, shape.full),
+            (UPPER_HALF, shape.upper_half),
+            (LIGHT_VERTICAL, shape.light_vertical),
+            (HEAVY_VERTICAL, shape.heavy_vertical),
+            (LIGHT_HORIZONTAL, shape.light_horizontal),
+            (HEAVY_HORIZONTAL, shape.heavy_horizontal),
+        ],
+    )
+}
+
+/// A test font with `shape`'s metrics and a W, which maps each character
+/// of `glyphs` to its rectangle, and nothing else.
+fn font_of(shape: &Shape, glyphs: &[(u32, Rect)]) -> Vec<u8> {
     let rect = |(x0, y0, x1, y1)| ttf::Glyph::rect(shape.advance, x0, y0, x1, y1);
     let w = shape.advance as i16;
-    let glyphs = vec![
+    let mut drawn = vec![
         ttf::Glyph::empty(shape.advance),
         rect((w / 10, 0, w - w / 10, shape.ascent * 2 / 3)),
-        rect(shape.full),
-        rect(shape.upper_half),
-        rect(shape.light_vertical),
-        rect(shape.heavy_vertical),
-        rect(shape.light_horizontal),
-        rect(shape.heavy_horizontal),
     ];
+    let mut cmap = vec![(u32::from('W'), 1)];
+    for (i, &(c, r)) in glyphs.iter().enumerate() {
+        drawn.push(rect(r));
+        cmap.push((c, i as u16 + 2));
+    }
     ttf::Font {
         family: "Block Test".to_owned(),
         upem: shape.upem,
         ascent: shape.ascent,
         descent: shape.descent,
-        glyphs,
-        cmap: vec![
-            (u32::from('W'), 1),
-            (FULL, 2),
-            (UPPER_HALF, 3),
-            (LIGHT_VERTICAL, 4),
-            (HEAVY_VERTICAL, 5),
-            (LIGHT_HORIZONTAL, 6),
-            (HEAVY_HORIZONTAL, 7),
-        ],
+        glyphs: drawn,
+        cmap,
         colr: Vec::new(),
         palette: Vec::new(),
         cbdt: None,
@@ -197,6 +230,21 @@ fn rows(p: &Placed, w: usize) -> Vec<&[u8]> {
 fn ink(pixels: impl Iterator<Item = u8>) -> f32 {
     pixels.map(f32::from).sum::<f32>() / 255.0
 }
+
+/// Where the ink of `row` is centred, in pixels from its left edge.
+fn centre(row: &[u8]) -> f32 {
+    let weight = row
+        .iter()
+        .enumerate()
+        .map(|(x, &p)| (x as f32 + 0.5) * f32::from(p))
+        .sum::<f32>();
+    weight / (ink(row.iter().copied()) * 255.0)
+}
+
+/// How far a line's centre may lie from where the font's outline puts it:
+/// the light hinter can move a stem sideways by part of a pixel to line
+/// its edges up with the pixels, by up to 0.27 pixels in these fonts.
+const CENTRE: f32 = 0.35;
 
 /// A pixel a block covers wholly, allowing for rounding in the
 /// rasteriser.
@@ -262,7 +310,7 @@ fn stroke(shape: &Shape, units: i16, h: u32) -> f32 {
 
 #[test]
 fn a_vertical_line_runs_from_the_cells_top_to_its_bottom_at_the_fonts_stroke() {
-    for shape in SHAPES {
+    for shape in SHAPES.into_iter().chain([&OVERHANG]) {
         let o = drawn(shape);
         for (i, h) in HEIGHTS.into_iter().enumerate() {
             let name = shape.name;
@@ -271,15 +319,18 @@ fn a_vertical_line_runs_from_the_cells_top_to_its_bottom_at_the_fonts_stroke() {
                 (HEAVY_VERTICAL, shape.heavy_vertical),
             ] {
                 let (line, w, _) = glyph(&o, i, c);
-                let (_, _, bw, _) = shape.full;
-                let (bx, _, _, _) = shape.full;
-                // across, the block's width maps onto the cell's
-                let want = f32::from(x1 - x0) * w as f32 / f32::from(bw - bx);
+                let (bx0, _, bx1, _) = shape.full;
+                // across, the block's width maps onto the cell's, its left
+                // edge onto the cell's left edge
+                let across = w as f32 / f32::from(bx1 - bx0);
+                let want = f32::from(x1 - x0) * across;
+                let middle = f32::from(x0 + x1 - 2 * bx0) / 2.0 * across;
                 for (y, row) in rows(line, w).iter().enumerate() {
                     let got = ink(row.iter().copied());
+                    let at = centre(row);
                     assert!(
-                        (got - want).abs() < 0.1,
-                        "{name} at {h} pixels: row {y} of U+{c:04X} holds {got} pixels of ink, not {want}: {row:?}"
+                        (got - want).abs() < 0.1 && (at - middle).abs() < CENTRE,
+                        "{name} at {h} pixels: row {y} of U+{c:04X} holds {got} pixels of ink centred at {at}, not {want} at {middle}: {row:?}"
                     );
                 }
                 assert!(line.ink.is_none(), "{name} at {h} pixels: {:?}", line.ink);
@@ -371,6 +422,199 @@ fn on_a_line_of_double_width_a_block_fills_the_wider_cell() {
                     "{name} at {h} pixels: row {y} of U+2502 holds {got} pixels centred at {centre}, not {want} at {middle}: {row:?}"
                 );
             }
+        }
+    }
+}
+
+// Synthetic italic slants text, but box lines and block elements stay
+// upright, as vtium's own sprites do, so that they still meet the cells
+// around them. A full block still covers every pixel of its cell, and a
+// vertical line sits in the same columns on every row, so it meets the
+// line in the cell above.
+#[test]
+fn under_synthetic_italic_blocks_and_lines_stay_upright() {
+    for shape in SHAPES {
+        let name = shape.name;
+        let italic = Style {
+            bold: false,
+            italic: true,
+        };
+        let o = rasterise(&OutlineRequest {
+            synth: italic,
+            ..request(shape)
+        })
+        .expect("rasterised");
+        for (i, h) in HEIGHTS.into_iter().enumerate() {
+            let (block, w, _) = glyph(&o, i, FULL);
+            for (y, row) in rows(block, w).iter().enumerate() {
+                assert!(
+                    row.iter().all(|&p| p >= SOLID),
+                    "{name} at {h} pixels in italic: row {y} of the full block is {row:?}"
+                );
+            }
+            let (line, w, _) = glyph(&o, i, LIGHT_VERTICAL);
+            let (x0, _, x1, _) = shape.light_vertical;
+            let (bx0, _, bx1, _) = shape.full;
+            let middle = f32::from(x0 + x1 - 2 * bx0) / 2.0 * w as f32 / f32::from(bx1 - bx0);
+            for (y, row) in rows(line, w).iter().enumerate() {
+                let at = centre(row);
+                assert!(
+                    (at - middle).abs() < CENTRE,
+                    "{name} at {h} pixels in italic: row {y} of U+2502 is centred at {at}, not {middle}: {row:?}"
+                );
+            }
+        }
+    }
+}
+
+/// A font whose full block is a quarter of its em high, so its box lines
+/// and block elements are drawn at four times the text's size.
+const SHORT_BLOCK: Shape = Shape {
+    name: "a short full block",
+    upem: 1000,
+    ascent: 800,
+    descent: -200,
+    advance: 600,
+    full: (0, 0, 600, 250),
+    upper_half: (0, 125, 600, 250),
+    light_vertical: (250, 0, 350, 250),
+    heavy_vertical: (200, 0, 400, 250),
+    light_horizontal: (0, 100, 600, 150),
+    heavy_horizontal: (0, 75, 600, 175),
+};
+
+// Synthetic bold grows a box line's strokes as much as it grows the
+// text's: by a 48th of the text's size on each side, and at least half a
+// pixel. Every height here is under 24 pixels to the em, so a light
+// vertical line grows by one pixel in all. The font draws its box lines at
+// four times the text's size, which must not grow them four times as much.
+#[test]
+fn synthetic_bold_grows_a_box_line_as_much_as_the_text() {
+    let name = SHORT_BLOCK.name;
+    let regular = drawn(&SHORT_BLOCK);
+    let bold = rasterise(&OutlineRequest {
+        synth: Style {
+            bold: true,
+            italic: false,
+        },
+        ..request(&SHORT_BLOCK)
+    })
+    .expect("rasterised");
+    for (i, h) in HEIGHTS.into_iter().enumerate() {
+        let (thin, w, _) = glyph(&regular, i, LIGHT_VERTICAL);
+        let (thick, _, _) = glyph(&bold, i, LIGHT_VERTICAL);
+        for (y, (a, b)) in rows(thin, w).iter().zip(rows(thick, w)).enumerate() {
+            let grown = ink(b.iter().copied()) - ink(a.iter().copied());
+            assert!(
+                (grown - 1.0).abs() < 0.15,
+                "{name} at {h} pixels: bold grows row {y} of U+2502 by {grown} pixels, not 1: {a:?} to {b:?}"
+            );
+        }
+    }
+}
+
+/// A private-use character that is neither a box line, a block element
+/// nor a Powerline separator, so the helper places it as it places text.
+const PLAIN: u32 = 0xe000;
+
+// A full block far from its font's line would have the helper draw the
+// box lines and block elements at an extreme size: a full block one unit
+// high at 1000 units to the em would draw them at about 1000 times the
+// text's size. The helper maps the box onto the cell only while that size
+// is between an eighth of the text's size and eight times it. Outside it,
+// these glyphs are placed as text is, so each is drawn exactly as the same
+// outline mapped to a private-use character.
+#[test]
+fn a_full_block_far_outside_its_line_is_placed_as_text() {
+    for (what, full) in [
+        ("a full block one unit high", (0, 0, 600, 1)),
+        ("a full block nine ems high", (0, -4000, 600, 5000)),
+    ] {
+        let bytes = font_of(
+            &SHORT_BLOCK,
+            &[
+                (FULL, full),
+                (PLAIN, full),
+                (LIGHT_VERTICAL, (250, 0, 350, 1)),
+            ],
+        );
+        let o = rasterise(&OutlineRequest {
+            font: bytes.into(),
+            ..request(&SHORT_BLOCK)
+        })
+        .expect("rasterised");
+        for (i, h) in HEIGHTS.into_iter().enumerate() {
+            let (block, _, _) = glyph(&o, i, FULL);
+            let (text, _, _) = glyph(&o, i, PLAIN);
+            assert!(
+                block.pixels == text.pixels && block.ink == text.ink,
+                "{what} at {h} pixels: the full block is drawn as {:?} with ink {:?}, not as text, {:?} with ink {:?}",
+                block.pixels,
+                block.ink,
+                text.pixels,
+                text.ink
+            );
+        }
+    }
+}
+
+/// A font with no full block, whose upper half block and vertical line
+/// are drawn from its descent to its ascent.
+const NO_FULL_BLOCK: Shape = Shape {
+    name: "a font with no full block",
+    upem: 1000,
+    ascent: 800,
+    descent: -200,
+    advance: 600,
+    full: (0, -200, 600, 800),
+    upper_half: (0, 300, 600, 800),
+    light_vertical: (250, -200, 350, 800),
+    heavy_vertical: (200, -200, 400, 800),
+    light_horizontal: (0, 250, 600, 350),
+    heavy_horizontal: (0, 200, 600, 400),
+};
+
+// A font with no full block has its descent and ascent mapped onto the
+// cell's bottom and top, and its advance across. An upper half block drawn
+// from the middle of that span to the ascent covers exactly the top half,
+// and a vertical line holds the same ink on every row, in the middle of
+// the cell.
+#[test]
+fn with_no_full_block_the_ascent_and_descent_span_the_cell() {
+    let shape = &NO_FULL_BLOCK;
+    let name = shape.name;
+    let bytes = font_of(
+        shape,
+        &[
+            (UPPER_HALF, shape.upper_half),
+            (LIGHT_VERTICAL, shape.light_vertical),
+        ],
+    );
+    let o = rasterise(&OutlineRequest {
+        font: bytes.into(),
+        ..request(shape)
+    })
+    .expect("rasterised");
+    for (i, h) in HEIGHTS.into_iter().enumerate() {
+        let (half, w, _) = glyph(&o, i, UPPER_HALF);
+        for (y, row) in rows(half, w).iter().enumerate() {
+            let (top, want) = (y < h as usize / 2, row.iter().all(|&p| p >= SOLID));
+            let empty = row.iter().all(|&p| p <= EMPTY);
+            assert!(
+                if top { want } else { empty },
+                "{name} at {h} pixels: row {y} of the upper half block is {row:?}"
+            );
+        }
+        assert!(half.ink.is_none(), "{name} at {h} pixels: {:?}", half.ink);
+        let (line, w, _) = glyph(&o, i, LIGHT_VERTICAL);
+        let want = 100.0 * w as f32 / 600.0;
+        let middle = w as f32 / 2.0;
+        for (y, row) in rows(line, w).iter().enumerate() {
+            let (got, at) = (ink(row.iter().copied()), centre(row));
+            assert!(
+                (got - want).abs() < 0.1 && (at - middle).abs() < CENTRE,
+                "{name} at {h} pixels: row {y} of U+2502 holds {got} pixels centred at {at}, not {want} at {middle}: {row:?}"
+            );
         }
     }
 }
