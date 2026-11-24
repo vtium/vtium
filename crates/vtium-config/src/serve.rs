@@ -5293,7 +5293,7 @@ fn sandbox(on: bool) -> Result<Sandboxed, String> {
 /// [`HELPER_IDLE_MS`] passes with none, the first answer led by the
 /// sandbox's report. With `sandboxed` false, which `--sandbox off` asks
 /// for, the helper installs no seccomp filter and enters no landlock
-/// domain ([`sandbox`]). A failure to sandbox is written as a failed
+/// domain. A failure to sandbox is written as a failed
 /// frame, so the console logs it.
 pub fn command(paths: &Paths, sandboxed: bool) -> u8 {
     let mut out = io::stdout().lock();
