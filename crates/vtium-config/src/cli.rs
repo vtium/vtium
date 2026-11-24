@@ -23,6 +23,7 @@ struct Options {
     helper: Option<PathBuf>,
     root: Option<PathBuf>,
     locale: Option<String>,
+    sandbox: Option<String>,
     words: Vec<String>,
 }
 
@@ -43,6 +44,7 @@ impl Options {
             "--helper" => self.helper = Some(value.into()),
             "--root" => self.root = Some(value.into()),
             "--locale" => self.locale = Some(value),
+            "--sandbox" => self.sandbox = Some(value),
             // the table's test reads every name, so none lands here
             _ => {}
         }
@@ -133,7 +135,7 @@ pub struct ValueOption {
 /// an option the parser takes cannot be missed by the refusal or the help. Run as root, vtium-config takes none of the flagged
 /// ones, so `sudo vtium-config` reads and writes only the system's
 /// directories and runs only the console it was built with.
-pub const VALUE_OPTIONS: [ValueOption; 13] = [
+pub const VALUE_OPTIONS: [ValueOption; 14] = [
     ValueOption {
         name: "--configdir",
         value: "DIR",
@@ -211,6 +213,12 @@ pub const VALUE_OPTIONS: [ValueOption; 13] = [
         value: "LOCALE",
         path: false,
         does: "the console's locale, which serve picks the built-in font by, instead of C",
+    },
+    ValueOption {
+        name: "--sandbox",
+        value: "on|off",
+        path: false,
+        does: "whether serve installs its seccomp filters and enters its landlock domain, on unless off",
     },
 ];
 
@@ -455,11 +463,20 @@ impl Cli<'_> {
     }
 
     /// `serve`: the helper the console starts (ADR-1301 D2), its kbd and
-    /// font directories and vconsole files as the options name them.
+    /// font directories and vconsole files as the options name them, and
+    /// its sandbox on unless `--sandbox off` turns it off, as vtium.conf's
+    /// `helper-sandbox` does (ADR-1200 D15).
     fn serve(&mut self, rest: &[String]) -> u8 {
         if !rest.is_empty() {
             return self.usage("serve takes no argument");
         }
+        let sandboxed = match self.o.sandbox.as_deref() {
+            None | Some("on") => true,
+            Some("off") => false,
+            Some(other) => {
+                return self.usage(&format!("--sandbox is on or off, and {other:?} is neither"));
+            }
+        };
         let o = self.o;
         let system = crate::serve::Paths::default();
         let paths = crate::serve::Paths {
@@ -477,7 +494,7 @@ impl Cli<'_> {
             kernel_cmdline: o.kernel_cmdline.clone().unwrap_or(system.kernel_cmdline),
             locale: o.locale.clone().unwrap_or(system.locale),
         };
-        crate::serve::command(&paths)
+        crate::serve::command(&paths, sandboxed)
     }
 }
 

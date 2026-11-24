@@ -15,7 +15,8 @@ use std::time::Duration;
 use vtium_config::serve::{
     ASK, ASK_PARTS, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILL, FRAME_FILLED, FRAME_GLYPHS,
     FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SANDBOX, FRAME_STOPPED, FritText,
-    OWN_CELL, Paths, SANDBOX_DOMAIN, SANDBOX_FALLBACK, SANDBOX_SOCKETS, STOP, ServeRequest, serve,
+    Missing, NoDomain, OWN_CELL, Paths, SANDBOX_DOMAIN, SANDBOX_DOMAIN_SHIFT, SANDBOX_FALLBACK,
+    SANDBOX_SECCOMP_SHIFT, SANDBOX_SOCKETS, STOP, ServeRequest, serve,
 };
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face};
@@ -144,6 +145,104 @@ fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
     );
 }
 
+// vtium.conf's helper-sandbox=off reaches the helper as `--sandbox off`,
+// and the helper then runs under no seccomp filter of its own and enters
+// no landlock domain, and still answers. Its report gives the setting as
+// the reason for both, and the kernel counts no filter added to the ones
+// the test runs under. `--sandbox on` is the full sandbox, as with no
+// option.
+//
+// References:
+// - ADR-1200 D15, "A setting turns the sandbox off": vtium tells the
+//   helper on its command line, and a helper started without the option
+//   sandboxes itself in full.
+#[test]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "a test fails by panicking"
+)]
+fn the_helper_started_with_the_sandbox_off_answers_without_its_filters() {
+    let request = ServeRequest {
+        doubled: None,
+        cluster_width: Default::default(),
+        style: Default::default(),
+        script: vtium_font::Script::Baseline,
+        band: Default::default(),
+        kind: ASK,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: "source=builtin:unscii-8\n".to_owned(),
+        },
+        cell: Cell {
+            width: 8,
+            height: 16,
+        },
+        codepoints: vec![0x41],
+        clusters: Vec::new(),
+        held: Vec::new(),
+        console: None,
+    };
+    let filters_of = |pid: &str| {
+        std::fs::read_to_string(format!("/proc/{pid}/status"))
+            .unwrap()
+            .lines()
+            .find_map(|l| l.strip_prefix("Seccomp_filters:"))
+            .map(|n| n.trim().parse::<u32>().unwrap())
+    };
+    let ours = filters_of("thread-self");
+    let run = |args: &[&str]| {
+        let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
+            .arg("serve")
+            .args(args)
+            .env_clear()
+            .current_dir("/")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(&request.encode()).unwrap();
+        stdin.flush().unwrap();
+        let answer = frames_until(
+            &mut child.stdout.take().unwrap(),
+            &[FRAME_DONE, FRAME_FAILED],
+        );
+        let filters = filters_of(&child.id().to_string());
+        drop(stdin);
+        assert!(child.wait().unwrap().success());
+        let kinds: Vec<u32> = answer.iter().map(|f| f.0).collect();
+        assert_eq!(
+            kinds,
+            [FRAME_SANDBOX, FRAME_GLYPHS, FRAME_DONE],
+            "{args:?}: {answer:?}"
+        );
+        let report = u32::from_le_bytes(answer[0].1[..].try_into().unwrap());
+        (report, filters)
+    };
+    let (report, filters) = run(&["--sandbox", "off"]);
+    assert_eq!(
+        report,
+        (Missing::Off as u32) << SANDBOX_SECCOMP_SHIFT
+            | (NoDomain::Off as u32) << SANDBOX_DOMAIN_SHIFT,
+        "{report:#x}"
+    );
+    assert_eq!(filters, ours, "the helper added a seccomp filter");
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped the sandbox on: {why}");
+        return;
+    }
+    let (on, _) = run(&["--sandbox", "on"]);
+    let (unset, filters) = run(&[]);
+    assert_eq!(on, unset, "{on:#x} {unset:#x}");
+    if vtium_config::seccomp::BUILT {
+        assert_ne!(on & SANDBOX_SOCKETS, 0, "{on:#x}");
+        assert_eq!(on >> SANDBOX_SECCOMP_SHIFT & 0xff, 0, "{on:#x}");
+        assert_ne!(filters, ours, "the helper added no seccomp filter");
+    }
+}
+
 // on a kernel without landlock the helper installs its fallback filter in
 // place of the domain, says so in its report, and still reads a font file
 // and answers (ADR-1200 D15, the maintainer, 2026-11-13). A thread of the
@@ -227,8 +326,15 @@ fn the_helper_without_landlock_answers_under_its_fallback_filter() {
         [FRAME_SANDBOX, FRAME_GLYPHS, FRAME_DONE],
         "{answer:?}"
     );
-    let parts = u32::from_le_bytes(answer[0].1[..].try_into().unwrap());
-    assert_eq!(parts, SANDBOX_FALLBACK | SANDBOX_SOCKETS, "{parts:#b}");
+    // the report's parts, and why the domain is missing: a kernel of
+    // 5.13 or later whose landlock query answers ENOSYS was built without
+    // landlock (ADR-1200 D15)
+    let report = u32::from_le_bytes(answer[0].1[..].try_into().unwrap());
+    assert_eq!(
+        report,
+        SANDBOX_FALLBACK | SANDBOX_SOCKETS | (NoDomain::NotBuilt as u32) << SANDBOX_DOMAIN_SHIFT,
+        "{report:#x}"
+    );
     let set = Arc::new(Set::from_bytes(answer[1].1.clone()).unwrap());
     assert!(SetFace::new(set, 16).unwrap().has_glyph('A'));
     // a kernel before 5.9 does not count a process's filters

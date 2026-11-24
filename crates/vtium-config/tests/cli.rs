@@ -32,6 +32,8 @@ fn usage_errors_exit_2() {
         &["--bogus", "set", "x"],
         &["--frits"],
         &["serve", "x"],
+        &["serve", "--sandbox", "maybe"],
+        &["serve", "--sandbox"],
     ] {
         let o = home::command(BIN).args(args).output().unwrap();
         assert_eq!(status(&o), 2, "{args:?}: {}", stderr(&o));
