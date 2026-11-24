@@ -615,7 +615,7 @@ vtium draws two kinds of font. It draws frits, which are font set files (ADR-120
 
   A name is the frit `NAME.vtfrit` in `/etc/vtium/fonts`. A name that no frit bears becomes a frit with one source, made on the fly:
 
-  - A path gives `source=file:PATH`, as `font-engine=psf` gives one.
+  - A path gives the source that reads the kind of font its extension names, under any `font-engine`. A `.ttf`, `.otf`, `.ttc`, `.otc` or `.otb` file gives `source=outline:PATH`. A `.bdf` file gives `source=bdf:PATH`, and a `.hex` file gives `source=hex:PATH`. A `.psf` or `.psfu` file, or a file with any other name, gives `source=file:PATH`. A PSF or BDF font's extension may be followed by `.gz`, `.bz2`, `.xz` or `.zst`. vtium reads only the path's text, and the helper refuses a file whose contents are not of that kind (`font::path_source`). Tests: `a_font_paths_source_follows_the_files_extension` and `font_name_draws_an_outline_font_from_its_path`.
   - An outline family gives `source=font:FAMILY`, as `font-engine=freetype` or `pango` gives one.
   - vconsole's font gives `source=vconsole`.
   - Any other name gives `source=kbd:NAME`.
