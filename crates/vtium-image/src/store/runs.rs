@@ -178,9 +178,13 @@ pub(super) fn drawn_origin(row: i64, run: &PlaceholderRun) -> (i64, i64) {
 
 /// The origin of each virtual placement that `runs` show: the least row
 /// and the least column over its runs' cells, each cell's own row and
-/// column in the picture taken off first (D13), as `at` gives the origin
-/// of one run. `row_of` gives a run's line's row, or `None` for a line the
-/// rows given do not hold.
+/// column in the picture taken off first, as `at` gives the origin of one
+/// run. `row_of` gives a run's line's row, or `None` for a line the rows
+/// given do not hold.
+///
+/// References:
+/// - ADR-1100 D13: a virtual placement's origin is the least row and
+///   column over its runs.
 pub(super) fn origins(
     virtuals: &Virtuals,
     runs: &[PlaceholderRun],

@@ -252,7 +252,7 @@ A frame resolves a placeholder cell's colors with the default foreground and no 
 
 vtium-term hands the image store the runs at three times:
 
-- **For the frame.** `Screen::placements` builds the frame with the runs on the rows the view shows (`Store::frame_with_runs`). So a virtual placement draws its slice of picture under each run, and the picture moves with its cells. `Screen::placements` reads the runs only while the shown buffer holds a virtual placement (`Store::has_virtual`).
+- **For the frame.** `Screen::placements` builds the frame with the runs on the rows the view shows (`Store::frame_drawn`), and hands the store its `LinePlaces`, which tell the store where each line draws its cells. So a virtual placement draws its slice of picture under each run, and the picture moves with its cells. `Screen::placements` reads the runs only while the shown buffer holds a virtual placement (`Store::has_virtual`).
 - **For the store's decisions.** vtium-term reads the runs from the screen lines of each buffer that holds a child of a virtual placement (`Store::has_virtual_children`), and only then.
   - vtium-term reads the runs for every call that reaches the store through `Screen::with_images`. These calls are every kitty command, every picture that a protocol handler stores, `Screen::add_image`, and `Screen::place_image`. The store then holds the runs through the call (`Store::with_runs`).
   - Some decisions take such a child by the cells it draws on, and those decisions use the runs. They are a kitty delete by cell, row or column, a kitty delete of every placement, and a reservation that may evict.
