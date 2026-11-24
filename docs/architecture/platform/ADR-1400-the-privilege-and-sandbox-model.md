@@ -186,6 +186,9 @@ considered:
     said: "READY=1 goes out once the broker holds the VT, ADR-1500 D7 unchanged; the drawer's ready ends a start bound, and without it the broker restores the VT and fails."
     via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 14
     paraphrase: true
+  - operator: aaronsb
+    said: "I feel like refusing and keep going is better than stopping the drawer, because it's less likely to be a 'denial of service' style attack that way"
+    via: the maintainer, answering the steering session's question through the question tool on what the broker does with a message it refuses, 2026-11-24
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
@@ -413,6 +416,8 @@ The broker and the drawer talk over one Unix socket of type `SOCK_SEQPACKET`, ma
 - The broker sends: a device's descriptor, whether master on a card was taken, release the devices, the devices are back with new input descriptors, a console's pty master, a helper's socket, a process's exit, blank, wake, and stop.
 
 > Edited 2026-11-22: the maintainer had the requests the code needs added to these lists before the first slice builds (`considered`, 2026-11-21, question 4), and `vtium blank` and `vtium wake` go through the broker (question 7). The drawer's list read: "open a device by its path, close a device, the release is done, switch to VT *n*, open a console's session, close it, start a helper, run a power key, and ready." The broker's list read: "a device's descriptor, release the devices, the devices are back with new input descriptors, a console's pty master, a helper's socket, a process's exit, and stop." "What the broker does" gained the bullets on DRM master and on `vtium blank`, the bound's value, the size and hints of a session, the stop of a helper, `SIGWINCH`, and putting the VT's modes back.
+
+> Note 2026-11-24, on a message the broker refuses: the maintainer decided that the broker refuses such a message and keeps serving the drawer, since stopping the drawer would make a denial of service easier (`considered`, 2026-11-24). The broker acts on no part of a refused message, and closes any descriptors that came with it at once. An empty message is refused like any other. When the refused request's kind waits for an answer and its id is in range, the broker answers under that id with the error `EINVAL`, so the drawer stops waiting. The broker logs the first refusal in full. After that it writes at most one line a second, which counts the refusals since the last line, so a drawer that sends refused messages in a loop cannot fill the journal. A drawer that reads none of its answers is handled in the same spirit: the broker neither waits for it nor stops it. The broker's end of the socket never blocks. Orders that the socket cannot take wait in a queue of at most 64 in the broker, and while that queue is full the broker reads none of the drawer's requests. So the broker keeps handling `SIGTERM`, the stop bound and the VT's restore. A stop that cannot reach the drawer waits in the queue, and the stop bound and `SIGKILL` end the drawer, as at any stop.
 
 The drawer speaks one device protocol in both modes. Its code reaches the devices through one interface with two backends: the broker's in direct mode, and libseat's in seat mode. `LibseatVt` in vtium-platform already takes its devices as passed descriptors with enable and disable messages, so it is the model for the broker's backend.
 
