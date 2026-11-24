@@ -9,13 +9,13 @@
 
 ## Parameters
 
-- `Pt`: The name of a font set or a built-in font: 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, not starting with `.`.
+- `Pt`: The name of a font set or a built-in font (1 to 64 characters of `A-Z a-z 0-9 . _ + -`, not starting with `.`), the absolute path of a font that root has installed and trusts (at most 4095 bytes), or the font family a head's configuration names.
 
 ## What vtium does
 
-vtium switches to the font set that Pt names. When the new font's character cell has another size, vtium resizes the grid to fit it. The query gets `OSC 50 ; NAME`, ended as it was asked, where NAME is the set in use. While the `allow-font-ops` key is off, vtium ignores both forms.
+vtium switches to the font set that Pt names. For a font's path, vtium first checks that root has installed the font and trusts its folder, and then builds a font set of that one font. When the new font's character cell has another size, vtium resizes the grid to fit it. The query gets `OSC 50 ; NAME`, ended as it was asked, where NAME is the set in use, the font's path, or the family's name. While the `allow-font-ops` key is off, vtium ignores both forms.
 
-vtium takes only the name of one of its font sets, and ignores anything else, such as a path or an X font name. It also ignores a Pt that starts with `#`, the form that picks from a font menu. See [OSC strings and the Linux console's sequences in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#osc-strings-and-the-linux-consoles-sequences).
+vtium takes the name of one of its font sets, the path of a font that root has installed and trusts, or the family a head's configuration names, and ignores anything else, such as an X font name or the path of any other font. It also ignores a Pt that starts with `#`, the form that picks from a font menu. See [OSC strings and the Linux console's sequences in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#osc-strings-and-the-linux-consoles-sequences).
 
 ## Status
 
