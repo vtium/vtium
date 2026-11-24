@@ -8461,6 +8461,88 @@ class KeyEchoTest(unittest.TestCase):
             self.assertEqual(got[t3_keyecho.CASE]["key_to_present_us_max"], 9000)
 
 
+class SandboxOffTest(unittest.TestCase):
+    """The sandbox-off check (t3_images.py) and its variant,
+    sandbox-off-640x480, without a guest."""
+
+    VARIANT = "sandbox-off-640x480"
+    # Each helper's line as vtium logs it on the serial console, with the
+    # kernel's stamp before it and the rest of the line after its first
+    # sentence.
+    FONT = ("[   9.120000] vtium[505]: The font helper runs without its seccomp filters and "
+            "its landlock domain, because the setting helper-sandbox=off turns them off. "
+            "A font that took over the font helper could open network connections and change "
+            "any file that the font helper's account may change.")
+    IMAGE = ("[  11.480000] vtium[505]: The image helper runs without its seccomp filter, and "
+             "its workers without their landlock domains, because the setting "
+             "helper-sandbox=off turns them off. An image that took over the image helper could "
+             "open network connections and change any file that the image helper's account may "
+             "change.")
+
+    def test_the_verdict_wants_each_helpers_line_once(self):
+        other = "[  10.000000] getty[400]: login: "
+        self.assertIsNone(t3_images.sandbox_off_verdict("\n".join([self.FONT, other, self.IMAGE])))
+        for serial, want in (
+                ("\n".join([self.FONT, other]), "the image helper's line is in the log 0 times"),
+                ("\n".join([self.FONT, self.IMAGE, self.FONT]),
+                 "the font helper's line is in the log 2 times"),
+                (other, "the font helper's line is in the log 0 times; "
+                        "the image helper's line is in the log 0 times")):
+            with self.subTest(want=want):
+                self.assertEqual(t3_images.sandbox_off_verdict(serial), want)
+
+    def test_the_variant_runs_img_png_then_the_check_with_the_sandbox_off(self):
+        v = t3_scenario.VARIANTS[self.VARIANT]
+        self.assertEqual(t3_scenario.variant_cases(self.VARIANT),
+                         ["img-png", t3_images.SANDBOX_OFF])
+        self.assertIn("helper-sandbox = off", t3_heads.conf_lines(v))
+        self.assertIn("font-name=dejavu-mono", t3_heads.conf_lines(v))
+        self.assertIn("\nhelper-sandbox = off\n", t3_heads.guest_conf(v))
+        self.assertEqual(v["deferred_frits"], ["dejavu-mono.vtfrit"])
+        self.assertEqual(v["tree_features"], ["images"])
+        self.assertEqual(v["verdict"], "capture")
+        self.assertIn(t3_images.SANDBOX_OFF, t3_scenario.CHECK_RUNS)
+        self.assertIn(t3_images.SANDBOX_OFF, t3_evaluate.NO_GOLDEN)
+        self.assertEqual(t3_evaluate.describe(t3_images.SANDBOX_OFF),
+                         (t3_images.CHECKS[t3_images.SANDBOX_OFF], None))
+        # the variant runs only when named
+        self.assertNotIn(self.VARIANT, t3_scenario.DEFAULT_VARIANTS)
+
+    def test_the_check_waits_for_each_line_and_judges_the_log(self):
+        # A stand-in VM whose serial log the test writes; the check waits
+        # for each helper's line, then reads the whole log.
+        with tempfile.TemporaryDirectory() as d:
+            serial = os.path.join(d, "serial.log")
+            vm = mock.Mock(serial=serial)
+            img = t3img.Image(2, 1, b"\1" * 6)
+            v = t3_scenario.VARIANTS[self.VARIANT]
+            for text, want in (("\n".join([self.FONT, self.IMAGE]), None),
+                               ("\n".join([self.FONT, self.IMAGE, self.IMAGE]),
+                                "the image helper's line is in the log 2 times")):
+                with self.subTest(want=want):
+                    with open(serial, "w") as f:
+                        f.write(text + "\n")
+                    vm.wait_serial.reset_mock()
+                    caps, errors = {}, {}
+                    with mock.patch.object(t3_images, "wait_stable", return_value=img):
+                        t3_images.check_sandbox_off(v, vm, d, caps, errors, LOG)
+                    self.assertEqual([c.args[0] for c in vm.wait_serial.call_args_list],
+                                     list(t3_images.SANDBOX_OFF_LINES.values()))
+                    if want:
+                        self.assertEqual(errors, {t3_images.SANDBOX_OFF: want})
+                        self.assertEqual(caps, {})
+                    else:
+                        self.assertEqual(errors, {})
+                        self.assertEqual(caps, {t3_images.SANDBOX_OFF:
+                                                os.path.join(d, "sandbox-off.ppm")})
+            # a helper whose line never comes fails the case with the wait's error
+            vm.wait_serial.side_effect = RuntimeError("timed out waiting for the line")
+            caps, errors = {}, {}
+            t3_images.check_sandbox_off(v, vm, d, caps, errors, LOG)
+            self.assertEqual(errors, {t3_images.SANDBOX_OFF: "timed out waiting for the line"})
+            self.assertEqual(caps, {})
+
+
 class RootChecksTest(unittest.TestCase):
     """The driver of ADR-1400 D4's checks (t3_rootchecks.py), without a
     guest."""
