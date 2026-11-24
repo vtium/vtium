@@ -1341,7 +1341,7 @@ pub const FONT_NAME: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP_LOOK,
     what: "The console's font.\n\n\
-           The value is the name of a font set (a frit file, `NAME.vtfrit` in `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with `font-engine = psf` the path of a PSF font; vtium then uses that one font.\n\n\
+           The value is the name of a font set (a frit file, `NAME.vtfrit` in `/etc/vtium/fonts`). It can also be the name of a kbd console font, or the absolute path of a font file, such as a PSF, BDF or TrueType font; vtium then uses that one font.\n\n\
            When unset, vtium uses the font from vconsole.conf, or else the font set `terminus`. If vtium cannot find the font, it uses its built-in font and logs why.",
 };
 
