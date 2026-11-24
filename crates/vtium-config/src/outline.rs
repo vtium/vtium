@@ -1394,13 +1394,50 @@ pub(crate) mod raster {
         /// set up for the size, or a glyph whose hinting fails, is drawn
         /// unhinted rather than not at all.
         fn outline(&mut self, g: u16, ppem: f32, transform: Option<Transform>) -> Option<Image> {
-            let mut path = self.path(g, ppem, transform)?;
-            synthesise(&mut path, self.synth, ppem);
+            let path = self.path(g, ppem, transform)?;
+            Some(self.coverage(path, self.synth, ppem))
+        }
+
+        /// Glyph `g` of a box line or block element at `ppem`, its outline
+        /// moved through `transform` and hinted when `hinted`, as
+        /// [`place_block`] maps it onto its cells. Synthetic bold grows its
+        /// strokes as it grows text at `text` pixels to the em, the text's
+        /// size, rather than at `ppem`, the size the box is drawn at.
+        /// Synthetic italic leaves it upright, as vtium's own sprites stay
+        /// upright, so that a slant does not pull its edges off the cell
+        /// and its lines still meet the lines in the cells around it. The
+        /// caller turns color glyphs away first.
+        pub(crate) fn draw_block(
+            &mut self,
+            g: u16,
+            ppem: f32,
+            transform: Transform,
+            text: f32,
+            hinted: bool,
+        ) -> Option<Image> {
+            let path = if hinted {
+                self.path(g, ppem, Some(transform))?
+            } else {
+                self.unhinted_path(g, ppem, Some(transform))?
+            };
+            let upright = Style {
+                italic: false,
+                ..self.synth
+            };
+            Some(self.coverage(path, upright, text))
+        }
+
+        /// `path`, an outline at `ppem` pixels to the em, with `synth`
+        /// drawn over it at `ppem` and widened as the drawer widens, as
+        /// coverage with its top-left corner above the baseline and right
+        /// of the pen, as swash places one.
+        fn coverage(&self, mut path: Vec<Command>, synth: Style, ppem: f32) -> Image {
+            synthesise(&mut path, synth, ppem);
             if self.widen != 1.0 {
                 widen(&mut path, self.widen);
             }
             if !fits(&path[..]) {
-                return Some(nothing(Source::Outline, Content::Mask));
+                return nothing(Source::Outline, Content::Mask);
             }
             let mut mask = Mask::new(&path[..]);
             // the placement's top is right only once the mask knows its size
@@ -1409,12 +1446,12 @@ pub(crate) mod raster {
             if self.hinting == Hinting::Bitmap {
                 one_bit(&mut data);
             }
-            Some(Image {
+            Image {
                 source: Source::Outline,
                 content: Content::Mask,
                 placement,
                 data,
-            })
+            }
         }
 
         /// How far glyph `g`'s outline reaches across at `ppem`, in pixels
@@ -1425,23 +1462,42 @@ pub(crate) mod raster {
         /// when the face has no outline for `g`, or the outline has no
         /// width.
         fn across(&mut self, g: u16, ppem: f32, hinted: bool) -> Option<(f32, f32)> {
+            let b = self.extent(g, ppem, hinted)?;
+            (b.min.x.is_finite() && b.max.x.is_finite() && b.min.x < b.max.x)
+                .then_some((b.min.x, b.max.x))
+        }
+
+        /// The box glyph `g`'s outline fills at `ppem`, in pixels from the
+        /// pen and the baseline with y up, before any style or widening,
+        /// hinted when `hinted` as [`Drawer::across`] says. `None` when the
+        /// face has no outline for `g`.
+        fn extent(&mut self, g: u16, ppem: f32, hinted: bool) -> Option<Bounds> {
             let path = if hinted {
                 self.path(g, ppem, None)?
             } else {
-                let outlines = self.outlines.clone()?;
-                let glyph = outlines.get(GlyphId::new(u32::from(g)))?;
-                let mut pen = Pen {
-                    path: Vec::new(),
-                    transform: None,
-                };
-                let unhinted = DrawSettings::unhinted(Size::new(ppem), LocationRef::default());
-                glyph.draw(unhinted, &mut pen).ok()?;
-                pen.end_contour();
-                pen.path
+                self.unhinted_path(g, ppem, None)?
             };
-            let b = swash::zeno::bounds(&path[..], Fill::NonZero, None);
-            (b.min.x.is_finite() && b.max.x.is_finite() && b.min.x < b.max.x)
-                .then_some((b.min.x, b.max.x))
+            Some(swash::zeno::bounds(&path[..], Fill::NonZero, None))
+        }
+
+        /// Glyph `g`'s outline at `ppem` as the font designs it, unhinted,
+        /// its points moved by `transform`, each contour closed.
+        fn unhinted_path(
+            &mut self,
+            g: u16,
+            ppem: f32,
+            transform: Option<Transform>,
+        ) -> Option<Vec<Command>> {
+            let outlines = self.outlines.clone()?;
+            let glyph = outlines.get(GlyphId::new(u32::from(g)))?;
+            let mut pen = Pen {
+                path: Vec::new(),
+                transform,
+            };
+            let unhinted = DrawSettings::unhinted(Size::new(ppem), LocationRef::default());
+            glyph.draw(unhinted, &mut pen).ok()?;
+            pen.end_contour();
+            Some(pen.path)
         }
 
         /// Glyph `g`'s outline at `ppem`, hinted, its points moved by
@@ -1953,6 +2009,13 @@ pub(crate) mod raster {
             // right-pointing triangle, which a separator touching one side
             // of its advance is measured against
             let arrow = separator_box(&mut drawer, charmap.map(ARROW), ppem, &advances);
+            // the size and the box that block elements and box lines are
+            // drawn in, measured only when the request holds one of them
+            let blocks = wanted
+                .iter()
+                .any(|&(c, _)| block(c))
+                .then(|| block_fit(&mut drawer, charmap.map(FULL_BLOCK), ppem, design, h))
+                .flatten();
             let width = if want_w != 0 {
                 want_w
             } else {
@@ -1993,7 +2056,12 @@ pub(crate) mod raster {
                         // D12), or of an Indic script, squeezed to its cell
                         // (ADR-1307 D1); `place` keeps those two at full size
                         let fit = request.fit;
-                        let at = (advance, design, arrow);
+                        let at = Measures {
+                            advance,
+                            design,
+                            arrow,
+                            blocks,
+                        };
                         let Some(placed) = place(&mut drawer, g, how, at, fit, &cell) else {
                             continue;
                         };
@@ -2067,6 +2135,9 @@ pub(crate) mod raster {
     #[derive(Clone, Copy, PartialEq, Eq)]
     struct Placing {
         separator: bool,
+        /// Whether the character is a box line or a block element
+        /// ([`block`]).
+        block: bool,
         joins: bool,
         indic: bool,
         /// Whether a joining character runs right to left; false for a
@@ -2080,6 +2151,7 @@ pub(crate) mod raster {
             let joins = crate::shaping::joins(c);
             Placing {
                 separator: separator(c),
+                block: block(c),
                 joins,
                 indic: crate::shaping::indic(c),
                 backward: joins && crate::shaping::shape::backward(c),
@@ -2100,9 +2172,8 @@ pub(crate) mod raster {
     /// read before it: the right edge for a right-to-left script. Any other
     /// glyph whose ink would pass its cells is drawn smaller to fit them
     /// when `fit`, as a later source's glyph is. A Powerline separator is
-    /// drawn as [`place_separator`] draws it, whatever the source. `design`
-    /// is the font's ascent and descent in pixels at the cell's size, and
-    /// `arrow` the width its separators are designed in ([`separator_box`]).
+    /// drawn as [`place_separator`] draws it, and a box line or block
+    /// element as [`place_block`] draws it, whatever the source.
     ///
     /// References:
     /// - ADR-1200 D21: a character the terminal gives two cells is drawn across both.
@@ -2113,15 +2184,27 @@ pub(crate) mod raster {
         drawer: &mut Drawer<'_>,
         g: u16,
         how: Placing,
-        (advance, design, arrow): (f32, (f32, f32), Option<f32>),
+        at: Measures,
         fit: bool,
         cell: &Cell,
     ) -> Option<Placed> {
+        let Measures {
+            advance,
+            design,
+            arrow,
+            blocks,
+        } = at;
         let wide = how.wide;
         let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
         if how.separator
             && let Some(placed) =
                 place_separator(drawer, g, (advance, design, arrow), cells(wide), cell)
+        {
+            return Some(placed);
+        }
+        if how.block
+            && let Some(placed) = blocks
+                .and_then(|blocks| place_block(drawer, g, (advance, blocks), cells(wide), cell))
         {
             return Some(placed);
         }
@@ -2153,6 +2236,205 @@ pub(crate) mod raster {
             fit,
             cell,
         )
+    }
+
+    /// What [`place`] measures of the font at the cell's size, besides the
+    /// glyph itself.
+    #[derive(Clone, Copy)]
+    struct Measures {
+        /// The glyph's advance in pixels, widened on a line of double width.
+        advance: f32,
+        /// The font's ascent and descent in pixels.
+        design: (f32, f32),
+        /// The width the font's separators are designed in
+        /// ([`separator_box`]).
+        arrow: Option<f32>,
+        /// Where box lines and block elements are drawn ([`block_fit`]),
+        /// measured only when the request asks for one of them.
+        blocks: Option<BlockFit>,
+    }
+
+    /// Whether `c` is a box line or a block element, U+2500 to U+259F:
+    /// the box drawing characters, the block elements and the shades. Each
+    /// is designed to fill or meet the edges of its character cell, so
+    /// that the cells above, below and beside it join it.
+    fn block(c: u32) -> bool {
+        (0x2500..=0x259f).contains(&c)
+    }
+
+    /// U+2588, the full block, whose ink is the box a font designs its box
+    /// lines and block elements in.
+    const FULL_BLOCK: u32 = 0x2588;
+
+    /// The size and the box that a font's box lines and block elements are
+    /// drawn in, for one cell ([`block_fit`]).
+    #[derive(Clone, Copy)]
+    struct BlockFit {
+        /// The size, in pixels to the em.
+        ppem: f32,
+        /// The box's left and right edges at that size, in pixels from the
+        /// pen; `None` where the font has no full block, and each glyph's
+        /// advance is its box across.
+        across: Option<(f32, f32)>,
+        /// The box's bottom and top at that size, in pixels above the
+        /// baseline.
+        up: (f32, f32),
+        /// How much larger than the text's size `ppem` is.
+        scale: f32,
+        /// Whether the box was measured on the hinted full block, so the
+        /// glyphs are hinted at `ppem` too. Without a hinted full block,
+        /// the box is the font's design, and the glyphs are drawn unhinted
+        /// so that their edges land where the box says.
+        hinted: bool,
+    }
+
+    /// How much larger or smaller than the text's size box lines and block
+    /// elements may be drawn: from an eighth of it to eight times it. A
+    /// real font's full block spans about its line, so it draws them close
+    /// to the text's size. A font whose full block lies far outside this
+    /// range did not design it to meet the cells around it, and drawing at
+    /// such a size would hand the hinter an extreme size from the font's
+    /// own data. [`block_fit`] then leaves the glyphs to be placed as text
+    /// is placed.
+    const BLOCK_SCALE: std::ops::RangeInclusive<f32> = 0.125..=8.0;
+
+    /// Where box lines and block elements are drawn in a cell `height`
+    /// pixels high, for a font drawn at `ppem` whose full block is glyph
+    /// `full`, 0 for none, and whose ascent and descent are `design`, in
+    /// pixels at `ppem`.
+    ///
+    /// The box is the full block's ink, which a font draws to meet the
+    /// cells around it. Fonts draw it from their own vertical metrics:
+    /// Fira Code's spans its ascent and descent, Cascadia Code's reaches
+    /// its Windows ascent above its line, and DejaVu Sans Mono's reaches
+    /// past its line on both sides. A font with no full block has the box
+    /// from its descent to its ascent.
+    ///
+    /// The glyphs are drawn at the size at which the box, unhinted, is the
+    /// cell's height, and hinted at that size, so a line keeps the stroke
+    /// the hinter fits to whole pixels and the font's stroke width at that
+    /// size. The box is then measured on the hinted full block, whose edges
+    /// [`place_block`] maps onto the cell's. A font with no full block, or
+    /// one whose full block the hinter collapses, keeps the unhinted box,
+    /// and its glyphs are drawn unhinted, because the hinter would move
+    /// their edges to whole pixels while the box's edges stay between
+    /// them, and a line would then stop short of the cell's top or bottom.
+    ///
+    /// `None` when the box has no height, or when drawing it the cell's
+    /// height would take a size outside [`BLOCK_SCALE`].
+    fn block_fit(
+        drawer: &mut Drawer<'_>,
+        full: u16,
+        ppem: f32,
+        (ascent, descent): (f32, f32),
+        height: u32,
+    ) -> Option<BlockFit> {
+        let solid = |b: &Bounds| {
+            [b.min.x, b.min.y, b.max.x, b.max.y]
+                .iter()
+                .all(|v| v.is_finite())
+                && b.min.x < b.max.x
+                && b.min.y < b.max.y
+        };
+        let mut ink = |at: f32, hinted: bool| {
+            (full != 0)
+                .then(|| drawer.extent(full, at, hinted))
+                .flatten()
+                .filter(solid)
+        };
+        let (bottom, top) = ink(ppem, false).map_or((-descent, ascent), |b| (b.min.y, b.max.y));
+        if top <= bottom {
+            return None;
+        }
+        let scale = height as f32 / (top - bottom);
+        if !BLOCK_SCALE.contains(&scale) {
+            return None;
+        }
+        let at = ppem * scale;
+        let fit = match ink(at, true) {
+            Some(b) => BlockFit {
+                ppem: at,
+                across: Some((b.min.x, b.max.x)),
+                up: (b.min.y, b.max.y),
+                scale,
+                hinted: true,
+            },
+            None => BlockFit {
+                ppem: at,
+                across: None,
+                up: (bottom * scale, top * scale),
+                scale,
+                hinted: false,
+            },
+        };
+        Some(fit)
+    }
+
+    /// Glyph `g` of a box line or block element, advancing `advance`
+    /// pixels at the text's size, drawn as `blocks` says ([`block_fit`])
+    /// and mapped onto its cells, so that it fills or meets their edges
+    /// exactly, whatever the font's vertical metrics.
+    ///
+    /// The full block's box lands on the cells: its top on the cell's top
+    /// row, its bottom on the bottom row, and its sides on the cells' left
+    /// and right edges. Every other glyph of the range moves with it, so a
+    /// full block covers every pixel of its cell, an upper half block the
+    /// top half, a vertical line runs from the cell's top to its bottom,
+    /// and a horizontal line meets both sides. A font without a full block
+    /// has its advance mapped across instead.
+    ///
+    /// Synthetic italic does not slant these glyphs, and synthetic bold
+    /// grows their strokes by as much as it grows the text's
+    /// ([`Drawer::draw_block`]), so the mapping holds in every style.
+    ///
+    /// Ink past the cells is cut, as for the box lines and blocks that
+    /// vtium draws itself. Fonts draw box lines past the box so that they
+    /// overlap their neighbors, as Fira Code's vertical line runs 0.16 em
+    /// past its full block at each end. Once the box meets the cell's
+    /// edges, that overlap would only reach into the rows above and below.
+    ///
+    /// `None` for a color glyph, a superscript or subscript, which keeps
+    /// the script's size, and a box with no width, which [`place`] then
+    /// places as any other glyph.
+    ///
+    /// References:
+    /// - ADR-1302 D1: vtium's own box lines and blocks stay inside their cells.
+    /// - ADR-1200 D17: a Powerline separator is mapped onto its cells the same way.
+    /// - ADR-1302 D4: the synthetic bold and italic drawn over outlines.
+    fn place_block(
+        drawer: &mut Drawer<'_>,
+        g: u16,
+        (advance, blocks): (f32, BlockFit),
+        cells: u32,
+        cell: &Cell,
+    ) -> Option<Placed> {
+        if cell.script != Script::Baseline || drawer.is_color(g, cell.ppem) {
+            return None;
+        }
+        // The drawer widens a line of double width after this transform,
+        // so the box is mapped in the drawer's pixels before the widening,
+        // onto the cells' width before it too.
+        let widen = drawer.widen;
+        let (left, right) = blocks
+            .across
+            .unwrap_or((0.0, advance / widen * blocks.scale));
+        let (bottom, top) = blocks.up;
+        if left >= right || bottom >= top {
+            return None;
+        }
+        let width = (cell.width * cells) as f32 / widen;
+        let (sx, sy) = (width / (right - left), cell.height as f32 / (top - bottom));
+        // the box's top lands on the cell's top row, which lies `baseline`
+        // pixels above the baseline the outline is drawn on
+        let up = cell.baseline as f32 - top * sy;
+        let transform = Transform::scale(sx, sy).then_translate(-left * sx, up);
+        let (text, hinted) = (cell.ppem, blocks.hinted);
+        let mut draw = |_, _| drawer.draw_block(g, blocks.ppem, transform, text, hinted);
+        let placed = place_drawn(&mut draw, cells, None, false, cell)?;
+        Some(Placed {
+            ink: None,
+            ..placed
+        })
     }
 
     /// Whether `c` is a Powerline separator: one of the triangles, half
