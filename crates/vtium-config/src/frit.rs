@@ -806,10 +806,15 @@ impl Frit {
             if body.is_empty() {
                 continue;
             }
-            let Some((key, value)) = body.split_once('=') else {
+            // a line with no `=`, or with nothing before it, has no key,
+            // so it is malformed and refuses the set, as in a layer
+            let Some((key, value)) = body
+                .split_once('=')
+                .map(|(key, value)| (key.trim(), value.trim()))
+                .filter(|(key, _)| !key.is_empty())
+            else {
                 return Err(err(n, "the line is not key=value"));
             };
-            let (key, value) = (key.trim(), value.trim());
             let describes = current_source.read(key, value);
             // a spliced text's `layer=` line with no name closes a layer's
             // lines, or stands for a `layer=` line that added nothing
@@ -1863,6 +1868,9 @@ mod tests {
     fn each_refusal_names_its_line() {
         for (text, line, why) in [
             ("source=kbd:x\njust words\n", 2, "the line is not key=value"),
+            // a line with no key before its `=` is malformed, as in a layer
+            ("source=kbd:x\n=x\n", 2, "the line is not key=value"),
+            ("source=kbd:x\n = \n", 2, "the line is not key=value"),
             (
                 "source=kbd:x\ncompress=yes\ncompress=no\n",
                 3,
