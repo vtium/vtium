@@ -72,8 +72,12 @@ pub const SIGNAL_MAX: u8 = 64;
 /// The highest error number. Linux's errors run from 1 to 4095.
 pub const ERRNO_MAX: u16 = 4095;
 
+/// `EINVAL`, the error in the answer to a refused request.
+const EINVAL: u16 = 22;
+
 /// Why the reader refused a message. The broker acts on no part of a
-/// refused message.
+/// refused message, apart from answering a request that waits for an
+/// answer with an error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
     /// The message is not [`SIZE`] bytes long.
@@ -677,6 +681,38 @@ impl Request {
         };
         r.end(request)
     }
+
+    /// The answer to a refused request whose kind waits for one: the
+    /// request's own id with the error `EINVAL`, so the drawer stops
+    /// waiting for the answer. `bytes` are what the drawer sent, and only
+    /// the kind and the id are read from them, each checked as for an
+    /// accepted request. A request whose id is itself out of range, or
+    /// whose kind waits for no answer, gets none.
+    pub fn refused_answer(bytes: &[u8]) -> Option<Order> {
+        let mut r = In { bytes, at: 0 };
+        let kind = r.u16("kind").ok()?;
+        r.u16("kind").ok()?;
+        let refused = Err(Errno(EINVAL));
+        Some(match kind {
+            OPEN_DEVICE => Order::Device {
+                device: r.id("device").ok()?,
+                opened: refused,
+            },
+            TAKE_MASTER => Order::Master {
+                device: r.id("device").ok()?,
+                taken: false,
+            },
+            OPEN_SESSION => Order::Pty {
+                console: r.console().ok()?,
+                opened: refused,
+            },
+            START_HELPER => Order::Helper {
+                helper: r.id("helper").ok()?,
+                started: refused,
+            },
+            _ => return None,
+        })
+    }
 }
 
 impl Order {
@@ -782,18 +818,77 @@ fn console_only(kind: u16, console: &ConsoleRef) -> Out {
 
 /// What one read of the socket found.
 #[derive(Debug)]
-pub enum Got<T> {
+pub enum Got<T, E = Refusal> {
     /// A message, or why the reader refused it.
-    Message(Result<T, Refusal>),
+    Message(Result<T, E>),
     /// Nothing waits on the socket.
     Nothing,
     /// The other end closed the socket.
     Closed,
 }
 
+/// A request the reader refused: why, and the answer that tells the
+/// drawer the request failed, when the request's kind waits for one.
+#[derive(Debug)]
+pub struct Refused {
+    pub why: Refusal,
+    pub answer: Option<Order>,
+}
+
+/// What one read of the socket found, before the reader checks it.
+enum Received {
+    Message(Raw),
+    Nothing,
+    Closed,
+}
+
 /// A message's bytes and the descriptors that came with it, before the
 /// reader checks them.
-type Raw = ([u8; SIZE], Vec<OwnedFd>);
+struct Raw {
+    bytes: [u8; SIZE],
+    /// How many of `bytes` the message filled.
+    len: usize,
+    /// Whether the socket cut the message or its descriptors short.
+    truncated: bool,
+    fds: Vec<OwnedFd>,
+}
+
+impl Raw {
+    /// The message's bytes, once the socket is known to have carried
+    /// exactly [`SIZE`] of them and every descriptor.
+    fn whole(&self) -> Result<&[u8; SIZE], Refusal> {
+        if self.truncated {
+            return Err(Refusal::Truncated);
+        }
+        if self.len != SIZE {
+            return Err(Refusal::Size(self.len));
+        }
+        Ok(&self.bytes)
+    }
+
+    /// The request, checked. The descriptors of a refused request are
+    /// closed as this returns.
+    fn request(self) -> Result<Request, Refused> {
+        let checked = self.whole().and_then(|bytes| match self.fds.len() {
+            0 => Request::decode(bytes),
+            n => Err(Refusal::Descriptors(n)),
+        });
+        checked.map_err(|why| Refused {
+            why,
+            answer: Request::refused_answer(self.bytes.get(..self.len).unwrap_or_default()),
+        })
+    }
+
+    /// The order and its descriptor, checked.
+    fn order(mut self) -> Result<(Order, Option<OwnedFd>), Refusal> {
+        let order = Order::decode(self.whole()?)?;
+        let wanted = usize::from(order.carries_descriptor());
+        if self.fds.len() != wanted {
+            return Err(Refusal::Descriptors(self.fds.len()));
+        }
+        Ok((order, self.fds.pop()))
+    }
+}
 
 /// One end of the socket between the broker and the drawer.
 #[derive(Debug)]
@@ -803,12 +898,10 @@ impl Link {
     /// A new socket pair, both ends close-on-exec: the broker's link and
     /// the drawer's end, which the drawer's start puts on descriptor 3.
     ///
-    /// The broker's end never blocks. A drawer that stops reading its
-    /// orders fills the socket, and a send that waited for room would
-    /// stop the broker's loop, with its signals, its bounds and the VT's
-    /// restore. So a send to a full socket fails at once with
-    /// [`io::ErrorKind::WouldBlock`], and the broker ends that drawer. The
-    /// drawer's end blocks as usual.
+    /// The broker's end never blocks: a send to a full socket fails at
+    /// once with [`io::ErrorKind::WouldBlock`], and the broker's outbox
+    /// keeps the order until the socket has room. The drawer's end blocks
+    /// as usual.
     pub fn pair() -> io::Result<(Link, OwnedFd)> {
         let (ours, theirs) = rustix::net::socketpair(
             AddressFamily::UNIX,
@@ -873,42 +966,28 @@ impl Link {
     }
 
     /// Reads the next request without waiting. A request that came with
-    /// any descriptor is refused, and the descriptors are closed.
-    pub fn next_request(&self) -> io::Result<Got<Request>> {
+    /// any descriptor is refused, and the descriptors are closed at once.
+    pub fn next_request(&self) -> io::Result<Got<Request, Refused>> {
         Ok(match self.receive()? {
-            Got::Message(Ok((bytes, fds))) => Got::Message(if fds.is_empty() {
-                Request::decode(&bytes)
-            } else {
-                Err(Refusal::Descriptors(fds.len()))
-            }),
-            Got::Message(Err(refusal)) => Got::Message(Err(refusal)),
-            Got::Nothing => Got::Nothing,
-            Got::Closed => Got::Closed,
+            Received::Message(raw) => Got::Message(raw.request()),
+            Received::Nothing => Got::Nothing,
+            Received::Closed => Got::Closed,
         })
     }
 
     /// Reads the next order without waiting, with its descriptor.
     pub fn next_order(&self) -> io::Result<Got<(Order, Option<OwnedFd>)>> {
         Ok(match self.receive()? {
-            Got::Message(Ok((bytes, mut fds))) => {
-                Got::Message(Order::decode(&bytes).and_then(|order| {
-                    let wanted = usize::from(order.carries_descriptor());
-                    if fds.len() != wanted {
-                        return Err(Refusal::Descriptors(fds.len()));
-                    }
-                    Ok((order, fds.pop()))
-                }))
-            }
-            Got::Message(Err(refusal)) => Got::Message(Err(refusal)),
-            Got::Nothing => Got::Nothing,
-            Got::Closed => Got::Closed,
+            Received::Message(raw) => Got::Message(raw.order()),
+            Received::Nothing => Got::Nothing,
+            Received::Closed => Got::Closed,
         })
     }
 
     /// Reads one message and the descriptors that came with it, room made
     /// for one. A longer message, or more descriptors, sets a truncation
     /// flag; the kernel closes the descriptors that did not fit.
-    fn receive(&self) -> io::Result<Got<Raw>> {
+    fn receive(&self) -> io::Result<Received> {
         let mut bytes = [0u8; SIZE];
         let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
         let mut control = RecvAncillaryBuffer::new(&mut space);
@@ -919,7 +998,7 @@ impl Link {
             RecvFlags::DONTWAIT | RecvFlags::CMSG_CLOEXEC,
         ) {
             Ok(got) => got,
-            Err(rustix::io::Errno::AGAIN) => return Ok(Got::Nothing),
+            Err(rustix::io::Errno::AGAIN) => return Ok(Received::Nothing),
             Err(e) => return Err(e.into()),
         };
         let mut fds = Vec::new();
@@ -929,18 +1008,16 @@ impl Link {
             }
         }
         if got.bytes == 0 && fds.is_empty() && self.hung_up()? {
-            return Ok(Got::Closed);
+            return Ok(Received::Closed);
         }
-        if got
-            .flags
-            .intersects(ReturnFlags::TRUNC | ReturnFlags::CTRUNC)
-        {
-            return Ok(Got::Message(Err(Refusal::Truncated)));
-        }
-        if got.bytes != SIZE {
-            return Ok(Got::Message(Err(Refusal::Size(got.bytes))));
-        }
-        Ok(Got::Message(Ok((bytes, fds))))
+        Ok(Received::Message(Raw {
+            bytes,
+            len: got.bytes.min(SIZE),
+            truncated: got
+                .flags
+                .intersects(ReturnFlags::TRUNC | ReturnFlags::CTRUNC),
+            fds,
+        }))
     }
 
     /// Whether the other end has closed the socket. A read of 0 bytes
@@ -948,20 +1025,37 @@ impl Link {
     /// `SOCK_SEQPACKET` socket carries like any other, so the reader asks
     /// `poll` without waiting: only a closed socket sets `POLLHUP`.
     fn hung_up(&self) -> io::Result<bool> {
+        self.hung_up_within(0)
+    }
+
+    /// Whether the other end closes the socket within `seconds`.
+    fn hung_up_within(&self, seconds: i64) -> io::Result<bool> {
         use rustix::event::{PollFd, PollFlags};
         let mut fds = [PollFd::new(&self.0, PollFlags::IN)];
-        let now = rustix::event::Timespec {
-            tv_sec: 0,
+        let bound = rustix::event::Timespec {
+            tv_sec: seconds,
             tv_nsec: 0,
         };
         loop {
-            match rustix::event::poll(&mut fds, Some(&now)) {
+            match rustix::event::poll(&mut fds, Some(&bound)) {
                 Ok(_) => break,
                 Err(rustix::io::Errno::INTR) => {}
                 Err(e) => return Err(e.into()),
             }
         }
         Ok(fds.iter().any(|fd| fd.revents().contains(PollFlags::HUP)))
+    }
+
+    /// Waits for the other end's close to reach this end. A test that
+    /// closes one end waits for this, because a child that another test
+    /// forks holds a copy of every descriptor until it runs its program.
+    /// The wait is bounded only so that a test fails instead of hanging.
+    #[cfg(test)]
+    pub fn wait_for_close(&self) {
+        assert!(
+            matches!(self.hung_up_within(30), Ok(true)),
+            "the other end stays open"
+        );
     }
 }
 
@@ -1474,7 +1568,10 @@ mod tests {
             .unwrap();
         assert!(matches!(
             broker.next_request().unwrap(),
-            Got::Message(Err(Refusal::Descriptors(1)))
+            Got::Message(Err(Refused {
+                why: Refusal::Descriptors(1),
+                answer: None
+            }))
         ));
         // and an order whose descriptor is missing
         broker.send(&device.encode(), None).unwrap();
@@ -1485,12 +1582,18 @@ mod tests {
         rustix::net::send(&drawer, &[1u8; 5], SendFlags::empty()).unwrap();
         assert!(matches!(
             broker.next_request().unwrap(),
-            Got::Message(Err(Refusal::Size(5)))
+            Got::Message(Err(Refused {
+                why: Refusal::Size(5),
+                answer: None
+            }))
         ));
         rustix::net::send(&drawer, &[0u8; SIZE + 1], SendFlags::empty()).unwrap();
         assert!(matches!(
             broker.next_request().unwrap(),
-            Got::Message(Err(Refusal::Truncated))
+            Got::Message(Err(Refused {
+                why: Refusal::Truncated,
+                answer: None
+            }))
         ));
         // A SOCK_SEQPACKET socket carries an empty message, which reads 0
         // bytes as a closed socket does. While the drawer's end stays open,
@@ -1498,7 +1601,10 @@ mod tests {
         rustix::net::send(&drawer, &[], SendFlags::empty()).unwrap();
         assert!(matches!(
             broker.next_request().unwrap(),
-            Got::Message(Err(Refusal::Size(0)))
+            Got::Message(Err(Refused {
+                why: Refusal::Size(0),
+                answer: None
+            }))
         ));
         drawer.request(&Request::Ready).unwrap();
         assert!(matches!(
@@ -1506,7 +1612,127 @@ mod tests {
             Got::Message(Ok(Request::Ready))
         ));
         drop(drawer);
+        broker.wait_for_close();
         assert!(matches!(broker.next_request().unwrap(), Got::Closed));
+    }
+
+    /// A refused request whose kind waits for an answer gets one, with
+    /// the request's own id and `EINVAL`, whichever field the reader
+    /// refused and even over a socket that cut the message short. A
+    /// request whose id is out of range, or whose kind waits for no
+    /// answer, gets none.
+    #[test]
+    fn a_refused_request_that_waits_for_an_answer_gets_an_error() {
+        assert_eq!(i32::from(EINVAL), libc::EINVAL);
+        let einval = Err(Errno(EINVAL));
+        let console = ConsoleRef {
+            head: Head::new("left").unwrap(),
+            console: 7,
+        };
+        let path = DevicePath::new("/dev/dri/card0").unwrap();
+        let cases = [
+            (
+                Request::OpenDevice {
+                    device: 3,
+                    path: path.clone(),
+                },
+                Order::Device {
+                    device: 3,
+                    opened: einval,
+                },
+            ),
+            (
+                Request::TakeMaster { device: 4 },
+                Order::Master {
+                    device: 4,
+                    taken: false,
+                },
+            ),
+            (
+                Request::OpenSession {
+                    console: console.clone(),
+                    grid: Grid {
+                        cols: 80,
+                        rows: 24,
+                        cell_width: 8,
+                        cell_height: 16,
+                    },
+                    display: Display::Kms,
+                    truecolor: true,
+                },
+                Order::Pty {
+                    console: console.clone(),
+                    opened: einval,
+                },
+            ),
+            (
+                Request::StartHelper {
+                    helper: 6,
+                    kind: Helper::Font,
+                },
+                Order::Helper {
+                    helper: 6,
+                    started: einval,
+                },
+            ),
+        ];
+        for (request, answer) in cases {
+            let mut bytes = request.encode();
+            // a byte set past the fields
+            bytes[SIZE - 1] = 1;
+            assert_eq!(Request::decode(&bytes), Err(Refusal::Padding));
+            assert_eq!(Request::refused_answer(&bytes), Some(answer.clone()));
+            // the kind and the id only, as from a message cut short
+            let short = &request.encode()[..12];
+            if !matches!(request, Request::OpenSession { .. }) {
+                assert_eq!(Request::refused_answer(short), Some(answer));
+            }
+        }
+        // an id of 0, which the drawer never chooses
+        let mut zero = Request::TakeMaster { device: 1 }.encode();
+        zero[4] = 0;
+        assert_eq!(Request::refused_answer(&zero), None);
+        // a session whose head name vtium.conf does not allow
+        let session = Request::OpenSession {
+            console: console.clone(),
+            grid: Grid {
+                cols: 80,
+                rows: 24,
+                cell_width: 8,
+                cell_height: 16,
+            },
+            display: Display::Kms,
+            truecolor: true,
+        };
+        let mut bad_head = session.encode();
+        bad_head[5] = b'/';
+        assert_eq!(Request::decode(&bad_head), Err(Refusal::Field("head")));
+        assert_eq!(Request::refused_answer(&bad_head), None);
+        // kinds that wait for no answer, and an unknown kind
+        let mut vt = Request::SwitchVt { vt: 1 }.encode();
+        vt[4] = 0;
+        assert_eq!(Request::refused_answer(&vt), None);
+        assert_eq!(Request::refused_answer(&[0xff; SIZE]), None);
+        assert_eq!(Request::refused_answer(&[]), None);
+        // the broker's reader hands the answer on with the refusal
+        let (broker, theirs) = Link::pair().unwrap();
+        let drawer = Link::passed(theirs).unwrap();
+        let mut bytes = Request::OpenDevice { device: 3, path }.encode();
+        bytes[9] = b'e';
+        rustix::net::send(&drawer, &bytes, SendFlags::empty()).unwrap();
+        match broker.next_request().unwrap() {
+            Got::Message(Err(refused)) => {
+                assert_eq!(refused.why, Refusal::Field("path"));
+                assert_eq!(
+                    refused.answer,
+                    Some(Order::Device {
+                        device: 3,
+                        opened: einval
+                    })
+                );
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     /// Each seed of the fuzz target is a message one reader accepts, so a

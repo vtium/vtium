@@ -1,6 +1,6 @@
 //! Watching the drawer: its pidfd tells the broker when the drawer exits,
-//! and its socket tells the broker when the drawer sends a message or
-//! closes its end. The broker reaps the drawer through the pidfd and maps
+//! and its socket tells the broker when the drawer sends a message, makes
+//! room for an order, or closes its end. The broker reaps the drawer through the pidfd and maps
 //! the way it ended to the unit's exit status.
 //!
 //! References:
@@ -84,6 +84,8 @@ pub fn kill(pidfd: BorrowedFd<'_>) -> Ended {
 pub struct Seen {
     /// The socket has a message, or the drawer closed it.
     pub socket: bool,
+    /// The socket has room for an order again.
+    pub room: bool,
     /// The drawer's pidfd is readable: the drawer has exited.
     pub exited: bool,
     /// Something asked the broker to stop: systemd's `SIGTERM`, or a
@@ -91,28 +93,61 @@ pub struct Seen {
     pub stop: bool,
 }
 
-/// The socket's place in the broker's loop, which the broker removes once
-/// the drawer closes its end, since a closed socket stays readable.
-pub struct Watched(RegistrationToken);
+/// The socket's place in the broker's loop: once for its messages, and
+/// once for its room, which the broker watches only while orders wait.
+/// The broker stops watching the messages while its queue of orders is
+/// full, and removes both once the drawer closes its end, since a closed
+/// socket stays readable.
+pub struct Watched {
+    messages: RegistrationToken,
+    room: RegistrationToken,
+    reading: bool,
+    writing: bool,
+}
 
 impl Watched {
+    /// Watches the socket's messages while `read` holds, and its room
+    /// while `write` holds.
+    pub fn want(&mut self, lp: &Loop<Seen>, read: bool, write: bool) -> io::Result<()> {
+        let turn = |token: &RegistrationToken, on: bool| {
+            if on {
+                lp.handle().enable(token)
+            } else {
+                lp.handle().disable(token)
+            }
+            .map_err(io::Error::other)
+        };
+        if read != self.reading {
+            turn(&self.messages, read)?;
+            self.reading = read;
+        }
+        if write != self.writing {
+            turn(&self.room, write)?;
+            self.writing = write;
+        }
+        Ok(())
+    }
+
     /// Stops watching the socket.
     pub fn unwatch(self, lp: &Loop<Seen>) {
-        lp.handle().remove(self.0);
+        lp.handle().remove(self.messages);
+        lp.handle().remove(self.room);
     }
 }
 
 /// Watches the socket and the pidfd in `lp`, each through a copy of its
-/// descriptor, so each turn marks in [`Seen`] which of them is ready.
+/// descriptor, so each turn marks in [`Seen`] which of them is ready. The
+/// socket's messages are watched from the start, and its room only once
+/// [`Watched::want`] asks for it.
 pub fn watch(
     lp: &Loop<Seen>,
     socket: BorrowedFd<'_>,
     pidfd: BorrowedFd<'_>,
 ) -> io::Result<Watched> {
-    let insert = |fd: OwnedFd, mark: fn(&mut Seen)| {
+    let insert = |fd: OwnedFd, interest: Interest, mark: fn(&mut Seen)| {
         lp.handle()
             .insert_source(
-                Generic::new(fd, Interest::READ, Mode::Level),
+                Generic::new(fd, interest, Mode::Level),
                 move |_, _, seen: &mut Seen| {
                     mark(seen);
                     Ok(PostAction::Continue)
@@ -120,9 +155,22 @@ pub fn watch(
             )
             .map_err(|e| e.error)
     };
-    let token = insert(socket.try_clone_to_owned()?, |seen| seen.socket = true)?;
-    insert(pidfd.try_clone_to_owned()?, |seen| seen.exited = true)?;
-    Ok(Watched(token))
+    let messages = insert(socket.try_clone_to_owned()?, Interest::READ, |seen| {
+        seen.socket = true;
+    })?;
+    let room = insert(socket.try_clone_to_owned()?, Interest::WRITE, |seen| {
+        seen.room = true;
+    })?;
+    lp.handle().disable(&room).map_err(io::Error::other)?;
+    insert(pidfd.try_clone_to_owned()?, Interest::READ, |seen| {
+        seen.exited = true;
+    })?;
+    Ok(Watched {
+        messages,
+        room,
+        reading: true,
+        writing: false,
+    })
 }
 
 #[cfg(test)]
