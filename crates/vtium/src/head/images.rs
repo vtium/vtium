@@ -157,8 +157,9 @@ pub(crate) fn login_unsupported(config: &Config) {
 
 #[cfg(feature = "images")]
 mod built {
+    use std::ffi::OsString;
     use std::os::fd::OwnedFd;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::rc::Rc;
     use std::time::{Duration, Instant};
 
@@ -230,18 +231,19 @@ mod built {
     /// What makes a console's host, once for each console.
     pub type Helpers = Rc<dyn Fn() -> Box<dyn Helper>>;
 
-    /// What makes each console's [`ImageHost`]: from the program at
-    /// `path`, opened and checked here, once, so every helper starts from
-    /// the file vtium opened at start (ADR-1101 D1), and with `tmpdir`,
-    /// vtium's own `TMPDIR`, where a temporary file may also lie (D3, D5).
-    /// With `sandboxed` false, which vtium.conf's `helper-sandbox=off`
-    /// asks for, each helper is told to install no seccomp filter and its
-    /// workers to enter no landlock domain (ADR-1101 D9). A program vtium
-    /// refuses is logged here, once, and every host then answers as with
-    /// no helper.
-    pub fn hosts(path: &Path, tmpdir: Option<PathBuf>, sandboxed: bool) -> Helpers {
-        let program = match Program::open(path) {
-            Ok(program) => Some(program.sandboxed(sandboxed)),
+    /// What makes each console's [`ImageHost`]: from the program that
+    /// `config`'s `image-helper` names, opened and checked here, once, so
+    /// every helper starts from the file vtium opened at start, and with
+    /// vtium's own `TMPDIR` in `env`, where a temporary file may also lie.
+    /// A program vtium refuses is logged here, once, and every host then
+    /// answers as with no helper.
+    ///
+    /// References:
+    /// - ADR-1101 D1: the program opened once at start.
+    /// - ADR-1101 D3 and D5: the helper's `TMPDIR`.
+    pub fn hosts(config: &crate::config::Config, env: &[(OsString, OsString)]) -> Helpers {
+        let program = match opened(config) {
+            Ok(program) => Some(program),
             Err(why) => {
                 log::warn!(
                     "{why}; files, shared memory, PNG and zlib pictures are answered as with no helper"
@@ -249,12 +251,26 @@ mod built {
                 None
             }
         };
+        let tmpdir = tmpdir(env);
         Rc::new(move || Box::new(ImageHost::new(program.clone(), tmpdir.clone())))
+    }
+
+    /// The program `config`'s `image-helper` names, opened, its helpers
+    /// told to install no seccomp filter and their workers to enter no
+    /// landlock domain under the setting `helper-sandbox=off`; why vtium
+    /// refuses the program otherwise.
+    ///
+    /// References:
+    /// - ADR-1101 D9, "The sandbox setting": what the helper and its
+    ///   workers leave out under the setting.
+    fn opened(config: &crate::config::Config) -> Result<Program, String> {
+        Program::open(&super::program(config))
+            .map(|program| program.sandboxed(crate::helper::sandbox_on(config)))
     }
 
     /// vtium's `TMPDIR` in `env`, when it is an absolute path: the
     /// helper's temporary-file rule compares it with resolved paths.
-    pub fn tmpdir(env: &[(std::ffi::OsString, std::ffi::OsString)]) -> Option<PathBuf> {
+    pub fn tmpdir(env: &[(OsString, OsString)]) -> Option<PathBuf> {
         env.iter()
             .rev()
             .find(|(k, _)| k == "TMPDIR")
@@ -735,6 +751,38 @@ mod built {
                 private_registers: true,
                 sixel: true,
                 kitty: true,
+            }
+        }
+
+        // The setting helper-sandbox=off reaches each image helper as
+        // `--sandbox=off`: hosts() opens the program that image-helper
+        // names and adds the option itself, so app.rs passes only the
+        // config. With the setting on or unset the helper starts with no
+        // option, and sandboxes itself in full.
+        //
+        // References:
+        // - ADR-1200 D15, "A setting turns the sandbox off": vtium tells
+        //   each helper on its command line.
+        // - ADR-1101 D9, "The sandbox setting".
+        #[test]
+        fn helper_sandbox_off_reaches_the_image_helper_on_its_command_line() {
+            let dir = crate::scratch::Scratch::new("image-helper-sandbox");
+            let helper = dir.join("vtium-image");
+            vtium_testscript::executable(&helper, "#!/bin/sh\nexit 0\n");
+            let config = |args: &[&str]| {
+                let args: Vec<OsString> = args.iter().map(Into::into).collect();
+                crate::config::load(&args, &mut |_: &std::path::Path| Ok(None)).config
+            };
+            let named = format!("--image-helper={}", helper.display());
+            let off = opened(&config(&[&named, "--helper-sandbox=off"])).unwrap();
+            assert_eq!(off.path(), helper);
+            assert_eq!(off.args(), ["--sandbox=off"]);
+            for args in [
+                vec![named.as_str(), "--helper-sandbox=on"],
+                vec![named.as_str()],
+            ] {
+                let on = opened(&config(&args)).unwrap();
+                assert!(on.args().is_empty(), "{args:?}: {:?}", on.args());
             }
         }
 

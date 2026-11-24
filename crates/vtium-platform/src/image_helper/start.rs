@@ -71,6 +71,12 @@ impl Program {
         &self.path
     }
 
+    /// The arguments each helper starts with before its `--tmpdir`, such
+    /// as [`SANDBOX_OFF`].
+    pub fn args(&self) -> &[OsString] {
+        &self.args
+    }
+
     /// This program, its helpers told `--sandbox=off` when `on` is false,
     /// as vtium.conf's `helper-sandbox=off` asks: they then install no
     /// seccomp filter, and their workers add none and enter no landlock

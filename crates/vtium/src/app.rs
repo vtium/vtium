@@ -579,15 +579,10 @@ impl App {
             (!forever)
                 .then(|| Duration::from_secs(config.number(&keys::DISPLAY_WAIT).unwrap_or(10))),
         );
-        let image_program = crate::head::images::program(&config);
         #[cfg(feature = "images")]
-        let image_helpers = Some(crate::head::images::hosts(
-            &image_program,
-            crate::head::images::tmpdir(&inherited),
-            crate::helper::sandbox_on(&config),
-        ));
+        let image_helpers = Some(crate::head::images::hosts(&config, &inherited));
         #[cfg(not(feature = "images"))]
-        let _ = image_program;
+        let _ = crate::head::images::program(&config);
         App {
             oneshot: config.switch(&keys::ONESHOT),
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
