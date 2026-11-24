@@ -48,10 +48,12 @@
 //! and past that bound one line says that no more are logged.
 //!
 //! Before its first answer, the helper reports which parts of its sandbox
-//! are in force (ADR-1200 D15). A helper that runs without its landlock
-//! domain, on a kernel without landlock, is logged once a boot, with
-//! whether its fallback filter stands in for the domain, and so is a
-//! helper that runs without its socket filter (`sandbox_notice`).
+//! are in force, and why each other part is not (ADR-1200 D15). The
+//! console logs one line once a boot when a part is missing, naming each
+//! missing part and its reason, and whether the fallback filter stands in
+//! for the landlock domain (`sandbox_notice`). vtium.conf's
+//! `helper-sandbox=off` reaches each helper as `--sandbox off`
+//! ([`sandbox_args`]).
 //!
 //! A helper that answers what is not a frame, what was not asked, or a
 //! failure is given up for the boot, logged once, and the built-in font
@@ -99,6 +101,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command as Process, ExitStatus, Stdio};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use vtium_term::ClusterWidth;
@@ -116,7 +119,7 @@ use vtium_platform::vt::font::ConsoleFont;
 use vtium_settings::batch::{Batch, Entry};
 
 use crate::config::Config;
-use crate::config::keys::FONT_HELPER;
+use crate::config::keys::{FONT_HELPER, HELPER_SANDBOX};
 use crate::deferred::{Shared, Shown, Text};
 use crate::pointer_file::{FRAME_NO_POINTER, FRAME_POINTER};
 
@@ -226,26 +229,108 @@ fn failure(why: &str) -> String {
         why => format!("the helper failed: {why}"),
     }
 }
+/// Why the helper's seccomp filters are not in force, as the byte of its
+/// sandbox report at [`SANDBOX_SECCOMP_SHIFT`] numbers it: the setting is
+/// off, vtium has no filter for the machine's architecture, or the kernel
+/// offers no seccomp filters. 0 means the filters are in force, or a
+/// helper too old to give a reason.
+fn seccomp_reason(code: u32) -> &'static str {
+    match code {
+        1 => "helper-sandbox=off in vtium.conf turns them off",
+        3 => "this kernel is new enough to offer seccomp but was built without it",
+        4 => "this kernel was built with seccomp but without seccomp filters",
+        5 => "this kernel is older than Linux 3.8, too old for vtium's seccomp filters",
+        _ => "vtium has no seccomp filter for this machine's architecture",
+    }
+}
+
+/// Why the helper's landlock domain is not in force, as the byte of its
+/// sandbox report at [`SANDBOX_DOMAIN_SHIFT`] numbers it: the setting is
+/// off, or the kernel is too old for landlock, was built without it, or
+/// did not turn it on at boot.
+fn domain_reason(code: u32) -> &'static str {
+    match code {
+        1 => "helper-sandbox=off in vtium.conf turns it off",
+        2 => "this kernel is older than Linux 5.13, which added landlock",
+        3 => "this kernel was built without landlock",
+        4 => {
+            "this kernel did not turn landlock on at boot, as when the boot's lsm= list leaves it out"
+        }
+        _ => "this kernel does not offer landlock",
+    }
+}
+
 /// The line the console logs when the helper's report of its sandbox,
-/// `parts`, lacks a part (ADR-1200 D15); `None` when every part is in
-/// force.
-fn sandbox_notice(parts: u32) -> Option<String> {
-    let domain = if parts & SANDBOX_DOMAIN != 0 {
-        None
-    } else if parts & SANDBOX_FALLBACK != 0 {
-        Some(
-            "The font helper runs without its landlock domain, because this kernel does not offer landlock. A seccomp filter refuses in its place the file, signal and tracing calls that the domain refuses.",
+/// `report`, lacks a part: each part not in force and the reason the
+/// helper gives, and whether the fallback filter stands in for the
+/// landlock domain. `None` when every part is in force.
+///
+/// References:
+/// - ADR-1200 D15, "Nothing on screen, and the log says why": the line
+///   and the reasons it tells apart.
+fn sandbox_notice(report: u32) -> Option<String> {
+    let parts = report & SANDBOX_PARTS;
+    let seccomp = report >> SANDBOX_SECCOMP_SHIFT & 0xff;
+    let domain = report >> SANDBOX_DOMAIN_SHIFT & 0xff;
+    if parts == 0 && seccomp == 1 && domain == 1 {
+        return Some(
+            "The font helper runs without its seccomp filters and its landlock domain, because helper-sandbox=off in vtium.conf turns them off. A font that took over the font helper could open network connections and change any file that the font helper's account may change.".to_owned(),
+        );
+    }
+    let domain = (parts & SANDBOX_DOMAIN == 0).then(|| {
+        let stands_in = if parts & SANDBOX_FALLBACK != 0 {
+            "A seccomp filter refuses in its place the file, signal and tracing calls that the domain refuses."
+        } else {
+            "No filter takes the domain's place, so a font that took over the font helper could change any file that the font helper's account may change."
+        };
+        format!(
+            "The font helper runs without its landlock domain, because {}. {stands_in}",
+            domain_reason(domain)
         )
-    } else {
-        Some(
-            "The font helper runs without its landlock domain, because this kernel does not offer landlock. No filter takes the domain's place, so a font that took over the font helper could change any file that the font helper's account may change.",
+    });
+    let sockets = (parts & SANDBOX_SOCKETS == 0).then(|| {
+        format!(
+            "The font helper runs without its seccomp filters, because {}.",
+            seccomp_reason(seccomp)
         )
-    };
-    let sockets = (parts & SANDBOX_SOCKETS == 0).then_some(
-        "The font helper runs without its socket filter, because vtium has no seccomp filter for this machine's architecture.",
-    );
-    let lines: Vec<&str> = domain.into_iter().chain(sockets).collect();
+    });
+    let lines: Vec<String> = domain.into_iter().chain(sockets).collect();
     (!lines.is_empty()).then(|| lines.join(" "))
+}
+
+/// Whether this boot has logged a font helper's sandbox line: one line a
+/// boot, whichever helper reports first, for every font set and user.
+static SANDBOX_LOGGED: AtomicBool = AtomicBool::new(false);
+
+/// Logs `line` unless `boot` says a helper's sandbox line was logged
+/// already, and marks it logged; whether it logged.
+fn log_sandbox_once(boot: &AtomicBool, line: &str) -> bool {
+    let first = !boot.swap(true, Ordering::Relaxed);
+    if first {
+        log::warn!("{line}");
+    }
+    first
+}
+
+/// Whether the helpers lock themselves in with their seccomp filters and
+/// landlock domains: `config`'s `helper-sandbox`, on unless it is `off`.
+///
+/// References:
+/// - ADR-1200 D15, "A setting turns the sandbox off": the key, on by
+///   default, which only root's vtium.conf and vtium's command line set.
+pub fn sandbox_on(config: &Config) -> bool {
+    config.text(&HELPER_SANDBOX) != Some("off")
+}
+
+/// The options that tell the font helper `helper-sandbox=off`, `--sandbox
+/// off`; none when the sandbox is on, since a helper started without the
+/// option sandboxes itself in full.
+pub fn sandbox_args(config: &Config) -> Vec<OsString> {
+    if sandbox_on(config) {
+        Vec::new()
+    } else {
+        vec!["--sandbox".into(), "off".into()]
+    }
 }
 
 /// An ask. A console built with right-to-left text asks with the kind that
@@ -290,6 +375,12 @@ const FRAME_COVERAGE: u32 = 15;
 const SANDBOX_DOMAIN: u32 = 1;
 const SANDBOX_FALLBACK: u32 = 2;
 const SANDBOX_SOCKETS: u32 = 4;
+const SANDBOX_PARTS: u32 = 0xff;
+/// Where a [`FRAME_SANDBOX`] carries why the seccomp filters are not in
+/// force ([`seccomp_reason`]) and why the landlock domain is not
+/// ([`domain_reason`]), a byte each.
+const SANDBOX_SECCOMP_SHIFT: u32 = 8;
+const SANDBOX_DOMAIN_SHIFT: u32 = 16;
 
 /// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
 const SIGXCPU: i32 = 24;
@@ -416,6 +507,7 @@ impl Launcher {
     pub fn configured(config: &Config) -> Result<Launcher, String> {
         let mut command = Command::system(&program(config))?;
         command.args.extend(font_dirs(config));
+        command.args.extend(sandbox_args(config));
         let me = rustix::process::geteuid().as_raw();
         Launcher::open(command).map(|l| l.with_active(me, &crate::font::gate().batch))
     }
@@ -3269,14 +3361,15 @@ impl Helper {
         }
     }
 
-    /// Logs the helper's report of its sandbox, `parts`, once a boot,
-    /// when a part is missing: a helper started again reports again.
-    fn sandboxed(&mut self, parts: u32) {
+    /// Logs the helper's report of its sandbox, `report`, when a part is
+    /// missing: once for this helper, which reports again each time it
+    /// starts, and once a boot for every helper ([`SANDBOX_LOGGED`]).
+    fn sandboxed(&mut self, report: u32) {
         if self.sandbox_noted.is_some() {
             return;
         }
-        if let Some(line) = sandbox_notice(parts) {
-            log::warn!("{line}");
+        if let Some(line) = sandbox_notice(report) {
+            log_sandbox_once(&SANDBOX_LOGGED, &line);
             self.sandbox_noted = Some(line);
         }
     }
@@ -4850,8 +4943,135 @@ mod tests {
             noted.contains("No filter takes the domain's place"),
             "{noted}"
         );
-        assert!(noted.contains("without its socket filter"), "{noted}");
+        assert!(noted.contains("without its seccomp filters"), "{noted}");
         assert_eq!(sandbox_notice(whole), None);
+    }
+
+    /// A sandbox report with `parts` in force, the seccomp filters missing
+    /// for `seccomp` and the domain for `domain`, as the helper sends it.
+    fn report(parts: u32, seccomp: u32, domain: u32) -> u32 {
+        parts | seccomp << SANDBOX_SECCOMP_SHIFT | domain << SANDBOX_DOMAIN_SHIFT
+    }
+
+    // The console's line names each part of the helper's sandbox that is
+    // not in force and the reason the helper gives for it, telling apart
+    // the setting, an architecture with no filter, the three kernels
+    // without seccomp filters and the three without landlock, and says
+    // whether the fallback filter stands in for the domain.
+    //
+    // References:
+    // - ADR-1200 D15, "Nothing on screen, and the log says why": the
+    //   reasons the line tells apart.
+    #[test]
+    fn the_sandbox_line_names_each_missing_part_and_its_reason() {
+        let whole = SANDBOX_DOMAIN | SANDBOX_SOCKETS;
+        assert_eq!(sandbox_notice(report(whole, 0, 0)), None);
+        let off = sandbox_notice(report(0, 1, 1)).unwrap();
+        assert_eq!(
+            off,
+            "The font helper runs without its seccomp filters and its landlock domain, because helper-sandbox=off in vtium.conf turns them off. A font that took over the font helper could open network connections and change any file that the font helper's account may change."
+        );
+        let seccomp = |why: u32| sandbox_notice(report(SANDBOX_DOMAIN, why, 0)).unwrap();
+        assert_eq!(
+            seccomp(2),
+            "The font helper runs without its seccomp filters, because vtium has no seccomp filter for this machine's architecture."
+        );
+        assert_eq!(
+            seccomp(3),
+            "The font helper runs without its seccomp filters, because this kernel is new enough to offer seccomp but was built without it."
+        );
+        assert_eq!(
+            seccomp(4),
+            "The font helper runs without its seccomp filters, because this kernel was built with seccomp but without seccomp filters."
+        );
+        assert_eq!(
+            seccomp(5),
+            "The font helper runs without its seccomp filters, because this kernel is older than Linux 3.8, too old for vtium's seccomp filters."
+        );
+        let domain = |parts: u32, why: u32| sandbox_notice(report(parts, 0, why)).unwrap();
+        let fallback = SANDBOX_FALLBACK | SANDBOX_SOCKETS;
+        assert_eq!(
+            domain(fallback, 2),
+            "The font helper runs without its landlock domain, because this kernel is older than Linux 5.13, which added landlock. A seccomp filter refuses in its place the file, signal and tracing calls that the domain refuses."
+        );
+        assert_eq!(
+            domain(fallback, 3),
+            "The font helper runs without its landlock domain, because this kernel was built without landlock. A seccomp filter refuses in its place the file, signal and tracing calls that the domain refuses."
+        );
+        assert_eq!(
+            domain(fallback, 4),
+            "The font helper runs without its landlock domain, because this kernel did not turn landlock on at boot, as when the boot's lsm= list leaves it out. A seccomp filter refuses in its place the file, signal and tracing calls that the domain refuses."
+        );
+        // a kernel without seccomp filters and without landlock: neither
+        // filter stands in for the domain
+        let neither = sandbox_notice(report(0, 3, 3)).unwrap();
+        assert_eq!(
+            neither,
+            "The font helper runs without its landlock domain, because this kernel was built without landlock. No filter takes the domain's place, so a font that took over the font helper could change any file that the font helper's account may change. The font helper runs without its seccomp filters, because this kernel is new enough to offer seccomp but was built without it."
+        );
+    }
+
+    // The sandbox line is logged once a boot, however many helpers start:
+    // a second helper, for another font set or user, or a helper started
+    // again, logs nothing more.
+    //
+    // References:
+    // - ADR-1200 D15, "Nothing on screen, and the log says why": one line
+    //   once a boot.
+    #[test]
+    fn the_sandbox_line_is_logged_once_a_boot_for_every_helper() {
+        let boot = AtomicBool::new(false);
+        let line = sandbox_notice(report(0, 1, 1)).unwrap();
+        assert!(log_sandbox_once(&boot, &line), "the first helper's line");
+        assert!(!log_sandbox_once(&boot, &line), "a second helper's line");
+        assert!(!log_sandbox_once(&boot, &line), "a helper started again");
+    }
+
+    // helper-sandbox=off reaches each helper the console starts as
+    // `--sandbox off`, and with the key on or unset the console passes
+    // no option, so the helper sandboxes itself in full; a value the key
+    // cannot take is refused as a bad value, and the sandbox stays on.
+    //
+    // References:
+    // - ADR-1200 D15, "A setting turns the sandbox off": vtium tells each
+    //   helper on its command line.
+    // - ADR-1510 D2: a bad value of a known key is refused.
+    #[test]
+    fn helper_sandbox_off_reaches_the_helper_on_its_command_line() {
+        use std::collections::BTreeMap;
+        let load = |text: &str| {
+            let files: BTreeMap<PathBuf, Vec<u8>> = [(
+                PathBuf::from("/etc/vtium/vtium.conf"),
+                text.as_bytes().to_vec(),
+            )]
+            .into_iter()
+            .collect();
+            crate::config::load(&[], &mut |p: &Path| Ok(files.get(p).cloned()))
+        };
+        let off = load("helper-sandbox=off\n");
+        assert!(off.reports.is_empty(), "{:?}", off.reports);
+        assert!(!sandbox_on(&off.config));
+        assert_eq!(sandbox_args(&off.config), ["--sandbox", "off"]);
+        for text in ["helper-sandbox=on\n", ""] {
+            let on = load(text);
+            assert!(sandbox_on(&on.config), "{text:?}");
+            assert!(sandbox_args(&on.config).is_empty(), "{text:?}");
+        }
+        for bad in ["yes", "no", "1", "OFF", "disabled"] {
+            let l = load(&format!("helper-sandbox={bad}\n"));
+            assert!(
+                matches!(
+                    l.reports.iter().map(|r| &r.problem).collect::<Vec<_>>()[..],
+                    [crate::config::Problem::NotAChoice {
+                        key: "helper-sandbox",
+                        ..
+                    }]
+                ),
+                "{bad}: {:?}",
+                l.reports
+            );
+            assert!(sandbox_on(&l.config), "{bad}");
+        }
     }
 
     // a sandbox report of any length but four bytes is refused, and the
@@ -7272,6 +7492,12 @@ if [ $k -ge 6 ]; then cat \"$1\"; cat \"$1.done\"; exec cat >/dev/null; fi";
         // helper leaves characters to
         let localized = opened.with_locale("ja_JP.UTF-8");
         assert_eq!(localized.command.args, ["serve", "--locale", "ja_JP.UTF-8"]);
+        // helper-sandbox=off goes with it too, and on adds nothing
+        let helper = format!("--font-helper={}", shell.display());
+        let off = Launcher::configured(&config(&[&helper, "--helper-sandbox=off"])).unwrap();
+        assert_eq!(off.command.args, ["serve", "--sandbox", "off"]);
+        let on = Launcher::configured(&config(&[&helper, "--helper-sandbox=on"])).unwrap();
+        assert_eq!(on.command.args, ["serve"]);
         let why = Launcher::configured(&config(&["--font-helper=sh"])).unwrap_err();
         assert!(why.contains("is not absolute"), "{why}");
     }

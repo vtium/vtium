@@ -345,6 +345,7 @@ pub fn notes(config: &Config) -> Vec<String> {
     let me = rustix::process::geteuid().as_raw();
     let notes = std::iter::once(density)
         .chain(helper_note(&helper::program(config), me))
+        .chain(sandbox_note(config))
         .chain(font_paths_notes(config));
     #[cfg(feature = "images")]
     let notes = notes
@@ -485,6 +486,20 @@ fn image_helper_note(program: &Path, me: u32) -> Option<String> {
         check_config::image_helper_refused_as_root,
     )
 }
+
+/// What check-config notes when `config` turns the helpers' sandbox off:
+/// that the font helper and the image helper run without their seccomp
+/// filters and landlock domains, and what that gives up. Nothing when the
+/// sandbox is on.
+///
+/// References:
+/// - ADR-1200 D15, "What turning it off gives up": the note's content.
+fn sandbox_note(config: &Config) -> Option<String> {
+    (!helper::sandbox_on(config)).then(|| SANDBOX_OFF.to_owned())
+}
+
+/// check-config's note on `helper-sandbox=off`.
+const SANDBOX_OFF: &str = "helper-sandbox is off, so the font helper and the image helper run without their seccomp filters and landlock domains. A font or an image that takes over a helper can then open network connections, change any file that the helper's account may change, and signal and trace that account's other processes. Turn it off only when vtium runs inside another sandbox whose kernel refuses the helpers' filters.";
 
 /// What check-config notes of a helper that `open` opens for an account:
 /// `refused` of its refusal for `me`, the account the check runs as,
@@ -1474,6 +1489,31 @@ mod tests {
             .into_iter()
             .filter(|n| !left_out.iter().any(|l| n.starts_with(l)))
             .collect()
+    }
+
+    // check-config notes helper-sandbox=off and what it gives up, and says
+    // nothing of the sandbox while it is on.
+    //
+    // References:
+    // - ADR-1200 D15, "A setting turns the sandbox off": `vtium
+    //   check-config` notes the setting.
+    #[test]
+    fn check_config_notes_the_helpers_sandbox_off() {
+        let about = |args: &[&str]| -> Vec<String> {
+            notes_but(&[], args)
+                .into_iter()
+                .filter(|n| n.starts_with("helper-sandbox"))
+                .collect()
+        };
+        let off = about(&["--helper-sandbox=off"]);
+        assert_eq!(off.len(), 1, "{off:?}");
+        assert!(
+            off[0].starts_with("helper-sandbox is off, so the font helper and the image helper run without their seccomp filters and landlock domains."),
+            "{off:?}"
+        );
+        assert!(off[0].contains("open network connections"), "{off:?}");
+        assert!(about(&["--helper-sandbox=on"]).is_empty());
+        assert!(about(&[]).is_empty());
     }
 
     /// `/bin/sh`, a program root owns, for the assertions that root's own
