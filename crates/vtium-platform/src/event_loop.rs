@@ -12,10 +12,10 @@
 //! process inherits it too, so the pty clears it in its child before the
 //! child runs ([`crate::pty::Pty::spawn`]).
 //!
-//! A source that one callback takes out of the loop while the loop
-//! dispatches a batch of events leaves the loop through [`Removals`] when
-//! the dispatch returns, so no event of that batch finds it gone. A source
-//! removed between dispatches leaves at once.
+//! When a callback takes another of the console's sources out of the loop
+//! while the loop dispatches a batch of events, the source leaves the loop
+//! only when the dispatch returns, so no event of that batch finds it
+//! gone. A source removed between dispatches leaves at once.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
