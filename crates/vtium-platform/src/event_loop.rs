@@ -266,7 +266,8 @@ impl<D: 'static> Removals<D> {
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
-    use std::io::Read;
+    use std::cell::Cell;
+    use std::os::fd::{AsFd, BorrowedFd};
     use std::os::unix::net::UnixStream;
     use std::rc::Rc;
     use std::time::Duration;
@@ -334,16 +335,54 @@ mod tests {
         );
     }
 
+    /// The descriptor that a test's source watches: one end of a socket
+    /// pair, which marks `closed` when the source drops it and so closes
+    /// its descriptor.
+    ///
+    /// The tests watch this end rather than wait for end of file on the
+    /// other one. The other end reads end of file only once every copy of
+    /// this end is closed, and a child process that another test in the
+    /// same binary forks holds a copy of every descriptor until it runs
+    /// its program. A pty test that starts `/bin/sh`, for example, then
+    /// keeps the other end from reading end of file for a moment after the
+    /// loop has closed this end.
+    struct Watched {
+        end: UnixStream,
+        closed: Rc<Cell<bool>>,
+    }
+
+    impl AsFd for Watched {
+        fn as_fd(&self) -> BorrowedFd<'_> {
+            self.end.as_fd()
+        }
+    }
+
+    impl Drop for Watched {
+        fn drop(&mut self) {
+            // `end` drops, and its descriptor closes, as soon as this
+            // returns.
+            self.closed.set(true);
+        }
+    }
+
     /// A descriptor source in `removals`' loop whose callback holds
-    /// `alive`, over one end of a socket pair; the other end, which reads
-    /// end of file once the source has closed its end.
-    fn watched(removals: &Removals<Seen>, alive: &Rc<()>) -> (RegistrationToken, UnixStream) {
-        let (ours, theirs) = UnixStream::pair().unwrap();
-        theirs.set_nonblocking(true).unwrap();
+    /// `alive`. Returns its token, whether its descriptor is closed, and
+    /// the other end of its socket pair. While the test holds the other
+    /// end, the source's descriptor has nothing to read and stays quiet.
+    fn watched(
+        removals: &Removals<Seen>,
+        alive: &Rc<()>,
+    ) -> (RegistrationToken, Rc<Cell<bool>>, UnixStream) {
+        let (end, other) = UnixStream::pair().unwrap();
+        let closed = Rc::new(Cell::new(false));
+        let watched = Watched {
+            end,
+            closed: Rc::clone(&closed),
+        };
         let alive = Rc::clone(alive);
         let token = removals
             .insert(
-                Generic::new(ours, Interest::READ, Mode::Level),
+                Generic::new(watched, Interest::READ, Mode::Level),
                 move |_, _, _: &mut Seen| {
                     let _ = &alive;
                     Ok(PostAction::Continue)
@@ -351,12 +390,7 @@ mod tests {
                 || Ok(PostAction::Continue),
             )
             .unwrap();
-        (token, theirs)
-    }
-
-    /// Whether the peer of `theirs` is closed.
-    fn closed(mut theirs: &UnixStream) -> bool {
-        matches!(theirs.read(&mut [0; 1]), Ok(0))
+        (token, closed, other)
     }
 
     // vtium removes a card or an input device between dispatches, as it
@@ -368,10 +402,10 @@ mod tests {
         let lp = Loop::<Seen>::new().unwrap();
         let removals = Removals::new(&lp.handle());
         let alive = Rc::new(());
-        let (token, theirs) = watched(&removals, &alive);
-        assert!(!closed(&theirs));
+        let (token, closed, _other) = watched(&removals, &alive);
+        assert!(!closed.get());
         removals.remove(token);
-        assert!(closed(&theirs), "the descriptor is closed");
+        assert!(closed.get(), "the descriptor is closed");
         assert_eq!(Rc::strong_count(&alive), 1, "the callback is dropped");
         assert!(removals.removed.borrow().is_empty());
     }
@@ -383,7 +417,7 @@ mod tests {
         let mut lp = Loop::<Seen>::new().unwrap();
         let removals = Removals::new(&lp.handle());
         let alive = Rc::new(());
-        let (token, theirs) = watched(&removals, &alive);
+        let (token, closed, _other) = watched(&removals, &alive);
         let (ping, source) = make_ping().unwrap();
         lp.handle()
             .insert_source(source, {
@@ -394,7 +428,7 @@ mod tests {
         ping.ping();
         lp.dispatch(Some(Duration::ZERO), &mut Seen::default())
             .unwrap();
-        assert!(closed(&theirs), "the descriptor is closed");
+        assert!(closed.get(), "the descriptor is closed");
         assert_eq!(Rc::strong_count(&alive), 1, "the callback is dropped");
     }
 
@@ -406,7 +440,7 @@ mod tests {
         let mut lp = Loop::<Seen>::new().unwrap();
         let removals = Removals::new(&lp.handle());
         let alive = Rc::new(());
-        let (token, theirs) = watched(&removals, &alive);
+        let (token, closed, _other) = watched(&removals, &alive);
         let (ping, source) = make_ping().unwrap();
         lp.handle()
             .insert_source(source, |(), (), _: &mut Seen| {})
@@ -416,7 +450,7 @@ mod tests {
         let mut closed_at_once = None;
         lp.run(&mut Seen::default(), |_| {
             removals.remove(token);
-            closed_at_once = Some(closed(&theirs) && Rc::strong_count(&alive) == 1);
+            closed_at_once = Some(closed.get() && Rc::strong_count(&alive) == 1);
             stop.stop();
         })
         .unwrap();
@@ -430,8 +464,8 @@ mod tests {
         let mut lp = Loop::<Seen>::new().unwrap();
         let removals = Removals::new(&lp.handle());
         let alive = Rc::new(());
-        let (gone, _) = watched(&removals, &alive);
-        let (_kept, theirs) = watched(&removals, &alive);
+        let (gone, _, _) = watched(&removals, &alive);
+        let (_kept, kept_closed, _other) = watched(&removals, &alive);
         let (ping, source) = make_ping().unwrap();
         let pinged = lp
             .handle()
@@ -450,6 +484,6 @@ mod tests {
         drop(removals);
         drop(lp);
         assert_eq!(Rc::strong_count(&alive), 1, "every source is dropped");
-        assert!(closed(&theirs), "the kept source's descriptor is closed");
+        assert!(kept_closed.get(), "the kept source's descriptor is closed");
     }
 }
