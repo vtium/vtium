@@ -7245,27 +7245,30 @@ fn end_shown_session(s: &mut Seat) -> String {
         .unwrap_or_default()
 }
 
-/// vtium/vtium#384, ADR-1200 D5: OSC 50's query reports a name OSC 50
-/// takes for the font on screen, or none, never a font that is not shown.
-/// The first session switches to frit b; when it ends, vtium returns the
-/// head to the font file vtium.conf's `font-name` gives, which has no
-/// font set's name, so the next session's query names no font, not b.
 /// Whether head `name` shows the whole reply to an OSC 50 query. The tty
 /// echoes the reply as it arrives, and a busy machine can draw the echo in
-/// two pieces, so the reply counts only once its line ends with the BEL
-/// that ends it, shown as `^G`. The line ends that way whether or not the
-/// reply names a font, so a test that waits on this can still check the
-/// name.
+/// two pieces, so the reply counts only once the BEL that ends it, shown
+/// as `^G`, follows it. A long reply wraps onto the next row, so the rows
+/// are read as one text. The reply ends that way whether or not it names
+/// a font, so a test that waits on this can still check the name.
 fn shows_whole_font_reply(app: &App, name: &str) -> bool {
     app.head(name).is_some_and(|h| {
-        h.screen_text()
-            .iter()
-            .any(|l| l.contains("]50;") && l.ends_with("^G"))
+        let text = h.screen_text().concat();
+        text.rsplit_once("]50;")
+            .is_some_and(|(_, reply)| reply.contains("^G"))
     })
 }
 
+// vtium/vtium#384: OSC 50's query reports a name OSC 50 takes for the
+// font on screen, never a font that is not shown. The first session
+// switches to frit b. When it ends, vtium returns the head to the font
+// file vtium.conf's `font-name` gives, so the next session's query names
+// that file's path, not b.
+//
+// References:
+// - ADR-1200 D5: the query reports a frit made from a path by that path.
 #[test]
-fn after_a_return_to_a_font_file_the_query_names_no_font() {
+fn after_a_return_to_a_font_file_the_query_names_its_path() {
     let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
     let conf = format!("font-engine=psf\nfont-name={path}\nfont-size=16\n");
     let (dir, fonts) = reset_fixture("reset-path", &conf);
@@ -7292,9 +7295,12 @@ fn after_a_return_to_a_font_file_the_query_names_no_font() {
         .head("small")
         .map(Head::screen_text)
         .unwrap_or_default();
-    let replies: Vec<&String> = text.iter().filter(|l| l.contains("]50;")).collect();
-    assert_eq!(replies.len(), 1, "{text:?}");
-    assert!(replies[0].ends_with("]50;^G"), "no font named: {replies:?}");
+    let replies = text.concat();
+    assert_eq!(replies.matches("]50;").count(), 1, "{text:?}");
+    assert!(
+        replies.contains(&format!("]50;{path}^G")),
+        "the font file's path: {text:?}"
+    );
 }
 
 /// ADR-1401 D10, ADR-1403 D5: a look naming a frit its group can write

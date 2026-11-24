@@ -7414,30 +7414,84 @@ fn osc_50_switches_back_to_each_font_a_head_starts_in() {
     }
 }
 
-// ADR-1200 D1, D5: a path under font-engine=psf and a family under
-// font-engine=pango are not frits' names, so OSC 50's query names no font
-// for them, and OSC 50 cannot name them
+// OSC 50's query reports the font set vtium made on the fly for the head's
+// configured font by the name it was made under: a path under
+// font-engine=psf, and a family, which holds spaces, under
+// font-engine=pango. A program that switches to another font set and then
+// sends that name back returns the head to the font it started in, and
+// the head reports that name again. A switch to an outline font set holds
+// the query's reply until the helper gives the set's cell, which the
+// stand-in helper never does, so the test reads the name from the head.
+//
+// References:
+// - ADR-1200 D5: the query reports a frit made from a path by the path and
+//   one made from a family by the family's name, and each name switches
+//   back on the head whose configuration gives it.
 #[test]
-fn osc_50_names_no_font_for_a_path_or_a_family() {
+fn osc_50_names_a_path_and_a_family_and_switches_back_to_each() {
     let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
-    for (n, args) in [
-        ["--font-engine=psf", &format!("--font-name={path}")],
-        ["--font-engine=pango", "--font-name=DejaVu Sans Mono"],
+    let family = "DejaVu Sans Mono";
+    for (n, (args, named)) in [
+        (["--font-engine=psf", &format!("--font-name={path}")], path),
+        (
+            ["--font-engine=pango", &format!("--font-name={family}")],
+            family,
+        ),
     ]
     .into_iter()
     .enumerate()
     {
         let (_dir, fonts) = recording(&format!("osc50-unnamed-{n}"));
-        let mut h = osc50(&args, "\\033]50;?\\007", fonts);
+        std::fs::write(fonts.frits.join("t.vtfrit"), "source=kbd:x\ncell=10x20\n")
+            .expect("the frit");
+        logged();
+        let mut h = osc50(
+            &args,
+            &format!("\\033]50;?\\007\\033]50;t\\007\\033]50;{named}\\007\\033]50;?\\007"),
+            fonts,
+        );
+        let reply = format!("]50;{named}^G");
         assert!(
-            h.until(BOUND, |a| a
-                .screen_text()
-                .iter()
-                .any(|l| l.ends_with("]50;^G"))),
+            h.until(BOUND, |a| a.screen_text().concat().contains(&reply)),
             "{args:?}: {:?}",
             h.app.screen_text()
         );
+        let lines = logged();
+        assert_eq!(switches(&lines), ["t", named], "{args:?}: {lines:?}");
+        assert_eq!(h.app.font_name(), named, "{args:?}");
     }
+}
+
+// A program asks for a font by a path that holds DEL and a right-to-left
+// override and runs to 328 bytes. vtium refuses the path, and its log line
+// shows each of those characters escaped, so the line cannot reorder or
+// hide what a reader sees. The line cuts the path short and says so.
+#[test]
+fn osc_50_logs_a_refused_name_escaped_and_cut_short() {
+    let (_dir, fonts) = recording("osc50-escaped");
+    std::fs::write(fonts.frits.join("t.vtfrit"), "source=kbd:x\n").expect("the frit");
+    let tail = "a".repeat(300);
+    logged();
+    let h = osc50(
+        &["--font-name=t"],
+        &format!("\\033]50;/usr/share/fonts/a\\177b\\342\\200\\256c{tail}.ttf\\007"),
+        fonts,
+    );
+    assert_eq!(h.app.font_name(), "t");
+    let lines = logged();
+    let line = lines
+        .iter()
+        .find(|l| l.starts_with("OSC 50 asked for the font "))
+        .expect("the refusal's line");
+    let shown = format!(
+        "OSC 50 asked for the font /usr/share/fonts/a\\u{{7f}}b\\u{{202e}}c{}... (cut short: the name has 328 bytes): ",
+        "a".repeat(200 - 24)
+    );
+    assert!(line.starts_with(&shown), "{line}");
+    assert!(
+        !line.contains(['\u{7f}', '\u{202e}']),
+        "no character as it was sent: {line:?}"
+    );
 }
 
 // ADR-1200 D8: the kernel's font, read at start, is handed to the helper

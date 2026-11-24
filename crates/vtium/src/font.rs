@@ -18,8 +18,9 @@
 //! [`crate::deferred`], [`crate::helper`]). The built-ins are Unscii-8
 //! for cells under 16 pixels and unifont from 16, but in a zh, ja or ko
 //! locale, which Unscii-8 does not cover (D7). OSC 50 switches among the
-//! frits, the built-ins and the head's frit made on the fly while vtium
-//! runs, each by the name its query reports ([`by_name`], D5).
+//! frits, the built-ins, the head's frit made on the fly and the fonts
+//! root installed and trusts, given by their paths, while vtium runs, each
+//! by the name its query reports ([`by_name`], D5).
 //!
 //! A font is looked up at the size asked for. When none is in use yet, a
 //! failure tries [`FALLBACK_SIZE`] once, and a second failure is the
@@ -38,9 +39,9 @@ use vtium_settings::mounts::Mounts;
 use vtium_settings::{Trust, batch};
 
 use crate::config::keys::{
-    FONT_ENGINE, FONT_FRITS, FONT_NAME, GLYPH_SOURCE, GLYPH_SOURCE_BLOCK, GLYPH_SOURCE_BOX,
-    GLYPH_SOURCE_BRAILLE, GLYPH_SOURCE_LEGACY, GLYPH_SOURCE_OCTANTS, GLYPH_SOURCE_SEXTANTS, Key,
-    MISSING,
+    FONT_ENGINE, FONT_FRITS, FONT_NAME, FONT_PATHS, GLYPH_SOURCE, GLYPH_SOURCE_BLOCK,
+    GLYPH_SOURCE_BOX, GLYPH_SOURCE_BRAILLE, GLYPH_SOURCE_LEGACY, GLYPH_SOURCE_OCTANTS,
+    GLYPH_SOURCE_SEXTANTS, Key, MISSING,
 };
 use crate::config::{Config, Origin};
 use crate::deferred::{DeferredFace, Shared};
@@ -1089,10 +1090,18 @@ pub fn frit_named(sources: &Sources, wanted: &Wanted) -> Result<FritText, String
             wanted.name
         ));
     }
-    Ok(FritText {
-        name: wanted.name.clone(),
-        text: format!("source={}\n", wanted.source()),
-    })
+    Ok(wanted.on_the_fly())
+}
+
+impl Wanted {
+    /// The one-source frit vtium makes on the fly for this name, named as
+    /// it was named (ADR-1200 D9).
+    fn on_the_fly(&self) -> FritText {
+        FritText {
+            name: self.name.clone(),
+            text: format!("source={}\n", self.source()),
+        }
+    }
 }
 
 /// The built-in font `name` names, as its own name spells it, in `look`,
@@ -1112,30 +1121,191 @@ pub fn builtin_named(name: &str, look: Option<Cell>) -> Option<Chosen> {
 /// fly for the font the configuration gives the head (D9), when `name` is
 /// the name it was made under. The order is D9's, so a name means the same
 /// font at a switch as at the start: a frit in the directory wins over a
-/// frit made on the fly under its name. Each draws in `look`, the cell the
-/// head's look states, and a frit with its own cell unless `sized`, as
-/// [`Chosen::frit`] has it, so the name OSC 50's query reports for the
-/// font a head starts in switches back to that font at the size it had.
-/// The font keeps the name as the built-in, the frit's file or the
-/// configuration spells it, never the request's bytes.
+/// frit made on the fly under its name. A name that holds `/` is a font
+/// file's path. When the file qualifies, which [`qualifying`] checks with
+/// `folders` and `gate`, vtium makes a one-source frit for it, named by
+/// the path, as the start does for a path that `font-name` gives. Each
+/// draws in `look`, the cell the head's look states, and a frit with its
+/// own cell unless `sized`, as [`Chosen::frit`] has it, so the name OSC
+/// 50's query reports for the font a head starts in switches back to that
+/// font at the size it had. The font keeps the name as the built-in, the
+/// frit's file or the configuration spells it, or the path as the request
+/// gave it once it qualifies.
 pub fn by_name(
     sources: &Sources,
     name: &str,
     sized: bool,
     look: Option<Cell>,
     made: Option<&FritText>,
+    folders: &[PathBuf],
+    gate: &cullet::Gate,
 ) -> Result<Chosen, String> {
     if let Some(builtin) = builtin_named(name, look) {
         return Ok(builtin);
     }
     let frit = match frit(&sources.frits, name) {
         Some(path) => FritText::read(&path, &sources.frits, &sources.trust)?,
-        None => made
-            .filter(|made| made.name == name)
-            .cloned()
-            .ok_or("there is no font set of that name")?,
+        None => match made.filter(|made| made.name == name) {
+            Some(made) => made.clone(),
+            None if name.contains('/') => {
+                qualifying(name, folders, gate)?;
+                one_source(name)?
+            }
+            None => return Err("there is no font set of that name".to_owned()),
+        },
     };
     Chosen::frit(frit, sized, look)
+}
+
+/// The folders where installed outline fonts are found when `font-paths`
+/// is unset, as fontconfig's default configuration names them for the
+/// system. vtium-config's font helper searches the same list.
+///
+/// References:
+/// - ADR-1200 D25: `font-paths` replaces this list.
+pub const FONT_DIRS: [&str; 2] = ["/usr/share/fonts", "/usr/local/share/fonts"];
+
+/// The folders a font that OSC 50 names by its path must sit in, or below.
+/// They are the folders of `font-paths`, else [`FONT_DIRS`], then the
+/// package's font folder and kbd's console-font folders. Root installs
+/// fonts in each of them, and a fresh batch already activates the fonts in
+/// the last two. The configuration has already left out each folder of
+/// `font-paths` that is not an absolute path.
+///
+/// References:
+/// - ADR-1200 D5, "A qualifying font": the second check and its folders.
+pub fn font_folders(config: &Config) -> Vec<PathBuf> {
+    let configured: Vec<PathBuf> = match config.text(&FONT_PATHS) {
+        Some(paths) => paths.split(':').map(PathBuf::from).collect(),
+        None => FONT_DIRS.iter().map(PathBuf::from).collect(),
+    };
+    configured
+        .into_iter()
+        .chain(std::iter::once(PathBuf::from(batch::PACKAGE_FONTS)))
+        .chain(batch::CONSOLE_FONT_FOLDERS.iter().map(PathBuf::from))
+        .collect()
+}
+
+/// Checks the folder `dir` under the trust rule `rule`, judging its
+/// filesystem by `mounts`, or by the system's mount table when `None`.
+/// The folder passes when its owner and every folder above it are trusted
+/// by `rule`, neither the group nor other users can write any of them,
+/// none of them is a symbolic link, and the filesystem stays mounted.
+/// vtium opens each folder on the way, and nothing inside `dir`.
+///
+/// vtium-settings checks a folder on its own only through the gate of a
+/// pointer theme, which the batch must list first. So a gate whose batch
+/// lists only this folder judges the folder under the trust rule.
+/// `vtium check-config` judges a folder of `font-paths` with this check,
+/// as root, and OSC 50 judges the folder of a font it is given by path, so
+/// the two never disagree on a folder.
+///
+/// References:
+/// - ADR-1205 D4: the trust rule on a resource and every folder above it.
+/// - ADR-1200 D5, "A qualifying font": the fourth check.
+pub fn trusted_folder(
+    dir: &Path,
+    rule: Rule,
+    mounts: Option<Mounts>,
+) -> Result<(), cullet::Refused> {
+    let listed = batch::Batch::new(vec![batch::Entry::Path(dir.to_path_buf())]);
+    cullet::Gate::new(rule, mounts, listed).theme(dir)
+}
+
+/// The one-source frit vtium makes for the font file at `path`, named by
+/// the path, as the start makes it for a path that `font-name` gives.
+/// vtium then reads the frit's `source=` line back in the frit's line
+/// syntax, as the font helper reads it: the line ends at `#`, and the
+/// value loses the spaces at either end. The frit is used only when that
+/// value names the same path. [`qualifying`]'s first check already
+/// refuses every path the reader would change, so this is a second line
+/// of defence. If the two rules ever differ, vtium refuses the font
+/// instead of checking one file while the helper reads another.
+///
+/// References:
+/// - ADR-1200 D5: vtium builds a frit with the one source, named by the
+///   path, as it does at the start for a path.
+fn one_source(path: &str) -> Result<FritText, String> {
+    let frit = Wanted {
+        name: path.to_owned(),
+        came: Came::Config,
+    }
+    .on_the_fly();
+    let source = format!("file:{path}");
+    match frit_line(&frit.text, "source") {
+        Ok(Some((1, read))) if read == source => Ok(frit),
+        _ => Err("the font set vtium would make for this path would name another file".to_owned()),
+    }
+}
+
+/// Whether `path` is in its plain form: the form `Path` gives when it
+/// rebuilds the path from its components. Such a path has no `.`
+/// component, no `//` and no `/` at its end.
+fn plain_form(path: &Path) -> bool {
+    path.components().collect::<PathBuf>().as_os_str() == path.as_os_str()
+}
+
+/// Whether `path`, the text OSC 50 carries, names a qualifying font: one
+/// that root already installed and trusts. vtium makes four checks, in
+/// this order, and the error says which one failed:
+///
+/// 1. The path is plain: it starts with `/`, is in its plain form and has
+///    no `..` component. It holds no control character and no `#`, and
+///    has no whitespace at either end. A path in another form, such as
+///    one with a `/` at its end, names the same file as the batch's line,
+///    but the query would report that other spelling. The frit reader
+///    ends a line at `#` and trims the spaces around a value, so a path
+///    with either would reach the font helper as another file.
+/// 2. The file sits in one of `folders` ([`font_folders`]), or in a folder
+///    below one. vtium compares whole components, so
+///    `/usr/share/fonts-old/x.ttf` is not under `/usr/share/fonts`.
+/// 3. The batch that `gate` holds lists the file, so the font is active.
+/// 4. The folder that holds the file passes the trust rule of `gate`
+///    ([`trusted_folder`]).
+///
+/// The checks read the path's text, the batch and the folders, and open
+/// no font file. The font helper opens the file later through its own
+/// gate, which checks the batch and the trust rule again on the file it
+/// opened.
+///
+/// References:
+/// - ADR-1200 D5, "A qualifying font": the four checks and their order.
+/// - ADR-1205 D4: the trust rule and the batch.
+pub fn qualifying(path: &str, folders: &[PathBuf], gate: &cullet::Gate) -> Result<(), String> {
+    let file = Path::new(path);
+    let plain = path.starts_with('/')
+        && plain_form(file)
+        && !file
+            .components()
+            .any(|c| c == std::path::Component::ParentDir)
+        && !path.chars().any(char::is_control)
+        && !path.contains('#')
+        && path.trim() == path;
+    if !plain {
+        return Err("a font's path must be absolute and plain: no `.`, `..` or empty component, no `/` at its end, no control character, no `#`, and no space at either end".to_owned());
+    }
+    let searched = folders
+        .iter()
+        .any(|dir| file != dir && file.starts_with(dir));
+    if !searched {
+        return Err(
+            "the file is not in a folder that vtium searches for fonts: those of font-paths, the package's font folder and kbd's console-font folders".to_owned(),
+        );
+    }
+    if !gate.holds(file) {
+        return Err(format!(
+            "the font is not active, because {} does not list it",
+            batch::BATCH_FILE
+        ));
+    }
+    let dir = file.parent().unwrap_or(file);
+    trusted_folder(dir, gate.rule.clone(), gate.mounts.clone()).map_err(|refused| {
+        format!(
+            "the folder {} fails the trust rule, because {}",
+            dir.display(),
+            refused.check
+        )
+    })
 }
 
 /// The font vtium draws.
@@ -3120,9 +3290,11 @@ mod tests {
             frit_named(&sources(frits), &wanted).map(|frit| frit.text)
         };
         let by_osc_50 = |frits: &Path, name: &str| {
-            by_name(&sources(frits), name, false, None, None).map(|chosen| match chosen {
-                Chosen::Frit { frit, .. } => frit.text,
-                Chosen::Builtin { .. } => String::new(),
+            by_name(&sources(frits), name, false, None, None, &[], &no_paths()).map(|chosen| {
+                match chosen {
+                    Chosen::Frit { frit, .. } => frit.text,
+                    Chosen::Builtin { .. } => String::new(),
+                }
             })
         };
         let results = [
@@ -3223,7 +3395,9 @@ mod tests {
             frit_cell(&after).unwrap_err().starts_with("line 3: "),
             "{after}"
         );
-        let by_osc_50 = match by_name(&sources, "set", false, None, None).expect("the frit") {
+        let by_osc_50 = match by_name(&sources, "set", false, None, None, &[], &no_paths())
+            .expect("the frit")
+        {
             Chosen::Frit { frit, .. } => frit.text,
             Chosen::Builtin { .. } => String::new(),
         };
@@ -3302,11 +3476,15 @@ mod tests {
         );
     }
 
-    // ADR-1200 D5, D9: OSC 50 finds a name as the start does: a built-in,
-    // then a frit in the frits' directory, then the frit made on the fly
-    // for the head's configured font under its own name; a frit in the
-    // directory wins over a frit made on the fly under the same name, and
-    // any other name, a path included, is refused
+    // OSC 50 finds a name as the start does: a built-in font, then a frit
+    // in the frits' directory, then the frit made on the fly for the head's
+    // configured font under its own name. A frit in the directory wins over
+    // a frit made on the fly under the same name. Any other name is
+    // refused, and so is a path in no folder vtium searches for fonts.
+    //
+    // References:
+    // - ADR-1200 D5: the names a switch takes, and their order.
+    // - ADR-1200 D9: the frit made on the fly for the configured font.
     #[test]
     fn by_name_finds_a_frit_made_on_the_fly_after_the_frits_directory() {
         let dir = Scratch::new("font-by-name");
@@ -3321,12 +3499,14 @@ mod tests {
             text: "source=vconsole\n".to_owned(),
         };
         let found = |name: &str, made: Option<&FritText>| {
-            by_name(&sources, name, false, None, made).map(|chosen| match chosen {
-                Chosen::Frit { name, frit, .. } => (name, frit.text),
-                Chosen::Builtin { name, .. } => {
-                    (name.unwrap_or_default().to_owned(), String::new())
-                }
-            })
+            by_name(&sources, name, false, None, made, &[], &no_paths()).map(
+                |chosen| match chosen {
+                    Chosen::Frit { name, frit, .. } => (name, frit.text),
+                    Chosen::Builtin { name, .. } => {
+                        (name.unwrap_or_default().to_owned(), String::new())
+                    }
+                },
+            )
         };
         let vconsole = made("ter-124n");
         let named = |name: &str, text: &str| Ok((name.to_owned(), text.to_owned()));
@@ -3347,8 +3527,444 @@ mod tests {
                 refused.clone(),
                 named("t", "source=kbd:x\n"),
                 named("unifont", ""),
-                refused,
+                Err(OUTSIDE.to_owned()),
             ]
+        );
+    }
+
+    /// Sets the permission bits of `path` to `bits`.
+    fn chmod(path: &Path, bits: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(bits)).expect("the mode");
+    }
+
+    /// Writes `text` to the file at `path`.
+    fn put(path: &Path, text: &str) {
+        std::fs::write(path, text).expect("the file");
+    }
+
+    /// A gate whose batch lists nothing, under the rule of the account the
+    /// test runs as.
+    fn no_paths() -> cullet::Gate {
+        cullet::Gate::new(Rule::new(trust()), None, batch::Batch::default())
+    }
+
+    /// Why vtium refuses a font path at each of the four checks. The
+    /// fourth's reason leaves out the folder and the trust rule's own words.
+    ///
+    /// References:
+    /// - ADR-1200 D5, "A qualifying font": the four checks.
+    const NOT_PLAIN: &str = "a font's path must be absolute and plain: no `.`, `..` or empty component, no `/` at its end, no control character, no `#`, and no space at either end";
+    const OUTSIDE: &str = "the file is not in a folder that vtium searches for fonts: those of font-paths, the package's font folder and kbd's console-font folders";
+    fn inactive() -> String {
+        format!(
+            "the font is not active, because {} does not list it",
+            batch::BATCH_FILE
+        )
+    }
+    fn untrusted(dir: &Path) -> String {
+        format!(
+            "the folder {} fails the trust rule, because ",
+            dir.display()
+        )
+    }
+
+    /// A font file `fonts/sub/a.ttf` in a scratch folder `name`, the
+    /// folders vtium searches for fonts with `fonts` among them, and a gate
+    /// whose batch lists the file under the rule of the account the test
+    /// runs as, below the scratch folder.
+    fn font_path(name: &str) -> (Scratch, PathBuf, Vec<PathBuf>, cullet::Gate) {
+        let dir = Scratch::new(name);
+        let sub = dir.join("fonts/sub");
+        std::fs::create_dir_all(&sub).expect("the folders");
+        chmod(&dir, 0o755);
+        chmod(&dir.join("fonts"), 0o755);
+        chmod(&sub, 0o755);
+        let file = sub.join("a.ttf");
+        put(&file, "a font");
+        chmod(&file, 0o644);
+        let folders = vec![PathBuf::from("/usr/share/fonts"), dir.join("fonts")];
+        let gate = listing(&dir, &[&file]);
+        (dir, file, folders, gate)
+    }
+
+    /// A gate whose batch lists `files`, under the rule of the account the
+    /// test runs as, with the folders above `dir` left unchecked.
+    fn listing(dir: &Path, files: &[&Path]) -> cullet::Gate {
+        let entries = files
+            .iter()
+            .map(|f| batch::Entry::Path(f.to_path_buf()))
+            .collect();
+        cullet::Gate::new(
+            Rule::new(trust()).below(dir),
+            Some(Mounts::system().unwrap_or_default()),
+            batch::Batch::new(entries),
+        )
+    }
+
+    // A font path that passes the four checks is a qualifying font. OSC 50
+    // takes it as a one-source frit named by the path, the frit the start
+    // makes for a path that font-name gives.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the four checks and the frit
+    //   vtium builds.
+    #[test]
+    fn osc_50_takes_a_font_path_that_passes_every_check() {
+        let (dir, file, folders, gate) = font_path("font-path-qualifies");
+        let path = file.to_str().unwrap();
+        assert_eq!(qualifying(path, &folders, &gate), Ok(()));
+        let sources = Sources {
+            frits: dir.join("frits"),
+            trust: trust().below(&dir),
+            ..Sources::default()
+        };
+        let chosen = by_name(&sources, path, false, None, None, &folders, &gate);
+        let (name, text) = match chosen.expect("the font file qualifies") {
+            Chosen::Frit { name, frit, .. } => (name, frit.text),
+            Chosen::Builtin { .. } => (String::new(), String::new()),
+        };
+        assert_eq!(name, path, "the name the query reports");
+        assert_eq!(text, format!("source=file:{path}\n"));
+        let at_start = frit_named(
+            &sources,
+            &Wanted {
+                name: path.to_owned(),
+                came: Came::Config,
+            },
+        )
+        .map(|frit| frit.text);
+        assert_eq!(at_start, Ok(text), "the frit the start makes for the path");
+    }
+
+    // vtium makes the four checks in a fixed order. A path that fails them
+    // all is refused at the first, and each check put right moves the
+    // refusal on to the next.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the four checks and their order.
+    #[test]
+    fn a_font_path_is_refused_at_the_first_check_it_fails() {
+        let (dir, file, folders, _) = font_path("font-path-order");
+        let open = dir.join("fonts/open");
+        std::fs::create_dir_all(&open).expect("the folder");
+        chmod(&open, 0o777);
+        let inside = open.join("b.ttf");
+        put(&inside, "a font");
+        let relative = inside.strip_prefix("/").unwrap().to_str().unwrap();
+        let elsewhere = &[PathBuf::from("/usr/share/fonts")];
+        let none = listing(&dir, &[]);
+        let listed = listing(&dir, &[&inside]);
+        let refusal = |path: &str, folders: &[PathBuf], gate: &cullet::Gate| {
+            qualifying(path, folders, gate).unwrap_err()
+        };
+        let path = inside.to_str().unwrap();
+        assert_eq!(refusal(relative, elsewhere, &none), NOT_PLAIN, "check 1");
+        assert_eq!(refusal(path, elsewhere, &none), OUTSIDE, "check 2");
+        assert_eq!(refusal(path, &folders, &none), inactive(), "check 3");
+        let fourth = refusal(path, &folders, &listed);
+        assert!(fourth.starts_with(&untrusted(&open)), "check 4: {fourth}");
+        chmod(&open, 0o755);
+        assert_eq!(qualifying(path, &folders, &listed), Ok(()), "all four");
+        assert_eq!(
+            qualifying(file.to_str().unwrap(), &folders, &listing(&dir, &[&file])),
+            Ok(())
+        );
+    }
+
+    // The first check refuses a path that is not plain before vtium looks
+    // at anything else: one that does not start with `/`, holds `..` or a
+    // control character, or is not in its plain form. A path in another
+    // form, with a `/` at its end, a `.` component or `//`, names the same
+    // file as the batch's line, but the query would report that other
+    // spelling. A path holding `#`, or with a space at either end, would
+    // reach the font helper as another file, because the frit reader cuts
+    // a line at `#` and trims the spaces around a value. Each file is
+    // real, and the batch lists each spelling, so only the first check
+    // refuses them.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the first check.
+    #[test]
+    fn a_font_path_that_is_not_plain_fails_the_first_check() {
+        let (dir, file, folders, _) = font_path("font-path-plain");
+        let path = file.to_str().unwrap();
+        let relative = path.trim_start_matches('/');
+        let up = format!("{}/../sub/a.ttf", dir.join("fonts/sub").display());
+        let control = format!("{path}\u{7}");
+        let sub = dir.join("fonts/sub");
+        let hash = sub.join("a#b.ttf");
+        let spaced = sub.join("c.ttf ");
+        for real in [&hash, &spaced] {
+            put(real, "a font");
+            chmod(real, 0o644);
+        }
+        let slash = format!("{path}/");
+        let dot = format!("{}/./sub/a.ttf", dir.join("fonts").display());
+        let double = format!("{}//sub/a.ttf", dir.join("fonts").display());
+        let (hash, spaced) = (hash.to_str().unwrap(), spaced.to_str().unwrap());
+        let gate = listing(
+            &dir,
+            &[
+                Path::new(relative),
+                Path::new(&up),
+                Path::new(&control),
+                Path::new("fonts/sub/a.ttf"),
+                Path::new(hash),
+                Path::new(spaced),
+                Path::new(&slash),
+            ],
+        );
+        for spelling in [&slash, &dot, &double] {
+            assert!(
+                gate.holds(Path::new(spelling)),
+                "the batch lists {spelling}"
+            );
+        }
+        for bad in [
+            relative,
+            &up,
+            &control,
+            "fonts/sub/a.ttf",
+            "./a.ttf",
+            hash,
+            spaced,
+            &slash,
+            &dot,
+            &double,
+        ] {
+            assert_eq!(
+                qualifying(bad, &folders, &gate),
+                Err(NOT_PLAIN.to_owned()),
+                "{bad:?}"
+            );
+        }
+    }
+
+    // vtium makes the frit for a qualifying path, then reads the frit's
+    // `source=` line back as the font helper's frit reader does: a line
+    // cut at `#`, and its value trimmed. The frit is used only when the
+    // line names the same path. So a path the first check let through by
+    // mistake, one that the reader would take for another file, is still
+    // refused.
+    //
+    // References:
+    // - ADR-1200 D5: vtium builds a frit with the one source, named by the
+    //   path, as it does at the start.
+    #[test]
+    fn the_frit_made_for_a_font_path_reads_back_the_same_path() {
+        let made = |path: &str| one_source(path).map(|frit| (frit.name, frit.text));
+        let path = "/usr/share/fonts/TTF/DejaVu Sans Mono.ttf";
+        assert_eq!(
+            made(path),
+            Ok((path.to_owned(), format!("source=file:{path}\n")))
+        );
+        for other in [
+            "/usr/share/fonts/a#b.ttf",
+            "/usr/share/fonts/a.ttf ",
+            "/usr/share/fonts/a.ttf\t",
+            "/usr/share/fonts/a.ttf\nsource=file:/etc/passwd",
+        ] {
+            assert_eq!(made(other), Err(READS_ANOTHER.to_owned()), "{other:?}");
+        }
+    }
+
+    // OSC 50 refuses a font file whose path holds `#` or ends in a space,
+    // though the file is real, sits in a searched folder and the batch
+    // lists it. The font helper would read the frit's line as another
+    // file, so vtium refuses the path at its first check, and the frit's
+    // read-back would refuse it too.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the first check.
+    #[test]
+    fn osc_50_refuses_a_font_path_the_helper_would_read_as_another_file() {
+        let (dir, _, folders, _) = font_path("font-path-another");
+        let sub = dir.join("fonts/sub");
+        let files = [sub.join("a#b.ttf"), sub.join("c.ttf ")];
+        for file in &files {
+            put(file, "a font");
+            chmod(file, 0o644);
+        }
+        let gate = listing(&dir, &[&files[0], &files[1]]);
+        let sources = Sources {
+            frits: dir.join("frits"),
+            trust: trust().below(&dir),
+            ..Sources::default()
+        };
+        for file in &files {
+            let path = file.to_str().unwrap();
+            assert!(
+                by_name(&sources, path, false, None, None, &folders, &gate).is_err(),
+                "{path:?}"
+            );
+        }
+    }
+
+    /// Why vtium refuses a path whose frit would name another file.
+    const READS_ANOTHER: &str =
+        "the font set vtium would make for this path would name another file";
+
+    // The second check passes a file in a folder vtium searches for fonts,
+    // or in a folder below one, compared by whole components. The folder
+    // itself is no font file.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the second check.
+    #[test]
+    fn a_font_path_outside_the_folders_vtium_searches_fails_the_second_check() {
+        let (dir, _, folders, _) = font_path("font-path-outside");
+        let old = dir.join("fonts-old");
+        std::fs::create_dir_all(&old).expect("the folder");
+        chmod(&old, 0o755);
+        let beside = old.join("a.ttf");
+        put(&beside, "a font");
+        let fonts = dir.join("fonts");
+        let gate = listing(&dir, &[&beside, &fonts]);
+        for outside in [beside.as_path(), &fonts, Path::new("/etc/passwd")] {
+            assert_eq!(
+                qualifying(outside.to_str().unwrap(), &folders, &gate),
+                Err(OUTSIDE.to_owned()),
+                "{}",
+                outside.display()
+            );
+        }
+        // a relative folder matches no absolute path
+        let relative = [PathBuf::from(fonts.strip_prefix("/").unwrap())];
+        let file = fonts.join("sub/a.ttf");
+        assert_eq!(
+            qualifying(file.to_str().unwrap(), &relative, &listing(&dir, &[&file])),
+            Err(OUTSIDE.to_owned())
+        );
+    }
+
+    // The third check refuses a font the batch does not list: the font is
+    // not active, whatever folder holds it.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the third check.
+    #[test]
+    fn a_font_path_the_batch_does_not_list_fails_the_third_check() {
+        let (dir, file, folders, _) = font_path("font-path-inactive");
+        let other = dir.join("fonts/sub/b.ttf");
+        put(&other, "a font");
+        let gate = listing(&dir, &[&other]);
+        assert_eq!(
+            qualifying(file.to_str().unwrap(), &folders, &gate),
+            Err(inactive())
+        );
+    }
+
+    // The fourth check refuses a path through a folder that is a symbolic
+    // link, though the link's target would pass.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the fourth check.
+    #[test]
+    fn a_font_path_through_a_symbolic_link_fails_the_fourth_check() {
+        let (dir, _, folders, _) = font_path("font-path-link");
+        let link = dir.join("fonts/link");
+        std::os::unix::fs::symlink(dir.join("fonts/sub"), &link).expect("the link");
+        let file = link.join("a.ttf");
+        let why =
+            qualifying(file.to_str().unwrap(), &folders, &listing(&dir, &[&file])).unwrap_err();
+        assert_eq!(
+            why,
+            format!(
+                "{}{} is a symbolic link, and vtium uses no resource reached through one.",
+                untrusted(&link),
+                link.display()
+            )
+        );
+    }
+
+    // The fourth check refuses the fonts in a folder others can write,
+    // because anyone could put a file in it.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the fourth check.
+    #[test]
+    fn a_font_in_a_folder_others_can_write_fails_the_fourth_check() {
+        let (dir, file, folders, gate) = font_path("font-path-writable");
+        let sub = dir.join("fonts/sub");
+        chmod(&sub, 0o775);
+        let why = qualifying(file.to_str().unwrap(), &folders, &gate).unwrap_err();
+        assert!(why.starts_with(&untrusted(&sub)), "{why}");
+        assert!(why.contains("chmod go-w"), "{why}");
+    }
+
+    // The fourth check, judged as root, refuses a font in a folder that a
+    // user owns, such as one in a home folder, because of the folder's
+    // owner.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the fourth check, judged as root.
+    #[test]
+    fn a_font_in_a_folder_a_user_owns_fails_the_fourth_check() {
+        let (dir, file, folders, _) = font_path("font-path-owner");
+        let me = rustix::process::geteuid().as_raw();
+        if me == 0 {
+            return;
+        }
+        let gate = cullet::Gate::new(
+            Rule::new(Trust::ROOT).below(&dir),
+            Some(Mounts::system().unwrap_or_default()),
+            batch::Batch::new(vec![batch::Entry::Path(file.clone())]),
+        );
+        let why = qualifying(file.to_str().unwrap(), &folders, &gate).unwrap_err();
+        assert!(why.starts_with(&untrusted(&dir.join("fonts/sub"))), "{why}");
+        assert!(why.contains("chown root:root"), "{why}");
+    }
+
+    // The fourth check refuses a folder on a filesystem that vtium cannot
+    // show stays mounted.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the fourth check.
+    #[test]
+    fn a_font_on_a_filesystem_not_known_to_stay_mounted_fails_the_fourth_check() {
+        let (dir, file, folders, _) = font_path("font-path-mounts");
+        let gate = cullet::Gate::new(
+            Rule::new(trust()).below(&dir),
+            Some(Mounts::default()),
+            batch::Batch::new(vec![batch::Entry::Path(file.clone())]),
+        );
+        let why = qualifying(file.to_str().unwrap(), &folders, &gate).unwrap_err();
+        assert!(why.starts_with(&untrusted(&dir.join("fonts/sub"))), "{why}");
+    }
+
+    // The folders of the second check are those of font-paths, else the
+    // build's list, which vtium-config's font helper searches too. The
+    // package's font folder and kbd's console-font folders follow them. The
+    // configuration leaves out a folder of font-paths that is not absolute.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the second check's folders.
+    // - ADR-1200 D25: font-paths replaces the build's list.
+    #[test]
+    fn the_folders_a_font_path_must_sit_in_follow_font_paths() {
+        assert_eq!(FONT_DIRS, vtium_config::sources::FONT_DIRS);
+        let tail = [
+            batch::PACKAGE_FONTS,
+            "/usr/share/kbd/consolefonts",
+            "/usr/lib/kbd/consolefonts",
+            "/lib/kbd/consolefonts",
+            "/usr/share/consolefonts",
+        ];
+        let folders = |args: &[&str]| -> Vec<String> {
+            font_folders(&config(args))
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect()
+        };
+        let mut built: Vec<&str> = FONT_DIRS.to_vec();
+        built.extend(tail);
+        assert_eq!(folders(&[]), built);
+        let mut configured = vec!["/opt/fonts", "/srv/f"];
+        configured.extend(tail);
+        assert_eq!(
+            folders(&["--font-paths=/opt/fonts:fonts:/srv/f"]),
+            configured
         );
     }
 
