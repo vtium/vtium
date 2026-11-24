@@ -3,6 +3,12 @@ contract: adr/v1
 kind: decision
 verb: add
 capability: renderer
+amends:
+  - 'ADR-1303#D1: a fixed pipeline of five slots'
+  - 'ADR-1303#D3: slot 2, composition into the upright frame'
+  - 'ADR-1303#D6: slot 5, present'
+  - 'ADR-1304#D3: the spatial layer, a chain of pieces that ends in present'
+  - 'ADR-1305#D4: how fast, and what it costs'
 basis:
   - operator: aaronsb
     level: directed
@@ -242,6 +248,8 @@ At each frame the row slot draws the grid's area of the upright frame from the r
 
 When this record is accepted, `DEC-4` moves from ignored to planned, with the issue for smooth scrolling and the layer `top`. Its status becomes supported when the slice that builds DECSCLM lands with its test (D9).
 
+> Note 2026-11-24: `DEC-4` does not move to planned when this record is accepted. The row stays ignored until slice 6 of D9, the slice that builds DECSCLM, and that slice moves it straight to supported. ADR-1000 keeps every planned mode out of vtium's mode table, and DECRQM answers a mode outside the table 0. A planned `DEC-4` would therefore change DECRQM's answer from 4, permanently reset, to 0 before smooth scrolling exists. That breaks this section's rule that a build without `smooth-scroll` answers DECRQM as today. The steering session decided this on 2026-11-24, when it found that the paragraph above and that rule disagree.
+
 ### D9: the work
 
 **Proposed.** Each slice builds and tests on its own, in this order:
@@ -263,6 +271,8 @@ When this record is accepted, these passages change, each with a dated note:
 - **ADR-1304:** its spatial slot is the screen slot this record names, and composes over the row slot's output. ADR-1304's spatial filters read the frame after the row slot, so a CRT look curves the sliding text with everything else.
 - **ADR-1305 D4:** a display that slides is paced by its flips as a display on the frame clock is, and a frame of a slide is not a clock frame: a shader that reads the time gets the clock's ticks only under the clock's conditions.
 - **ADR-1000:** the row `DEC-4`, as D8 says.
+
+  > Note 2026-11-24: ADR-1000's row `DEC-4` does not change when this record is accepted. The row stays ignored until slice 6 of D9 builds DECSCLM, and that slice moves it straight to supported. D8's note of this date gives the reason: a planned mode leaves vtium's mode table, so DECRQM's answer would change before the feature exists.
 
 Outside the records, the slices change docs/architecture.md's table of where time enters, vtium.conf's key table, its example and docs/config.md, ADR-1401 D3's list of a head's keys and the head file's template, and vtium-render's bounds table.
 
