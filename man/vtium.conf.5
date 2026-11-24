@@ -123,7 +123,7 @@ Set it in the top level or a \fB[look NAME]\fR section, or on vtium's command li
 \fBglyph-source\fR
 Who draws box-drawing, block and similar characters (six ranges): the font, or vtium itself.
 .IP
-\fBfont\fR uses the font's characters, \fBsprites\fR uses vtium's own drawings, and \fBauto\fR uses the font's where the font has the character. When unset, vtium uses the font for each range the font covers completely and its own drawings for the rest; with the built-in unifont, vtium always draws them itself.
+\fBfont\fR uses the font's characters, \fBsprites\fR uses vtium's own drawings, and \fBauto\fR uses the font's where the font has the character. When unset, vtium draws all six ranges itself, unless a font set's own \fBglyph\-source\fR lines say otherwise. This key and the per-range keys override those lines.
 .IP
 It takes one of \fBfont\fR, \fBsprites\fR, \fBauto\fR. Default: unset.
 .IP

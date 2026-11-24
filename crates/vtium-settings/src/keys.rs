@@ -1516,7 +1516,7 @@ pub const GLYPH_SOURCE: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     what: "Who draws box-drawing, block and similar characters (six ranges): the font, or vtium itself.\n\n\
-           `font` uses the font's characters, `sprites` uses vtium's own drawings, and `auto` uses the font's where the font has the character. When unset, vtium uses the font for each range the font covers completely and its own drawings for the rest; with the built-in unifont, vtium always draws them itself.",
+           `font` uses the font's characters, `sprites` uses vtium's own drawings, and `auto` uses the font's where the font has the character. When unset, vtium draws all six ranges itself, unless a font set's own `glyph-source` lines say otherwise. This key and the per-range keys override those lines.",
 };
 
 pub const GLYPH_SOURCE_BOX: Key = Key {
