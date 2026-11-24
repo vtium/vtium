@@ -1477,13 +1477,17 @@ impl App {
         })
     }
 
-    /// OSC 50 asked head `h` for the font `name` (ADR-1200 D5): a frit or
-    /// a built-in switches the head's live console as a zoom does, on a
-    /// new grid, a frit with the helper and the store every head drawing
-    /// it shares; anything
-    /// else leaves the font. The first refusal since the last switch is
-    /// logged and the rest counted, so a program's flood of requests logs
-    /// one line.
+    /// OSC 50 asked head `h` for the font `name`. A frit, a built-in font,
+    /// or the path of a font that root installed and trusts switches the
+    /// head's live console as a zoom does, on a new grid. A frit, the one
+    /// vtium makes for such a path included, comes with the helper and the
+    /// store that every head drawing it shares. Anything else leaves the
+    /// font as it was. The first refusal since the last switch is logged
+    /// with its reason and the rest are counted, so a program's flood of
+    /// requests logs one line.
+    ///
+    /// References:
+    /// - ADR-1200 D5: what OSC 50 switches to, and the four checks a font's path passes.
     fn switch_font(&mut self, h: usize, name: &str) {
         self.choose_font(h);
         let Some(head) = self.heads.get(h) else {
@@ -1499,7 +1503,15 @@ impl App {
         }
         let (sized, look) = (head.sized(), head.look_cell());
         let was = head.frit().map(str::to_owned);
-        let new = font::by_name(&self.font_sources, name, sized, look, head.made.as_ref());
+        let new = font::by_name(
+            &self.font_sources,
+            name,
+            sized,
+            look,
+            head.made.as_ref(),
+            &font::font_folders(&self.config),
+            &font::gate(),
+        );
         let new = new.and_then(|new| {
             let Some(head) = self.heads.get_mut(h) else {
                 return Ok(());
@@ -8093,6 +8105,133 @@ mod tests {
             }),
             ..no_fonts()
         }
+    }
+
+    /// A seat whose head draws frit `a`, with a font file `fonts/sub/a.bdf`
+    /// in the scratch folder `dir`, which `font-paths` names and the batch
+    /// lists, under the rule of the account the test runs as below `dir`.
+    /// The result is the seat and the font file's path.
+    fn with_a_font_path(dir: &Scratch) -> (Loop<App>, App, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let sub = dir.join("fonts/sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        for folder in [dir.to_path_buf(), dir.join("fonts"), sub.clone()] {
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let file = sub.join("a.bdf");
+        std::fs::write(&file, "a font").unwrap();
+        let batch = dir.join("batch.conf");
+        std::fs::write(&batch, format!("{}\n", file.display())).unwrap();
+        let fonts = two_cells_and_a_late_one(dir);
+        let paths = format!("--font-paths={}", dir.join("fonts").display());
+        let (lp, mut app) = seat_with(&["--font-name=a", "--font-size=0", &paths], None, fonts);
+        let me = rustix::process::geteuid().as_raw();
+        app.set_batch_places(
+            vtium_settings::batch::Places {
+                file: batch,
+                vconsole_conf: PathBuf::from("/dev/null"),
+                cmdline: PathBuf::from("/dev/null"),
+                palettes: dir.to_path_buf(),
+                ..vtium_settings::batch::Places::system()
+            },
+            vtium_settings::cullet::Rule::new(vtium_settings::Trust::owner(me)).below(dir),
+        );
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        (lp, app, file.display().to_string())
+    }
+
+    // A program switches the console to a font that root installed and
+    // trusts by the font file's path. vtium makes a font set of that one
+    // file, named by its path, and the head draws it. A switch to another
+    // font set and back by the path works again, and so does the switch
+    // back to the font set the head started in, by its name.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": OSC 50 takes the path of a font that passes the four checks.
+    // - ADR-1200 D5: every name the query reports is a name a switch accepts.
+    // covers: text.font-change
+    #[test]
+    fn osc_50_switches_to_a_qualifying_font_path_and_back() {
+        let dir = Scratch::new("app-font-path");
+        let (_lp, mut app, path) = with_a_font_path(&dir);
+        assert_eq!(app.font_name(), "a");
+        app.switch_font(0, &path);
+        assert_eq!(app.font_name(), path, "the head draws the font file");
+        let head = app.heads.first().unwrap();
+        assert_eq!(head.frit(), Some(path.as_str()));
+        assert_eq!(head.font_refused, 0, "nothing was refused");
+        let text = match head.chosen() {
+            Chosen::Frit { frit, .. } => frit.text.clone(),
+            Chosen::Builtin { .. } => String::new(),
+        };
+        assert_eq!(
+            text,
+            format!("source=file:{path}\n"),
+            "a font set made for the path"
+        );
+        assert!(app.frits.contains_key(&path), "with a helper of its own");
+        app.switch_font(0, "b");
+        assert_eq!(app.font_name(), "b");
+        assert!(!app.frits.contains_key(&path), "no head draws the path");
+        app.switch_font(0, &path);
+        assert_eq!(app.font_name(), path, "the path switches back");
+        app.switch_font(0, "a");
+        assert_eq!(app.font_name(), "a", "the start's font set, by its name");
+    }
+
+    // A program asks for a font file by a path that fails one of the four
+    // checks, each in turn. vtium leaves the font as it was each time, and
+    // counts each refusal until the next switch.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": the four checks, in their order.
+    // covers: text.font-change
+    #[test]
+    fn osc_50_leaves_the_font_for_a_path_that_fails_a_check() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("app-font-path-refused");
+        let (_lp, mut app, path) = with_a_font_path(&dir);
+        let outside = dir.join("elsewhere.bdf");
+        std::fs::write(&outside, "a font").unwrap();
+        let inactive = dir.join("fonts/sub/b.bdf");
+        std::fs::write(&inactive, "a font").unwrap();
+        let open = dir.join("fonts/open");
+        std::fs::create_dir_all(&open).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let untrusted = open.join("c.bdf");
+        std::fs::write(&untrusted, "a font").unwrap();
+        std::fs::write(
+            dir.join("batch.conf"),
+            format!("{}\n{}\n{}\n", path, outside.display(), untrusted.display()),
+        )
+        .unwrap();
+        app.return_font(0, app.heads.first().unwrap().console.id);
+        assert!(app.gate().holds(&untrusted), "the batch is read again");
+        let relative = path.trim_start_matches('/').to_owned();
+        for (n, bad) in [
+            relative,
+            outside.display().to_string(),
+            inactive.display().to_string(),
+            untrusted.display().to_string(),
+        ]
+        .iter()
+        .enumerate()
+        {
+            app.switch_font(0, bad);
+            assert_eq!(app.font_name(), "a", "check {}: {bad}", n + 1);
+            assert_eq!(
+                app.heads.first().unwrap().font_refused,
+                u64::try_from(n + 1).unwrap(),
+                "each refusal is counted"
+            );
+        }
+        app.switch_font(0, &path);
+        assert_eq!(app.font_name(), path, "a path that passes still switches");
+        assert_eq!(app.heads.first().unwrap().font_refused, 0);
     }
 
     // Head 0 draws frit a and has two consoles; console 2 is hidden. A
