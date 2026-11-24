@@ -561,8 +561,14 @@ fn frit_outline(text: &str) -> bool {
 /// `layer=` line. Such a source is one font at several heights, so its
 /// cell changes with the height it draws at.
 ///
+/// A first source that is a built-in font (`builtin:`) or the system's
+/// console font (`vconsole` or `console:`) takes no strikes. The font
+/// helper ignores a `strike=` line under such a source, so the console
+/// does not count one either, and both read the same set.
+///
 /// References:
 /// - ADR-1204 D2: the `strike=` key, and the strike each height draws.
+/// - ADR-1510 D2: the helper ignores a key where it does not apply, and reads the rest of the set.
 fn frit_struck(text: &str) -> bool {
     let mut keys = text.split('\n').filter_map(|line| {
         let (k, v) = line.split('#').next()?.split_once('=')?;
@@ -571,7 +577,8 @@ fn frit_struck(text: &str) -> bool {
     let Some((_, first)) = keys.by_ref().find(|(k, _)| *k == "source") else {
         return false;
     };
-    !(first.starts_with("outline:") || first.starts_with("font:"))
+    let unstruck = ["outline:", "font:", "builtin:", "console:"];
+    !(unstruck.iter().any(|kind| first.starts_with(kind)) || first == "vconsole")
         && keys
             .take_while(|(k, _)| *k != "source" && *k != "layer")
             .any(|(k, _)| k == "strike")
@@ -2117,6 +2124,12 @@ mod tests {
             ("source=outline:/f.ttf\nstrike=bdf:/12.bdf\n", false),
             ("source=font:Terminus\nstrike=bdf:/12.bdf\n", false),
             ("strike=bdf:/12.bdf\n", false),
+            // the helper ignores a strike= under a built-in font or the
+            // system's console font, so the set has no strikes
+            ("source=builtin:unifont\nstrike=kbd:ter-v16n\n", false),
+            ("source=builtin:unscii-8\nstrike=bdf:/12.bdf\n", false),
+            ("source=vconsole\nstrike=kbd:ter-v16n\n", false),
+            ("source=console:2\nstrike=kbd:ter-v16n\n", false),
         ] {
             assert_eq!(frit_struck(text), struck, "{text}");
         }

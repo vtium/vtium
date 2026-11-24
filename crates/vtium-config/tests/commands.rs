@@ -710,8 +710,23 @@ fn check_judges_a_frit_and_a_vtium_conf_and_writes_nothing() {
         "{}",
         ran.out
     );
+    // a key vtium does not know is reported with its line and ignored,
+    // and the font set reads
+    let newer = f.root.join("newer.vtfrit");
+    std::fs::write(&newer, "source=builtin:unifont\ncolour=red\n").expect("a frit");
+    let ran = f.run(&["check", newer.to_str().expect("a path")]);
+    assert_eq!(ran.status, 0, "{}", ran.err);
+    assert_eq!(
+        ran.out,
+        format!(
+            "warning\t{}:2: colour= is not a key vtium knows. vtium ignores this line and reads the rest of the font set.\nok\t{}\n",
+            newer.display(),
+            newer.display()
+        )
+    );
+    // a value the key cannot take refuses the font set
     let bad = f.root.join("bad.vtfrit");
-    std::fs::write(&bad, "source=builtin:unifont\ncolour=red\n").expect("a frit");
+    std::fs::write(&bad, "source=builtin:unifont\nantialias=red\n").expect("a frit");
     let ran = f.run(&["check", bad.to_str().expect("a path")]);
     assert_eq!(ran.status, 1, "{}", ran.out);
     assert!(ran.err.contains("bad.vtfrit:2"), "{}", ran.err);
@@ -786,7 +801,7 @@ fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
         "source=font:No Such Family Anywhere\nversion=2.304\nurl=https://example.org/nsfa\n",
     )
     .expect("a frit");
-    std::fs::write(fonts.join("broken.vtfrit"), "colour=red\n").expect("a frit");
+    std::fs::write(fonts.join("broken.vtfrit"), "antialias=red\n").expect("a frit");
     let ran = f.run(&["--font-dir", "/nonexistent", "fonts"]);
     assert_eq!(ran.status, 0, "{}", ran.err);
     let lines: Vec<&str> = ran.out.lines().collect();

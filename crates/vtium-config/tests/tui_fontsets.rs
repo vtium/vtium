@@ -472,7 +472,7 @@ fn the_font_list_names_the_sources_a_frit_lacks() {
 
 #[test]
 fn a_refused_frit_s_long_reason_wraps_by_words() {
-    let reason = "line 2: unknown key colour, which a frit spells color, as vtium.conf spells it in every key";
+    let reason = "line 2: antialias= takes auto or no, and this line gives it red, which is a color and not a way to draw the edges of a glyph";
     let mut inputs = inputs();
     inputs.fonts[0] = font("broken", FontState::Refused(reason.into()));
     let mut c = console().keys(&to_set(1));

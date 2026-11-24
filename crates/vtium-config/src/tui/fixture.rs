@@ -201,7 +201,7 @@ pub fn inputs() -> Inputs {
         head: None,
         locale: String::new(),
         installed: [
-            ("broken", &b"source=builtin:unifont\ncolour=red\n"[..]),
+            ("broken", &b"source=builtin:unifont\nantialias=red\n"[..]),
             ("minspec-16", b"source=builtin:unifont\n"),
             ("proof", b"source=font:JetBrains Mono\n"),
             ("tiny5", b"source=bdf:/x/Tiny5Mono.bdf\n"),
