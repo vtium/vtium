@@ -51,8 +51,7 @@ fn what_cannot_name_a_set_is_ignored() {
     let mut t = on();
     let long = format!("\x1b]50;{}\x07", "a".repeat(65));
     for seq in [
-        b"\x1b]50;/usr/share/kbd/consolefonts/ter-v16n.psf.gz\x07".as_slice(),
-        b"\x1b]50;-misc-fixed-medium-r-normal--13-*\x07",
+        b"\x1b]50;-misc-fixed-medium-r-normal--13-*\x07".as_slice(),
         b"\x1b]50;#+1\x07",
         b"\x1b]50;#\x07",
         b"\x1b]50;.hidden\x07",
@@ -72,6 +71,73 @@ fn what_cannot_name_a_set_is_ignored() {
     let longest = format!("\x1b]50;{}\x07", "a".repeat(64));
     t.input(longest.as_bytes());
     assert_eq!(t.take_font_request(), Some("a".repeat(64)));
+}
+
+// ADR-1200 D5: a Pt that holds `/` is a font file's path, which waits for
+// the host to check it. A relative path waits too, so that the host can
+// log why it refuses one.
+#[test]
+fn a_font_files_path_waits_for_the_host() {
+    let mut t = on();
+    let longest = format!("/{}", "a".repeat(4095));
+    for path in [
+        "/usr/share/kbd/consolefonts/ter-v16n.psf.gz",
+        "/usr/share/fonts/TTF/DejaVu Sans Mono.ttf",
+        "fonts/a.ttf",
+        longest.as_str(),
+    ] {
+        feed(&mut t, format!("\x1b]50;{path}\x07").as_bytes());
+        assert_eq!(t.take_font_request().as_deref(), Some(path));
+        assert_eq!(t.take_replies(), b"", "a path asked for gets no reply");
+    }
+}
+
+// ADR-1200 D5: a path longer than PATH_MAX, 4096 bytes, or one whose bytes
+// are not UTF-8 is dropped with no reply, as a bad name is. The parser
+// gives each byte that is not UTF-8 as U+FFFD, so that mark drops a path.
+#[test]
+fn a_path_too_long_or_not_utf8_is_dropped_with_no_reply() {
+    let mut t = on();
+    let long = format!("\x1b]50;/{}\x07", "a".repeat(4096));
+    for seq in [
+        long.as_bytes(),
+        b"\x1b]50;/usr/share/fonts/a\xff.ttf\x07",
+        b"\x1b]50;/usr/share/fonts/a\xc3.ttf\x1b\\",
+        "\x1b]50;/usr/share/fonts/a\u{fffd}.ttf\x07".as_bytes(),
+    ] {
+        feed(&mut t, seq);
+        assert_eq!(
+            t.take_font_request(),
+            None,
+            "{:?}",
+            String::from_utf8_lossy(seq)
+        );
+        assert_eq!(t.take_replies(), b"");
+    }
+}
+
+// ADR-1200 D5: once the host switches to a font file by its path, the
+// query reports that path, which a switch takes back. The host names only
+// an absolute path, of at most 4096 bytes, with no control character.
+#[test]
+fn the_query_names_the_font_file_the_host_switched_to() {
+    let mut t = on();
+    let path = "/usr/share/fonts/TTF/DejaVu Sans Mono.ttf";
+    assert!(t.set_font_name(path));
+    t.input(b"\x1b]50;?\x07");
+    assert_eq!(t.take_replies(), format!("\x1b]50;{path}\x07").as_bytes());
+    let long = format!("/{}", "a".repeat(4096));
+    for bad in ["fonts/a.ttf", "/a\x1b]0;evil", "/a\nb", long.as_str()] {
+        assert!(!t.set_font_name(bad), "{bad:?}");
+    }
+    assert!(t.set_font_name(&long[..4096]), "4096 bytes");
+    assert!(t.set_font_name(path));
+    t.input(b"\x1b]50;?\x1b\\");
+    assert_eq!(
+        t.take_replies(),
+        format!("\x1b]50;{path}\x1b\\").as_bytes(),
+        "the name before each refusal"
+    );
 }
 
 #[test]

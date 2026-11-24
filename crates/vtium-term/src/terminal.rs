@@ -498,10 +498,11 @@ impl Terminal {
         }
     }
 
-    /// Names the font set in use, which OSC 50's query reports: false,
-    /// keeping the name before, for a `name` that cannot name a set.
+    /// Names the font set in use, which OSC 50's query reports: a set's
+    /// name, or the absolute path of the font file the host made a set
+    /// of; false, keeping the name before, for any other `name`.
     pub fn set_font_name(&mut self, name: &str) -> bool {
-        let ok = font::is_set_name(name.as_bytes());
+        let ok = font::is_set_name(name.as_bytes()) || font::is_reported_path(name);
         if ok {
             self.state.host.font_name = Some(name.to_owned());
         }

@@ -8107,10 +8107,12 @@ mod tests {
         }
     }
 
-    /// A seat whose head draws frit `a`, with a font file `fonts/sub/a.bdf`
-    /// in the scratch folder `dir`, which `font-paths` names and the batch
-    /// lists, under the rule of the account the test runs as below `dir`.
-    /// The result is the seat and the font file's path.
+    /// A seat whose head draws frit `a` at a configured size of 16 points,
+    /// so that a switch waits for no font's own cell. A font file
+    /// `fonts/sub/a.bdf` sits in the scratch folder `dir`, which
+    /// `font-paths` names. The batch lists the file, under the rule of the
+    /// account the test runs as, below `dir`. The result is the seat and
+    /// the font file's path.
     fn with_a_font_path(dir: &Scratch) -> (Loop<App>, App, String) {
         use std::os::unix::fs::PermissionsExt;
         let sub = dir.join("fonts/sub");
@@ -8124,7 +8126,7 @@ mod tests {
         std::fs::write(&batch, format!("{}\n", file.display())).unwrap();
         let fonts = two_cells_and_a_late_one(dir);
         let paths = format!("--font-paths={}", dir.join("fonts").display());
-        let (lp, mut app) = seat_with(&["--font-name=a", "--font-size=0", &paths], None, fonts);
+        let (lp, mut app) = seat_with(&["--font-name=a", "--font-size=16", &paths], None, fonts);
         let me = rustix::process::geteuid().as_raw();
         app.set_batch_places(
             vtium_settings::batch::Places {
@@ -8159,10 +8161,13 @@ mod tests {
         let dir = Scratch::new("app-font-path");
         let (_lp, mut app, path) = with_a_font_path(&dir);
         assert_eq!(app.font_name(), "a");
-        app.switch_font(0, &path);
-        assert_eq!(app.font_name(), path, "the head draws the font file");
+        assert_eq!(osc50(&mut app, &path), format!("\x1b]50;{path}\x07"));
         let head = app.heads.first().unwrap();
-        assert_eq!(head.frit(), Some(path.as_str()));
+        assert_eq!(
+            head.frit(),
+            Some(path.as_str()),
+            "the head draws the font file"
+        );
         assert_eq!(head.font_refused, 0, "nothing was refused");
         let text = match head.chosen() {
             Chosen::Frit { frit, .. } => frit.text.clone(),
@@ -8174,13 +8179,34 @@ mod tests {
             "a font set made for the path"
         );
         assert!(app.frits.contains_key(&path), "with a helper of its own");
-        app.switch_font(0, "b");
-        assert_eq!(app.font_name(), "b");
+        assert_eq!(osc50(&mut app, "b"), "\x1b]50;b\x07");
         assert!(!app.frits.contains_key(&path), "no head draws the path");
-        app.switch_font(0, &path);
-        assert_eq!(app.font_name(), path, "the path switches back");
-        app.switch_font(0, "a");
-        assert_eq!(app.font_name(), "a", "the start's font set, by its name");
+        assert_eq!(
+            osc50(&mut app, &path),
+            format!("\x1b]50;{path}\x07"),
+            "the path the query reported switches back"
+        );
+        assert_eq!(
+            osc50(&mut app, "a"),
+            "\x1b]50;a\x07",
+            "the start's font set"
+        );
+    }
+
+    /// Sends `OSC 50 ; name ST` and the query from the shown console, runs
+    /// a turn after each, and gives the query's reply.
+    fn osc50(app: &mut App, name: &str) -> String {
+        let request = format!("\x1b]50;{name}\x07");
+        app.term_mut()
+            .unwrap()
+            .parse(request.as_bytes(), &mut |_| {});
+        app.turn(Instant::now());
+        let mut replies = Vec::new();
+        app.term_mut()
+            .unwrap()
+            .parse(b"\x1b]50;?\x07", &mut |r| replies.extend_from_slice(r));
+        app.turn(Instant::now());
+        String::from_utf8(replies).unwrap()
     }
 
     // A program asks for a font file by a path that fails one of the four
@@ -8221,16 +8247,23 @@ mod tests {
         .iter()
         .enumerate()
         {
-            app.switch_font(0, bad);
-            assert_eq!(app.font_name(), "a", "check {}: {bad}", n + 1);
+            assert_eq!(
+                osc50(&mut app, bad),
+                "\x1b]50;a\x07",
+                "check {}: {bad}",
+                n + 1
+            );
             assert_eq!(
                 app.heads.first().unwrap().font_refused,
                 u64::try_from(n + 1).unwrap(),
                 "each refusal is counted"
             );
         }
-        app.switch_font(0, &path);
-        assert_eq!(app.font_name(), path, "a path that passes still switches");
+        assert_eq!(
+            osc50(&mut app, &path),
+            format!("\x1b]50;{path}\x07"),
+            "a path that passes still switches"
+        );
         assert_eq!(app.heads.first().unwrap().font_refused, 0);
     }
 

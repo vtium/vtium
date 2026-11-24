@@ -7414,26 +7414,25 @@ fn osc_50_switches_back_to_each_font_a_head_starts_in() {
     }
 }
 
-// ADR-1200 D1, D5: a path under font-engine=psf and a family under
-// font-engine=pango are not frits' names, so OSC 50's query names no font
-// for them, and OSC 50 cannot name them
+// ADR-1200 D5: OSC 50's query reports the font set vtium made on the fly
+// for a path under font-engine=psf by that path. A family under
+// font-engine=pango holds spaces, which no name the query reports holds
+// yet, so the query names no font for it.
 #[test]
-fn osc_50_names_no_font_for_a_path_or_a_family() {
+fn osc_50_names_a_path_and_no_font_for_a_family() {
     let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
-    for (n, args) in [
-        ["--font-engine=psf", &format!("--font-name={path}")],
-        ["--font-engine=pango", "--font-name=DejaVu Sans Mono"],
+    for (n, (args, named)) in [
+        (["--font-engine=psf", &format!("--font-name={path}")], path),
+        (["--font-engine=pango", "--font-name=DejaVu Sans Mono"], ""),
     ]
     .into_iter()
     .enumerate()
     {
         let (_dir, fonts) = recording(&format!("osc50-unnamed-{n}"));
         let mut h = osc50(&args, "\\033]50;?\\007", fonts);
+        let reply = format!("]50;{named}^G");
         assert!(
-            h.until(BOUND, |a| a
-                .screen_text()
-                .iter()
-                .any(|l| l.ends_with("]50;^G"))),
+            h.until(BOUND, |a| a.screen_text().concat().contains(&reply)),
             "{args:?}: {:?}",
             h.app.screen_text()
         );
