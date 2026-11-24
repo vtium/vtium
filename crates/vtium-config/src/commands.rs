@@ -808,12 +808,13 @@ pub fn layer_order(frits: &Path, names: &[String]) -> Result<Vec<String>, String
 /// Checks the frit `text`, to be installed at `path` in the frits'
 /// directory, with the layers of that directory in place, as the console
 /// will hand it to the helper. A layer that this machine lacks or cannot
-/// read passes, since the console draws the set without it until it is
-/// there. Any other `layer=` line that would add nothing is refused, such
-/// as a layer that would take the set past its 16 sources, and so is a
-/// value in a layer that the helper would refuse. The answer is a warning
-/// for each line vtium ignores, in the frit's own lines and in its
-/// layers', as `vtium-config check` gives them.
+/// read passes with a warning, since the console draws the set without it
+/// until it is there. Any other `layer=` line that would add nothing is
+/// refused, such as a layer that would take the set past its 16 sources,
+/// and so is a value in a layer that the helper would refuse. The answer
+/// is a warning for each line vtium ignores, in the frit's own lines and
+/// in its layers', and then one for each layer it lacks or cannot read,
+/// as `vtium-config check` gives them.
 ///
 /// References:
 /// - ADR-1204 D5: the splice the console makes, and `new-frit --layer`.
@@ -842,7 +843,18 @@ fn check_layers(text: &str, path: &Path, name: &str) -> Result<Vec<FritError>, S
         let file = crate::frit::layer_file(&layers, &ignored.layer);
         crate::frit::ignored_warning(&file, &ignored.ignored)
     });
-    Ok(frit.warnings.into_iter().chain(ignored).collect())
+    // every note left is a layer this machine lacks or cannot read
+    let lacking = expanded.notes.iter().map(|note| FritError {
+        file: path.to_owned(),
+        line: note.line,
+        why: crate::frit::layer_why(&crate::frit::layer_file(&layers, &note.layer), note),
+    });
+    Ok(frit
+        .warnings
+        .into_iter()
+        .chain(ignored)
+        .chain(lacking)
+        .collect())
 }
 
 /// Checks the frit `text` that `new-frit` keeps as `name` in the current

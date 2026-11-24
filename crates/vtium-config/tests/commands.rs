@@ -517,6 +517,28 @@ fn new_frit_warns_of_each_line_vtium_ignores() {
             fonts.join("own.vtfrit").display()
         )
     );
+    // a layer= line that names a layer this machine lacks, or a layer it
+    // cannot read, keeps the frit and warns, as `vtium-config check` does
+    std::fs::write(layers.join("bad.vtlayer"), b"role=symbols\n\xff\n").expect("a layer");
+    std::fs::write(&file, "source=font:T\nlayer=gone\nlayer=bad\n").expect("the frit");
+    let ran = f.run(&[
+        "new-frit",
+        "--from",
+        file.to_str().expect("a path"),
+        "--name",
+        "holes",
+    ]);
+    f.kept(&ran, "holes.vtfrit");
+    let holes = fonts.join("holes.vtfrit");
+    assert_eq!(
+        ran.err,
+        format!(
+            "warning\t{0}:2: the layer gone is missing, because there is no file {1:?}. vtium draws the font set without that layer.\nwarning\t{0}:3: vtium-config cannot read the layer bad from {2:?}: the file is not UTF-8 text. vtium draws the font set without that layer.\n",
+            holes.display(),
+            layers.join("gone.vtlayer").display().to_string(),
+            layers.join("bad.vtlayer").display().to_string(),
+        )
+    );
 }
 
 // check FILE reads a frit's layers from the layers' folder of the frits'
