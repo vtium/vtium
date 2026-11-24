@@ -44,6 +44,21 @@ considered:
     said: "Measure first"
     via: "question tool, 2026-11-22, on how the faster-scroll work moves rows already drawn: that work measures moving the rows inside the display's buffer against a copy of the frame in system memory, 7.9 MiB at 1920×1080, in tier 3, and reports, and the maintainer picks from the numbers; the option's wording is the steering session's"
     paraphrase: true
+  - operator: aaronsb
+    said: "Yes, only text moves"
+    via: "question tool, 2026-11-24, after reading this record's changes of 2026-11-22 on a reading page, on what moves while the text slides: only the grid's text, its cursor and its pictures, while the mouse arrow, the border and vtium's notices stay where they are; the option's wording is the steering session's"
+    paraphrase: true
+    covers: [what moves]
+  - operator: aaronsb
+    said: "200 ms, tune at review"
+    via: "question tool, 2026-11-24, after reading this record's changes of 2026-11-22 on a reading page, on how far the picture may fall behind a fast program before it jumps by whole rows: smooth-scroll-max-delay defaults to 200 ms, and the VT review tunes it; the option's wording is the steering session's"
+    paraphrase: true
+    covers: [falling behind]
+  - operator: aaronsb
+    said: "Yes, share one copy"
+    via: "question tool, 2026-11-24, after reading this record's changes of 2026-11-22 on a reading page, on reading back the display's buffer: if the copy of the frame in system memory wins the faster-scroll work's tier 3 measurement, smooth scrolling's CPU ring grows out of that copy rather than adding a second one; the option's wording is the steering session's"
+    paraphrase: true
+    covers: [reading back the display's buffer]
 status: proposed
 date: 2026-11-17
 deciders:
@@ -60,13 +75,14 @@ related:
 
 - **Decided by the maintainer (2026-11-16):** vtium keeps a few rows above and below the screen drawn, the overscan, so that it can offer smooth scrolling: the text moves by pixels over a few frames instead of jumping a row at a time. The slide only lags the output by a bounded delay before it speeds up. The slide has a minimum speed, and when the output comes faster than the slide can show, the slide clamps to moving whole rows, one or several a frame, to keep up. The record also has to work out how the slide's frames line up with the loop's events. The effects pipeline gains a slot that works on characters and rows, beside the slot that works on the whole screen's texture, and the screen slot composes on top of it. Each slot states what it requires on the GPU path and on the CPU path, as the existing slots do, and vtium offers an effect only where its requirements hold. Every part sits behind a cargo feature, so the minspec build compiles none of it and keeps its memory and size figures.
 - **Decided by the maintainer (2026-11-17),** answering this record's five questions (`considered`): both the scrollback and new output slide, the scrollback first (D1); 4 overscan rows on each side, fixed (D2); vtium.conf sets each console's state at start and DECSCLM is respected after, as with the cursor's style (D8); smooth scrolling is off by default, and a burst of more than a screen of output skips the slide (D3, D7); and both paths slide, with the CPU path's cost measured first and its half shipped only if that cost is acceptable (D4, D6).
+- **Decided by the maintainer (2026-11-24),** answering this record's three probes (`considered`): during a slide only the grid's text, its cursor and its pictures move, while the mouse arrow, the border and vtium's notices stay where they are (D4); the maximum delay starts at 200 ms, and the VT review tunes it (D3, D7); and if the copy of the frame in system memory wins the faster-scroll work's measurement, smooth scrolling's CPU ring grows out of that copy instead of adding a second one (D6).
 - **Proposed by this record's agent, for the maintainer to confirm:** the overscan rows as a request on the frame snapshot, and an id for each row that moves with it (D2); the pacing as three rules on the distance the picture lags behind (D3); the character and row slot inside the composition, after the grid's cells and before the border, the pointer and the notices (D4); a ring of drawn rows on the GPU path (D5) and on the CPU path (D6); the feature `smooth-scroll` and four keys (D7); and the work in six slices (D9).
 - **Trades away:** A console that slides redraws the grid's area every frame of a slide, where it now redraws only the rows that changed, and keeps a ring of drawn rows, about the grid's own size again, for each display. The picture can lag the program's output by up to the bounded delay. On the CPU path every frame of a slide copies the whole grid's area into the display's buffer through the color table, which small hardware may not afford. Tests of the slide's frames run on given times, so the slide adds a place where time decides what a display shows.
 - **One-way?** No. Everything is behind a cargo feature and a key, and a build or a console without them scrolls by whole rows as today. The keys' names and DECSCLM's meaning become expensive to change once people set them.
 - **Probes:**
-  - *Confident (what moves):* while the text slides, the mouse arrow, the border around the text and vtium's notices stay where they are; only the text, its cursor and its pictures move. Is that what you want?
-  - *Not confident (falling behind):* when a program prints faster than the slide can show, the slide lets the picture fall up to a fifth of a second behind before it gives up and jumps by whole rows to catch up. Is a fifth of a second the right bound, or should it be shorter?
-  - *Not confident (reading back the display's buffer):* the faster-scroll work moves rows that are already drawn, so that a scroll on a slow CPU draws only the new line. It can move them inside the display's buffer, which costs no memory but reads memory the kernel often maps write-combined, slow to read, and D6 says vtium never reads that buffer back. Or it can keep a copy of the frame in system memory, 7.9 MiB at 1920×1080, and move the rows there. You decided on 2026-11-22 that the faster-scroll work measures both in tier 3 first and that you pick from its numbers (`considered`, "Measure first"). If the copy wins, should smooth scrolling's CPU ring of D6 grow out of that copy, rather than add a second one?
+  - *Confident (what moves):* while the text slides, the mouse arrow, the border around the text and vtium's notices stay where they are; only the text, its cursor and its pictures move. Is that what you want? (Answered 2026-11-24: only the text moves; see `considered`.)
+  - *Not confident (falling behind):* when a program prints faster than the slide can show, the slide lets the picture fall up to a fifth of a second behind before it gives up and jumps by whole rows to catch up. Is a fifth of a second the right bound, or should it be shorter? (Answered 2026-11-24: 200 ms to start, tuned at the VT review; see `considered`.)
+  - *Not confident (reading back the display's buffer):* the faster-scroll work moves rows that are already drawn, so that a scroll on a slow CPU draws only the new line. It can move them inside the display's buffer, which costs no memory but reads memory the kernel often maps write-combined, slow to read, and D6 says vtium never reads that buffer back. Or it can keep a copy of the frame in system memory, 7.9 MiB at 1920×1080, and move the rows there. You decided on 2026-11-22 that the faster-scroll work measures both in tier 3 first and that you pick from its numbers (`considered`, "Measure first"). If the copy wins, should smooth scrolling's CPU ring of D6 grow out of that copy, rather than add a second one? (Answered 2026-11-24: yes, the two share one copy; see `considered`.)
 - **Inversion:** Between "scroll by whole rows", which vtium does today and which never lags, and "an animation system", where every scroll eases over a fixed time whatever the output does. The answer slides by pixels while output is slow enough to show, falls back to whole rows when it is not, and never lets the picture fall further behind than one bound.
 
 ## Context
@@ -146,7 +162,9 @@ Under any answer, every other change jumps, as today, and ends any slide in prog
 
 1. **Speed.** s = d × t / c, where c is the catch-up time, `smooth-scroll-catch-up`. So a lag closes in about c. s is at least v × t, where v is the minimum speed, `smooth-scroll-min-speed`, in rows a second times a row's height, so the last pixels of a slide do not crawl. s is at most d, so the picture never moves past the text.
 2. **Whole rows when the output outruns the frames.** Let w be the lag that output and the person's scrolling added during the last catch-up time c. The lag then grows by about w × t / c a frame. When that pace is a row's height or more, the program prints a row a frame or faster, and vtium moves the picture by all the whole rows of d instead of by s. The text then moves by whole rows, one or several a frame, as vtium scrolls today. The fraction of a row left over waits, and slides under rule 1 once the output slows.
-3. **The bounded delay.** When the picture shows a state of the terminal that is older than the maximum delay, `smooth-scroll-max-delay`, or when d exceeds the K rows of overscan, vtium moves the picture at once by all the whole rows of d. Less than one row is then left to slide. So the picture is never more than the maximum delay, or K rows, behind the program's output.
+3. **The bounded delay.** When the picture shows a state of the terminal that is older than the maximum delay, `smooth-scroll-max-delay`, or when d exceeds the K rows of overscan, vtium moves the picture at once by all the whole rows of d. Less than one row is then left to slide. So the picture is never more than the maximum delay, or K rows, behind the program's output. **Decided by the maintainer (2026-11-24):** the maximum delay starts at 200 ms, a fifth of a second, and the VT review tunes it (`considered`).
+
+   > Note 2026-11-24: the last sentence of rule 3 is new on this date, from the maintainer's answer to the Summary's probe on falling behind (`considered`, "200 ms, tune at review"). Before it, the 200 ms default stood only in D7's list of keys, as this record's proposal.
 
 Rules 2 and 3 move the picture the same way, by all the whole rows of d, and differ in what starts them. Rule 2 follows how fast the lag grows, and rule 3 bounds how large or how old the lag is. Rule 3 keeps the lag at most K rows, so with the defaults rule 1's step reaches a row only when t is c / K, 20 ms, or longer. At 50 frames a second and faster, rule 2 is therefore the rule that moves the text by whole rows.
 
@@ -167,6 +185,10 @@ For example, take a 60 Hz display, rows 20 pixels high, c at 80 ms, v at 20 rows
 ### D4: the character and row slot
 
 **Decided by the maintainer (2026-11-16):** the effects pipeline gains a slot that works on characters and rows, beside the slot that works on the whole screen's texture. An effect for characters or rows is written apart from a whole-screen effect, and the screen slot composes on top of the character and row slot's output. Each slot states its requirements on the GPU path and on the CPU path. Smooth scrolling's row offset is the first effect in the new slot. In the maintainer's direction of 2026-11-14, an effect need not work on both paths: it declares what it requires, and vtium offers it only where its requirements hold.
+
+**Decided by the maintainer (2026-11-24):** only the grid's area slides: its text, its cursor and the pictures on its rows. The mouse arrow, the border around the text and vtium's notices stay where they are (`considered`).
+
+> Note 2026-11-24: the paragraph above is new on this date, from the maintainer's answer to the Summary's probe on what moves (`considered`, "Yes, only text moves"). The paragraph below proposed it before, as where the slot sits.
 
 **Proposed, where it sits.** The character and row slot sits inside ADR-1303's composition, after the grid's cells are drawn and before the border, the pointer, the notices and the focus mark. What the slot moves is therefore the grid's text, its cursor and the pictures on its rows. The border is drawn around the grid's area after the slot, the pointer and the notices over it, so none of them moves. The slot's output is the grid's area of the upright frame, which the screen slot then reads with everything else, as ADR-1303 D5 decides. This record calls it the row slot for short.
 
@@ -192,6 +214,8 @@ At each frame the row slot draws the grid's area of the upright frame from the r
 
 > Note 2026-11-22: the faster-scroll work meets this rule. To move rows already drawn, that work either moves them inside the display's buffer, which reads the buffer back, or keeps a copy of the frame in system memory, 7.9 MiB at 1920×1080, which is this section's ring under another name. The maintainer decided on 2026-11-22 that the faster-scroll work measures both in tier 3's guest and reports, and that the maintainer picks from the numbers (`considered`, "Measure first"). The rule above stands until then, and the Summary asks the maintainer about it as a probe. A pick of the first way bends the rule for the scroll record's row move in every build. A pick of the second makes that copy the ring this section's CPU half starts from.
 
+> Note 2026-11-24: the maintainer answered the Summary's probe on reading back the display's buffer (`considered`, "Yes, share one copy"). If the copy in system memory wins the faster-scroll work's measurement and the maintainer picks it, smooth scrolling's CPU ring grows out of that copy and adds no second one. Until the maintainer picks from the numbers, the rule that vtium never reads back from the display's buffer stands as written above.
+
 **Cost.** Each frame of a slide writes the grid's whole area: 7.9 MiB a frame at 1920×1080, about 475 MiB a second at 60 Hz, and a color table lookup for each pixel under a look with color filters. That is cheap on a desktop and may not be on small ARM hardware. Before the CPU path's half is built, the work measures a slide of tier 3's screens in its 1-vCPU guest and on an ARM board, and reports the frame times to the maintainer. A head whose CPU path cannot keep the display's refresh draws the slide at the rate it reaches, since rule 3 of D3 bounds the lag in time and not in frames.
 
 ### D7: the feature and the keys
@@ -207,7 +231,9 @@ At each frame the row slot draws the grid's area of the upright frame from the r
   - `smooth-scroll-min-speed`, the minimum speed v, in rows a second, 1 to 200, default 20;
   - `smooth-scroll-max-delay`, the maximum delay, in milliseconds, 50 to 1,000, default 200.
 
-  The defaults are starting values, which the VT review tunes.
+  The defaults are starting values, which the VT review tunes. The maintainer chose the maximum delay's 200 ms on 2026-11-24 on those terms (D3, `considered`).
+
+  > Note 2026-11-24: the second sentence is new on this date, from the maintainer's answer to the Summary's probe on falling behind (`considered`, "200 ms, tune at review").
 - **The overscan.** K is a row of vtium-render's bounds table, 4, not a key, as the maintainer decided on 2026-11-17 (D2).
 
 ### D8: DECSCLM
@@ -258,7 +284,7 @@ Outside the records, the slices change docs/architecture.md's table of where tim
 
 ## Open questions
 
-None remain. The maintainer answered the five questions below on 2026-11-17, each as this record leaned (`considered`), and each answer is written into the section it settles: D1, D2, D3 and D7, D8, and D4 and D6. The questions stay below as they were put, with their leans and their cases for and against.
+None remain. The maintainer answered the five questions below on 2026-11-17, each as this record leaned (`considered`), and each answer is written into the section it settles: D1, D2, D3 and D7, D8, and D4 and D6. The questions stay below as they were put, with their leans and their cases for and against. The maintainer answered the Summary's three probes on 2026-11-24 (`considered`), and D3, D4, D6 and D7 hold the answers.
 
 1. **Which scrolls slide: scrolling back through the scrollback (the wheel, Shift+PageUp), new output scrolling the screen, or both?** Lean: both, with the scrollback built first. For: a slide through the scrollback is where a person's eye follows the text most closely, and it needs no pacing against a program, so it is the simpler first step; output that slides is what DECSCLM asks for, and what makes a slow log readable as it scrolls. Against: an output slide brings the pacing, the bounded delay and the hold into play, which is most of this record's risk; sliding the scrollback alone would need none of D3's rules but the first.
 2. **How many overscan rows?** Lean: as many as one frame's slide can reveal, a small fixed number, which this record proposes as 4 on each side. For: the bounded delay of D3 caps the lag at K rows, so K only needs to cover the lag at the slowest frame rate, and 4 rows cost little memory. Against: a larger K lets the slide hold its pace through a burst of a few more lines before it jumps, and a K tied to the screen's height would scale with a tall portrait display.
