@@ -411,7 +411,7 @@ A page is one file, `tools/vt/sections/NN-name.sh`. Its output is deterministic.
 
 ## Locale mode scripts
 
-The locale mode scripts in `tools/vt/locale/` switch a vtium console into one language, for a tour, a test or the demo image. Each script switches the console's font set to one that covers the language's script, and sets `LANG` in the shell. Then it prints what it set and returns. ADR-1511 D3 decides what the scripts do, and the demo image's builder copies them in.
+The locale mode scripts in `tools/vt/locale/` switch a vtium console into one language, for a tour, a test or the demo image. Each script switches the console's font set to one that covers the language's script, and sets `LANG` in the shell. Then it prints what it set and returns. ADR-1511 D3 decides what the scripts do.
 
 | Script | Language | Font set | `LANG` | Keyboard layout |
 |---|---|---|---|---|
@@ -421,7 +421,7 @@ The locale mode scripts in `tools/vt/locale/` switch a vtium console into one la
 | `ar.sh` | Arabic, written right to left | `noto-arabic` | `ar_EG.UTF-8` | `ara` |
 | `he.sh` | Hebrew, written right to left | `noto-hebrew` | `he_IL.UTF-8` | `il` |
 
-A script is sourced, as in `. tools/vt/locale/ja.sh`, because a program cannot change the environment of the shell that started it. The font set switches through `vtium-config use-frit`, which sends OSC 50 and checks that vtium took the set. When vtium does not take it, the script leaves `LANG` as it was and returns 1. The switch lasts until the console's session ends. The font sets must be in vtium's frits directory, and the font helper leaves out any font they name that the machine lacks. The locale must be generated too, or programs fall back to the C locale.
+A script is sourced, as in `. tools/vt/locale/ja.sh`, because a program cannot change the environment of the shell that started it. The font set switches through `command vtium-config use-frit`, which sends OSC 50 and checks that vtium took the set. `command` skips any shell function or alias named `vtium-config`. When vtium does not take the set, the script leaves `LANG` as it was, prints a line that says so, and returns 1. In a shell with `set -e`, the script returns 0 instead, so the failure does not exit the shell. The switch lasts until the console's session ends. The font sets must be in vtium's frits directory, and the font helper leaves out any font they name that the machine lacks. The locale must be generated too, or programs fall back to the C locale.
 
 vtium sets the keyboard layout when it starts, so the scripts cannot switch it. Each script names its language's layout instead, for the `xkb-layout` key in vtium.conf. A build with logind also follows a change to the system's keyboard layout while it runs, but that change reaches every console.
 
