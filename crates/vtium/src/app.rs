@@ -165,6 +165,31 @@ pub const LEAVE_WAIT: Duration = Duration::from_millis(100);
 /// is `never` (ADR-1401 D5): it answers one press, so it still goes.
 const BRIEF_NEVER: Duration = Duration::from_secs(3);
 
+/// The longest part of a font's name, in bytes, that an OSC 50 log line
+/// shows.
+const LOGGED_NAME_MAX: usize = 200;
+
+/// A font's name as an OSC 50 log line shows it. A program chooses the
+/// name, so vtium escapes each character that is not printable, such as
+/// DEL, a C1 control or a right-to-left override, as `\u{7f}`. Such a
+/// character could otherwise hide or reorder what a person reads in the
+/// log. A name longer than [`LOGGED_NAME_MAX`] bytes is cut short at a
+/// character's boundary, and a mark says so and gives the whole name's
+/// length.
+fn logged_name(name: &str) -> String {
+    let mut end = name.len().min(LOGGED_NAME_MAX);
+    while !name.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    let (kept, cut) = name.split_at(end);
+    let shown = kept.escape_debug().to_string();
+    if cut.is_empty() {
+        shown
+    } else {
+        format!("{shown}... (cut short: the name has {} bytes)", name.len())
+    }
+}
+
 /// Why vtium ends, and its exit status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Exit {
@@ -1562,13 +1587,15 @@ impl App {
                         refused.saturating_sub(1)
                     );
                 }
-                log::info!("OSC 50: the font is now {current}");
+                log::info!("OSC 50: the font is now {}", logged_name(&current));
             }
             Err(why) => {
                 if head.font_refused == 0 {
                     log::warn!(
-                        "OSC 50 asked for the font {name}: {}; the font stays {current}, and OSC 50's further refusals are counted until a switch",
-                        why.trim_end_matches('.')
+                        "OSC 50 asked for the font {}: {}; the font stays {}, and OSC 50's further refusals are counted until a switch",
+                        logged_name(name),
+                        why.trim_end_matches('.'),
+                        logged_name(&current)
                     );
                 }
                 head.font_refused = head.font_refused.saturating_add(1);

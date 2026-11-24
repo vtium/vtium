@@ -7259,11 +7259,14 @@ fn shows_whole_font_reply(app: &App, name: &str) -> bool {
     })
 }
 
-// vtium/vtium#384, ADR-1200 D5: OSC 50's query reports a name OSC 50
-// takes for the font on screen, never a font that is not shown. The first
-// session switches to frit b; when it ends, vtium returns the head to the
-// font file vtium.conf's `font-name` gives, so the next session's query
-// names that file's path, not b.
+// vtium/vtium#384: OSC 50's query reports a name OSC 50 takes for the
+// font on screen, never a font that is not shown. The first session
+// switches to frit b. When it ends, vtium returns the head to the font
+// file vtium.conf's `font-name` gives, so the next session's query names
+// that file's path, not b.
+//
+// References:
+// - ADR-1200 D5: the query reports a frit made from a path by that path.
 #[test]
 fn after_a_return_to_a_font_file_the_query_names_its_path() {
     let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
