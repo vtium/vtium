@@ -499,19 +499,23 @@ impl Terminal {
     }
 
     /// Names the font set in use, which OSC 50's query reports: a set's
-    /// name, or the absolute path of the font file the host made a set
-    /// of; false, keeping the name before, for any other `name`.
+    /// name, the name of the outline family the host made a set of, or
+    /// the absolute path of the font file the host made a set of, in its
+    /// plain form (`terminal/font.rs` gives each rule). It returns false,
+    /// keeping the name before, for any other `name`.
     pub fn set_font_name(&mut self, name: &str) -> bool {
-        let ok = font::is_set_name(name.as_bytes()) || font::is_reported_path(name);
+        let ok = font::is_set_name(name.as_bytes())
+            || font::is_family(name)
+            || font::is_reported_path(name);
         if ok {
             self.state.host.font_name = Some(name.to_owned());
         }
         ok
     }
 
-    /// Says that the font in use has no name a set can take, as a font
-    /// file's path or a family has: OSC 50's query then reports no name,
-    /// so it never names a set that is no longer shown.
+    /// Says that the font in use has no name OSC 50's query can report:
+    /// the query then reports no name, so it never names a set that is no
+    /// longer shown.
     pub fn clear_font_name(&mut self) {
         self.state.host.font_name = None;
     }
