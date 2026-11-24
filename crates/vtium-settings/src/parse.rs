@@ -1449,7 +1449,10 @@ impl Parser {
                 looks,
                 heads,
                 rules,
-                survivors: !self.errors.is_empty(),
+                // a key vtium ignores drops nothing, so the file runs as
+                // written beside it, as it does with no error at all
+                survivors: self.scopes.iter().any(|s| s.drops())
+                    || self.policies.contains(&PolicyLine::Unreadable),
                 tail: None,
                 labels: std::mem::take(&mut self.labels),
             };

@@ -319,9 +319,8 @@ impl Drops {
             (Scope::Head, _) => Drops::Head,
             (Scope::Section, _) => Drops::Section,
             (Scope::Line, Within::Rules) => Drops::Rule,
-            (Scope::Line, Within::Top | Within::Header | Within::Head | Within::Look) => {
-                Drops::Line
-            }
+            (Scope::Line, Within::Top | Within::Header | Within::Head | Within::Look)
+            | (Scope::Key, _) => Drops::Line,
         }
     }
 }

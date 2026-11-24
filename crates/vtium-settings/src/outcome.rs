@@ -162,6 +162,18 @@ closed! {
         Section = "section",
         /// One line: a rule, which falls through to the next one, or a top-level key.
         Line = "line",
+        /// One key inside a head's or a look's section that vtium ignores: a key it does not know, a known key the section does not take, or a head key a later release renamed. The key is reported, but it drops nothing else, so it leaves the file's outcome as an unknown top-level key does: the file runs as written.
+        Key = "key",
+    }
+}
+
+impl Scope {
+    /// Whether an error of this scope drops something, which makes the file one with errors: every scope but a key vtium ignores, which leaves the file running as written.
+    pub fn drops(self) -> bool {
+        match self {
+            Scope::File | Scope::Head | Scope::Section | Scope::Line => true,
+            Scope::Key => false,
+        }
     }
 }
 
@@ -519,7 +531,7 @@ pub fn resolve(read: &Read) -> Outcome {
 }
 
 impl Trusted {
-    /// A trusted file's levels from what its parse found: every `policy` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads the order of the top-level keys, so no outcome depends on it. A policy line vtium cannot read makes the file closed and broken, whatever else it holds; else a readable closed policy wins over every other line. A second readable policy line is a key given twice, an error of the rest. A `policy` line inside a section states no policy, since the file's policy comes from the lines above the first section, and it leaves the file partly broken (ADR-1401 D7).
+    /// A trusted file's levels from what its parse found: every `policy` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads the order of the top-level keys, so no outcome depends on it. A policy line vtium cannot read makes the file closed and broken, whatever else it holds; else a readable closed policy wins over every other line. A key vtium ignores inside a section drops nothing, so it leaves the rest valid. A second readable policy line is a key given twice, an error of the rest. A `policy` line inside a section states no policy, since the file's policy comes from the lines above the first section, and it leaves the file partly broken (ADR-1401 D7).
     pub fn of(policies: &[PolicyLine], scopes: &[Scope], kept: Kept) -> Trusted {
         let count = |want: PolicyLine| policies.iter().filter(|&&p| p == want).count();
         let (open, closed) = (count(PolicyLine::Open), count(PolicyLine::Closed));
@@ -531,11 +543,11 @@ impl Trusted {
         };
         let whole = scopes.iter().any(|s| match s {
             Scope::File => true,
-            Scope::Head | Scope::Section | Scope::Line => false,
+            Scope::Head | Scope::Section | Scope::Line | Scope::Key => false,
         });
         let kept = if whole { Kept::Nothing } else { kept };
         // a second readable policy line and a misplaced one are errors of the rest
-        let clean = scopes.is_empty()
+        let clean = !scopes.iter().any(|s| s.drops())
             && open.saturating_add(closed) <= 1
             && count(PolicyLine::InSection) == 0;
         let rest = match (clean, kept) {
@@ -549,11 +561,12 @@ impl Trusted {
     }
 }
 
-/// What the error `problem`, on a line `within` the file, takes down. An error inside a head's section drops that head, but a key vtium does not know, or one that the section does not take, drops only its line. A bad rule drops that rule alone, and an error that leaves the file's structure or format untrustworthy drops the whole file. No error leaves a readable `policy` line unread: a trusted file always fails to its policy, and only one that fails the trust check or cannot be opened fails open. A problem that leaves the file unread is no scope: `scope` gives the first level's verdict as the error, [`Read::Untrusted`] or [`Read::Inaccessible`], so it never reaches [`Trusted::of`].
+/// What the error `problem`, on a line `within` the file, takes down. An error inside a head's section drops that head, but a key vtium does not know, or one that the section does not take, drops only its line and leaves the file's outcome as it is. A bad rule drops that rule alone, and an error that leaves the file's structure or format untrustworthy drops the whole file. No error leaves a readable `policy` line unread: a trusted file always fails to its policy, and only one that fails the trust check or cannot be opened fails open. A problem that leaves the file unread is no scope: `scope` gives the first level's verdict as the error, [`Read::Untrusted`] or [`Read::Inaccessible`], so it never reaches [`Trusted::of`].
 ///
 /// References:
 /// - ADR-1401 D7, "The rest": what each error drops.
 /// - ADR-1510 D2: an unknown or misplaced key drops only its line, and a bad value still drops its section.
+/// - ADR-1401 D7, the note of 2026-11-23: a key vtium ignores does not make the file one with errors.
 pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
     let fixed = match problem {
         Problem::NotAFile | Problem::Unreadable(_) => return Err(Read::Inaccessible),
@@ -586,14 +599,17 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         // A key vtium does not know drops only its line, so an older vtium
         // keeps the rest of a section that a newer one wrote. A known key in
         // a section that does not take it counts as an unknown key, and so
-        // does a head key that a later release renamed.
+        // does a head key that a later release renamed. Such a key drops
+        // nothing else, so the file runs as written, as it does beside an
+        // unknown top-level key.
         //
         // References:
         // - ADR-1510 D2: an unknown or misplaced key is ignored alone, and a bad value still drops the section.
+        // - ADR-1401 D7, the note of 2026-11-23: a key vtium ignores does not make the file one with errors.
         Problem::UnknownKey(_)
         | Problem::NotHere { .. }
         | Problem::Renamed(Renamed::OnLoss | Renamed::Rescue | Renamed::Profile) => {
-            Some(Scope::Line)
+            Some(Scope::Key)
         }
         // a line that is not UTF-8 or holds a control character but a CRLF's carriage return is a bad line of its section
         Problem::NotUtf8

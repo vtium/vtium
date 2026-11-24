@@ -5,8 +5,9 @@
 
 use vtium_settings::keys::Level;
 use vtium_settings::{
-    Config, Drops, Kind, LOOKS_MAX, Policy, Problem, Reading, Renamed, Syntax, TEMPLATE, Target,
-    Warning, key_line, parse_sections, sections, setting, split, value_for,
+    Config, Drops, Kind, LOOKS_MAX, Policy, Problem, Reading, Renamed, Rest, Stated, Syntax,
+    TEMPLATE, Target, Trusted, Warning, key_line, parse_sections, sections, setting, split,
+    value_for,
 };
 
 /// D4's example with a login for one head: two looks, two heads and five
@@ -593,6 +594,56 @@ fn a_bad_value_still_drops_the_head_beside_an_ignored_key() {
     assert_eq!(errors(&top), []);
     assert_eq!(top.parsed.config.looks.len(), 1);
     assert_eq!(top.parsed.config.heads.len(), 1);
+}
+
+// A key vtium ignores inside a section drops nothing, so it leaves the
+// file's outcome as an unknown top-level key does: the file counts as
+// valid and runs as written, under either policy. An error that drops
+// something still makes the file partly broken.
+//
+// References:
+// - ADR-1510 D2: an ignored key in a section counts toward the outcome as an unknown top-level key does.
+// - ADR-1401 D7: a file with errors that drop something runs what survives.
+#[test]
+fn a_key_vtium_ignores_in_a_section_leaves_the_file_valid() {
+    let ignored = [
+        "[head h]\nisolated = yes\nfrob = 1\n",
+        "[head h]\nisolated = yes\nfont-size = 12\n",
+        "[head h]\nisolated = yes\nrescue = off\n",
+        "[head h]\nisolated = yes\non-loss = hangup\n",
+        "[head h]\nisolated = yes\nprofile = big\n",
+        "[look x]\nfrob = 1\nfont-size = 14\n[head h]\nlook = x\nisolated = yes\n",
+        "[look x]\nlogin = /bin/sh\n[head h]\nlook = x\nisolated = yes\n",
+    ];
+    for (policy, stated) in [("", Stated::Unset), ("policy = closed\n", Stated::Closed)] {
+        for sections in ignored {
+            let text = format!("version = 1\n{policy}{sections}[rules]\ndisplay * -> h\n");
+            let r = read(&text);
+            assert_eq!(
+                r.errors.errors.len(),
+                1,
+                "{text}: the key is still reported"
+            );
+            assert_eq!(
+                r.trusted(),
+                Trusted {
+                    stated,
+                    rest: Rest::Valid
+                },
+                "{text}"
+            );
+            // so under open the shipped rules' tail does not run after the
+            // file's rules, and each head keeps its `isolated`
+            assert!(!r.parsed.config.survivors, "{text}");
+        }
+        // an error that drops a rule beside the ignored key still counts
+        let text = format!(
+            "version = 1\n{policy}[head h]\nfrob = 1\n[rules]\ndisplay * -> h\ninput * -> nosuch\n"
+        );
+        let r = read(&text);
+        assert_eq!(r.trusted().rest, Rest::Partly, "{text}");
+        assert!(r.parsed.config.survivors, "{text}");
+    }
 }
 
 #[test]

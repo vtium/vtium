@@ -5804,6 +5804,36 @@ fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() 
     );
 }
 
+/// A key vtium ignores inside a head's section drops nothing, so the file
+/// runs as written under either policy: the head keeps `isolated = yes`,
+/// so the VT key pressed on its keyboard switches no VT, and the head
+/// shows no notice that the file has errors.
+///
+/// References:
+/// - ADR-1510 D2: an ignored key in a section counts toward the outcome as an unknown top-level key does.
+/// - ADR-1401 D7: only errors that drop something make a file partly broken.
+// covers: platform.heads.policy
+#[test]
+fn a_key_vtium_ignores_in_a_head_leaves_the_file_running_as_written() {
+    for policy in ["", "policy = closed\n"] {
+        let text = format!(
+            "version = 1\n{policy}[head desk]\nisolated = yes\nfrob = 1\n[rules]\ndisplay * -> desk\ninput path:kbd-desk -> desk\n"
+        );
+        let displays = [(
+            "/dev/mem0",
+            Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+        )];
+        let mut s = Seat::with_rules(&[], Some(start(&text)), displays, ECHO, no_fonts());
+        s.app.add_input(Path::new(KBD_A), keyboard("kbd-desk"));
+        assert!(s.until(BOUND, |a| head_shows(a, "desk", "ready")), "{text}");
+        let names: Vec<&str> = s.app.heads().iter().map(Head::name).collect();
+        assert_eq!(names, ["desk"], "{text}: what runs");
+        assert_eq!(notice(&s.app, "desk"), None, "{text}: no errors notice");
+        s.app.device_input(Path::new(KBD_A), vt_key(), now());
+        assert!(s.app.vt.is_active(), "{text}: desk stays isolated");
+    }
+}
+
 /// D7 and D9: a broken closed file runs nothing. The boot display shows
 /// the panic screen alone, on the notice screen, with no session behind
 /// it, still up past 30 s, and no keyboard delivers anything.
