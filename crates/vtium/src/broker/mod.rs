@@ -872,19 +872,27 @@ mod tests {
     /// is missing.
     #[test]
     fn a_drawer_that_reads_again_is_served_again() {
+        /// The named pipe, removed when the test ends, whether it passes
+        /// or fails.
+        struct Fifo(std::path::PathBuf);
+        impl Drop for Fifo {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
         let fifo =
-            std::env::temp_dir().join(format!("vtium-broker-backlog-{}", std::process::id()));
-        let _ = std::fs::remove_file(&fifo);
+            Fifo(std::env::temp_dir().join(format!("vtium-broker-backlog-{}", std::process::id())));
+        let _ = std::fs::remove_file(&fifo.0);
         rustix::fs::mknodat(
             rustix::fs::CWD,
-            &fifo,
+            &fifo.0,
             rustix::fs::FileType::Fifo,
             rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
             0,
         )
         .unwrap();
         let told = Arc::new(AtomicBool::new(false));
-        let (path, seen) = (fifo.clone(), Arc::clone(&told));
+        let (path, seen) = (fifo.0.clone(), Arc::clone(&told));
         let ran = bounded(move || {
             let full = Rc::new(Cell::new(false));
             let ran = broker_serving("backlog:7", &[(FIFO, &path)], LONG, |ping, _| {
@@ -897,7 +905,6 @@ mod tests {
             seen.store(full.get(), Ordering::Relaxed);
             (ran.status, ran.restored)
         });
-        let _ = std::fs::remove_file(&fifo);
         assert!(
             told.load(Ordering::Relaxed),
             "the broker's queue never filled"
