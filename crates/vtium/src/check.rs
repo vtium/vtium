@@ -431,27 +431,22 @@ fn font_paths_notes(config: &Config) -> Vec<String> {
 }
 
 /// What check-config notes of the `font-paths` folder `dir`, judging its
-/// filesystem by `mounts` ([`font_paths_notes`]).
+/// filesystem by `mounts` ([`font_paths_notes`]). The folder is judged by
+/// [`font::trusted_folder`], the check OSC 50 applies to the folder of a
+/// font it is given by path, so check-config notes exactly the folders
+/// whose fonts OSC 50 refuses. The rule is root's, because the console
+/// runs as root, whoever runs the check.
+///
+/// References:
+/// - ADR-1200 D5, "A qualifying font": OSC 50's fourth check, the trust rule on the font's folder.
 fn font_path_note(dir: &Path, mounts: &vtium_settings::mounts::Mounts) -> Option<String> {
     use std::os::unix::fs::PermissionsExt;
     let shown = dir.to_string_lossy();
     let Ok(meta) = std::fs::metadata(dir) else {
         return Some(check_config::font_path_missing(&shown));
     };
-    // vtium-settings checks a folder on its own only through the gate of a
-    // pointer theme, which the batch must list first. So a gate whose batch
-    // lists only this folder judges the folder under the trust rule. The
-    // rule is root's, because the console runs as root, whoever runs the
-    // check.
-    let listed = vtium_settings::batch::Batch::new(vec![vtium_settings::batch::Entry::Path(
-        dir.to_path_buf(),
-    )]);
-    let gate = vtium_settings::cullet::Gate::new(
-        vtium_settings::cullet::Rule::new(Trust::ROOT),
-        Some(mounts.clone()),
-        listed,
-    );
-    if let Err(refused) = gate.theme(dir) {
+    let rule = vtium_settings::cullet::Rule::new(Trust::ROOT);
+    if let Err(refused) = font::trusted_folder(dir, rule, Some(mounts.clone())) {
         let why = match &refused.check {
             vtium_settings::cullet::Check::Untrusted(Untrusted::Owner { path, uid }) => {
                 check_config::font_path_owner(path, *uid)
@@ -1740,6 +1735,42 @@ mod tests {
                 "/etc/vtium/vtium.conf:4: vtium treats the color scheme open as missing, so the heads that use look warm draw the color scheme that vtium.conf's top level names instead, or legacy when that one fails too.".to_owned(),
             ]
         );
+    }
+
+    // check-config and OSC 50 judge a folder of `font-paths` by one rule,
+    // so a folder whose fonts OSC 50 refuses gets check-config's note that
+    // vtium draws no font from it, and a folder OSC 50 accepts gets none.
+    // The test runs as an ordinary user, so its own scratch folders are
+    // folders a user owns: one plain, one reached through a symbolic link.
+    // The check is root's, since the console runs as root.
+    //
+    // References:
+    // - ADR-1200 D5, "A qualifying font": OSC 50's fourth check, the trust rule on the font's folder.
+    // - ADR-1205 D4: the trust rule on a resource and every folder above it.
+    #[test]
+    fn check_config_notes_each_font_folder_that_osc_50_refuses() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("check-font-folder-rule");
+        let mounts = vtium_settings::mounts::Mounts::system().unwrap_or_default();
+        let (plain, linked) = (dir.join("fonts"), dir.join("linked"));
+        std::fs::create_dir(&plain).expect("a font folder");
+        std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o755))
+            .expect("a folder others can read");
+        std::os::unix::fs::symlink(&plain, &linked).expect("a link to the folder");
+        for folder in [&plain, &linked] {
+            let refused = font::trusted_folder(
+                folder,
+                vtium_settings::cullet::Rule::new(Trust::ROOT),
+                Some(mounts.clone()),
+            )
+            .is_err();
+            let note = font_path_note(folder, &mounts);
+            let untrusted = note
+                .as_deref()
+                .is_some_and(|n| n.contains("vtium draws no font from"));
+            assert_eq!(untrusted, refused, "{}: {note:?}", folder.display());
+            assert!(refused, "OSC 50 takes fonts from {}", folder.display());
+        }
     }
 
     // check-config names each pointer file vtium would not read and the
