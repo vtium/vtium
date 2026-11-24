@@ -3839,12 +3839,15 @@ mod tests {
         }
     }
 
-    // ADR-1401 D3, D9: the head file has no `[guards]` and no `rescue`, so
-    // a file in the first cut's names counts against itself, each error
-    // naming the word that replaced the old one. The old `rescue` key drops
-    // only its own line and head kiosk keeps running, while the unknown
-    // `[guards]` section drops whole, so the start runs the parts without
-    // errors (ADR-1510 D2)
+    // The head file has no `[guards]` and no `rescue`, so a file in the
+    // first cut's names counts against itself, each error naming the word
+    // that replaced the old one. The old `rescue` key drops only its own
+    // line and head kiosk keeps running, while the unknown `[guards]`
+    // section drops whole, so the start runs the parts without errors.
+    //
+    // References:
+    // - ADR-1401 D3, D9: the names that replaced `[guards]` and `rescue`.
+    // - ADR-1510 D2: an unknown or renamed key drops only its line.
     #[test]
     fn the_first_cuts_guards_and_rescue_count_against_the_file() {
         let (out, f) = checked(

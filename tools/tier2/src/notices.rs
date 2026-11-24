@@ -20,17 +20,23 @@ const ONE_ERROR: &str = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n"
 /// vtium cannot read, which drops the head: broken, under open.
 const TWO_ERRORS: &str = "version = 1\n[head desk]\nisolated = maybe\n[rules]\ndisplay * -> desc\n";
 
-/// A closed kiosk's vtium.conf with four errors in its sections: a
-/// `consoles` value below its least and an `isolated` value vtium cannot
-/// read, each of which drops the head, a rule naming a head the file does
-/// not declare, and a second `[rules]`. No head survives, so the start
-/// shows the panic screen (ADR-1401 D7).
+/// A closed kiosk's vtium.conf with four errors in its sections:
+/// `consoles = 0`, below the least value it takes, and an `isolated` value
+/// vtium cannot read, each of which drops the head, a rule naming a head
+/// the file does not declare, and a second `[rules]`. No head survives, so
+/// the start shows the panic screen.
+///
+/// References:
+/// - ADR-1401 D7: a closed file with no head left shows the panic screen.
 const BROKEN_CLOSED: &str = "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\nisolated = maybe\n[rules]\ndisplay * -> kisok\n[rules]\ninput * -> kiosk\n";
 
-/// A closed kiosk's vtium.conf with one error in its sections: a
-/// `consoles` value below its least, which drops the head. No head
-/// survives, so the start shows the panic screen with that one error
-/// (ADR-1401 D7).
+/// A closed kiosk's vtium.conf with one error in its sections:
+/// `consoles = 0`, below the least value it takes, which drops the head.
+/// No head survives, so the start shows the panic screen with that one
+/// error.
+///
+/// References:
+/// - ADR-1401 D7: a closed file with no head left shows the panic screen.
 const ONE_ERROR_CLOSED: &str =
     "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\n[rules]\ndisplay * -> kiosk\n";
 

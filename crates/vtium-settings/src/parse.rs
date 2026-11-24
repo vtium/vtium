@@ -1004,9 +1004,13 @@ impl Parser {
     }
 
     /// One line of a look's section: `vtlook`, or a key of the key table a
-    /// look may set, its value checked against the key's values and bounds
-    /// (ADR-1403 D5). A key vtium does not know, or one a look does not
-    /// take, drops only its line, and any other error drops the look.
+    /// look may set, its value checked against the key's values and bounds.
+    /// A key vtium does not know, or one a look does not take, drops only
+    /// its line, and any other error drops the look.
+    ///
+    /// References:
+    /// - ADR-1403 D5: the keys a look takes.
+    /// - ADR-1510 D2: an unknown or misplaced key drops only its line.
     fn look_key(&mut self, n: usize, index: usize, line: &str) {
         let Some((key, value)) = key_value(line) else {
             self.error(Some(n), Problem::Syntax(Syntax::NotKeyValue), Within::Look);
