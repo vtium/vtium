@@ -515,6 +515,36 @@ VARIANTS["images-login-640x480"] = dict(VARIANTS["images-640x480"],
                                         login_shot="login-image", login=False,
                                         screens=[], prelogin=False, rpc_pipefs=False)
 IMAGE_VARIANTS = ["images-640x480", "images-640x480-nobody", "images-login-640x480"]
+# The setting helper-sandbox=off on the images machine and tree: the frit
+# dejavu-mono, which the font helper generates at run time ("deferred_frits"),
+# draws the login prompt, and img-png's pictures start the image helper, so
+# both helpers run without their seccomp filters and landlock domains. The
+# check sandbox-off (t3_images) reads each helper's line about the setting on
+# the console's log. Its cases judge nothing but the check ("verdict"), since
+# images-640x480 judges img-png's pictures, and it switches no VT. It runs
+# only when named.
+#
+# References:
+# - ADR-1200 D15, "A setting turns the sandbox off" and "Nothing on screen,
+#   and the log says why": the setting and the line each helper's log gets.
+# - ADR-1101 D9, "The sandbox setting": what the image helper leaves out.
+VARIANTS["sandbox-off-640x480"] = {
+    "device": "virtio-vga,xres=640,yres=480,edid=on",
+    "display": "none",
+    "conf": "vtium-sandbox-off.conf",
+    "renderer": "cpu",
+    "cpus": 1,
+    "memory_mb": 512,
+    "images": True,
+    "tree_features": ["images"],
+    "pictures": True,
+    "rpc_pipefs": True,
+    "deferred_frits": ["dejavu-mono.vtfrit"],
+    "screens": ["img-png"],
+    "verdict": "capture",
+    "vt_switch": False,
+    "checks": [t3_images.SANDBOX_OFF],
+}
 
 # The showcase (ADR-1502 D6, t3_showcase): the default machine at 1920x1080,
 # its console built with images and bidi, so the scripts scene's Arabic and
@@ -1850,7 +1880,8 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               **t3_handover.CHECK_RUNS,
               **t3_apply.CHECK_RUNS,
               **t3_keyecho.CHECK_RUNS,
-              **t3_heads.CHECK_RUNS}
+              **t3_heads.CHECK_RUNS,
+              **t3_images.CHECK_RUNS}
 
 
 def log_in(vm, tmp, prompt, log):

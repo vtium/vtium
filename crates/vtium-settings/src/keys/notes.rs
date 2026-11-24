@@ -340,6 +340,11 @@ pub static NOTES: [Note; KEYS.len()] = [
         "[the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145); the maintainer's decision of 2026-11-01",
     ),
     note(
+        HELPER_SANDBOX,
+        "vtium",
+        "[the image helper issue](https://github.com/vtium/vtium/issues/31); the maintainer's decision of 2026-11-22",
+    ),
+    note(
         FONT_SIZE,
         "vtium-font",
         "kmscon's `font-size` key; vtium-font's `CELL_SIDE_MAX`; [the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145)",

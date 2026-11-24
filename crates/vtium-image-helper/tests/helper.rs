@@ -169,24 +169,28 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
         eprintln!("skipped: {why}");
         return;
     }
-    every_kind_of_request(&mut ImageHost::new(Some(program()), None));
+    every_kind_of_request(&mut ImageHost::new(Some(program()), None), SECCOMP);
 }
 
+/// Whether the helper installs its seccomp filter on this architecture.
+const SECCOMP: bool = cfg!(any(target_arch = "x86_64", target_arch = "aarch64"));
+
 /// Every kind of request sent to the helper `host` starts, each reply
-/// checked, and none of them a crash.
-fn every_kind_of_request(host: &mut ImageHost) {
+/// checked, and none of them a crash; the helper's hello says its seccomp
+/// filter is in force when `seccomp`.
+fn every_kind_of_request(host: &mut ImageHost, seccomp: bool) {
+    // each run's files are its own, since two tests run it at once
+    static RUNS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut leftovers = Leftovers::default();
-    let dir = leftovers.dir("kinds");
+    let dir = leftovers.dir(&format!("kinds-{run}"));
 
     // inline raw pixels with zlib, converted and premultiplied
     let z = miniz_oxide::deflate::compress_to_vec_zlib(&STRAIGHT, 6);
     let r = raw(Medium::Direct(z), Layout::Rgba, 2, 1, true);
     assert_eq!(picture(ask(host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
     let hello = host.hello().unwrap();
-    assert_eq!(
-        hello.seccomp,
-        cfg!(any(target_arch = "x86_64", target_arch = "aarch64"))
-    );
+    assert_eq!(hello.seccomp, seccomp);
 
     // inline PNG, and PNG inside zlib held to an exact length
     let file = png(2, 1, &STRAIGHT);
@@ -244,9 +248,10 @@ fn every_kind_of_request(host: &mut ImageHost) {
     assert_eq!(picture(ask(host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
 
     // a temporary file is read and removed
-    let temp = leftovers.add(
-        std::env::temp_dir().join(format!("tty-graphics-protocol-gate-{}", std::process::id())),
-    );
+    let temp = leftovers.add(std::env::temp_dir().join(format!(
+        "tty-graphics-protocol-gate-{}-{run}",
+        std::process::id()
+    )));
     std::fs::write(&temp, &file).unwrap();
     let r = Request {
         png: true,
@@ -256,7 +261,7 @@ fn every_kind_of_request(host: &mut ImageHost) {
     assert!(!temp.exists(), "the temporary file is removed once read");
 
     // shared memory: a valid picture removes the object, a short one stays
-    let name = format!("vtium-image-gate-{}", std::process::id());
+    let name = format!("vtium-image-gate-{}-{run}", std::process::id());
     let shm = leftovers.add(Path::new("/dev/shm").join(&name));
     std::fs::write(&shm, [1, 2, 3, 4, 5, 6]).unwrap();
     let short = raw(
@@ -388,7 +393,10 @@ fn a_stream(host: &mut ImageHost) {
     let mut leftovers = Leftovers::default();
     // frames from shared memory never make a stream: each has a fresh
     // worker and a fresh reply file
-    let name = format!("vtium-image-stream-{}", std::process::id());
+    // each run's object is its own, since two tests run it at once
+    static RUNS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = format!("vtium-image-stream-{}-{run}", std::process::id());
     let shm = leftovers.add(Path::new("/dev/shm").join(&name));
     for n in 0..5u8 {
         std::fs::write(&shm, [n, 2, 3, 0xff, 4, 5, 6, 0xff]).unwrap();
@@ -566,8 +574,16 @@ fn the_real_helper_serves_every_request_on_a_kernel_without_landlock() {
     if std::env::var_os(NO_LANDLOCK).is_some() {
         hide_landlock();
         let mut host = ImageHost::new(Some(program()), None);
-        every_kind_of_request(&mut host);
-        assert_eq!(host.hello().unwrap().landlock, 0, "landlock is hidden");
+        every_kind_of_request(&mut host, SECCOMP);
+        let hello = host.hello().unwrap();
+        assert_eq!(hello.landlock, 0, "landlock is hidden");
+        // a kernel of 5.13 or later whose landlock query answers ENOSYS
+        // was built without landlock, and the hello says so
+        assert_eq!(
+            hello.no_landlock,
+            Some(vtium_image::decode::wire::NoLandlock::NotBuilt)
+        );
+        assert_eq!(hello.no_seccomp, None);
         a_stream(&mut ImageHost::new(Some(program()), None));
         return;
     }
@@ -582,6 +598,161 @@ fn the_real_helper_serves_every_request_on_a_kernel_without_landlock() {
         "{stdout}{}",
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+/// The seccomp filters process `pid` runs under, as its status counts
+/// them; `None` where the kernel does not count them.
+fn filters_of(pid: &str) -> Option<u32> {
+    std::fs::read_to_string(format!("/proc/{pid}/status"))
+        .unwrap()
+        .lines()
+        .find_map(|l| l.strip_prefix("Seccomp_filters:"))
+        .map(|n| n.trim().parse().unwrap())
+}
+
+// The gate with the sandbox off: vtium.conf's helper-sandbox=off reaches
+// the helper as `--sandbox=off`, and the helper then installs no filter
+// and its workers add none and enter no landlock domain. Every kind of
+// request and a stream are still served, and the helper runs under no
+// filter beyond the test's own; a worker that added one, or that the
+// helper still expected to be locked in, would fail a request as a
+// crash.
+//
+// References:
+// - ADR-1101 D9, "The sandbox setting" and "The gate, with the sandbox
+//   off".
+#[test]
+fn the_real_helper_with_the_sandbox_off_serves_every_request_without_its_filters() {
+    let ours = filters_of("thread-self");
+    let mut host = ImageHost::new(Some(program().sandboxed(false)), None);
+    every_kind_of_request(&mut host, false);
+    // the hello gives the setting as the reason for both parts
+    let hello = host.hello().unwrap();
+    assert_eq!(
+        (hello.no_seccomp, hello.no_landlock),
+        (
+            Some(vtium_image::decode::wire::NoSeccomp::Off),
+            Some(vtium_image::decode::wire::NoLandlock::Off)
+        )
+    );
+    assert_eq!(
+        filters_of(&host.pid().unwrap().to_string()),
+        ours,
+        "the helper added a seccomp filter"
+    );
+    a_stream(&mut ImageHost::new(Some(program().sandboxed(false)), None));
+}
+
+// A `--sandbox=` value other than on or off is a usage error: the helper
+// exits with status 2 before it looks for its socket, so a typo can
+// neither turn the sandbox off nor start a helper. `on` and `off` pass
+// the check, and the helper started here then exits with status 3,
+// because the test gives it no socket.
+//
+// References:
+// - ADR-1101 D9, "The sandbox setting": the option and its two values.
+#[test]
+fn a_sandbox_value_other_than_on_or_off_exits_with_status_2() {
+    let run = |arg: &str| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_vtium-image"))
+            .arg(arg)
+            .env_clear()
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .code()
+    };
+    for bad in ["--sandbox=OFF", "--sandbox=", "--sandbox", "--sandbox=yes"] {
+        assert_eq!(run(bad), Some(2), "{bad}");
+    }
+    for good in ["--sandbox=on", "--sandbox=off"] {
+        assert_eq!(run(good), Some(3), "{good}");
+    }
+}
+
+/// Set in the child process that the kernel-refusal test starts.
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64"
+))]
+const SECCOMP_REFUSED: &str = "VTIUM_TEST_SECCOMP_REFUSED";
+
+// A kernel that offers seccomp filters and refuses the helper's: a filter
+// of the test's own makes `seccomp` answer EPERM, so the helper's filter
+// fails to install while its status shows a kernel with seccomp filters.
+// The helper then exits before its hello, and the request fails as a
+// crash. The same kernel runs a helper started with the sandbox off,
+// which installs no filter.
+//
+// References:
+// - ADR-1101 D9, "A kernel without seccomp filters": a kernel that offers
+//   the filters and refuses the helper's ends it, as before.
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64"
+))]
+#[test]
+fn a_kernel_that_refuses_the_filter_ends_the_helper_unless_the_sandbox_is_off() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    const NAME: &str = "a_kernel_that_refuses_the_filter_ends_the_helper_unless_the_sandbox_is_off";
+    if std::env::var_os(SECCOMP_REFUSED).is_some() {
+        refuse_seccomp();
+        let r = Request {
+            inflate: true,
+            ..raw(
+                Medium::Direct(miniz_oxide::deflate::compress_to_vec_zlib(&STRAIGHT, 6)),
+                Layout::Rgba,
+                2,
+                1,
+                true,
+            )
+        };
+        let mut refused = ImageHost::new(Some(program()), None);
+        assert_eq!(ask(&mut refused, &r), Reply::Failed);
+        assert!(refused.hello().is_none(), "the helper sent a hello");
+        let mut off = ImageHost::new(Some(program().sandboxed(false)), None);
+        assert_eq!(picture(ask(&mut off, &r)), (2, 1, PREMULTIPLIED.to_vec()));
+        return;
+    }
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([NAME, "--exact", "--nocapture", "--test-threads=1"])
+        .env(SECCOMP_REFUSED, "1")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.contains(&format!("test {NAME} ... ok")),
+        "{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Makes `seccomp` answer EPERM on the calling thread and every process it
+/// forks from now on, as a kernel that refuses a process's filter does.
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64"
+))]
+fn refuse_seccomp() {
+    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
+    #[cfg(target_arch = "x86_64")]
+    let arch = TargetArch::x86_64;
+    #[cfg(target_arch = "aarch64")]
+    let arch = TargetArch::aarch64;
+    #[cfg(target_arch = "riscv64")]
+    let arch = TargetArch::riscv64;
+    let rules = [(libc::SYS_seccomp, Vec::new())].into();
+    let eperm = SeccompAction::Errno(libc::EPERM as u32);
+    let filter = SeccompFilter::new(rules, SeccompAction::Allow, eperm, arch).unwrap();
+    seccompiler::apply_filter(&BpfProgram::try_from(filter).unwrap()).unwrap();
 }
 
 /// Makes `landlock_create_ruleset` answer ENOSYS on the calling thread and

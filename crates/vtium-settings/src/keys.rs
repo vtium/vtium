@@ -1383,6 +1383,18 @@ pub const FONT_HELPER: Key = Key {
            [docs] The default is the path vtium was built with.",
 };
 
+pub const HELPER_SANDBOX: Key = Key {
+    name: "helper-sandbox",
+    short: None,
+    kind: Kind::Choice(&["off", "on"]),
+    default: Default::Text("on"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    what: "Whether the font helper and the image helper lock themselves in with seccomp filters and landlock.\n\n\
+           When off, a font or an image that takes over a helper can reach the network and change the files of the helper's account.\n\n\
+           [docs] The rest of the helpers' sandbox stays: an account that is never root, no capabilities, no new privileges, an empty environment, and memory and CPU limits. vtium still checks everything a helper sends back. A helper taken over can also signal and trace its account's other processes. Turn the sandbox off only when vtium runs inside another sandbox whose kernel refuses the helpers' filters, or to find out whether the sandbox causes a failure. Only vtium.conf and vtium's command line set it, so a font set, a look or a program cannot. On a kernel built without seccomp filters, the helpers run without them even when this key is on, and vtium logs why.",
+};
+
 pub const FONT_SIZE: Key = Key {
     name: "font-size",
     short: None,
@@ -1461,9 +1473,9 @@ pub const ALLOW_FONT_OPS: Key = Key {
            A program switches with `OSC 50 ; NAME ST` and asks with `OSC 50 ; ? ST`. vtium reads both as xterm's control sequences define OSC 50.\n\n\
            A switch lasts until that program's session ends. vtium then returns to the font and size that `font-name` and `font-size` set.\n\n\
            [docs] `vtium-config use-frit NAME` switches the font with the same sequence.\n\n\
-           [docs] The query reports the name of the font on screen. A font file's path or a font family is not a name a switch takes, so the query then reports no name.\n\n\
+           [docs] The query reports the name of the font on screen: the name of a font set or of a built-in font. A font that `font-name` gives as a file's path or as a font family is reported by that path or by the family's name. A program can send the reported name back to return to that font.\n\n\
            When off, vtium ignores OSC 50, queries included.\n\n\
-           [docs] It is on by default. A program can choose only an installed font set, a built-in font or the font its console started in, never another file.\n\n\
+           [docs] The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when `batch.conf` lists it and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See [Active fonts](fonts.md#active-fonts).\n\n\
            [docs] vtium reads a font set only when root owns it and no other user can change it or a folder above it.",
 };
 
@@ -1504,7 +1516,7 @@ pub const GLYPH_SOURCE: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     what: "Who draws box-drawing, block and similar characters (six ranges): the font, or vtium itself.\n\n\
-           `font` uses the font's characters, `sprites` uses vtium's own drawings, and `auto` uses the font's where the font has the character. When unset, vtium uses the font for each range the font covers completely and its own drawings for the rest; with the built-in unifont, vtium always draws them itself.",
+           `font` uses the font's characters, `sprites` uses vtium's own drawings, and `auto` uses the font's where the font has the character. When unset, vtium draws all six ranges itself, unless a font set's own `glyph-source` lines say otherwise. This key and the per-range keys override those lines.",
 };
 
 pub const GLYPH_SOURCE_BOX: Key = Key {
@@ -2076,7 +2088,7 @@ pub const LOGIN_IMAGE_SCALE: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 139] = [
+pub static KEYS: [Key; 140] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2181,6 +2193,7 @@ pub static KEYS: [Key; 139] = [
     FONT_FRITS,
     FONT_PATHS,
     FONT_HELPER,
+    HELPER_SANDBOX,
     FONT_SIZE,
     FONT_HINTING,
     FONT_LINE_SPACING,
@@ -2560,7 +2573,7 @@ pub const SECTIONS: [Section; 11] = [
     },
     Section {
         title: "Running vtium",
-        about: "Where vtium finds its configuration, its log, the font helper that draws a font's characters, and the character cache.",
+        about: "Where vtium finds its configuration, its log, the font helper that draws a font's characters, the helpers' sandbox, and the character cache.",
         groups: &[
             Group {
                 title: "Command line",
@@ -2573,6 +2586,10 @@ pub const SECTIONS: [Section; 11] = [
             Group {
                 title: "Font helper",
                 keys: &[&FONT_HELPER],
+            },
+            Group {
+                title: "Helper sandbox",
+                keys: &[&HELPER_SANDBOX],
             },
             Group {
                 title: "Character cache",

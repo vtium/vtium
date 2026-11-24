@@ -5,24 +5,29 @@
 //! A key vtium does not know changes one setting at most, so the reader
 //! reports it as a warning naming the file and the line, ignores it, and
 //! reads the rest of the set. So does a known key that stands where it
-//! cannot apply, such as `render=` under a bitmap source. A malformed line
-//! or a value a key cannot take refuses the whole frit, naming the file and
-//! the line, because the helper runs unattended and a half-read frit draws
-//! the wrong glyphs.
+//! cannot apply, such as `render=` under a bitmap source, whatever its
+//! value, even an empty one. A malformed line, or a value that a key
+//! cannot take where it applies, refuses the whole frit, naming the file
+//! and the line, because the helper runs unattended and a half-read frit
+//! draws the wrong glyphs.
 //!
-//! A layer file is read first by vtium-font's layer reader, which still
-//! refuses a layer that holds a key a layer does not take, such as `cell=`.
-//! vtium then loads the set without that layer, so such a line never
-//! reaches this reader from a layer file.
+//! A layer file is read first by vtium-font's layer reader. That reader
+//! leaves blank each line a layer cannot hold, such as `cell=` or a key
+//! vtium does not know, and notes it. [`Frit::load_in`] reports each note
+//! with the layer's file and line, and the layer's other lines join the
+//! set. vtium-font's `scope` module decides which source a key describes
+//! and which sources take `strike=` and `script-source=`, for this reader
+//! and for the console's readers of a frit's text alike.
 //!
 //! References:
 //! - ADR-1200 D1: the frit's keys, and the refusal of the whole frit.
-//! - ADR-1510 D2: an unknown or misplaced key is ignored alone.
+//! - ADR-1510 D2: an unknown or misplaced key is ignored alone, whatever
+//!   its value.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use vtium_font::set::layer;
+use vtium_font::set::{layer, scope};
 use vtium_font::spacing::{Fit, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{Cell, Style};
@@ -30,7 +35,7 @@ use vtium_font::{Cell, Style};
 /// The most bytes a frit holds, and with its layers in place.
 pub const FRIT_BYTES_MAX: usize = layer::SET_BYTES_MAX;
 /// The most bytes one line holds.
-pub const FRIT_LINE_MAX: usize = 4096;
+pub const FRIT_LINE_MAX: usize = layer::LINE_MAX;
 /// The most sources a frit names, its layers' sources included.
 pub const FRIT_SOURCES_MAX: usize = layer::SET_SOURCES_MAX;
 /// The smallest and largest side of the cell `cell=` states, in pixels,
@@ -502,6 +507,17 @@ fn known(key: &str) -> bool {
 /// What a message about a line that vtium ignores ends with.
 const IGNORED: &str = "vtium ignores this line and reads the rest of the font set.";
 
+/// The warning for the line `ignored` of the layer in `file`, which the
+/// layer reader leaves blank because a layer cannot hold it. The rest of
+/// the layer and of the font set still reads.
+pub(crate) fn ignored_warning(file: &Path, ignored: &layer::Ignored) -> FritError {
+    FritError {
+        file: file.to_owned(),
+        line: ignored.line,
+        why: format!("{} {IGNORED}", ignored.why),
+    }
+}
+
 /// A parsed frit.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Frit {
@@ -648,9 +664,12 @@ impl Frit {
     /// `layer=` line, as the console hands the frit to the helper. A
     /// `layer=` line that adds nothing, such as one naming a missing layer
     /// or a layer whose structure is wrong, is a warning, and the set
-    /// reads without that layer, as the console draws it. A value in a
-    /// layer that the reader refuses refuses the frit, as the helper
-    /// refuses it, and the error names the layer's file and line.
+    /// reads without that layer, as the console draws it. A line that a
+    /// layer cannot hold, such as a key vtium does not know, is a warning
+    /// that names the layer's file and line, and the layer's other lines
+    /// stay in the set. A value in a layer that the reader refuses refuses
+    /// the frit, as the helper refuses it, and the error names the layer's
+    /// file and line.
     ///
     /// References:
     /// - ADR-1204 D5: layers, read from the `layers/` folder of the frits'
@@ -674,6 +693,14 @@ impl Frit {
         let file_of = |name: &str| layer_file(layers, name);
         let expanded = layer::expand(&own.text, &mut |name| read_layer(layers, name));
         let mut frit = Frit::parse_spliced(expanded.text.as_bytes(), path, stem, layers)?;
+        // the layers' lines that the splice left blank, which the spliced
+        // text no longer holds for the reader to report
+        frit.warnings.extend(
+            expanded
+                .ignored
+                .iter()
+                .map(|ignored| ignored_warning(&file_of(&ignored.layer), &ignored.ignored)),
+        );
         frit.warnings
             .extend(expanded.notes.iter().map(|note| FritError {
                 file: path.to_owned(),
@@ -686,10 +713,21 @@ impl Frit {
 
     /// Reads a layer's bytes strictly, as a frit's are read: its structure
     /// first, `role=` and then sources and the keys that describe them,
-    /// and then every value. `file` names it in errors, each naming the
-    /// layer's own line, and `name` is the layer's name. The layer's role
-    /// is the answer.
-    pub fn parse_layer(bytes: &[u8], file: &Path, name: &str) -> Result<layer::Role, FritError> {
+    /// and then every value. `file` names it in errors and warnings, each
+    /// naming the layer's own line, and `name` is the layer's name. The
+    /// answer is the layer's role and a warning for each line vtium
+    /// ignores, in the order of lines: a line the layer cannot hold, such
+    /// as a key vtium does not know, and a source's key where it does not
+    /// apply.
+    ///
+    /// References:
+    /// - ADR-1510 D2: an unknown or misplaced key is reported with its
+    ///   file and line, and ignored alone.
+    pub fn parse_layer(
+        bytes: &[u8],
+        file: &Path,
+        name: &str,
+    ) -> Result<(layer::Role, Vec<FritError>), FritError> {
         let err = |line: usize, why: String| FritError {
             file: file.to_owned(),
             line,
@@ -698,8 +736,15 @@ impl Frit {
         let text = std::str::from_utf8(bytes)
             .map_err(|_| err(0, "the file is not UTF-8 text.".to_owned()))?;
         let parsed = layer::parse(text).map_err(|e| err(e.line, e.why))?;
-        Frit::parse_part(parsed.body.as_bytes(), (file, &[]), name, Part::Layer)?;
-        Ok(parsed.role)
+        let read = Frit::parse_part(parsed.body.as_bytes(), (file, &[]), name, Part::Layer)?;
+        let mut warnings: Vec<FritError> = parsed
+            .ignored
+            .iter()
+            .map(|ignored| ignored_warning(file, ignored))
+            .chain(read.warnings)
+            .collect();
+        warnings.sort_by_key(|warning| warning.line);
+        Ok((parsed.role, warnings))
     }
 
     /// Parses a frit's bytes; `file` names it in errors and `stem` is the
@@ -773,9 +818,9 @@ impl Frit {
         // the sources a `style=` line has named, by their place
         let mut styled: Vec<usize> = Vec::new();
         let mut layers: Vec<(usize, String)> = Vec::new();
-        // whether the last key line was a `layer=` line, so that no key
-        // after it describes a source above it
-        let mut after_layer = false;
+        // the source that a source's key on each line describes, or why
+        // it describes none
+        let mut current_source = scope::CurrentSource::default();
         // whether the last line that named a font file was a `strike=`
         // line, so that a `sha256=` line gives that strike's hash
         let mut strike_open = false;
@@ -792,15 +837,20 @@ impl Frit {
             if body.is_empty() {
                 continue;
             }
-            let Some((key, value)) = body.split_once('=') else {
+            // a line with no `=`, or with nothing before it, has no key,
+            // so it is malformed and refuses the set, as in a layer
+            let Some((key, value)) = body
+                .split_once('=')
+                .map(|(key, value)| (key.trim(), value.trim()))
+                .filter(|(key, _)| !key.is_empty())
+            else {
                 return Err(err(n, "the line is not key=value"));
             };
-            let (key, value) = (key.trim(), value.trim());
+            let describes = current_source.read(key, value);
             // a spliced text's `layer=` line with no name closes a layer's
             // lines, or stands for a `layer=` line that added nothing
             if part == Part::Spliced && key == "layer" && value.is_empty() {
                 open = None;
-                after_layer = true;
                 continue;
             }
             // A line that vtium reads no further: reported with its file
@@ -816,11 +866,24 @@ impl Frit {
             if !known(key) {
                 ignore!(format!("{key}= is not a key vtium knows."));
             }
-            if value.is_empty() {
-                return Err(err(n, &format!("{key}= has no value")));
-            }
-            if value.chars().any(char::is_control) {
-                return Err(err(n, &format!("{key}= contains a control character")));
+            // A value that is empty or holds a control character is one
+            // vtium cannot use. It refuses the set only where the key
+            // applies: each arm below asks for a usable value once it has
+            // found that its key applies on this line, and a key that does
+            // not apply is ignored whatever its value.
+            let unusable = if value.is_empty() {
+                Some(format!("{key}= has no value"))
+            } else if value.chars().any(char::is_control) {
+                Some(format!("{key}= contains a control character"))
+            } else {
+                None
+            };
+            macro_rules! usable {
+                () => {
+                    if let Some(why) = &unusable {
+                        return Err(err(n, why));
+                    }
+                };
             }
             let once = |seen: bool| {
                 if seen {
@@ -832,36 +895,25 @@ impl Frit {
             // the lines of a layer describe the layer's sources, so a key
             // of the whole set, or one that only a frit's own source takes,
             // has nothing to act on there
-            if part == Part::Layer || open.is_some() {
-                if key != "layer"
-                    && (layer::SET_KEYS.contains(&key) || key.starts_with("glyph-source-"))
-                {
-                    ignore!(format!(
-                        "{key}= is a font set's key, which applies to every source, so a layer cannot set it."
-                    ));
-                }
-                if layer::FRIT_ONLY_SOURCE_KEYS.contains(&key) {
-                    ignore!(format!(
-                        "{key}= describes a font set's own source, and a layer's source does not take it."
-                    ));
-                }
+            if (part == Part::Layer || open.is_some())
+                && let Some(why) = layer::not_in_layer(key)
+            {
+                ignore!(why);
             }
             // the source a key that describes a source is for: the last
             // source= line, or why there is none for it
             let current = |sources: &[Source]| -> Result<usize, String> {
-                if after_layer {
-                    return Err(format!(
-                        "{key}= follows a layer= line, which has no source for it to describe. Put {key}= in the layer's file, or after a source= line of the font set."
-                    ));
+                match describes.why_nothing(key) {
+                    Some(why) => Err(why),
+                    None => sources
+                        .len()
+                        .checked_sub(1)
+                        .ok_or_else(|| "there is no source line".to_owned()),
                 }
-                sources.len().checked_sub(1).ok_or_else(|| {
-                    format!(
-                        "{key}= comes before any source= line, so it has no source to describe."
-                    )
-                })
             };
             match key {
                 "layer" => {
+                    usable!();
                     if !layer::valid_name(value) {
                         return Err(err(
                             n,
@@ -869,16 +921,17 @@ impl Frit {
                         ));
                     }
                     layers.push((n, value.to_owned()));
-                    after_layer = true;
                     if part == Part::Spliced {
                         open = Some(value.to_owned());
                     }
                 }
                 "name" => {
+                    usable!();
                     once(name.is_some())?;
                     name = Some(value.to_owned());
                 }
                 "source" => {
+                    usable!();
                     if sources.len() >= FRIT_SOURCES_MAX {
                         return Err(err(
                             n,
@@ -900,7 +953,6 @@ impl Frit {
                         layer: open.clone(),
                         needs: Needs::default(),
                     });
-                    after_layer = false;
                     strike_open = false;
                     set = Some((n, None));
                 }
@@ -925,6 +977,7 @@ impl Frit {
                             "unimap= is for a source without its own map, and the source above it maps its own characters."
                         );
                     }
+                    usable!();
                     if value.contains('/') && !value.starts_with('/') {
                         return Err(err(
                             n,
@@ -938,6 +991,7 @@ impl Frit {
                         Ok(i) => i,
                         Err(why) => ignore!(why),
                     };
+                    usable!();
                     let ranges = cover(value).map_err(|why| err(n, &why))?;
                     set = Some((n, Some(ranges.clone())));
                     if let Some(source) = sources.get_mut(i) {
@@ -961,6 +1015,7 @@ impl Frit {
                             "cp-size= is for a CPI font, from a kbd:, font:, file: or vconsole source, and the source above it is not one."
                         );
                     }
+                    usable!();
                     source.cp_size = Some(
                         value
                             .parse::<u32>()
@@ -977,11 +1032,12 @@ impl Frit {
                     let source = sources
                         .get_mut(i)
                         .ok_or_else(|| err(n, "there is no source line"))?;
-                    if matches!(source.origin, Origin::Outline(_)) {
+                    if !scope::takes_script_sources(&source.spelling) {
                         ignore!(
                             "script-source= is for a bitmap font, and the source above it is an outline font."
                         );
                     }
+                    usable!();
                     let origin = match origin(value) {
                         Ok(o @ (Origin::Kbd(_) | Origin::File(_) | Origin::Bdf(_))) => o,
                         _ => {
@@ -1011,14 +1067,12 @@ impl Frit {
                     // takes strikes of its design; the built-in fonts and
                     // the system's console font are of no design a frit
                     // can name the other heights of
-                    if matches!(
-                        source.origin,
-                        Origin::Builtin(_) | Origin::Vconsole | Origin::Console(_)
-                    ) {
+                    if !scope::takes_strikes(&source.spelling) {
                         ignore!(
                             "strike= is for a font you install, and the source above it is built into vtium or names the system's console font."
                         );
                     }
+                    usable!();
                     let origin = match origin(value) {
                         Ok(o @ (Origin::Kbd(_) | Origin::File(_) | Origin::Bdf(_))) => o,
                         _ => {
@@ -1057,6 +1111,7 @@ impl Frit {
                                     "sha256= is for a strike named by its path, file: or bdf:, and the strike above it names no file."
                                 );
                             }
+                            usable!();
                             if strike.sha256.is_some() {
                                 return Err(err(n, "sha256= appears twice for one strike"));
                             }
@@ -1068,6 +1123,7 @@ impl Frit {
                             if let Some(why) = need_misplaced(&source.origin, key) {
                                 ignore!(why);
                             }
+                            usable!();
                             need(&mut source.needs, key, value).map_err(|why| err(n, &why))?;
                         }
                     }
@@ -1077,6 +1133,7 @@ impl Frit {
                         Ok(i) => i,
                         Err(why) => ignore!(why),
                     };
+                    usable!();
                     let source = sources
                         .get_mut(i)
                         .ok_or_else(|| err(n, "there is no source line"))?;
@@ -1089,6 +1146,7 @@ impl Frit {
                     })?;
                 }
                 "compress" => {
+                    usable!();
                     // ADR-1200 D1: the key changes nothing that is drawn,
                     // and refusing it would leave the console on the
                     // built-in font, so it is accepted with a warning
@@ -1097,10 +1155,12 @@ impl Frit {
                     warnings.push(err(n, "compress= has no effect here, and is ignored"));
                 }
                 "license" => {
+                    usable!();
                     once(license.is_some())?;
                     license = Some(value.to_owned());
                 }
                 "size" => {
+                    usable!();
                     once(size.is_some())?;
                     size = Some(
                         value
@@ -1121,6 +1181,7 @@ impl Frit {
                     );
                 }
                 "cell" => {
+                    usable!();
                     once(cell.is_some())?;
                     cell = Some(parse_cell(value).ok_or_else(|| {
                         err(
@@ -1132,6 +1193,7 @@ impl Frit {
                     })?);
                 }
                 "antialias" => {
+                    usable!();
                     once(antialias.is_some())?;
                     antialias = Some(match value {
                         "auto" => Antialias::Auto,
@@ -1140,6 +1202,7 @@ impl Frit {
                     });
                 }
                 "line-spacing" => {
+                    usable!();
                     once(line_spacing.is_some())?;
                     line_spacing = Some(
                         value
@@ -1165,6 +1228,7 @@ impl Frit {
                         Ok(i) => i,
                         Err(why) => ignore!(why),
                     };
+                    usable!();
                     let fit = Fit::parse(value)
                         .ok_or_else(|| err(n, "fit= takes fill, natural or room"))?;
                     let (set_line, cover) = set.clone().unwrap_or_default();
@@ -1191,11 +1255,12 @@ impl Frit {
                     // a font: source is a console font or an outline font,
                     // which only the helper finds out, so it may take one;
                     // every other source but outline: is a bitmap font
-                    if !matches!(source.origin, Origin::Outline(_) | Origin::Font(_)) {
+                    if !scope::may_be_outline(&source.spelling) {
                         ignore!(
                             "the source above this render= line is a bitmap font, whose characters always have sharp edges, so render= does not apply to it."
                         );
                     }
+                    usable!();
                     if render.iter().any(|r| r.source == source.line) {
                         return Err(err(n, "render= appears twice for one source"));
                     }
@@ -1211,6 +1276,7 @@ impl Frit {
                     });
                 }
                 "hinting" => {
+                    usable!();
                     once(hinting.is_some())?;
                     hinting = Some(match value {
                         "light" => Hinting::Light,
@@ -1226,6 +1292,7 @@ impl Frit {
                             None => ignore!(format!("{k}= is not a key vtium knows.")),
                         },
                     };
+                    usable!();
                     if glyph_source.iter().any(|&(r, _)| r == range) {
                         return Err(err(n, &format!("{k}= appears twice")));
                     }
@@ -1866,6 +1933,9 @@ mod tests {
     fn each_refusal_names_its_line() {
         for (text, line, why) in [
             ("source=kbd:x\njust words\n", 2, "the line is not key=value"),
+            // a line with no key before its `=` is malformed, as in a layer
+            ("source=kbd:x\n=x\n", 2, "the line is not key=value"),
+            ("source=kbd:x\n = \n", 2, "the line is not key=value"),
             (
                 "source=kbd:x\ncompress=yes\ncompress=no\n",
                 3,
@@ -2253,15 +2323,21 @@ sha256={c}
             );
             assert!(e.why.starts_with(why), "{text:?}: {}", e.why);
         }
+        // a key that applies where it stands, with no value, refuses the
+        // frit; one that does not apply there is ignored whatever its value
+        std::fs::write(&bad, "role=symbols\nsource=font:S\nfit=\n").expect("the layer");
+        let e = Frit::load(&set).expect_err("fit= with no value");
+        assert_eq!((e.file.as_path(), e.line), (bad.as_path(), 3));
+        assert_eq!(e.why, "fit= has no value");
         for (text, why) in [
             (
-                "role=symbols\nsource=font:S\ncell=8x16\n",
-                "line 3: cell= is a font set's key",
+                "role=symbols\nsource=font:S\nsource\n",
+                "line 3: the line is not key=value",
             ),
             ("source=font:S\n", "line 1: a layer starts with role="),
             (
-                "role=symbols\nsource=font:S\npackage=x\n",
-                "line 3: unknown key package",
+                "role=symbols\nsource=font:S\nrole=emoji\n",
+                "line 3: role= appears twice",
             ),
         ] {
             std::fs::write(&bad, text).expect("the layer");
@@ -2292,6 +2368,95 @@ sha256={c}
         // a layer= line names a layer by a frit's name
         let e = parse("source=font:A\nlayer=../x\n").expect_err("../x");
         assert_eq!(e.line, 2);
+    }
+
+    // A key vtium does not know, or a key of the whole set, in a layer's
+    // file is reported with the layer's file and line and ignored alone.
+    // The layer's other lines join the set, and the layer's cell= does not
+    // become the set's cell.
+    //
+    // References:
+    // - ADR-1510 D2: an unknown or misplaced key is ignored alone, and the
+    //   rest of the set loads.
+    // - ADR-1200 D1, its dated note: a layer's lines follow the frit's
+    //   rule.
+    #[test]
+    fn a_layers_unknown_or_misplaced_key_is_ignored_alone() {
+        let dir = crate::scratch::Scratch::new("frit-layer-ignored");
+        let layers = dir.join("layers");
+        std::fs::create_dir_all(&layers).expect("the layers' folder");
+        let set = dir.join("set.vtfrit");
+        std::fs::write(&set, "source=font:Text\nlayer=sym\nsize=12\n").expect("the frit");
+        let sym = layers.join("sym.vtlayer");
+        for (line, why) in [
+            ("frob=1", "frob= is not a key vtium knows."),
+            (
+                "cell=8x16",
+                "cell= is a font set's key, which applies to every source, so a layer cannot set it.",
+            ),
+            // a key that does not apply is ignored whatever its value
+            (
+                "cell=",
+                "cell= is a font set's key, which applies to every source, so a layer cannot set it.",
+            ),
+            (
+                "unimap=a\u{7}b",
+                "unimap= describes a font set's own source, and a layer's source does not take it.",
+            ),
+        ] {
+            std::fs::write(
+                &sym,
+                format!("role=symbols\nsource=font:S\n{line}\ncover=U+E000-U+F8FF\n"),
+            )
+            .expect("the layer");
+            let frit = Frit::load(&set).unwrap_or_else(|e| panic!("{line:?} is refused: {e}"));
+            let spelled: Vec<(&str, Option<&str>)> = frit
+                .sources
+                .iter()
+                .map(|s| (s.spelling.as_str(), s.layer.as_deref()))
+                .collect();
+            assert_eq!(
+                spelled,
+                [("font:Text", None), ("font:S", Some("sym"))],
+                "{line:?}"
+            );
+            assert_eq!(frit.sources[1].cover, [(0xe000, 0xf8ff)], "{line:?}");
+            assert_eq!((frit.cell, frit.size), (None, Some(12)), "{line:?}");
+            let said: Vec<(&Path, usize, &str)> = frit
+                .warnings
+                .iter()
+                .map(|w| (w.file.as_path(), w.line, w.why.as_str()))
+                .collect();
+            let whole = format!("{why} {IGNORED}");
+            assert_eq!(said, [(sym.as_path(), 3, whole.as_str())], "{line:?}");
+        }
+        // a source's key with no value above the layer's first source
+        std::fs::write(&sym, "role=symbols\nfit=\nsource=font:S\n").expect("the layer");
+        let frit = Frit::load(&set).unwrap_or_else(|e| panic!("fit= is refused: {e}"));
+        assert_eq!(frit.sources.len(), 2);
+        let said: Vec<(&Path, usize, &str)> = frit
+            .warnings
+            .iter()
+            .map(|w| (w.file.as_path(), w.line, w.why.as_str()))
+            .collect();
+        let whole = format!(
+            "fit= comes before any source= line, so it has no source to describe. {IGNORED}"
+        );
+        assert_eq!(said, [(sym.as_path(), 2, whole.as_str())]);
+        // the frit reader ignores such a line of a layer's in a spliced
+        // text too, though the layer reader leaves it blank first
+        let text = "source=font:A\nlayer=sym\n\nsource=font:S\ncell=\nlayer=\n";
+        let frit = Frit::parse_spliced(text.as_bytes(), Path::new("t"), "t", Path::new("layers"))
+            .unwrap_or_else(|e| panic!("cell= is refused: {e}"));
+        let said: Vec<(&Path, usize, &str)> = frit
+            .warnings
+            .iter()
+            .map(|w| (w.file.as_path(), w.line, w.why.as_str()))
+            .collect();
+        let whole = format!(
+            "cell= is a font set's key, which applies to every source, so a layer cannot set it. {IGNORED}"
+        );
+        assert_eq!(said, [(Path::new("layers/sym.vtlayer"), 3, whole.as_str())]);
     }
 
     // A key that describes a source cannot follow a layer= line: in the
@@ -2922,6 +3087,11 @@ sha256={c}
                 2,
                 "strike= is for a font you install",
             ),
+            (
+                "source=console:2\nstrike=bdf:/a.bdf\n",
+                2,
+                "strike= is for a font you install",
+            ),
             // version= and check= under a font nobody installs
             (
                 "source=builtin:unscii-8\ncheck=U+4E2D\n",
@@ -2968,6 +3138,73 @@ sha256={c}
             3,
             "fit= follows a layer= line",
         ));
+        // whatever its value, an empty one or one with a control character
+        // included, since vtium does not read the value of a key where it
+        // does not apply
+        for (text, n, why) in [
+            (
+                "fit=\nsource=kbd:x\n",
+                1,
+                "fit= comes before any source= line",
+            ),
+            (
+                "cover=\nsource=kbd:x\n",
+                1,
+                "cover= comes before any source= line",
+            ),
+            (
+                "style=bo\u{7}ld\nsource=kbd:x\n",
+                1,
+                "style= comes before any source= line",
+            ),
+            (
+                "source=kbd:x\nrender=\n",
+                2,
+                "the source above this render= line",
+            ),
+            (
+                "source=builtin:unifont\nunimap=a\u{7}b\n",
+                2,
+                "unimap= is for a source",
+            ),
+            (
+                "source=bdf:/x.bdf\ncp-size=\n",
+                2,
+                "cp-size= is for a CPI font",
+            ),
+            (
+                "source=outline:/x.ttf\nscript-source=\n",
+                2,
+                "script-source= is for a bitmap font",
+            ),
+            (
+                "source=vconsole\nstrike=\n",
+                2,
+                "strike= is for a font you install",
+            ),
+            (
+                "source=builtin:unifont\nversion=\n",
+                2,
+                "version= is for a font you install",
+            ),
+            (
+                "source=font:Fira Code\nsha256=\n",
+                2,
+                "sha256= is for a source named by its path",
+            ),
+            (
+                "source=bdf:/a.bdf\nstrike=kbd:ter-v12n\nsha256=\n",
+                3,
+                "sha256= is for a strike named by its path",
+            ),
+            (
+                "source=font:A\nlayer=sym\nfit=\n",
+                3,
+                "fit= follows a layer= line",
+            ),
+        ] {
+            cases.push((text.to_owned(), n, why));
+        }
         for (text, n, why) in &cases {
             ignored(text, *n, why);
         }
@@ -3076,14 +3313,30 @@ sha256={c}
             );
         }
         // a layer checked on its own reads as far as its role, with the
-        // same rule for a key under a source that cannot take it
-        let role = Frit::parse_layer(
-            b"role=symbols\nsource=builtin:unifont\nrender=smooth\n",
+        // same rule for a key under a source that cannot take it, and
+        // gives a warning for each line it ignores, in the order of lines:
+        // the lines the layer reader leaves blank and the lines the frit
+        // reader ignores alike
+        let (role, warnings) = Frit::parse_layer(
+            b"role=symbols\nsource=builtin:unifont\nfrob=1\nrender=smooth\ncell=8x16\n",
             Path::new("layers/sym.vtlayer"),
             "sym",
         )
         .expect("the layer");
         assert_eq!(role, layer::Role::Symbols);
+        let warnings: Vec<String> = warnings.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            warnings,
+            [
+                format!("layers/sym.vtlayer:3: frob= is not a key vtium knows. {IGNORED}"),
+                format!(
+                    "layers/sym.vtlayer:4: the source above this render= line is a bitmap font, whose characters always have sharp edges, so render= does not apply to it. {IGNORED}"
+                ),
+                format!(
+                    "layers/sym.vtlayer:5: cell= is a font set's key, which applies to every source, so a layer cannot set it. {IGNORED}"
+                ),
+            ]
+        );
     }
 
     // A bad value of a key that applies, or a malformed line, still refuses
@@ -3127,6 +3380,22 @@ sha256={c}
                 "source=kbd:x\nbogus=1\nname=a\nname=b\n",
                 4,
                 "name= appears twice",
+            ),
+            // a key that applies where it stands, with no usable value
+            ("cell=\nsource=kbd:x\n", 1, "cell= has no value"),
+            ("source=kbd:x\nfit=\n", 2, "fit= has no value"),
+            ("source=kbd:x\nlayer=\n", 2, "layer= has no value"),
+            ("source=kbd:x\ncompress=\n", 2, "compress= has no value"),
+            ("source=file:/a.psf\nurl=\n", 2, "url= has no value"),
+            (
+                "source=kbd:x\nunimap=a\u{7}b\n",
+                2,
+                "unimap= contains a control character",
+            ),
+            (
+                "source=bdf:/a.bdf\nstrike=bdf:/b.bdf\nsha256=\n",
+                3,
+                "sha256= has no value",
             ),
             (
                 "source=kbd:x\nfrob=1\nsource=file:relative.psf\n",

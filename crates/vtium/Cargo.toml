@@ -60,7 +60,15 @@ log = "0.4"
 # helper's pidfd, and the sockets that keep the sessions' pty masters
 # through a restart (ADR-1401 D13); vtium-platform already builds the same
 # version with these features.
-rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "net", "process"] }
+#
+# The broker (`src/broker/`) adds the capability, credential and
+# no-new-privileges calls of the drawer's setup ("thread"), and the poll of
+# its stand-in drawers in tests ("event").
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "event", "fs", "net", "process", "thread"] }
+# The drawer's setup between fork and exec: dup2, prctl's bounding set,
+# getresuid and getresgid, and the account lookup; vtium-platform already
+# builds the same version.
+libc = "=0.2.191"
 # Key names in the power keys' chords, as xkb names them; vtium-platform
 # already builds the same version for its keyboards.
 xkbcommon = { version = "=0.9.0", default-features = false }

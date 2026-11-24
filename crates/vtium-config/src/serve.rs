@@ -123,7 +123,7 @@
 //!          made its superscript and subscript glyphs, once before its
 //!          done frame ([`Made::encode_all`]); kind 14 the parts of the
 //!          helper's sandbox in force, once before its first answer
-//!          ([`FRAME_SANDBOX`], a u32 of bits); kind 15 a coverage
+//!          ([`FRAME_SANDBOX`], a u32 of bits and reasons); kind 15 a coverage
 //!          query's answer, the count u32 and each codepoint u32 of the
 //!          letters asked that the frit covers, then the family of an
 //!          installed font that covers the most of the rest (UTF-8, empty
@@ -244,8 +244,8 @@ use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
 use std::time::Duration;
 
 use landlock::{
-    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetStatus,
-    Scope,
+    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, LandlockStatus, Ruleset,
+    RulesetAttr, RulesetStatus, Scope,
 };
 use rustix::process::{Resource, Rlimit, setrlimit};
 use vtium_font::script::Rect;
@@ -263,6 +263,7 @@ use crate::frit::{Cover, FRIT_BYTES_MAX, FRIT_SOURCES_MAX, Frit, Hinting, Source
 use crate::frit::{Render, RenderLine};
 pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
+pub use crate::seccomp::Missing;
 use crate::shaping::ZWJ;
 use crate::sources::{
     Consoles, FONT_DIRS, Gate, Host, Input, KBD_DIRS, SourceError, resolve_hashed,
@@ -326,11 +327,17 @@ pub const FRAME_DRAWS_NOTHING: u32 = 12;
 /// How an [`ASK_MADE`] made the superscript and subscript glyphs it drew
 /// ([`Made::encode_all`]), sent once before its [`FRAME_DONE`].
 pub const FRAME_MADE: u32 = 13;
-/// The parts of the helper's sandbox in force, sent once before its first
-/// answer, which the console logs when the landlock domain is not among
-/// them (ADR-1200 D15): a u32 of [`SANDBOX_DOMAIN`], [`SANDBOX_FALLBACK`]
-/// and [`SANDBOX_SOCKETS`]. A console of another build never meets it,
-/// since its request's magic is refused first.
+/// The helper's report of its sandbox, sent once before its first answer,
+/// which the console logs once a boot when a part is not in force: a u32
+/// of [`SANDBOX_DOMAIN`], [`SANDBOX_FALLBACK`] and [`SANDBOX_SOCKETS`], with
+/// why the seccomp filters are not in force in the byte at
+/// [`SANDBOX_SECCOMP_SHIFT`] and why the landlock domain is not in the
+/// byte at [`SANDBOX_DOMAIN_SHIFT`] ([`Sandboxed::word`]). A console of
+/// another build never meets it, since its request's magic is refused
+/// first.
+///
+/// References:
+/// - ADR-1200 D15: the report and the reasons it carries.
 pub const FRAME_SANDBOX: u32 = 14;
 /// A coverage query's answer ([`COVERAGE`], ADR-1401 D7): the count u32
 /// and each codepoint u32 of the letters asked that the frit's sources
@@ -4916,7 +4923,7 @@ fn answer_requests(
     out: &mut dyn Write,
     paths: &Paths,
     idle: Duration,
-    mut report: Option<u32>,
+    mut report: Option<Sandboxed>,
     gate: Gate,
 ) -> u8 {
     let mut work = Work {
@@ -4950,8 +4957,8 @@ fn answer_requests(
                     // once the request has shown the console to be of this
                     // build, so a console of another build is told so
                     // instead of meeting a frame it does not know
-                    if let Some(parts) = report.take()
-                        && write_frame(out, FRAME_SANDBOX, &parts.to_le_bytes()).is_err()
+                    if let Some(sandboxed) = report.take()
+                        && write_frame(out, FRAME_SANDBOX, &sandboxed.word().to_le_bytes()).is_err()
                     {
                         return 1;
                     }
@@ -5060,19 +5067,59 @@ fn refuse_root(status: &str) -> Result<(), String> {
 /// version up to it.
 const LANDLOCK_NEWEST: ABI = ABI::V9;
 
+/// Why the helper's landlock domain is not in force, as bits 16 to 23
+/// of its [`FRAME_SANDBOX`] number it; 0 there means the domain is in
+/// force.
+///
+/// References:
+/// - ADR-1200 D15, "Nothing on screen, and the log says why": the four
+///   reasons a landlock domain is not in force.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum NoDomain {
+    /// `helper-sandbox=off` turns the domain off.
+    Off = 1,
+    /// The kernel is older than landlock, Linux 5.13.
+    TooOld = 2,
+    /// The kernel is 5.13 or later and was built without landlock, so
+    /// landlock's version query answers `ENOSYS`.
+    NotBuilt = 3,
+    /// The kernel was built with landlock but did not turn it on at boot,
+    /// as when the boot's `lsm=` list leaves it out, so the version query
+    /// answers `EOPNOTSUPP`.
+    NotEnabled = 4,
+}
+
+/// Why a kernel whose landlock query answered `status` gives the helper
+/// no domain, by its release. `ENOSYS` means either a kernel older than
+/// landlock or one built without it, and the release tells the two
+/// apart. A kernel that answers with a version enforces the domain, so
+/// the helper meets that status here only if a later kernel refuses the
+/// domain all the same; it is reported as one without landlock.
+pub fn no_domain(status: LandlockStatus, release: Option<(u32, u32)>) -> NoDomain {
+    match status {
+        LandlockStatus::NotEnabled => NoDomain::NotEnabled,
+        _ if release.is_some_and(|r| r < (5, 13)) => NoDomain::TooOld,
+        _ => NoDomain::NotBuilt,
+    }
+}
+
 /// Enters a landlock domain for the calling thread and the threads it
-/// starts later (ADR-1200 D15, the maintainer, 2026-11-04). The domain
-/// handles every right to write, create, remove, rename or truncate a
-/// file and grants none, refuses binding and connecting TCP sockets, and
-/// is scoped, so the helper connects to no abstract Unix socket made
-/// outside it and signals no process outside it, each as far as the
-/// kernel's landlock version knows it. The domain leaves reads open,
-/// because a helper that vtium-config starts reads a font in a user's
-/// folder to preview it ([`DescribeAsk`]). The console's helper opens a
-/// font only through its gate, which takes only the active fonts. Returns
-/// whether the domain is in force; on a kernel without landlock the helper
-/// runs as before, with none.
-fn lock_out() -> Result<bool, String> {
+/// starts later. The domain handles every right to write, create, remove,
+/// rename or truncate a file and grants none, refuses binding and
+/// connecting TCP sockets, and is scoped, so the helper connects to no
+/// abstract Unix socket made outside it and signals no process outside
+/// it, each as far as the kernel's landlock version knows it. The domain
+/// leaves reads open, because a helper that vtium-config starts reads a
+/// font in a user's folder to preview it ([`DescribeAsk`]). The console's
+/// helper opens a font only through its gate, which takes only the active
+/// fonts. Returns `None` when the domain is in force, and otherwise why
+/// the kernel gives none; the helper then runs as before, without it.
+///
+/// References:
+/// - ADR-1200 D15: the domain and what it refuses (the maintainer,
+///   2026-11-04), and the reasons the log gives for a missing one.
+fn lock_out() -> Result<Option<NoDomain>, String> {
     let status = Ruleset::default()
         .set_compatibility(CompatLevel::BestEffort)
         .handle_access(AccessFs::from_write(LANDLOCK_NEWEST))
@@ -5081,18 +5128,26 @@ fn lock_out() -> Result<bool, String> {
         .and_then(|r| r.create())
         .and_then(|r| r.restrict_self())
         .map_err(|e| format!("the helper cannot enter its landlock domain: {e}"))?;
-    Ok(status.ruleset != RulesetStatus::NotEnforced)
+    Ok((status.ruleset == RulesetStatus::NotEnforced)
+        .then(|| no_domain(status.landlock, crate::seccomp::kernel_release())))
 }
 
 /// Installs the helper's socket filter on the calling thread and the
-/// threads it starts later (ADR-1200 D15, the maintainer, 2026-11-04): a
-/// seccomp filter under which `socket`, `socketpair` and the three
-/// io_uring calls answer EPERM and every other call goes on, so the helper
-/// makes no socket of any kind on any kernel, the UDP and Unix sockets
-/// landlock leaves open included ([`crate::seccomp::socket_filter`]).
-/// Returns whether the filter is in force; on an architecture that
-/// [`crate::seccomp`] has no table of call numbers for, there is none.
-fn refuse_sockets() -> Result<bool, String> {
+/// threads it starts later: a seccomp filter under which `socket`,
+/// `socketpair` and the three io_uring calls answer EPERM and every other
+/// call goes on, so the helper makes no socket of any kind on any kernel,
+/// the UDP and Unix sockets landlock leaves open included
+/// ([`crate::seccomp::socket_filter`]). Returns `None` when the filter is
+/// in force, and otherwise why it is not: [`Missing::NoTable`] on an
+/// architecture that [`crate::seccomp`] has no table of call numbers for,
+/// or the kernel's lack of seccomp filters when the filter fails to
+/// install there. On a kernel that offers the filters, a filter that
+/// fails to install fails the helper.
+///
+/// References:
+/// - ADR-1200 D15: the socket filter (the maintainer, 2026-11-04), and a
+///   kernel without seccomp filters, which runs the helper without them.
+fn refuse_sockets() -> Result<Option<Missing>, String> {
     #[cfg(all(
         target_endian = "little",
         any(
@@ -5105,20 +5160,36 @@ fn refuse_sockets() -> Result<bool, String> {
     {
         let filter = crate::seccomp::socket_filter()
             .map_err(|e| format!("the helper cannot build its socket filter: {e}"))?;
-        crate::seccomp::install(&filter)
-            .map_err(|e| format!("the helper cannot install its socket filter: {e}"))?;
+        match crate::seccomp::install(&filter) {
+            Ok(()) => Ok(None),
+            Err(e) => crate::seccomp::running_kernel_lacks_filters()
+                .map(Some)
+                .ok_or_else(|| format!("the helper cannot install its socket filter: {e}")),
+        }
     }
-    Ok(crate::seccomp::BUILT)
+    #[cfg(not(all(
+        target_endian = "little",
+        any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "arm"
+        )
+    )))]
+    Ok(Some(Missing::NoTable))
 }
 
 /// Installs the helper's fallback filter on the calling thread and the
 /// threads it starts later, in place of the landlock domain on a kernel
-/// without landlock (ADR-1200 D15, the maintainer, 2026-11-13): a seccomp
-/// filter that refuses the file, signal and tracing calls the domain
-/// refuses ([`crate::seccomp::fallback_filter`]). Returns whether the
-/// filter is in force; on an architecture that [`crate::seccomp`] has no
-/// table of call numbers for, there is none.
-fn fall_back() -> Result<bool, String> {
+/// without landlock: a seccomp filter that refuses the file, signal and
+/// tracing calls the domain refuses ([`crate::seccomp::fallback_filter`]).
+/// The helper installs it only once its socket filter is in force, so
+/// the kernel offers the filters and this build has a table of call
+/// numbers, and a filter that fails to install here fails the helper.
+///
+/// References:
+/// - ADR-1200 D15: the fallback filter (the maintainer, 2026-11-13).
+fn fall_back() -> Result<(), String> {
     #[cfg(all(
         target_endian = "little",
         any(
@@ -5136,40 +5207,95 @@ fn fall_back() -> Result<bool, String> {
         crate::seccomp::install(&filter)
             .map_err(|e| format!("the helper cannot install its fallback filter: {e}"))?;
     }
-    Ok(crate::seccomp::BUILT)
+    Ok(())
 }
 
-/// The parts of the helper's sandbox in force, as the bits of its
+/// The parts of the helper's sandbox in force, as the low bits of its
 /// [`FRAME_SANDBOX`]: its landlock domain, its fallback filter, which
 /// stands in for the domain on a kernel without landlock, and its socket
 /// filter.
 pub const SANDBOX_DOMAIN: u32 = 1;
 pub const SANDBOX_FALLBACK: u32 = 2;
 pub const SANDBOX_SOCKETS: u32 = 4;
+/// Where [`FRAME_SANDBOX`] carries why the seccomp filters are not in
+/// force, a [`Missing`], and why the landlock domain is not, a
+/// [`NoDomain`]: each a byte, 0 when the part is in force.
+pub const SANDBOX_SECCOMP_SHIFT: u32 = 8;
+pub const SANDBOX_DOMAIN_SHIFT: u32 = 16;
 
-/// Sandboxes the calling thread and the threads it starts later: the
-/// socket filter, then the landlock domain, or the fallback filter where
-/// the kernel offers no landlock. Returns the parts in force, as
+/// The helper's report of its sandbox, which it sends as one u32 in its
+/// [`FRAME_SANDBOX`]: the parts in force, why its seccomp filters are not,
+/// and why its landlock domain is not. A console that reads only the low
+/// bits still reads the parts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sandboxed {
+    /// [`SANDBOX_DOMAIN`], [`SANDBOX_FALLBACK`] and [`SANDBOX_SOCKETS`].
+    pub parts: u32,
+    /// Why the seccomp filters are not in force, `None` when they are.
+    pub seccomp: Option<Missing>,
+    /// Why the landlock domain is not in force, `None` when it is.
+    pub domain: Option<NoDomain>,
+}
+
+impl Sandboxed {
+    /// The report as [`FRAME_SANDBOX`] carries it.
+    pub fn word(self) -> u32 {
+        let seccomp = self.seccomp.map_or(0, |m| m as u32);
+        let domain = self.domain.map_or(0, |d| d as u32);
+        self.parts | seccomp << SANDBOX_SECCOMP_SHIFT | domain << SANDBOX_DOMAIN_SHIFT
+    }
+}
+
+/// The option that tells the helper whether to lock itself in, with the
+/// value `on` or `off`, which the console passes from vtium.conf's
+/// `helper-sandbox`. A helper started without it locks itself in.
+pub const SANDBOX_OPTION: &str = "--sandbox";
+
+/// Sandboxes the calling thread and the threads it starts later, when
+/// `on`: the socket filter, then the landlock domain, or the fallback
+/// filter where the kernel offers no landlock. With `on` false, which
+/// `helper-sandbox=off` asks for, it installs no filter and enters no
+/// domain. Returns the parts in force and why the others are not, as
 /// [`FRAME_SANDBOX`] reports them, or why a part failed to install.
-fn sandbox() -> Result<u32, String> {
+///
+/// References:
+/// - ADR-1200 D15, "A setting turns the sandbox off": what the helper
+///   leaves out under `off`, and what stays.
+fn sandbox(on: bool) -> Result<Sandboxed, String> {
+    if !on {
+        return Ok(Sandboxed {
+            parts: 0,
+            seccomp: Some(Missing::Off),
+            domain: Some(NoDomain::Off),
+        });
+    }
+    let seccomp = refuse_sockets()?;
+    let domain = lock_out()?;
     let mut parts = 0;
-    if refuse_sockets()? {
+    if seccomp.is_none() {
         parts |= SANDBOX_SOCKETS;
     }
-    if lock_out()? {
+    if domain.is_none() {
         parts |= SANDBOX_DOMAIN;
-    } else if fall_back()? {
+    } else if seccomp.is_none() {
+        fall_back()?;
         parts |= SANDBOX_FALLBACK;
     }
-    Ok(parts)
+    Ok(Sandboxed {
+        parts,
+        seccomp,
+        domain,
+    })
 }
 
 /// `vtium-config serve`: no-new-privileges, the sandbox, the requests'
 /// reader, the limits, then the requests on stdin answered on stdout until
 /// [`HELPER_IDLE_MS`] passes with none, the first answer led by the
-/// sandbox's report. A failure to sandbox is written as a failed frame, so
-/// the console logs it.
-pub fn command(paths: &Paths) -> u8 {
+/// sandbox's report. With `sandboxed` false, which `--sandbox off` asks
+/// for, the helper installs no seccomp filter and enters no landlock
+/// domain. A failure to sandbox is written as a failed
+/// frame, so the console logs it.
+pub fn command(paths: &Paths, sandboxed: bool) -> u8 {
     let mut out = io::stdout().lock();
     if let Some(why) = shed_inherited() {
         let _ = failed(&mut out, &why);
@@ -5184,8 +5310,8 @@ pub fn command(paths: &Paths) -> u8 {
     }
     // before the reader's thread starts, which inherits the filters and
     // the domain, and before any font is read
-    let parts = match sandbox() {
-        Ok(parts) => parts,
+    let report = match sandbox(sandboxed) {
+        Ok(report) => report,
         Err(why) => {
             let _ = failed(&mut out, &why);
             return 1;
@@ -5201,7 +5327,7 @@ pub fn command(paths: &Paths) -> u8 {
         &mut out,
         paths,
         Duration::from_millis(HELPER_IDLE_MS),
-        Some(parts),
+        Some(report),
         Gate::Open,
     )
 }
@@ -9082,7 +9208,11 @@ mod tests {
     #[test]
     fn the_trust_rule_reads_the_mount_table_and_sysfs_inside_the_sandbox() {
         fn fallback() -> Result<bool, String> {
-            Ok(refuse_sockets()? && fall_back()?)
+            if refuse_sockets()?.is_some() {
+                return Ok(false);
+            }
+            fall_back()?;
+            Ok(true)
         }
         let mut judged = 0;
         for (name, enter) in [
@@ -9105,7 +9235,118 @@ mod tests {
 
     /// The helper's sandbox, when its landlock domain is in force.
     fn sandbox_with_domain() -> Result<bool, String> {
-        Ok(sandbox()? & SANDBOX_DOMAIN != 0)
+        Ok(sandbox(true)?.parts & SANDBOX_DOMAIN != 0)
+    }
+
+    /// What a thread of the test can do once `sandbox(on)` has run in it:
+    /// the report, the seccomp filters it runs under beyond the test's
+    /// own, whether it can make a UDP socket, and whether it can create a
+    /// file in `dir`.
+    fn sandboxed_thread(on: bool, dir: PathBuf) -> (Sandboxed, Option<u32>, bool, bool) {
+        fn filters() -> Option<u32> {
+            std::fs::read_to_string("/proc/thread-self/status")
+                .ok()?
+                .lines()
+                .find_map(|l| l.strip_prefix("Seccomp_filters:"))
+                .and_then(|n| n.trim().parse().ok())
+        }
+        std::thread::spawn(move || {
+            let before = filters();
+            let report = sandbox(on).unwrap();
+            let added = filters().zip(before).map(|(after, before)| after - before);
+            let socket = std::net::UdpSocket::bind("127.0.0.1:0").is_ok();
+            let created = std::fs::write(dir.join(format!("made-{on}")), b"x").is_ok();
+            (report, added, socket, created)
+        })
+        .join()
+        .unwrap()
+    }
+
+    // helper-sandbox=off reaches the helper as `--sandbox off`, and the
+    // helper then installs neither its socket filter nor its fallback
+    // filter and enters no landlock domain: a thread sandboxed so still
+    // makes a socket and creates a file, and its report gives the setting
+    // as the reason for both. With the sandbox on, the same thread runs
+    // under the socket filter and the domain or the fallback filter.
+    //
+    // References:
+    // - ADR-1200 D15, "A setting turns the sandbox off": what the helper
+    //   leaves out under off, and that its report says why.
+    #[test]
+    fn the_sandbox_off_installs_no_filter_and_enters_no_domain() {
+        let dir = scratch("sandbox-off");
+        let (report, added, socket, created) = sandboxed_thread(false, dir.to_path_buf());
+        assert_eq!(
+            report,
+            Sandboxed {
+                parts: 0,
+                seccomp: Some(Missing::Off),
+                domain: Some(NoDomain::Off),
+            }
+        );
+        assert_eq!(report.word(), 1 << 8 | 1 << 16);
+        assert!(matches!(added, None | Some(0)), "{added:?}");
+        assert!(socket, "the thread could not make a socket");
+        assert!(created, "the thread could not create a file");
+        if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+            eprintln!("skipped the sandbox on: {why}");
+            return;
+        }
+        if !crate::seccomp::BUILT {
+            eprintln!("skipped the sandbox on: vtium has no seccomp filter for this architecture");
+            return;
+        }
+        let (report, added, socket, created) = sandboxed_thread(true, dir.to_path_buf());
+        assert_eq!(report.seccomp, None, "{report:?}");
+        assert_ne!(report.parts & SANDBOX_SOCKETS, 0, "{report:?}");
+        assert_ne!(
+            report.parts & (SANDBOX_DOMAIN | SANDBOX_FALLBACK),
+            0,
+            "{report:?}"
+        );
+        assert_eq!(report.domain.is_none(), report.parts & SANDBOX_DOMAIN != 0);
+        // the socket filter, and the fallback filter where it stands in
+        let want = if report.parts & SANDBOX_FALLBACK != 0 {
+            2
+        } else {
+            1
+        };
+        assert!(added.is_none() || added == Some(want), "{added:?}");
+        assert!(!socket, "a socket made under the socket filter");
+        assert!(!created, "a file created inside the sandbox");
+    }
+
+    // Why the landlock domain is not in force, from the landlock query's
+    // answer and the kernel's release: ENOSYS before 5.13 is a kernel
+    // older than landlock, and from 5.13 one built without it; EOPNOTSUPP
+    // is landlock left off at boot.
+    //
+    // References:
+    // - ADR-1200 D15, "Nothing on screen, and the log says why": the
+    //   landlock reasons.
+    #[test]
+    fn the_missing_domain_reads_as_its_kernels_reason() {
+        let not_built = LandlockStatus::NotImplemented;
+        assert_eq!(no_domain(not_built, Some((5, 12))), NoDomain::TooOld);
+        assert_eq!(no_domain(not_built, Some((4, 19))), NoDomain::TooOld);
+        assert_eq!(no_domain(not_built, Some((5, 13))), NoDomain::NotBuilt);
+        assert_eq!(no_domain(not_built, Some((6, 7))), NoDomain::NotBuilt);
+        let off = LandlockStatus::NotEnabled;
+        assert_eq!(no_domain(off, Some((6, 7))), NoDomain::NotEnabled);
+        assert_eq!(no_domain(off, None), NoDomain::NotEnabled);
+        // the report carries both reasons above the parts
+        let report = Sandboxed {
+            parts: SANDBOX_SOCKETS | SANDBOX_FALLBACK,
+            seccomp: None,
+            domain: Some(NoDomain::NotEnabled),
+        };
+        assert_eq!(report.word(), 0b110 | 4 << 16);
+        let report = Sandboxed {
+            parts: SANDBOX_DOMAIN,
+            seccomp: Some(Missing::NoFilters),
+            domain: None,
+        };
+        assert_eq!(report.word(), 0b001 | 4 << 8);
     }
 
     // the helper's landlock domain refuses every file write and every TCP
@@ -9127,7 +9368,7 @@ mod tests {
         let _unix = UnixListener::bind_addr(&abstract_addr).unwrap();
         let (existing_in, dir_in) = (existing.clone(), dir.to_path_buf());
         let locked = std::thread::spawn(move || {
-            let enforced = lock_out().unwrap();
+            let enforced = lock_out().unwrap().is_none();
             if !enforced {
                 return None;
             }
@@ -9180,8 +9421,8 @@ mod tests {
         let qemu = std::env::var_os("VTIUM_QEMU_USER");
         let made = std::thread::spawn(move || {
             match refuse_sockets() {
-                Ok(true) => {}
-                Ok(false) => return None,
+                Ok(None) => {}
+                Ok(Some(_)) => return None,
                 Err(e) => {
                     assert!(qemu.is_some() && e.contains(&enosys), "{e}");
                     eprintln!(

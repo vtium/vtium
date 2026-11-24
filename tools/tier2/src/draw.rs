@@ -95,7 +95,8 @@ pub enum FontKind {
     },
     /// A frit of `fonts`, its rows made taller by `spacing` when it is set
     /// (ADR-1302 D13), drawn as the console draws a frit, as for
-    /// [`FontKind::Outline`]. The screen is drawn once for each of
+    /// [`FontKind::Outline`], with the sprite policy the frit's own
+    /// `glyph-source=` lines set. The screen is drawn once for each of
     /// `takes`, and the drawings are stacked from the top in their order.
     Ink {
         takes: &'static [Take],
@@ -133,7 +134,16 @@ pub enum InkFonts {
     /// `smooth` puts a `render=smooth` line under each
     /// ([`crate::fonts::bitmap_frit_text`]).
     Bitmap { smooth: bool },
+    /// [`InkFonts::DejaVu`], or [`InkFonts::Scripts`] when `scripts`, with
+    /// the lines [`BLOCKS_FROM_FONT`] after its sources, so the fonts draw
+    /// the box lines and block elements they map, where every other font
+    /// set draws vtium's own sprites for them.
+    BlocksFromFont { scripts: bool },
 }
+
+/// The frit lines that have box lines and block elements drawn from the
+/// font: U+2500 to U+257F for `box`, U+2580 to U+259F for `block`.
+pub const BLOCKS_FROM_FONT: &str = "glyph-source-box=font\nglyph-source-block=font\n";
 
 /// One drawing of a [`FontKind::Ink`] screen: at `height` pixels, with
 /// `tail` fed after the screen's bytes, and in the blink phase `phase`.
@@ -902,6 +912,19 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                     };
                     (name, text, fetched.as_path())
                 }
+                InkFonts::BlocksFromFont { scripts } => {
+                    let (name, mut text) = if scripts {
+                        crate::fonts::check_scripts(&fetched)?;
+                        let text = crate::fonts::scripts_frit_text(&fetched);
+                        ("tier2-scripts-blocks-from-font", text)
+                    } else {
+                        crate::fonts::check(&fetched)?;
+                        let text = crate::fonts::frit_text(&fetched, false, percent);
+                        ("tier2-outline-mono-blocks-from-font", text)
+                    };
+                    text.push_str(BLOCKS_FROM_FONT);
+                    (name, text, fetched.as_path())
+                }
             };
             let mut drawn = Vec::new();
             for take in takes {
@@ -919,13 +942,17 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                         shown(&one, cell)
                     })?;
                 crate::fonts::face_at(&chosen, take.height)?;
+                // the font as the console builds a frit's font, with the
+                // sprite policy of the frit's `glyph-source=` lines over the
+                // face's own, and no configuration over that
                 let img = draw_with(
                     &one,
                     || {
-                        Font::new(
-                            crate::fonts::face_at(&chosen, take.height)
-                                .expect("a face, as it was before"),
-                        )
+                        let face = crate::fonts::face_at(&chosen, take.height)
+                            .expect("a face, as it was before");
+                        let font = Font::new(face);
+                        let own = vtium::font::frit_policy(&text, font.policy());
+                        font.with_policy(own)
                     },
                     p,
                 )
