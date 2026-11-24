@@ -5,10 +5,15 @@
 //! A key vtium does not know changes one setting at most, so the reader
 //! reports it as a warning naming the file and the line, ignores it, and
 //! reads the rest of the set. So does a known key that stands where it
-//! cannot apply, such as `render=` under a bitmap source or `cell=` in a
-//! layer. A malformed line or a value a key cannot take refuses the whole
-//! frit, naming the file and the line, because the helper runs unattended
-//! and a half-read frit draws the wrong glyphs.
+//! cannot apply, such as `render=` under a bitmap source. A malformed line
+//! or a value a key cannot take refuses the whole frit, naming the file and
+//! the line, because the helper runs unattended and a half-read frit draws
+//! the wrong glyphs.
+//!
+//! A layer file is read first by vtium-font's layer reader, which still
+//! refuses a layer that holds a key a layer does not take, such as `cell=`.
+//! vtium then loads the set without that layer, so such a line never
+//! reaches this reader from a layer file.
 //!
 //! References:
 //! - ADR-1200 D1: the frit's keys, and the refusal of the whole frit.
@@ -2750,6 +2755,17 @@ sha256={c}
                 "bogus= is not a key vtium knows.",
             ),
             ("source=kbd:x\nbogus=a\tb\nsize=12\n", 2, "bogus= is not"),
+            // nor which values a range it does not know takes
+            (
+                "source=kbd:x\nglyph-source-boxes=\n",
+                2,
+                "glyph-source-boxes= is not a key vtium knows.",
+            ),
+            (
+                "source=kbd:x\nglyph-source-boxes=a\tb\nsize=12\n",
+                2,
+                "glyph-source-boxes= is not",
+            ),
         ] {
             ignored(text, n, why);
         }

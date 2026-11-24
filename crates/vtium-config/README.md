@@ -411,7 +411,7 @@ cover=U+E000-U+F8FF
 cover=U+F0001-U+F1AF0
 ```
 
-A frit adds a layer with a `layer=NAME` line, and the layer's sources take the place of that line. So the sources keep the frit's order, and the frit's own keys apply to them too. A key that describes a source, such as `cover=` or `fit=`, cannot follow a `layer=` line. It would describe the layer's last source, so vtium-config and the helper both refuse it.
+A frit adds a layer with a `layer=NAME` line, and the layer's sources take the place of that line. So the sources keep the frit's order, and the frit's own keys apply to them too. A key that describes a source, such as `cover=` or `fit=`, cannot follow a `layer=` line, because it would describe the layer's last source. vtium-config and the helper ignore it, with a warning naming its line.
 
 ```ini
 source=font:Fira Code
