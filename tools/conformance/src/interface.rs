@@ -711,6 +711,10 @@ pub fn controls(spec: &Spec) -> Tally {
             format!("test font-request .hidden\n{GOOD}"),
         ),
         (
+            "a font request for a family's name that holds `;`",
+            format!("test font-request Mono;Sans\n{GOOD}"),
+        ),
+        (
             "a grid request of 0 rows",
             format!("test grid-request 0 80\n{GOOD}"),
         ),
@@ -810,9 +814,10 @@ pub fn controls(spec: &Spec) -> Tally {
     );
     // interface 1.13's cursor-blink lines join the control
     let good_host = format!("test cursor-blink ms=250\ntest cursor-blink default\n{good_host}");
-    // interface 1.14's font requests for a font file's path join it too
+    // interface 1.14's font requests for a font file's path and for an
+    // outline family join it too
     let good_host = format!(
-        "test font-request /usr/share/fonts/a b.ttf\ntest font-request fonts/a.ttf\n{good_host}"
+        "test font-request /usr/share/fonts/a b.ttf\ntest font-request fonts/a.ttf\ntest font-request DejaVu Sans Mono\ntest font-request Sarasa Mono 等距\n{good_host}"
     );
     let mut tally = Tally {
         count: bad.len().saturating_add(anim.len()).saturating_add(4),

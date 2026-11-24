@@ -610,19 +610,20 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
         "font-ops" => Command::FontOps(f.flag("on", Some(true))?),
         "font-name" => {
             let name = f.required("name")?;
-            // a frit's name (ADR-1200 D1), or the absolute path of a font
-            // file the host switched to (ADR-1200 D5), as OSC 50's query
-            // reports either; a command holds no control character
-            let set = (1..=64).contains(&name.len())
-                && !name.starts_with('.')
-                && name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'));
-            let path = name.starts_with('/');
-            if !set && !path {
+            // The name is one a host may give for OSC 50's query: a font
+            // set's name, an outline family's name, or a font file's
+            // absolute path in its plain form. A terminal of its own
+            // judges the name by vtium-term's rules, so the command takes
+            // exactly what the reference host could report.
+            //
+            // References:
+            // - ADR-1200 D1: a font set's name.
+            // - ADR-1200 D5: the family's name and the path the query
+            //   reports.
+            if !vtium_term::Terminal::new(1, 1, 0).set_font_name(name) {
                 return Err(f.fail(
                     "name",
-                    "neither a font set's name nor a font file's absolute path",
+                    "neither a font set's name, an outline family's name nor a font file's plain absolute path",
                 ));
             }
             Command::FontName(name.to_owned())
@@ -884,7 +885,20 @@ mod tests {
             parse(b"font-name;name=/usr/share/fonts/a b.ttf"),
             Ok(Command::FontName("/usr/share/fonts/a b.ttf".to_owned()))
         );
-        for bad in [&b"font-name;name=.hidden"[..], b"font-name;name=a/b"] {
+        assert_eq!(
+            parse(b"font-name;name=DejaVu Sans Mono"),
+            Ok(Command::FontName("DejaVu Sans Mono".to_owned()))
+        );
+        for bad in [
+            &b"font-name;name=.hidden"[..],
+            b"font-name;name=a/b",
+            b"font-name;name=/usr/share/fonts/a#b.ttf",
+            b"font-name;name=/usr/share/fonts/./a.ttf",
+            b"font-name;name=/usr/share/fonts/a.ttf/",
+            b"font-name;name=/usr/share/fonts/a.ttf ",
+            b"font-name;name= Mono",
+            b"font-name;name=Mono&Sans#1",
+        ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
         assert_eq!(parse(b"font-request"), Ok(Command::FontRequest));
