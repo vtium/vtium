@@ -48,12 +48,15 @@
 //! and past that bound one line says that no more are logged.
 //!
 //! Before its first answer, the helper reports which parts of its sandbox
-//! are in force, and why each other part is not (ADR-1200 D15). The
-//! console logs one line once a boot when a part is missing, naming each
-//! missing part and its reason, and whether the fallback filter stands in
-//! for the landlock domain (`sandbox_notice`). vtium.conf's
-//! `helper-sandbox=off` reaches each helper as `--sandbox off`
-//! ([`sandbox_args`]).
+//! are in force, and why each other part is not. The console logs one
+//! line once a boot when a part is missing, naming each missing part and
+//! its reason, and whether the fallback filter stands in for the landlock
+//! domain (`sandbox_notice`). The setting `helper-sandbox=off`, from
+//! vtium.conf or vtium's command line, reaches each helper as `--sandbox
+//! off` ([`sandbox_args`]).
+//!
+//! References:
+//! - ADR-1200 D15: the sandbox report, its reasons and the setting.
 //!
 //! A helper that answers what is not a frame, what was not asked, or a
 //! failure is given up for the boot, logged once, and the built-in font
@@ -232,31 +235,44 @@ fn failure(why: &str) -> String {
 /// Why the helper's seccomp filters are not in force, as the byte of its
 /// sandbox report at [`SANDBOX_SECCOMP_SHIFT`] numbers it: the setting is
 /// off, vtium has no filter for the machine's architecture, or the kernel
-/// offers no seccomp filters. 0 means the filters are in force, or a
-/// helper too old to give a reason.
-fn seccomp_reason(code: u32) -> &'static str {
-    match code {
-        1 => "helper-sandbox=off in vtium.conf turns them off",
+/// offers no seccomp filters. `None` for any other number, 0 included,
+/// which names no reason vtium knows.
+fn seccomp_reason(code: u32) -> Option<&'static str> {
+    Some(match code {
+        1 => "the setting helper-sandbox=off turns them off",
+        2 => "vtium has no seccomp filter for this machine's architecture",
         3 => "this kernel is new enough to offer seccomp but was built without it",
         4 => "this kernel was built with seccomp but without seccomp filters",
         5 => "this kernel is older than Linux 3.8, too old for vtium's seccomp filters",
-        _ => "vtium has no seccomp filter for this machine's architecture",
-    }
+        _ => return None,
+    })
 }
 
 /// Why the helper's landlock domain is not in force, as the byte of its
 /// sandbox report at [`SANDBOX_DOMAIN_SHIFT`] numbers it: the setting is
 /// off, or the kernel is too old for landlock, was built without it, or
-/// did not turn it on at boot.
-fn domain_reason(code: u32) -> &'static str {
-    match code {
-        1 => "helper-sandbox=off in vtium.conf turns it off",
+/// did not turn it on at boot. `None` for any other number, 0 included.
+fn domain_reason(code: u32) -> Option<&'static str> {
+    Some(match code {
+        1 => "the setting helper-sandbox=off turns it off",
         2 => "this kernel is older than Linux 5.13, which added landlock",
         3 => "this kernel was built without landlock",
         4 => {
             "this kernel did not turn landlock on at boot, as when the boot's lsm= list leaves it out"
         }
-        _ => "this kernel does not offer landlock",
+        _ => return None,
+    })
+}
+
+/// The end of a sentence that says a part of the helper's sandbox is
+/// missing: the reason `why`, or, for a number vtium does not know, that
+/// number, so the line never names a reason the helper did not give.
+fn because(why: Option<&str>, code: u32) -> String {
+    match why {
+        Some(why) => format!(", because {why}."),
+        None => format!(
+            ". The font helper's report gives the reason as number {code}, which vtium does not know."
+        ),
     }
 }
 
@@ -274,7 +290,7 @@ fn sandbox_notice(report: u32) -> Option<String> {
     let domain = report >> SANDBOX_DOMAIN_SHIFT & 0xff;
     if parts == 0 && seccomp == 1 && domain == 1 {
         return Some(
-            "The font helper runs without its seccomp filters and its landlock domain, because helper-sandbox=off in vtium.conf turns them off. A font that took over the font helper could open network connections and change any file that the font helper's account may change.".to_owned(),
+            "The font helper runs without its seccomp filters and its landlock domain, because the setting helper-sandbox=off turns them off. A font that took over the font helper could open network connections and change any file that the font helper's account may change.".to_owned(),
         );
     }
     let domain = (parts & SANDBOX_DOMAIN == 0).then(|| {
@@ -284,14 +300,14 @@ fn sandbox_notice(report: u32) -> Option<String> {
             "No filter takes the domain's place, so a font that took over the font helper could change any file that the font helper's account may change."
         };
         format!(
-            "The font helper runs without its landlock domain, because {}. {stands_in}",
-            domain_reason(domain)
+            "The font helper runs without its landlock domain{} {stands_in}",
+            because(domain_reason(domain), domain)
         )
     });
     let sockets = (parts & SANDBOX_SOCKETS == 0).then(|| {
         format!(
-            "The font helper runs without its seccomp filters, because {}.",
-            seccomp_reason(seccomp)
+            "The font helper runs without its seccomp filters{}",
+            because(seccomp_reason(seccomp), seccomp)
         )
     });
     let lines: Vec<String> = domain.into_iter().chain(sockets).collect();
@@ -4969,7 +4985,7 @@ mod tests {
         let off = sandbox_notice(report(0, 1, 1)).unwrap();
         assert_eq!(
             off,
-            "The font helper runs without its seccomp filters and its landlock domain, because helper-sandbox=off in vtium.conf turns them off. A font that took over the font helper could open network connections and change any file that the font helper's account may change."
+            "The font helper runs without its seccomp filters and its landlock domain, because the setting helper-sandbox=off turns them off. A font that took over the font helper could open network connections and change any file that the font helper's account may change."
         );
         let seccomp = |why: u32| sandbox_notice(report(SANDBOX_DOMAIN, why, 0)).unwrap();
         assert_eq!(
@@ -5001,6 +5017,24 @@ mod tests {
         assert_eq!(
             domain(fallback, 4),
             "The font helper runs without its landlock domain, because this kernel did not turn landlock on at boot, as when the boot's lsm= list leaves it out. A seccomp filter refuses in its place the file, signal and tracing calls that the domain refuses."
+        );
+        // a number vtium does not know, 0 included, is given as a number
+        // and never named as a reason
+        assert_eq!(
+            seccomp(9),
+            "The font helper runs without its seccomp filters. The font helper's report gives the reason as number 9, which vtium does not know."
+        );
+        assert_eq!(
+            seccomp(0),
+            "The font helper runs without its seccomp filters. The font helper's report gives the reason as number 0, which vtium does not know."
+        );
+        assert_eq!(
+            domain(fallback, 7),
+            "The font helper runs without its landlock domain. The font helper's report gives the reason as number 7, which vtium does not know. A seccomp filter refuses in its place the file, signal and tracing calls that the domain refuses."
+        );
+        assert_eq!(
+            domain(fallback, 0),
+            "The font helper runs without its landlock domain. The font helper's report gives the reason as number 0, which vtium does not know. A seccomp filter refuses in its place the file, signal and tracing calls that the domain refuses."
         );
         // a kernel without seccomp filters and without landlock: neither
         // filter stands in for the domain
