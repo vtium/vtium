@@ -44,7 +44,7 @@ use anim::Anim;
 pub use anim::{Animation, FramePixels, Run};
 pub(crate) use anim::{Compose, Control, NewFrame, layer_cost};
 pub use edit::Edit;
-pub use frame::FramePlacement;
+pub use frame::{FramePlacement, LinePlaces, SingleSize};
 use kitty::Indices;
 use relative::{Drawn, Located, Spot};
 pub(crate) use relative::{Link, Placing};

@@ -1737,6 +1737,69 @@ fn a_child_above_a_parent_below_the_view_draws_from_the_lines_below() {
     assert_eq!(drawn, [(4, 1)], "the child on line 2, the view's row 4");
 }
 
+/// Lines that each draw their cell in column n at screen columns 2n and
+/// 2n + 1, as a double-width line does.
+struct Doubled;
+
+impl LinePlaces for Doubled {
+    fn scale(&self, _row: i64) -> i64 {
+        2
+    }
+
+    fn left(&self, _row: i64, col: u32, _cols: u32) -> Option<i64> {
+        Some(2 * i64::from(col))
+    }
+}
+
+// A root whose box lost its first column keeps its origin one cell left
+// of the column it now starts in. The root starts in column 3, so its
+// origin is column 2. On lines that draw each cell two screen columns
+// wide, column 3 is drawn from screen column 6 and the origin from
+// screen column 4, so the child with H=1 starts at screen column 5. On
+// lines of single size the origin is screen column 2 and the child starts
+// at 3. No command gives a kitty root a lost column today, since text
+// never cuts a kitty picture and a scroll inside margins moves it whole,
+// so the test sets the lost column on the root itself.
+//
+// References:
+// - ADR-1004 D8: a child starts from where its parent is drawn on the
+//   screen, offset in screen columns.
+// covers: image.kitty-relative
+#[test]
+fn a_child_of_a_root_that_lost_a_column_starts_from_its_drawn_origin() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    let parent = add(&mut s, &f, Protocol::KITTY, 16, 16, 1);
+    let child = add(&mut s, &f, Protocol::KITTY, 16, 16, 2);
+    let place = Place {
+        col: 3,
+        row: 1,
+        id: 1,
+        ..Place::default()
+    };
+    let root = s.place(parent, place, f.screens(), COLS).unwrap();
+    let right = Link::Parent {
+        image: 1,
+        placement: 1,
+        cols: 1,
+        rows: 1,
+    };
+    link(&mut s, &f, child, right, (0, 0), 1);
+    s.buffers[MAIN]
+        .placements
+        .get_mut(&root)
+        .expect("the root")
+        .lost_cols = 1;
+    let drawn = |places: &dyn LinePlaces| -> Vec<(i64, u32, bool)> {
+        s.frame_drawn(f.rows(), &[], &[], COLS, places)
+            .iter()
+            .map(|p| (p.row, p.col, p.relative))
+            .collect()
+    };
+    assert_eq!(drawn(&Doubled), [(1, 3, false), (2, 5, true)]);
+    assert_eq!(drawn(&SingleSize), [(1, 3, false), (2, 3, true)]);
+}
+
 // covers: image.iterm2
 #[test]
 fn a_drawn_size_draws_the_picture_at_it_and_the_box_covers_the_cells_it_reaches() {

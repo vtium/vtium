@@ -119,10 +119,11 @@ impl State {
     /// over cell `col`, `row` of the view at pixel column `px`: the logical
     /// cell drawn there, and that cell's left edge plus the pointer's
     /// offset inside the cell it is over, so a program addresses the cell
-    /// it wrote (ADR-1004 D10). Without the cell's size in pixels the pixel
-    /// column is as the host gave it.
+    /// it wrote (ADR-1004 D10). On a line of double size the cell is the
+    /// screen column that [`Screen::report_col`](crate::Screen::report_col) gives. Without the cell's
+    /// size in pixels the pixel column is as the host gave it.
     pub(super) fn logical_pointer(&self, col: usize, row: usize, px: u32) -> (usize, u32) {
-        let logical = self.screen.pointer_col(col, row);
+        let logical = self.screen.report_col(col, row);
         let px = match self.host.cell {
             Some((width, _)) if logical != col => {
                 let at = |c: usize| u32::try_from(c).unwrap_or(u32::MAX).saturating_mul(width);
