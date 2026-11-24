@@ -8198,7 +8198,7 @@ mod tests {
         };
         assert_eq!(
             text,
-            format!("source=file:{path}\n"),
+            format!("source=bdf:{path}\n"),
             "a font set made for the path"
         );
         assert!(app.frits.contains_key(&path), "with a helper of its own");

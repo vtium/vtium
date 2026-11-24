@@ -32,7 +32,7 @@ The console's font and its size, who draws box-drawing and block characters, how
 \fBfont-name\fR
 The console's font.
 .IP
-The value is the name of a font set (a frit file, \fBNAME.vtfrit\fR in \fB/etc/vtium/fonts\fR). It can also be the name of a kbd console font, or with \fBfont\-engine = psf\fR the path of a PSF font; vtium then uses that one font.
+The value is the name of a font set (a frit file, \fBNAME.vtfrit\fR in \fB/etc/vtium/fonts\fR). It can also be the name of a kbd console font, or the absolute path of a font file, such as a PSF, BDF or TrueType font; vtium then uses that one font.
 .IP
 When unset, vtium uses the font from vconsole.conf, or else the font set \fBterminus\fR. If vtium cannot find the font, it uses its built-in font and logs why.
 .IP
