@@ -765,6 +765,7 @@ mod built {
         //   each helper on its command line.
         // - ADR-1101 D9, "The sandbox setting".
         #[test]
+        #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
         fn helper_sandbox_off_reaches_the_image_helper_on_its_command_line() {
             let dir = crate::scratch::Scratch::new("image-helper-sandbox");
             let helper = dir.join("vtium-image");
