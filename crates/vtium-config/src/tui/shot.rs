@@ -1205,6 +1205,8 @@ impl App {
             grid: Some(GridTrial { points, to, back }),
         });
         self.shared.grid_moved = true;
+        // a trial of a size replaces the start grid that `u` asked for
+        self.shared.grid_after_font = false;
         self.shared.message = Some(words::size_countdown(points, TRIAL_TICKS));
         Some(vec![Effect::Write(grid_request(to)), Effect::Wait(TICK)])
     }

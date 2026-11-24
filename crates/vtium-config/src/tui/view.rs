@@ -186,30 +186,14 @@ fn status(app: &App) -> String {
     sides(&left, &format!("{live} "), app.size.cols)
 }
 
-/// The screen below the minimum size, a line a row.
+/// The screen below the minimum size, a line a row. What the screen
+/// answers to a key comes first: the live trial's countdown, or what `u`
+/// says when it has nothing to put back. Then come what is wrong, the
+/// commands that work at any size, and the key line, which stays on the
+/// screen however few its rows.
 fn small(app: &App) -> Vec<String> {
     let cols = app.size.cols;
-    let mut lines: Vec<String> = Vec::new();
-    // the live trial's countdown, and its keys, first
-    if app.nav.trial.is_some()
-        && let Some(message) = &app.shared.message
-    {
-        lines.extend(wrap(message, cols, usize::MAX));
-        lines.push(String::new());
-    }
-    lines.extend(wrap(
-        &words::too_small(app.size.cols, app.size.rows),
-        cols,
-        usize::MAX,
-    ));
-    lines.push(String::new());
-    lines.extend(wrap(words::TOO_SMALL_COMMANDS, cols, usize::MAX));
-    for c in crate::help::Command::ALL {
-        if matches!(c, crate::help::Command::Serve | crate::help::Command::Tui) {
-            continue;
-        }
-        lines.push(format!("  vtium-config {}", c.name()));
-    }
+    let rows = app.size.rows;
     // a question asked here comes first, what it says and its keys
     // wrapped to the width, so it shows whole however narrow the screen;
     // while it is open the screen's own keys give way to the question's,
@@ -226,25 +210,58 @@ fn small(app: &App) -> Vec<String> {
         ),
         Some(_) => item_rows(key_line(app), cols),
     };
-    // the keys that stay on the screen however few its rows: the
-    // question's, at the top, or the screen's own, at the bottom
-    // the screen's own keys are its generated key line, and a sentence
-    // about u while the key line leaves u out
-    let keys = if question.is_empty() {
-        lines.push(String::new());
-        let mut keys = item_rows(key_line(app), cols);
-        keys.extend(wrap(words::TOO_SMALL_UNDO, cols, usize::MAX));
-        lines.extend(keys.clone());
-        keys
+    // the screen's own generated key line, at the bottom, while no
+    // question is open. Where its rows outnumber the screen's, its first
+    // items go: u comes first on the line, and q and Ctrl-C after it, so
+    // the way out stays on the screen
+    let keys: Vec<String> = if question.is_empty() {
+        let keys = item_rows(key_line(app), cols);
+        let cut = keys.len().saturating_sub(rows);
+        keys.into_iter().skip(cut).collect()
     } else {
         Vec::new()
     };
-    let mut lines: Vec<String> = question.into_iter().chain(lines).collect();
-    if lines.len() > app.size.rows {
-        let room = app.size.rows.saturating_sub(keys.len());
-        lines.truncate(room);
-        lines.extend(keys);
+    let room = rows
+        .saturating_sub(question.len())
+        .saturating_sub(keys.len());
+    let mut lines: Vec<String> = Vec::new();
+    let trial = app.nav.trial.is_some();
+    if trial && let Some(message) = &app.shared.message {
+        lines.extend(wrap(message, cols, usize::MAX));
+        lines.push(String::new());
     }
+    // what u says when it has nothing to put back: the whole sentence
+    // where the rows above the key line hold it, else its first clause. A
+    // message that a view left stays for the view, so it does not push
+    // the commands off this screen
+    if !trial && app.shared.message.as_deref() == Some(words::NOTHING_TO_UNDO) {
+        let whole = wrap(words::NOTHING_TO_UNDO, cols, usize::MAX);
+        if whole.len() <= room {
+            lines.extend(whole);
+        } else {
+            lines.extend(wrap(words::NOTHING_TO_UNDO_SHORT, cols, usize::MAX));
+        }
+        lines.push(String::new());
+    }
+    lines.extend(wrap(
+        &words::too_small(app.size.cols, app.size.rows),
+        cols,
+        usize::MAX,
+    ));
+    lines.push(String::new());
+    lines.extend(wrap(words::TOO_SMALL_COMMANDS, cols, usize::MAX));
+    for c in crate::help::Command::ALL {
+        if matches!(c, crate::help::Command::Serve | crate::help::Command::Tui) {
+            continue;
+        }
+        lines.push(format!("  vtium-config {}", c.name()));
+    }
+    if !keys.is_empty() {
+        lines.push(String::new());
+    }
+    let mut lines: Vec<String> = question.into_iter().chain(lines).collect();
+    lines.truncate(rows.saturating_sub(keys.len()));
+    lines.extend(keys);
     lines
 }
 

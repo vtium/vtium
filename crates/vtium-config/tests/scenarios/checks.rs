@@ -721,6 +721,15 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                 if s.before.term == Term::Vtium && s.after.console_font != super::sim::START_FONT {
                     return Err("the start font is not back".into());
                 }
+                // with no trial to undo, u says so on the screen
+                let untouched = s.before.console_font == super::sim::START_FONT
+                    && !s.before.app.shared.grid_moved;
+                if untouched
+                    && s.after.app.shared.message.as_deref()
+                        != Some(vtium_config::tui::words::NOTHING_TO_UNDO)
+                {
+                    return Err("u had nothing to put back and did not say so".into());
+                }
                 Ok(())
             },
             no_today,

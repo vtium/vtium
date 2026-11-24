@@ -264,10 +264,15 @@ pub fn too_small(cols: usize, rows: usize) -> String {
 pub const TOO_SMALL_COMMANDS: &str =
     "Make this terminal larger, or use these commands, which work at any size:";
 
-/// What `u` does below the minimum size, under the generated key line,
-/// while the key table's row for `u` is still planned and the key line
-/// leaves `u` out.
-pub const TOO_SMALL_UNDO: &str = "Press u to put back the font the console started with.";
+/// What `u` says below the minimum size when no trial changed the font or
+/// the grid.
+pub const NOTHING_TO_UNDO: &str =
+    "u has nothing to put back: vtium-config has not changed this terminal's font or size.";
+
+/// The first clause of [`NOTHING_TO_UNDO`], which the screen below the
+/// minimum size shows where the whole sentence does not fit above the key
+/// line.
+pub const NOTHING_TO_UNDO_SHORT: &str = "u has nothing to put back.";
 
 /// The status line (ADR-1403 D7).
 pub const NO_DRAFT: &str = "no draft";

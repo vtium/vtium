@@ -1681,15 +1681,16 @@ pub const NODES: &[Node] = &[
         what: "The screen below 80×25, which draws no view",
         supported: true,
         key_pages: &[
-            "Ctrl-C save and quit  q quit",
+            "u undo  Ctrl-C save and quit  q quit",
         ],
         help: &[
+            ("u", "Puts back the font and size the console had when vtium-config started."),
             ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font and size, and quits without asking."),
             ("q", "Quits vtium-config. If changes are not saved, it asks first, on one row."),
         ],
         rows: &[
             ("q.too-small", true),
-            ("u.too-small", false),
+            ("u.too-small", true),
             ("other.too-small", true),
             ("esc.too-small", true),
             ("tab.too-small", true),
