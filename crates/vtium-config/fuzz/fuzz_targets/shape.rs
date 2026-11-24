@@ -3,7 +3,9 @@
 //! what the input is. Even: the rest is up to 16 clusters for the test
 //! font of `tools/testfont/src/ttf.rs`, each a length byte and that many
 //! scalar values of three bytes, folded into Unicode. Odd: the rest is the
-//! font, asked for a family, a flag, a keycap and a letter with its marks.
+//! font, asked for a family, a flag, a keycap, a letter with its marks,
+//! and the full block, the upper half block and a light vertical line,
+//! which the helper maps onto their cells from the font's full block.
 //! The first byte's next two bits pick the style synthesised over the
 //! glyphs (ADR-1302 D4): bold emboldens each outline and italic slants it.
 //! The bits above them pick the script (ADR-1202 D2, D5): normal,
@@ -76,6 +78,9 @@ fuzz_target!(|data: &[u8]| {
             &['1', '\u{fe0f}', '\u{20e3}'][..],
             &['e', '\u{302}', '\u{301}'][..],
             &['\u{c95}', '\u{ccd}', '\u{cb0}'][..],
+            &['\u{2588}'][..],
+            &['\u{2580}'][..],
+            &['\u{2502}'][..],
         ]
         .iter()
         .map(|k| k.iter().map(|&c| u32::from(c)).collect())
