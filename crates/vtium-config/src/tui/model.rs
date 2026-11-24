@@ -1670,10 +1670,10 @@ mod tests {
         for reply in [Reply::Font("tiny5".into()), Reply::Attributes] {
             out.push_str(&written(&app.event(Event::Input(Input::Reply(reply)))));
         }
-        let font = out
-            .find("\x1b]50;unifont")
-            .expect("the start font's switch");
-        let grid = out.find("\x1b[8;25;80t").expect("the start grid");
+        let font = out.find("\x1b]50;unifont");
+        let grid = out.find("\x1b[8;25;80t");
+        assert!(font.is_some(), "the start font's switch: {out:?}");
+        assert!(grid.is_some(), "the start grid: {out:?}");
         assert!(
             font < grid,
             "u asked for the start grid before the start font: {out:?}"
