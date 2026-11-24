@@ -486,4 +486,59 @@ mod tests {
         assert_eq!(Rc::strong_count(&alive), 1, "every source is dropped");
         assert!(kept_closed.get(), "the kept source's descriptor is closed");
     }
+
+    // A removal that waits for a dispatch to end holds its loop weakly, so
+    // a loop dropped while the removal waits takes every source with it.
+    // The dispatch is tracked per thread, so a callback of one loop that
+    // removes a source of a second loop puts that removal off until the
+    // first loop's dispatch returns. The callback then drops the second
+    // loop, and both of its sources go at once.
+    #[test]
+    fn a_loop_dropped_while_a_removal_waits_takes_every_source_with_it() {
+        let mut outer = Loop::<Seen>::new().unwrap();
+        let inner = Loop::<Seen>::new().unwrap();
+        let removals = Removals::new(&inner.handle());
+        let alive = Rc::new(());
+        let (gone, gone_closed, _gone_other) = watched(&removals, &alive);
+        let (_kept, kept_closed, _kept_other) = watched(&removals, &alive);
+        let sources = Rc::downgrade(&alive);
+        drop(alive);
+        let seen_at_drop = Rc::new(Cell::new(None));
+        let (ping, source) = make_ping().unwrap();
+        outer
+            .handle()
+            .insert_source(source, {
+                let seen_at_drop = Rc::clone(&seen_at_drop);
+                let mut held = Some((inner, removals));
+                move |(), (), _: &mut Seen| {
+                    let Some((inner, removals)) = held.take() else {
+                        return;
+                    };
+                    removals.remove(gone);
+                    let waiting = super::DISPATCH.with_borrow(|d| d.pending.len());
+                    drop(removals);
+                    drop(inner);
+                    seen_at_drop.set(Some((
+                        waiting,
+                        gone_closed.get(),
+                        kept_closed.get(),
+                        sources.strong_count(),
+                    )));
+                }
+            })
+            .unwrap();
+        ping.ping();
+        outer
+            .dispatch(Some(Duration::ZERO), &mut Seen::default())
+            .unwrap();
+        assert_eq!(
+            seen_at_drop.get(),
+            Some((1, true, true, 0)),
+            "with the removal waiting, the dropped loop closed both descriptors and dropped both callbacks"
+        );
+        assert!(
+            super::DISPATCH.with_borrow(|d| d.pending.is_empty()),
+            "the waiting removal ran when the dispatch returned"
+        );
+    }
 }
