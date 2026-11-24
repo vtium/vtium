@@ -213,7 +213,8 @@ fn time(
     } else {
         (0..REPLY_POOL_FILES).map(|_| pooled(len)).collect()
     };
-    let filter = sandbox::WorkerFilter::build(sandbox::landlock_version()).unwrap();
+    let filter =
+        sandbox::WorkerFilter::build(sandbox::landlock_version(), sandbox::SECCOMP).unwrap();
     let mut stream = (way == Way::Stream).then(|| spawn(way, &filter));
     let mut times = Vec::new();
     for n in 0..frames + 1 {

@@ -31,12 +31,12 @@ fn child(worker: bool) -> u8 {
     }
     // the filters of a worker on a kernel without landlock, which adds a
     // third
-    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build(0) else {
+    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build(0, true) else {
         return 92;
     };
     match vtium_image_helper::sandbox::install_helper_filter() {
-        Ok(true) => {}
-        Ok(false) => return 0,
+        Ok(None) => {}
+        Ok(Some(_)) => return 0,
         Err(_) => return 91,
     }
     // an internet socket is outside the list
@@ -175,12 +175,12 @@ fn last_filter() -> u8 {
     if !vtium_image_helper::fork::one_thread() {
         return 90;
     }
-    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build(1) else {
+    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build(1, true) else {
         return 92;
     };
     match vtium_image_helper::sandbox::install_helper_filter() {
-        Ok(true) => {}
-        Ok(false) => return 0,
+        Ok(None) => {}
+        Ok(Some(_)) => return 0,
         Err(_) => return 91,
     }
     if seccomp_null() != libc::EFAULT {
@@ -294,8 +294,8 @@ fn attack(victim: i32) -> u8 {
         return 90;
     }
     match vtium_image_helper::sandbox::install_helper_filter() {
-        Ok(true) => {}
-        Ok(false) => return 0,
+        Ok(None) => {}
+        Ok(Some(_)) => return 0,
         Err(_) => return 91,
     }
     let nosys = libc::ENOSYS;

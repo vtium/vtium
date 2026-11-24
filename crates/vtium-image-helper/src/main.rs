@@ -1,13 +1,18 @@
-//! `vtium-image [--tmpdir=DIR]`: the image helper vtium starts with its
-//! socket on descriptor 3, an empty environment and its sandbox already
-//! set (ADR-1101 D3). It checks that it has one thread and its socket,
-//! sets no-new-privileges, installs its seccomp filter, sends its hello
-//! and serves requests until vtium closes the socket or it idles.
+//! `vtium-image [--sandbox=on|off] [--tmpdir=DIR]`: the image helper
+//! vtium starts with its socket on descriptor 3, an empty environment and
+//! its sandbox already set (ADR-1101 D3). It checks that it has one thread
+//! and its socket, sets no-new-privileges, installs its seccomp filter,
+//! sends its hello and serves requests until vtium closes the socket or it
+//! idles.
 //!
-//! `--tmpdir` is vtium's own `TMPDIR`, where a temporary file may also
-//! lie; it reaches the helper as an argument so its environment stays
-//! empty. An unknown argument, a missing socket, or a sandbox it cannot
-//! set exits with status 2, 3 or 4 before any request is read.
+//! `--sandbox=off` is vtium.conf's `helper-sandbox=off`: the helper then
+//! installs no seccomp filter, and its workers add none and enter no
+//! landlock domain. A helper started without the option, or with
+//! `--sandbox=on`, sandboxes itself in full. `--tmpdir` is vtium's own
+//! `TMPDIR`, where a temporary file may also lie; it reaches the helper as
+//! an argument so its environment stays empty. An unknown argument, a
+//! missing socket, or a sandbox it cannot set exits with status 2, 3 or 4
+//! before any request is read.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -16,25 +21,32 @@ use vtium_image::decode::wire::{self, Hello};
 use vtium_image_helper::serve::{self, Settings};
 use vtium_image_helper::{channel, fork, sandbox};
 
-/// The `TMPDIR` the arguments name, resolved; `Err` for an argument the
-/// helper does not know. A `TMPDIR` that is not absolute, does not
-/// resolve, or resolves to `/` is no temporary place.
-fn tmpdir(args: &[std::ffi::OsString]) -> Result<Option<PathBuf>, ()> {
+/// What the arguments ask for: whether the helper sandboxes itself, and
+/// the `TMPDIR` they name, resolved; `Err` for an argument the helper does
+/// not know. A `TMPDIR` that is not absolute, does not resolve, or
+/// resolves to `/` is no temporary place.
+fn options(args: &[std::ffi::OsString]) -> Result<(bool, Option<PathBuf>), ()> {
+    let mut sandboxed = true;
     let mut tmpdir = None;
     for arg in args {
         let text = arg.to_str().ok_or(())?;
-        let dir = text.strip_prefix("--tmpdir=").ok_or(())?;
-        tmpdir = Some(PathBuf::from(dir));
+        match text.strip_prefix("--sandbox=") {
+            Some("on") => sandboxed = true,
+            Some("off") => sandboxed = false,
+            Some(_) => return Err(()),
+            None => tmpdir = Some(PathBuf::from(text.strip_prefix("--tmpdir=").ok_or(())?)),
+        }
     }
-    Ok(tmpdir
+    let tmpdir = tmpdir
         .filter(|d| d.is_absolute())
         .and_then(|d| std::fs::canonicalize(d).ok())
-        .filter(|d| d != Path::new("/")))
+        .filter(|d| d != Path::new("/"));
+    Ok((sandboxed, tmpdir))
 }
 
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let Ok(tmpdir) = tmpdir(&args) else {
+    let Ok((sandboxed, tmpdir)) = options(&args) else {
         return ExitCode::from(2);
     };
     let Some(socket) = fork::socket() else {
@@ -44,20 +56,32 @@ fn main() -> ExitCode {
         return ExitCode::from(4);
     }
     let landlock = sandbox::landlock_version();
-    // the worker's filters depend on whether the kernel offers landlock
-    let Ok(filter) = sandbox::WorkerFilter::build(landlock) else {
-        return ExitCode::from(4);
-    };
     let before = sandbox::seccomp_filters();
-    let Ok(seccomp) = sandbox::install_helper_filter() else {
-        return ExitCode::from(4);
+    // under helper-sandbox=off the helper installs no filter; otherwise
+    // its filter is in force, or the kernel or the architecture offers
+    // none, and a kernel that refuses it ends the helper here
+    let missing = if sandboxed {
+        match sandbox::install_helper_filter() {
+            Ok(missing) => missing,
+            Err(_) => return ExitCode::from(4),
+        }
+    } else {
+        Some(sandbox::NoSeccomp::Off)
     };
+    let seccomp = missing.is_none();
     // the helper's own filter is in force where the kernel counts filters,
-    // and each worker must then run under one more
-    let filters = sandbox::seccomp_filters().filter(|_| seccomp);
-    if filters.is_some() && filters != before.and_then(|n| n.checked_add(1)) {
+    // and each worker must then run under one more; without it, under the
+    // count the helper started with
+    let filters = sandbox::seccomp_filters();
+    if seccomp && filters.is_some() && filters != before.and_then(|n| n.checked_add(1)) {
         return ExitCode::from(4);
     }
+    // the workers' filters follow the helper's, and their domain the
+    // kernel's landlock, both left out under helper-sandbox=off
+    let domain = if sandboxed { landlock } else { 0 };
+    let Ok(filter) = sandbox::WorkerFilter::build(domain, seccomp) else {
+        return ExitCode::from(4);
+    };
     let settings = Settings {
         tmpdir,
         filter,

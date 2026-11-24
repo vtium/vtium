@@ -18,13 +18,127 @@
 //! and the rest of its sandbox, which its hello tells vtium.
 
 use landlock::{
-    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetStatus,
-    Scope,
+    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, LandlockStatus, RestrictSelf,
+    Ruleset, RulesetAttr, RulesetStatus, Scope,
 };
 
 /// The newest landlock version this build knows; a worker's domain handles
 /// every filesystem right of the kernel's version up to it.
 const LANDLOCK_NEWEST: ABI = ABI::V9;
+
+/// Why the helper's seccomp filters are not in force, which its hello
+/// tells vtium.
+///
+/// References:
+/// - ADR-1200 D15, "Nothing on screen, and the log says why": the five
+///   reasons, which hold for both helpers.
+/// - ADR-1101 D9: the image helper's filters, and what the setting and a
+///   kernel without seccomp filters leave out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoSeccomp {
+    /// `helper-sandbox=off` turns the filters off.
+    Off,
+    /// `seccompiler` builds no filter for this architecture ([`SECCOMP`]).
+    NoTable,
+    /// The kernel is 3.8 or later and was built without seccomp: its
+    /// status has no `Seccomp:` line.
+    NotBuilt,
+    /// The kernel is 5.9 or later and was built with seccomp but without
+    /// seccomp filters: its status has no `Seccomp_filters:` line.
+    NoFilters,
+    /// The kernel is older than 3.8 and its status has no `Seccomp:` line,
+    /// so it is too old for the filters or was built without seccomp.
+    TooOld,
+}
+
+/// Why the workers enter no landlock domain, which the hello tells vtium.
+///
+/// References:
+/// - ADR-1200 D15, "Nothing on screen, and the log says why": the four
+///   reasons a landlock domain is not in force.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoLandlock {
+    /// `helper-sandbox=off` turns the domains off.
+    Off,
+    /// The kernel is older than landlock, Linux 5.13.
+    TooOld,
+    /// The kernel is 5.13 or later and was built without landlock, so
+    /// landlock's version query answers `ENOSYS`.
+    NotBuilt,
+    /// The kernel was built with landlock but did not turn it on at boot,
+    /// so the version query answers `EOPNOTSUPP`.
+    NotEnabled,
+}
+
+/// The major and minor version of a kernel release as `uname` gives it,
+/// such as `6.7.0-arch1-1`; `None` when the text does not start with two
+/// numbers joined by a dot.
+pub fn release(text: &str) -> Option<(u32, u32)> {
+    let mut parts = text.splitn(3, ['.', '-', '+']);
+    let major = parts.next()?.parse().ok()?;
+    let minor: String = parts
+        .next()?
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    Some((major, minor.parse().ok()?))
+}
+
+/// The running kernel's release, from `uname`.
+pub fn kernel_release() -> Option<(u32, u32)> {
+    release(&rustix::system::uname().release().to_string_lossy())
+}
+
+/// Why a kernel offers no seccomp filters at all, from its status text
+/// (`/proc/self/status`) and its release; `None` when it offers the
+/// filters or the helper cannot tell that it does not. The helper asks
+/// only once its filter has failed to install, and with `None` it exits
+/// as on any refusal. The kernel writes the `Seccomp:` line from Linux 3.8
+/// when it is built with seccomp, and the `Seccomp_filters:` line from 5.9
+/// when it is built with seccomp filters, so a missing line proves a
+/// missing feature only on a release that writes it.
+///
+/// References:
+/// - ADR-1200 D15, "A kernel without seccomp filters runs the helpers
+///   without them, at the default too": which kernels count as lacking
+///   the filters.
+pub fn kernel_lacks_filters(status: &str, release: Option<(u32, u32)>) -> Option<NoSeccomp> {
+    let line = |name: &str| status.lines().any(|l| l.starts_with(name));
+    let release = release?;
+    if !line("Seccomp:") {
+        Some(if release >= (3, 8) {
+            NoSeccomp::NotBuilt
+        } else {
+            NoSeccomp::TooOld
+        })
+    } else if !line("Seccomp_filters:") && release >= (5, 9) {
+        Some(NoSeccomp::NoFilters)
+    } else {
+        None
+    }
+}
+
+/// Why a kernel whose landlock query answered `status` gives the workers
+/// no domain, by its release: `ENOSYS` before 5.13 is a kernel older than
+/// landlock, and from 5.13 one built without it.
+pub fn no_landlock(status: LandlockStatus, release: Option<(u32, u32)>) -> NoLandlock {
+    match status {
+        LandlockStatus::NotEnabled => NoLandlock::NotEnabled,
+        _ if release.is_some_and(|r| r < (5, 13)) => NoLandlock::TooOld,
+        _ => NoLandlock::NotBuilt,
+    }
+}
+
+/// Why the running kernel offers no landlock: its answer to landlock's
+/// version query, which the `landlock` crate reads without entering a
+/// domain, and its release.
+pub fn kernel_lacks_landlock() -> NoLandlock {
+    let status = RestrictSelf::default()
+        .no_new_privs(false)
+        .apply()
+        .map_or(LandlockStatus::NotImplemented, |s| s.landlock);
+    no_landlock(status, kernel_release())
+}
 
 /// The landlock version the kernel offers, 0 for none, found by making
 /// rulesets of each version, newest first, without entering any.
@@ -519,24 +633,39 @@ mod filter {
     }
 }
 
-/// Installs the helper's allow-list; `Ok(false)` on an architecture
-/// `seccompiler` builds no filter for.
-pub fn install_helper_filter() -> Result<bool, String> {
+/// Installs the helper's allow-list. Returns `None` when it is in force,
+/// and otherwise why not: [`NoSeccomp::NoTable`] on an architecture
+/// `seccompiler` builds no filter for, or the kernel's lack of seccomp
+/// filters when the filter fails to install there. On a kernel that
+/// offers the filters, a filter that fails to install is an error, and
+/// the helper exits.
+///
+/// References:
+/// - ADR-1101 D9, "A kernel without seccomp filters": the helper goes on
+///   without seccomp there, and exits when the kernel refuses its filter.
+pub fn install_helper_filter() -> Result<Option<NoSeccomp>, String> {
     #[cfg(any(
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "riscv64"
     ))]
     {
-        filter::install(&filter::helper()?)?;
-        Ok(true)
+        let program = filter::helper()?;
+        match filter::install(&program) {
+            Ok(()) => Ok(None),
+            Err(why) => std::fs::read_to_string("/proc/self/status")
+                .ok()
+                .and_then(|status| kernel_lacks_filters(&status, kernel_release()))
+                .map(Some)
+                .ok_or(why),
+        }
     }
     #[cfg(not(any(
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "riscv64"
     )))]
-    Ok(false)
+    Ok(Some(NoSeccomp::NoTable))
 }
 
 /// The worker's second and third filters, built once by the helper for
@@ -544,10 +673,16 @@ pub fn install_helper_filter() -> Result<bool, String> {
 /// them.
 #[derive(Clone, Debug)]
 pub struct WorkerFilter {
-    /// The landlock version the kernel offers, 0 for none: above 0, every
-    /// worker enters a landlock domain and its second filter is its last;
-    /// at 0, it adds the third filter instead, which is then its last.
+    /// The landlock version the workers' domains are built for, 0 for
+    /// none: above 0, every worker enters a landlock domain and its second
+    /// filter is its last; at 0, it adds the third filter instead, which
+    /// is then its last. 0 too under `helper-sandbox=off`.
     landlock: u32,
+    /// Whether the workers add their seccomp filters: false under
+    /// `helper-sandbox=off`, on an architecture with no filter, and on a
+    /// kernel without seccomp filters, where the helper's own filter is
+    /// not in force either.
+    seccomp: bool,
     #[cfg(any(
         target_arch = "x86_64",
         target_arch = "aarch64",
@@ -564,10 +699,12 @@ pub struct WorkerFilter {
 
 impl WorkerFilter {
     /// The filters for workers on a kernel that offers landlock version
-    /// `landlock`, 0 for none.
-    pub fn build(landlock: u32) -> Result<Self, String> {
+    /// `landlock`, 0 for none, their seccomp filters added only when
+    /// `seccomp`, as when the helper's own filter is in force.
+    pub fn build(landlock: u32, seccomp: bool) -> Result<Self, String> {
         Ok(Self {
             landlock,
+            seccomp: seccomp && SECCOMP,
             #[cfg(any(
                 target_arch = "x86_64",
                 target_arch = "aarch64",
@@ -592,15 +729,20 @@ impl WorkerFilter {
     /// once it has locked itself in: its second, and on a kernel without
     /// landlock its third; none where no filter is built.
     pub fn added(&self) -> u32 {
-        match (SECCOMP, self.landlock) {
+        match (self.seccomp, self.landlock) {
             (false, _) => 0,
             (true, 0) => 2,
             (true, _) => 1,
         }
     }
 
+    /// Whether the workers add their seccomp filters.
+    pub fn seccomp(&self) -> bool {
+        self.seccomp
+    }
+
     /// Adds the second filter to the calling worker; `Ok(false)` where no
-    /// filter is built.
+    /// filter is built or the workers add none.
     pub fn install(&self) -> Result<bool, String> {
         #[cfg(any(
             target_arch = "x86_64",
@@ -608,6 +750,9 @@ impl WorkerFilter {
             target_arch = "riscv64"
         ))]
         {
+            if !self.seccomp {
+                return Ok(false);
+            }
             filter::install(&self.program)?;
             Ok(true)
         }
@@ -621,7 +766,7 @@ impl WorkerFilter {
 
     /// Adds the third filter, which refuses opening and removing a file,
     /// for a worker on a kernel without landlock; `Ok(false)` where no
-    /// filter is built.
+    /// filter is built or the workers add none.
     pub fn install_no_open(&self) -> Result<bool, String> {
         #[cfg(any(
             target_arch = "x86_64",
@@ -629,6 +774,9 @@ impl WorkerFilter {
             target_arch = "riscv64"
         ))]
         {
+            if !self.seccomp {
+                return Ok(false);
+            }
             filter::install(&self.no_open)?;
             Ok(true)
         }
@@ -667,5 +815,87 @@ mod tests {
         }
         // the build machine's kernel has landlock; a kernel without it reads 0
         assert!(landlock_version() <= 9);
+    }
+
+    const WITH_FILTERS: &str = "Name:\tvtium-image\nSeccomp:\t0\nSeccomp_filters:\t0\n";
+    const SECCOMP_ONLY: &str = "Name:\tvtium-image\nSeccomp:\t0\n";
+    const NO_SECCOMP: &str = "Name:\tvtium-image\nNoNewPrivs:\t1\n";
+
+    // Each reason a filter can be missing on the kernel's side, from a
+    // stand-in status and release, and a kernel that offers the filters,
+    // which leaves the helper to exit when its filter fails.
+    //
+    // References:
+    // - ADR-1200 D15, "Nothing on screen, and the log says why": reasons
+    //   3, 4 and 5, and a release before 5.9 that counts as offering them.
+    #[test]
+    fn the_kernel_lacks_the_filters_only_when_its_status_and_release_show_it() {
+        assert_eq!(release("6.7.0-arch1-1"), Some((6, 7)));
+        assert_eq!(release("3.8-rc1"), Some((3, 8)));
+        assert_eq!(release("6.12+deb13-amd64"), Some((6, 12)));
+        assert_eq!(release("unknown"), None);
+        let lacks = kernel_lacks_filters;
+        assert_eq!(lacks(NO_SECCOMP, Some((6, 7))), Some(NoSeccomp::NotBuilt));
+        assert_eq!(lacks(NO_SECCOMP, Some((3, 8))), Some(NoSeccomp::NotBuilt));
+        assert_eq!(lacks(NO_SECCOMP, Some((3, 7))), Some(NoSeccomp::TooOld));
+        assert_eq!(
+            lacks(SECCOMP_ONLY, Some((5, 9))),
+            Some(NoSeccomp::NoFilters)
+        );
+        assert_eq!(lacks(SECCOMP_ONLY, Some((5, 8))), None);
+        assert_eq!(lacks(WITH_FILTERS, Some((6, 7))), None);
+        assert_eq!(lacks(NO_SECCOMP, None), None);
+    }
+
+    // Why the workers enter no landlock domain, from the version query's
+    // answer and the release.
+    //
+    // References:
+    // - ADR-1200 D15, "Nothing on screen, and the log says why": the
+    //   landlock reasons.
+    #[test]
+    fn the_missing_landlock_reads_as_its_kernels_reason() {
+        let enosys = LandlockStatus::NotImplemented;
+        assert_eq!(no_landlock(enosys, Some((5, 12))), NoLandlock::TooOld);
+        assert_eq!(no_landlock(enosys, Some((5, 13))), NoLandlock::NotBuilt);
+        let off = LandlockStatus::NotEnabled;
+        assert_eq!(no_landlock(off, Some((6, 7))), NoLandlock::NotEnabled);
+    }
+
+    // Under helper-sandbox=off, or where the helper's own filter is not in
+    // force, the workers add no filter and lock nothing in: their filters
+    // add none to the count the helper checks, and a worker's lock is no
+    // more than the proof the decoders take, with no domain and no third
+    // filter. A test thread stands in for the worker.
+    //
+    // References:
+    // - ADR-1101 D9, "The sandbox setting": a worker adds neither its
+    //   second nor its third filter and enters no landlock domain, and
+    //   skips the checks that have nothing to check.
+    #[test]
+    fn a_worker_without_its_filters_adds_none_and_locks_nothing_in() {
+        let off = WorkerFilter::build(0, false).unwrap();
+        assert!(!off.seccomp());
+        assert_eq!(off.added(), 0);
+        let (installed, no_open, locked, opens_root) = std::thread::spawn(move || {
+            let installed = off.install().unwrap();
+            let no_open = off.install_no_open().unwrap();
+            let locked = lock(&off).is_some();
+            (installed, no_open, locked, can_open_root())
+        })
+        .join()
+        .unwrap();
+        assert!(!installed && !no_open);
+        assert!(locked, "the lock refused a worker with nothing to lock");
+        assert!(
+            opens_root,
+            "a worker with no domain still opens a directory"
+        );
+        // with the filters on, a worker adds its second, and its third on a
+        // kernel without landlock
+        if SECCOMP {
+            assert_eq!(WorkerFilter::build(6, true).unwrap().added(), 1);
+            assert_eq!(WorkerFilter::build(0, true).unwrap().added(), 2);
+        }
     }
 }
