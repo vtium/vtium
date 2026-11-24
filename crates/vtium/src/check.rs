@@ -2789,6 +2789,7 @@ mod tests {
             "version = 1\n\
              [head desk]\n\
              frob = 1\n\
+             isolated = maybe\n\
              [head kiosk]\n\
              [head kiosk]\n\
              consoles = 2\n\
@@ -2808,30 +2809,35 @@ mod tests {
                     3,
                     "This section has no key named \"frob\". Check the spelling, or remove the line."
                 ),
+                at(3, "Because of this error, vtium ignores this line."),
                 at(
-                    3,
+                    4,
+                    "`isolated` cannot be \"maybe\". Change it to one of `yes`, `no`."
+                ),
+                at(
+                    4,
                     "Because of this error, vtium ignores this head and every rule that names it."
                 ),
                 at(
-                    5,
+                    6,
                     "The file already has a head named \"kiosk\". Rename one of the two."
                 ),
                 at(
-                    5,
+                    6,
                     "Because of this error, vtium ignores this whole section."
                 ),
                 at(
-                    9,
+                    10,
                     "This rule sends devices to head \"desc\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it."
                 ),
                 at(
-                    9,
+                    10,
                     "Because of this error, vtium ignores this rule, and each device goes on to the next rule."
                 ),
-                // the survivors' own warning: line 11 went with head desk
+                // the survivors' own warning: line 12 went with head desk
                 at(
-                    12,
-                    "this rule never matches: the rule on line 10 matches every device it would"
+                    13,
+                    "this rule never matches: the rule on line 11 matches every device it would"
                 ),
             ]
         );
@@ -3824,7 +3830,7 @@ mod tests {
             ),
             (
                 "dropped-heads",
-                "version = 1\n[head kiosk]\nrescue = off\n[rules]\ninput * -> kiosk\n",
+                "version = 1\n[head kiosk]\nconsoles = 0\n[rules]\ninput * -> kiosk\n",
             ),
         ] {
             let (counted, notes) = remarked(name, file, &present());
@@ -3833,9 +3839,15 @@ mod tests {
         }
     }
 
-    // ADR-1401 D3, D9: the head file has no `[guards]` and no `rescue`, so
-    // a file in the first cut's names counts against itself, each error
-    // naming the word that replaced the old one
+    // The head file has no `[guards]` and no `rescue`, so a file in the
+    // first cut's names counts against itself, each error naming the word
+    // that replaced the old one. The old `rescue` key drops only its own
+    // line and head kiosk keeps running, while the unknown `[guards]`
+    // section drops whole, so the start runs the parts without errors.
+    //
+    // References:
+    // - ADR-1401 D3, D9: the names that replaced `[guards]` and `rescue`.
+    // - ADR-1510 D2: an unknown or renamed key drops only its line.
     #[test]
     fn the_first_cuts_guards_and_rescue_count_against_the_file() {
         let (out, f) = checked(
@@ -3851,15 +3863,12 @@ mod tests {
                 .any(|c| c.starts_with(&format!("{f}:{line}: ")) && c.contains(word))
         };
         assert!(at(3, "`isolated = yes`"), "{counted:?}");
+        assert!(at(3, "vtium ignores this line."), "{counted:?}");
         assert!(at(6, "`policy`"), "{counted:?}");
         assert_eq!(
-            verdict(&out, &f),
-            [
-                "Every head in this file has errors, so vtium starts with its built-in configuration and shows `vtium.conf not used: running the built-in configuration.`.",
-                UNSET
-            ]
+            out.notes,
+            [RULES_ALONE, PARTLY_OPEN, PARTLY_UNSET_POLICY].map(|n| format!("{f}: {n}"))
         );
-        assert_eq!(out.notes.len(), 2, "{:?}", out.notes);
     }
 
     // ADR-1401 D4, probe 4 (the recommendation, WEAK_MATCH_COUNTS): input

@@ -487,4 +487,74 @@ mod with_the_feature {
         assert_eq!(rows_of(&rebuilt), rows_of(&frame));
         assert_eq!(rebuilt.cursor(), frame.cursor());
     }
+
+    // ADR-1004 D8: a double-width row shows half as many cells as the
+    // screen is wide, and reorders over those cells only. Its trailing
+    // erased cells go to the end side of that half, so a right-to-left
+    // paragraph draws its text against the half's right edge, and no cell
+    // the row does not show is drawn on it.
+    // covers: text.bidi
+    #[test]
+    fn a_double_width_row_reorders_over_the_cells_it_shows() {
+        let t = term(10, 1, "\x1b[2 k\x1b#6ab".as_bytes());
+        assert_eq!(drawn(&t)[0], "...ab.....");
+        // mixed directions in a right-to-left paragraph
+        let t = term(10, 1, "\x1b[2 k\x1b#6אb".as_bytes());
+        assert_eq!(drawn(&t)[0], "...bא.....");
+        // a left-to-right paragraph reverses its Hebrew inside the half
+        let t = term(10, 1, "\x1b#6aבג".as_bytes());
+        assert_eq!(drawn(&t)[0], "aגב.......");
+        // on an odd width the row shows 4 of 9 cells
+        let t = term(9, 1, "\x1b[2 k\x1b#6ab".as_bytes());
+        assert_eq!(drawn(&t)[0], "..ab.....");
+        // in explicit mode a right-to-left row is reversed inside the half
+        let t = term(10, 1, "\x1b[8l\x1b[2 k\x1b#6ab".as_bytes());
+        assert_eq!(drawn(&t)[0], "...ba.....");
+    }
+
+    // ADR-1004 D8: both lines of a double-height pair reorder over the
+    // half of the screen they show.
+    // covers: text.bidi
+    #[test]
+    fn a_double_height_pair_reorders_over_the_cells_it_shows() {
+        let t = term(10, 2, "\x1b[2 k\x1b#3אב\r\n\x1b#4אב".as_bytes());
+        assert_eq!(drawn(&t), ["...בא.....", "...בא....."]);
+    }
+
+    // ADR-1004 D9: on a reordered double-width row the cursor is drawn
+    // where its logical cell is drawn inside the half the row shows.
+    // covers: text.bidi
+    #[test]
+    fn the_cursor_on_a_double_width_row_is_drawn_inside_the_half_it_shows() {
+        let palette = Palette::default();
+        // after ab, the cursor is on logical column 2, an erased cell
+        // drawn just left of the text
+        let t = term(10, 1, "\x1b[2 k\x1b#6ab".as_bytes());
+        let c = t.screen().frame(&palette, Age::NEVER).cursor();
+        assert_eq!((c.col, c.rtl), (2, true));
+    }
+
+    // ADR-1004 D10 and ADR-1308 D1: on a reordered double-width row a
+    // mouse report names the screen column where the half of the
+    // character under the pointer stands in written order, and a drag
+    // selects the characters it covers where they are drawn.
+    // covers: text.bidi
+    #[test]
+    fn a_pointer_on_a_double_width_row_names_the_character_drawn_there() {
+        let mut t = term(10, 1, "\x1b[2 k\x1b#6ab".as_bytes());
+        t.set_cell_size(10, 20);
+        // a is drawn on the line's column 3, screen columns 6 and 7; in
+        // written order it stands on screen columns 0 and 1
+        assert_eq!(t.pointer_cell(6, 0, 65), (0, 5));
+        assert_eq!(t.pointer_cell(7, 0, 71), (1, 11));
+        // b is drawn on screen columns 8 and 9
+        assert_eq!(t.pointer_cell(9, 0, 99), (3, 39));
+        // the line's column 2 is drawn in place, so it names itself
+        assert_eq!(t.pointer_cell(5, 0, 55), (5, 55));
+        // the erased cell drawn first, on the left, is the line's last
+        assert_eq!(t.pointer_cell(1, 0, 15), (9, 95));
+        t.screen_mut().select_start(6, 0);
+        t.screen_mut().select_to(9, 0);
+        assert_eq!(t.screen().selection_text().as_deref(), Some("ab"));
+    }
 }

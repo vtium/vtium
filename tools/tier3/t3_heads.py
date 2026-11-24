@@ -251,7 +251,7 @@ FIRST = {
                     "line vtium cannot read, `policy = opne`, below a line naming a "
                     "version vtium does not know, `version = 2` (ADR-1401 D3, D7). "
                     "Correct: `vtium.conf has errors and counts as closed: all input is off.`, then that "
-                    "no head can run, then the policy line's error with its line of "
+                    "no display head can run, then the policy line's error with its line of "
                     "/etc/vtium/vtium.conf, listed first, before the error of the version "
                     "line above it, and how to read the full report; no login prompt and "
                     "no shell.",

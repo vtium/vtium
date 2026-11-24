@@ -946,6 +946,61 @@ fn a_keyboard_opened_through_the_seat_types_as_one_opened_directly() {
     assert_eq!(type_a(&mut input, &node, id), expected);
 }
 
+/// The lines since [`logs::capture`] at info level and above that say
+/// what a device is used as or that it cannot be probed.
+fn probe_lines() -> Vec<String> {
+    logs::at_least(log::Level::Info)
+        .into_iter()
+        .filter(|line| line.contains("probe") || line.starts_with("using "))
+        .collect()
+}
+
+/// A keyboard the seat manager hands over and takes back at once, as when
+/// a display server takes the seat right after logind gave vtium the
+/// devices: the descriptor answers every ioctl with ENODEV, so the probe
+/// fails. The warning names the device, vtium does not report it as used
+/// and closes it through the seat, and the next wake-up probes it again,
+/// after which it types.
+// covers: platform.libseat
+#[test]
+fn a_keyboard_taken_back_before_its_probe_is_skipped_and_probed_again() {
+    let server = StandIn::new();
+    let (mut lp, mut data) = start(&server, None, tries(50, 20));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    let (mut input, node) = keyboard_input(&mut data, true);
+    node.borrow_mut().revoked = true;
+    logs::capture();
+    input.wake_up();
+    let id = input
+        .add(Path::new(KEYBOARD))
+        .unwrap_or_else(|| panic!("the keyboard is kept to probe again"));
+    assert_eq!(
+        probe_lines(),
+        [format!(
+            "cannot probe {KEYBOARD}: No such device (os error 19). vtium skips the device and probes it again the next time it opens the input devices."
+        )]
+    );
+    assert!(seat_devices(&server).is_empty(), "closed through the seat");
+    assert!(!node.borrow().open);
+    assert!(type_a(&mut input, &node, id).is_empty(), "nothing types");
+
+    node.borrow_mut().revoked = false;
+    logs::capture();
+    input.sleep();
+    input.wake_up();
+    assert_eq!(
+        probe_lines(),
+        [format!("using {KEYBOARD} [stand-in] 1d6b:0104 as keyboard")]
+    );
+    assert_eq!(seat_devices(&server), [PathBuf::from(KEYBOARD)]);
+    assert!(
+        type_a(&mut input, &node, id)
+            .iter()
+            .any(|e| matches!(e, InputEvent::Key(_))),
+        "the keyboard types once probed"
+    );
+}
+
 /// A keyboard the seat manager answers `EBUSY` for twice waits,
 /// with the loop serving a timer of the test's own meanwhile, and opens
 /// from the input's retry timer.

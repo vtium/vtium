@@ -516,6 +516,9 @@ considered:
     said: "Keeping the terminal modes through a restart lands in the privilege split's third slice; a restarted vtium sends a focus-in to each shown console whose kept modes have mode 1004 on, and D16 is amended."
     via: the maintainer's answers to the privilege split's gap-check, 2026-11-21, relayed by the steering session, question 10
     paraphrase: true
+  - operator: aaronsb
+    said: "A: runs as written [a key vtium ignores in a head's, look's or rule's section counts toward the file's outcome the way an unknown top-level key does]"
+    via: the maintainer's answer to finding F1 of the scoped review of the unknown-key change, in the steering session of 2026-11-23, recorded as decision 53 of the session's decision list
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
@@ -1222,6 +1225,8 @@ A machine with no configuration at all:
 > Note 2026-11-22: ADR-1510 D2, which the maintainer decided on 2026-11-22, amends this item for a key that vtium does not know at all, and for a key that vtium knows but that the section cannot take, such as `font-name` in a head. Neither drops a head's section or a look's section. vtium reports the key with its file and line, ignores the key alone, and reads the rest of the section, as it does for an unknown key at the top level. A section that vtium does not know drops that section alone. A value that a known key cannot take still drops the head as this item says. So the panic screen's illustrative line below, `unknown key "focs" in [head kiosk]`, reports an error that does not by itself drop the head kiosk.
 >
 > Corrected later the same day: the maintainer answered that a known key in a section that does not take it counts as an unknown key (ADR-1510's `considered`). The note's first sentence ended at "for a key that vtium does not know at all.", the second began "Such a key", and the fifth read: "A key that vtium knows but that the section cannot take, and a value that a known key cannot take, still drop the head as this item says."
+
+> Note 2026-11-23: the maintainer decided how a key that vtium ignores inside a head's or a look's section counts toward the outcomes below (`considered`, 2026-11-23). Such a key is one vtium does not know, one the section does not take, or a head key that a later release renamed, such as `on-loss`, `rescue` or `profile`. It counts the way an unknown top-level key does. The file runs as written, each head keeps its `isolated` setting as written, and no notice says the file has errors. vtium still logs the key, and `vtium check-config` still reports it and exits 1. So in this decision, a file with errors means a file with an error that drops something: a head, a look, a section, a rule or the whole file. A value that a known key cannot take, a key given twice and a line that does not parse keep the outcomes below.
 
 - Missing hardware never makes a file invalid.
 - **The outcomes,** by what the levels found:

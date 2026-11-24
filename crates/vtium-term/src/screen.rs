@@ -1307,11 +1307,11 @@ impl Screen {
         line
     }
 
-    /// The logical column view row `y` shows at column `x`, where the
-    /// pointer is: the cell a mouse report takes, and the cell a selection
-    /// or a link's hover takes once [`character_col`](Self::character_col)
-    /// has halved a column of a line of double size. In a build with the
-    /// bidi feature a row drawn in another
+    /// The logical column view row `y` shows at its own column `x`: the
+    /// cell a selection or a link's hover takes once
+    /// [`character_col`](Self::character_col) has halved a column of a
+    /// line of double size, and the cell a mouse report takes on a line of
+    /// single size. In a build with the bidi feature a row drawn in another
     /// order than it was written shows another column there (ADR-1004
     /// D10); otherwise every column shows itself.
     pub(crate) fn pointer_col(&self, x: usize, y: usize) -> usize {
@@ -1340,6 +1340,34 @@ impl Screen {
             .view_line(y)
             .is_some_and(|l| l.flags().size().is_double());
         self.pointer_col(if double { x / 2 } else { x }, y)
+    }
+
+    /// The screen column a mouse report names for the pointer at screen
+    /// column `x` of view row `y`. A line of single size reports the
+    /// logical column drawn there, as [`pointer_col`](Self::pointer_col)
+    /// gives it. A line of double size draws each of its characters across
+    /// two screen columns, and a reordered one draws them in another order,
+    /// so vtium finds the character drawn under the pointer and reports the
+    /// screen column where that character's half under the pointer stands
+    /// in written order. On a line drawn in written order this is `x`
+    /// itself.
+    ///
+    /// References:
+    /// - ADR-1004 D10: a mouse report carries the logical column.
+    /// - ADR-1308 D1, "Selection on a double-size line follows the
+    ///   cursor's rule": mouse reports name screen cells, not the line's
+    ///   own columns.
+    #[cfg(feature = "bidi")]
+    pub(crate) fn report_col(&self, x: usize, y: usize) -> usize {
+        let double = self
+            .view_line(y)
+            .is_some_and(|l| l.flags().size().is_double());
+        if !double {
+            return self.pointer_col(x, y);
+        }
+        self.pointer_col(x / 2, y)
+            .saturating_mul(2)
+            .saturating_add(x % 2)
     }
 
     /// Marks cells of `row` changed. While the view is scrolled back, the

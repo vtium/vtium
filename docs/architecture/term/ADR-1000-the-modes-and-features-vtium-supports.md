@@ -123,7 +123,7 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (186 rows: 123 supported, 2 partial, 44 ignored, 8 refused, 9 planned). Both tables use the same statuses:
+The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 76 refused, 1 weighed) and `ADR-1000-features.tsv` (188 rows: 133 supported, 1 partial, 44 ignored, 8 refused, 2 planned). Both tables use the same statuses:
 
 - **supported**: set and reset, or the feature, do what the specification says.
 - **partial**: vtium does part of it; the note says what is missing, and the issue column names the work that builds the rest.
@@ -153,6 +153,8 @@ DECRQM, the query by which a program asks whether a mode is set, answers from vt
 > Edited 2026-11-13: `platform.libseat` is supported. The maintainer checked the libseat build on a laptop's VTs in seat mode under logind, and every step of the check passed; tier 3 runs the same build on seatd and on logind. Before this edit the counts above read 120 supported and 5 partial feature rows, which already did not match the table's 121 supported and 4 partial.
 
 > Edited 2026-11-13: the features table gains `ctl.linux-blink-interval`, planned. The Linux console sets how fast the cursor blinks with `CSI 16 ; n ]`. The maintainer decided that vtium honors the sequence, and the work on the cursor blink interval builds it. A survey of an outside collection of terminal test scenarios found the sequence. Before this edit the counts above read 185 feature rows, 122 supported, 3 partial and 8 planned. Those counts did not match the table's 123 supported and 2 partial.
+
+> Edited 2026-11-24: the counts above, and those in the first item of Consequences' Negative list, now match the tables. Edits since 2026-11-13 changed rows without changing the counts, among them the maintainer's decision of 2026-11-20 that mode 2034 is refused, where it was weighed. Before this edit the counts above read 75 refused and 2 weighed modes, and 186 feature rows, 123 supported, 2 partial and 9 planned. Consequences read 69 refused and 6 weighed modes with no row in vtium's mode table, the counts of 2026-11-06.
 
 Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top, or `bidi` for a row that only a build with the cargo feature `bidi` has (ADR-1004 D13).
 
@@ -278,7 +280,7 @@ Each row proves its coverage by the contract of the issue that traces each row t
 
 ### Negative
 
-- 69 mode rows are refused and 6 weighed with no row in vtium's mode table; the table carries them so each decision and its reason are visible.
+- 72 mode rows are refused and 1 weighed with no row in vtium's mode table; the table carries them so each decision and its reason are visible.
 - The Ghostty, WezTerm and kitty columns are mostly "unverified" for standard modes, since their docs do not list them; a later edit can settle them from documentation.
 - The ignored and refused rows have to stay ignored and refused through every later handler.
 

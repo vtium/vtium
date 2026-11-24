@@ -1,0 +1,7 @@
+size 10x4
+cursor 0,3
+flags AUTO_WRAP
+row 0 |ab|
+row 1 |אb|
+row 2 |ab|
+row 3 ||

@@ -468,6 +468,11 @@ pub struct Shared {
     /// The Looks tab has sent the console a grid request, so leaving
     /// gives the console [`Shared::start_grid`] back.
     pub grid_moved: bool,
+    /// `u` asked for [`Shared::start_grid`] while another font switch was
+    /// in flight, so the grid request waits until the start font's switch
+    /// goes: a font switch moves the console's grid too, and would undo a
+    /// grid request sent before it.
+    pub grid_after_font: bool,
     /// The size whose cell the font helper is measuring for a trial of the
     /// size on the console.
     pub size_asked: Option<super::shot::SizeAsked>,
@@ -711,6 +716,7 @@ impl App {
                 unsaved: 0,
                 start_grid: (size.cols, size.rows),
                 grid_moved: false,
+                grid_after_font: false,
                 size_asked: None,
             },
             size,
@@ -1080,7 +1086,43 @@ impl App {
         if shown.is_some() {
             self.shared.shown_font = shown;
         }
-        self.follow()
+        let mut out = self.follow();
+        out.extend(self.grid_after_font());
+        out
+    }
+
+    /// The start grid that `u` asked for, once nothing but the start
+    /// font's switch is in flight. That switch's bytes are already
+    /// written, and the console reads its input in order, so the grid
+    /// request that follows them lands after the font has changed. A font
+    /// wanted since then, other than the start font, replaces what `u`
+    /// asked for, and the grid then goes back only when the TUI leaves.
+    fn grid_after_font(&mut self) -> Vec<Effect> {
+        if !self.shared.grid_after_font {
+            return Vec::new();
+        }
+        let start = self.shared.start_font.as_ref();
+        let refused = start.is_some_and(|s| self.shared.refused.contains(s));
+        if self.shared.want.as_ref() != start && !refused {
+            self.shared.grid_after_font = false;
+            return Vec::new();
+        }
+        if self
+            .shared
+            .in_flight
+            .as_ref()
+            .is_some_and(|f| Some(f) != start)
+        {
+            return Vec::new();
+        }
+        self.shared.grid_after_font = false;
+        if !self.shared.grid_moved {
+            return Vec::new();
+        }
+        self.shared.grid_moved = false;
+        vec![Effect::Write(super::shot::grid_request(
+            self.shared.start_grid,
+        ))]
     }
 
     /// What follows once the terminal is known: the sources each frit that
@@ -1332,27 +1374,42 @@ impl App {
 
     /// A key below the TUI's minimum size, where no view is drawn: `q`
     /// quits, or asks the quit question first while changes are not
-    /// saved, and `u` puts back the font the console had when the TUI
-    /// started, where a preview changed it. Ctrl-C saves and leaves, as
-    /// it does everywhere.
+    /// saved, and `u` puts back the font and the grid the console had
+    /// when the TUI started, where a trial changed them, or says that it
+    /// has nothing to put back. Ctrl-C saves and
+    /// leaves, as it does everywhere. `u` sends the font switch before
+    /// the grid request, as leaving does, because a font switch changes
+    /// the console's grid too. While another switch is in flight, the
+    /// start font's switch and then the grid request go once the console
+    /// answers it.
     ///
     /// References:
     /// - ADR-1201 D3: below the minimum size only `q`, `u` and Ctrl-C act.
+    /// - ADR-1201 D4, "Giving the console back": the start font and the
+    ///   start grid that leaving gives back, which `u` gives back too.
     /// - ADR-1403 D7: `q` asks before it drops changes that are not saved.
     fn small_key(&mut self, key: Key) -> Vec<Effect> {
         match key {
             Key::Char('q') => self.quit(0),
             Key::Char('u') => {
-                let mut out = Vec::new();
-                if self.shared.grid_moved {
-                    self.shared.grid_moved = false;
-                    out.push(Effect::Write(super::shot::grid_request(
-                        self.shared.start_grid,
-                    )));
+                let font_moved = self.shared.in_flight.is_some()
+                    || self.shared.shown_font != self.shared.start_font;
+                if !font_moved && !self.shared.grid_moved {
+                    self.shared.message = Some(super::words::NOTHING_TO_UNDO.to_owned());
+                    return Vec::new();
                 }
+                let mut out = Vec::new();
                 if let Some(start) = self.shared.start_font.clone() {
                     self.shared.want = Some(start);
                     out.extend(self.follow());
+                }
+                // the grid request goes after the start font's switch; while
+                // another switch is in flight, the start font's switch can
+                // only go once the console answers that one, so the grid
+                // request waits for it too
+                if self.shared.grid_moved {
+                    self.shared.grid_after_font = true;
+                    out.extend(self.grid_after_font());
                 }
                 out
             }
@@ -1557,6 +1614,126 @@ mod tests {
         });
         let out = app.event(Event::Input(Input::Key(Key::Char('y'))));
         assert_eq!(installs(&out), 1, "{out:?}");
+    }
+
+    /// The bytes of each write among `out`, run together in order.
+    fn written(out: &[Effect]) -> String {
+        out.iter()
+            .filter_map(|e| match e {
+                Effect::Write(b) => Some(String::from_utf8_lossy(b).into_owned()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `u` below the minimum size while a font switch is still in flight:
+    /// the console has not yet answered the trial's switch to tiny5, so
+    /// `u` cannot send the start font's switch yet. The start grid waits
+    /// until the start font's switch goes, because the font switch moves
+    /// the grid again.
+    #[test]
+    fn u_with_a_switch_in_flight_sends_the_start_font_before_the_start_grid() {
+        let (mut app, _) = App::new(super::super::fixture::inputs(), 80, 25);
+        for reply in [
+            Reply::Version("vtium(test)".into()),
+            Reply::Font("unifont".into()),
+            Reply::Attributes,
+        ] {
+            app.event(Event::Input(Input::Reply(reply)));
+        }
+        // a size kept from an earlier trial
+        app.shared.grid_moved = true;
+        // tiny5 is the fourth font set below the Looks tab's one look; t
+        // tries it and k keeps it before the console answers the switch
+        for key in [
+            Key::Char('3'),
+            Key::Down,
+            Key::Down,
+            Key::Down,
+            Key::Down,
+            Key::Char('t'),
+            Key::Char('k'),
+        ] {
+            app.event(Event::Input(Input::Key(key)));
+        }
+        assert_eq!(app.shared.in_flight.as_deref(), Some("tiny5"));
+        // the console's resize comes before its reply
+        app.event(Event::Resize(Size {
+            cols: 30,
+            rows: 8,
+            cell_px: None,
+        }));
+        let mut out = String::new();
+        out.push_str(&written(
+            &app.event(Event::Input(Input::Key(Key::Char('u')))),
+        ));
+        for reply in [Reply::Font("tiny5".into()), Reply::Attributes] {
+            out.push_str(&written(&app.event(Event::Input(Input::Reply(reply)))));
+        }
+        let font = out.find("\x1b]50;unifont");
+        let grid = out.find("\x1b[8;25;80t");
+        assert!(font.is_some(), "the start font's switch: {out:?}");
+        assert!(grid.is_some(), "the start grid: {out:?}");
+        assert!(
+            font < grid,
+            "u asked for the start grid before the start font: {out:?}"
+        );
+        // the console answers the start font, and nothing more is sent
+        for reply in [Reply::Font("unifont".into()), Reply::Attributes] {
+            let more = written(&app.event(Event::Input(Input::Reply(reply))));
+            assert!(!more.contains("\x1b[8;"), "{more:?}");
+        }
+        assert!(!app.shared.grid_moved);
+    }
+
+    /// A font tried after `u`, once the terminal is large again, replaces
+    /// what `u` asked for: the start grid then waits for the TUI to leave,
+    /// and does not land in the middle of the new trial.
+    #[test]
+    fn a_trial_after_u_drops_u_s_waiting_grid_request() {
+        let (mut app, _) = App::new(super::super::fixture::inputs(), 80, 25);
+        for reply in [
+            Reply::Version("vtium(test)".into()),
+            Reply::Font("unifont".into()),
+            Reply::Attributes,
+        ] {
+            app.event(Event::Input(Input::Reply(reply)));
+        }
+        app.shared.grid_moved = true;
+        for key in [
+            Key::Char('3'),
+            Key::Down,
+            Key::Down,
+            Key::Down,
+            Key::Down,
+            Key::Char('t'),
+            Key::Char('k'),
+        ] {
+            app.event(Event::Input(Input::Key(key)));
+        }
+        let small = |cols, rows| Size {
+            cols,
+            rows,
+            cell_px: None,
+        };
+        app.event(Event::Resize(small(30, 8)));
+        let mut out = written(&app.event(Event::Input(Input::Key(Key::Char('u')))));
+        app.event(Event::Resize(small(80, 25)));
+        // unscii-8 is the font set below tiny5 and unifont
+        for key in [Key::Down, Key::Down, Key::Char('t')] {
+            out.push_str(&written(&app.event(Event::Input(Input::Key(key)))));
+        }
+        assert_eq!(app.shared.want.as_deref(), Some("unscii-8"));
+        for reply in [
+            Reply::Font("tiny5".into()),
+            Reply::Attributes,
+            Reply::Font("unscii-8".into()),
+            Reply::Attributes,
+        ] {
+            out.push_str(&written(&app.event(Event::Input(Input::Reply(reply)))));
+        }
+        assert!(!out.contains("\x1b[8;25;80t"), "{out:?}");
+        assert!(app.shared.grid_moved, "leaving gives the start grid back");
     }
 
     /// A signal that comes while the install waits makes the TUI leave,

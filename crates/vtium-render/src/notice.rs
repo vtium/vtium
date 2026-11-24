@@ -1566,14 +1566,14 @@ mod tests {
     /// first `errors` of three.
     fn panic_report(errors: usize, drawing: Option<Drawing>) -> NoticeReport {
         let all = [
-            "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.",
-            "/etc/vtium/vtium.conf:5: This section has no key named \"font-weight\". Check the spelling, or remove the line.",
+            "/etc/vtium/vtium.conf:4: `consoles` cannot be \"0\": it takes 1 or more.",
+            "/etc/vtium/vtium.conf:5: `isolated` cannot be \"maybe\". Change it to one of `yes`, `no`.",
             "/etc/vtium/vtium.conf:7: This rule sends devices to head \"k\\u{202e}x\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.",
         ];
         NoticeReport {
             happened: vec![
                 "vtium.conf has errors and counts as closed: all input is off.".to_owned(),
-                "No head can run because of the errors in /etc/vtium/vtium.conf, listed below."
+                "No display head can run because of the errors in /etc/vtium/vtium.conf, listed below."
                     .to_owned(),
             ],
             items: all.iter().take(errors).map(|s| (*s).to_owned()).collect(),

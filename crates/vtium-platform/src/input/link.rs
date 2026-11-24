@@ -9,6 +9,7 @@ use calloop::timer::{TimeoutAction, Timer};
 use calloop::{Interest, LoopHandle, Mode, PostAction, RegistrationToken};
 
 use super::{DeviceId, Input, Open};
+use crate::event_loop::Removals;
 
 /// What ties the input to the loop it was inserted in.
 pub(super) trait Link {
@@ -24,6 +25,13 @@ pub(super) trait Link {
 
 pub(super) struct LoopLink<D: 'static, A> {
     handle: LoopHandle<'static, D>,
+    /// A device's descriptor leaves the loop through [`Removals`]. Inside a
+    /// batch of events, a device removes itself after a read error or a
+    /// hangup, and its descriptor leaves the loop when the dispatch
+    /// returns. vtium removes a device that udev reports gone, and sleeps
+    /// the input at a VT release, between dispatches, so those descriptors
+    /// leave the loop at once.
+    removals: Removals<D>,
     access: A,
     /// The hide timer is in the loop.
     hide_armed: std::rc::Rc<std::cell::Cell<bool>>,
@@ -35,6 +43,7 @@ impl<D: 'static, A> LoopLink<D, A> {
     pub(super) fn new(handle: &LoopHandle<'static, D>, access: A) -> LoopLink<D, A> {
         LoopLink {
             handle: handle.clone(),
+            removals: Removals::new(handle),
             access,
             hide_armed: std::rc::Rc::new(std::cell::Cell::new(false)),
         }
@@ -49,8 +58,8 @@ where
 {
     fn watch(&self, id: DeviceId, fd: OwnedFd) -> Option<RegistrationToken> {
         let access = self.access.clone();
-        self.handle
-            .insert_source(
+        self.removals
+            .insert(
                 Generic::new(fd, Interest::READ, Mode::Level),
                 move |readiness, _, data: &mut D| {
                     let Some(input) = access(data) else {
@@ -68,13 +77,14 @@ where
                     input.dispatch(id, now);
                     Ok(PostAction::Continue)
                 },
+                || Ok(PostAction::Continue),
             )
             .inspect_err(|e| log::warn!(target: "input", "cannot watch a device: {}", e.error))
             .ok()
     }
 
     fn unwatch(&self, token: RegistrationToken) {
-        self.handle.remove(token);
+        self.removals.remove(token);
     }
 
     fn repeat(&self, id: DeviceId, serial: u64, delay: Duration, rate: Duration) {

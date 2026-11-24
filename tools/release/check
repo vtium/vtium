@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""Checks a release's tag and files, for .github/workflows/release-vendor.yml.
+
+    tools/release/check is-draft TAG
+    tools/release/check tag STAGE TAG COMMIT
+    tools/release/check files STAGE TAG COMMIT
+
+`is-draft` fails unless TAG has a release and the release is still a draft,
+so files can still be attached to it.
+
+`tag` fails unless TAG is an annotated tag whose signature GitHub verifies,
+and the tag names COMMIT, the commit the workflow run started on. A tag that
+moved after the run started therefore fails.
+
+`files` downloads the files the release of TAG carries, whether the release
+is a draft or published. It fails unless they are exactly the files the
+release's SHA256SUMS lists plus SHA256SUMS itself, each listed name carries
+the release's version, each file matches its SHA-256, and each file has a
+build provenance attestation that release-vendor.yml made on a GitHub-hosted
+runner from the tag TAG at COMMIT. An attestation from a dry run on a branch,
+or from another workflow, does not count.
+
+STAGE is `draft` in the run that attaches the files to a draft release, and
+`published` in the check that runs once the release is published. It changes
+only what the failure messages tell the person to do: a draft can still be
+fixed, and a published release has to go back to a draft first, or, once
+GitHub's immutable releases are on, cannot change at all.
+
+The script reads the repository from GITHUB_REPOSITORY and talks to GitHub
+through gh, which finds a draft release by its tag when gh's token may write
+to the repository. Each failure prints one line; under GitHub Actions the
+line is an ::error:: annotation, so the run's summary names it.
+"""
+
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+WORKFLOW = ".github/workflows/release-vendor.yml"
+SUMS = "SHA256SUMS"
+SUMS_LINE = re.compile(r"^([0-9a-f]{64}) [ *](.+)$")
+RERUN = "When the error comes from GitHub itself, run the job again."
+
+
+def say_error(message):
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        print(f"::error::{message}", flush=True)
+    else:
+        print(f"error: {message}", file=sys.stderr, flush=True)
+
+
+def recovery(stage, tag, fix):
+    """What the person does next, after the problem the caller printed. FIX
+    is what makes the release right, or empty when running the draft run
+    again is the whole fix."""
+    draft_run = f"gh workflow run release-vendor.yml --ref {tag} -f draft=true"
+    if stage == "draft":
+        return f"{fix} Then start the draft run again with {draft_run}." if fix else f"Start the draft run again with {draft_run}."
+    fix = f"{fix} " if fix else ""
+    return (
+        f"While immutable releases are off, turn the release back into a draft with gh release edit {tag} --draft=true. "
+        f"{fix}Then run {draft_run}, and publish the release again. "
+        "Once immutable releases are on, the release and its tag cannot change, so the fix is a new release with a new version."
+    )
+
+
+def gh(*args, capture=True):
+    """Runs gh. gh's own errors go to this script's stderr, so they show in
+    the log above the message that names the failed step."""
+    done = subprocess.run(["gh", *args], stdout=subprocess.PIPE if capture else None, text=True)
+    return done.returncode, done.stdout if capture else ""
+
+
+def gh_json(*args):
+    code, out = gh(*args)
+    if code != 0:
+        return None
+    try:
+        return json.loads(out)
+    except json.JSONDecodeError:
+        return None
+
+
+def check_is_draft(repo, tag):
+    view = gh_json("release", "view", tag, "--repo", repo, "--json", "isDraft")
+    if view is None:
+        say_error(
+            f"gh could not read the release {tag}; its error is shown above. "
+            f"When the tag has no release yet, save a draft release with gh release create {tag} --draft --verify-tag, "
+            f"then start this run again. {RERUN}"
+        )
+        return 1
+    if view.get("isDraft") is not True:
+        say_error(f"The release {tag} is already published, so this run cannot attach files to it. " + recovery("published", tag, ""))
+        return 1
+    print(f"The release {tag} is a draft.")
+    return 0
+
+
+def check_tag(stage, repo, tag, commit):
+    remake = (
+        f"Delete the tag, make it again with the signed git tag command in AGENTS.md's step 10, "
+        f"and push it with git push --force origin {tag}."
+    )
+    ref = gh_json("api", f"repos/{repo}/git/ref/tags/{tag}")
+    if ref is None:
+        say_error(f"gh could not read the tag {tag}; its error is shown above. {RERUN}")
+        return 1
+    obj = ref.get("object") or {}
+    if obj.get("type") != "tag":
+        say_error(
+            f"The tag {tag} is a lightweight tag. A release tag is an annotated tag signed with the maintainer's PGP key. "
+            + recovery(stage, tag, remake)
+        )
+        return 1
+    annotated = gh_json("api", f"repos/{repo}/git/tags/{obj.get('sha')}")
+    if annotated is None:
+        say_error(f"gh could not read the annotated tag {tag}; its error is shown above. {RERUN}")
+        return 1
+    verification = annotated.get("verification") or {}
+    if verification.get("verified") is not True:
+        reason = verification.get("reason") or "no reason given"
+        say_error(
+            f"GitHub does not verify the signature of the tag {tag}, and gives the reason {reason}. "
+            "A release tag is signed with the maintainer's PGP key, which GitHub knows from the maintainer's account. "
+            + recovery(stage, tag, remake)
+        )
+        return 1
+    target = annotated.get("object") or {}
+    if target.get("type") != "commit":
+        say_error(f"The tag {tag} names a {target.get('type')}, not a commit. " + recovery(stage, tag, remake))
+        return 1
+    if target.get("sha") != commit:
+        say_error(
+            f"The tag {tag} names the commit {target.get('sha')}, but this run started on the commit {commit}. "
+            "The tag moved after the run started. " + recovery(stage, tag, "")
+        )
+        return 1
+    print(f"The tag {tag} is signed, GitHub verifies its signature, and it names the commit {commit}.")
+    return 0
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def check_files(stage, repo, tag, commit):
+    what = "draft release" if stage == "draft" else "release"
+    view = gh_json("release", "view", tag, "--repo", repo, "--json", "assets")
+    if view is None:
+        say_error(f"gh could not read the {what} {tag}; its error is shown above. {RERUN}")
+        return 1
+    if not view.get("assets"):
+        if stage == "draft":
+            say_error(f"The draft release {tag} carries no files, although this run attached them. " + recovery(stage, tag, ""))
+        else:
+            say_error(f"The release {tag} was published without its files. " + recovery(stage, tag, ""))
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="release-files.") as tmp:
+        code, _ = gh("release", "download", tag, "--repo", repo, "--pattern", "*", "--dir", tmp, capture=False)
+        if code != 0:
+            say_error(f"gh could not download the files of the {what} {tag}; its error is shown above. {RERUN}")
+            return 1
+        here = Path(tmp)
+        carried = sorted(p.name for p in here.iterdir() if p.is_file())
+        if SUMS not in carried:
+            say_error(f"The {what} {tag} carries no {SUMS}. " + recovery(stage, tag, ""))
+            return 1
+
+        problems = []
+        listed = {}
+        for number, line in enumerate((here / SUMS).read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            match = SUMS_LINE.match(line)
+            if not match:
+                problems.append(f"Line {number} of the {SUMS} of the {what} {tag} does not read as a SHA-256 and a file name.")
+                continue
+            listed[match.group(2)] = match.group(1)
+
+        version = tag[1:] if tag.startswith("v") else tag
+        for name in sorted(listed):
+            if not (name.startswith(f"vtium-{version}.") or name.startswith(f"vtium-{version}-")):
+                problems.append(f"The {SUMS} of the {what} {tag} lists {name}, which does not carry the release's version {version}.")
+
+        missing = sorted(set(listed) - set(carried))
+        extra = sorted(set(carried) - set(listed) - {SUMS})
+        if missing:
+            problems.append(f"The {what} {tag} lacks these files that its {SUMS} lists: {', '.join(missing)}.")
+        if extra:
+            problems.append(f"The {what} {tag} carries these files that its {SUMS} does not list: {', '.join(extra)}.")
+
+        attested = []
+        for name in sorted(set(listed) & set(carried)):
+            if sha256(here / name) != listed[name]:
+                problems.append(f"The file {name} of the {what} {tag} does not match its SHA-256 in {SUMS}.")
+            else:
+                attested.append(name)
+        attested.append(SUMS)
+
+        unattested = []
+        for name in attested:
+            code, _ = gh(
+                "attestation", "verify", str(here / name),
+                "--repo", repo,
+                "--signer-workflow", f"{repo}/{WORKFLOW}",
+                "--source-ref", f"refs/tags/{tag}",
+                "--source-digest", commit,
+                "--deny-self-hosted-runners",
+                capture=False,
+            )
+            if code != 0:
+                unattested.append(name)
+        if unattested:
+            problems.append(
+                f"gh attestation verify finds no attestation that release-vendor.yml made from the tag {tag} at the commit {commit} "
+                f"for these files of the {what} {tag}: {', '.join(unattested)}. gh's errors are shown above. "
+                "When an error comes from GitHub itself, run the job again."
+            )
+
+    if problems:
+        for problem in problems:
+            say_error(problem)
+        fix = f"Delete each file that {SUMS} does not list with gh release delete-asset {tag} FILE." if extra else ""
+        say_error(recovery(stage, tag, fix))
+        return 1
+    print(
+        f"The {what} {tag} carries exactly the files its {SUMS} lists, each matches its SHA-256, "
+        f"and each has an attestation from release-vendor.yml at the tag's commit {commit}."
+    )
+    return 0
+
+
+def main(argv):
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not repo:
+        print("tools/release/check reads the repository from GITHUB_REPOSITORY, which is not set.", file=sys.stderr)
+        return 2
+    if len(argv) == 2 and argv[0] == "is-draft":
+        return check_is_draft(repo, argv[1])
+    if len(argv) != 4 or argv[0] not in ("tag", "files") or argv[1] not in ("draft", "published"):
+        print("usage: tools/release/check is-draft TAG, or tools/release/check tag|files draft|published TAG COMMIT", file=sys.stderr)
+        return 2
+    command, stage, tag, commit = argv
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        print(f"tools/release/check takes a full 40-digit commit SHA, and {commit} is not one.", file=sys.stderr)
+        return 2
+    if command == "tag":
+        return check_tag(stage, repo, tag, commit)
+    return check_files(stage, repo, tag, commit)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

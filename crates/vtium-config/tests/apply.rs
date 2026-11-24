@@ -687,7 +687,7 @@ fn a_frit_the_reader_refuses_quotes_nothing_it_holds() {
         files: vec![FileEdit {
             path: frit.clone(),
             old: None,
-            new: "source=builtin:unscii-8\nSECRET-TOKEN-4242=1\n".into(),
+            new: "source=builtin:unscii-8\ncover=SECRET-TOKEN-4242\n".into(),
         }],
         removals: Vec::new(),
         no_route: false,

@@ -7,7 +7,10 @@
 //! Copyright (c) 2026 the kmscon fork authors
 //!
 //! - single: the font's underline, full width;
-//! - double: the single line and a second one a thickness below it;
+//! - double: two lines, the upper on the single line's top row and the
+//!   lower a gap below it, each as thick as the single line where the
+//!   cell has the rows below that line, and thinner before it rises
+//!   where it has not ([`double`]);
 //! - curly: one sine period a cell, from its centre line and down first,
 //!   in the space from the single line's top downwards;
 //! - dotted: the font's underline, full width, which the cell leaves out
@@ -125,6 +128,34 @@ fn dash(w: u32) -> u32 {
 /// keeps it below the letters.
 fn room(h: u32) -> u32 {
     h / 4
+}
+
+/// Where a double underline lies in a cell `h` tall whose single line
+/// starts at row `top` and is `t` rows thick: the top of its upper line,
+/// the thickness of each of its two lines, and the gap between them.
+///
+/// The double starts on the single line's top row and goes down from it.
+/// The font puts its single line below the letters, so each row the
+/// double rises above that line may cover the letters' lowest row. Where
+/// the rows from the single line down to the cell's bottom cannot hold two
+/// lines `t` thick a gap `t` apart, the double narrows its gap first and
+/// then its lines, down to one row each. Only when even that does not fit
+/// does it rise, as little as it must. Unifont at twice its size shows
+/// why: its lines are two rows thick from row 30 of 32 and its letters end
+/// on row 27, so the double draws one-row lines in rows 29 and 31, below
+/// the letters.
+fn double(top: u32, t: u32, h: u32) -> (u32, u32, u32) {
+    let below = h.saturating_sub(top);
+    let t = t.max(1);
+    // the thickest line, up to the single line's, that leaves a gap of a
+    // row between two of them
+    let line = (1..=t)
+        .rev()
+        .find(|&l| l.saturating_mul(2).saturating_add(1) <= below)
+        .unwrap_or(1);
+    let gap = below.saturating_sub(line.saturating_mul(2)).clamp(1, t);
+    let band = line.saturating_mul(2).saturating_add(gap);
+    (fit(top, band, h), line, gap)
 }
 
 /// The curl's height peak to peak in a cell `w` by `h` with lines `t`
@@ -277,9 +308,9 @@ fn draw_at(kind: Kind, w: u32, h: u32, m: &Decorations, one_bit: bool) -> Vec<u8
     let t = m.underline_thickness;
     match (kind, curl_height(w, h, t)) {
         (Kind::Double, _) if t.saturating_mul(3) <= room(h) => {
-            let top = fit(m.underline, t.saturating_mul(3), h);
-            s.fill_rows(0, w, top, t);
-            s.fill_rows(0, w, top.saturating_add(t.saturating_mul(2)), t);
+            let (top, line, gap) = double(m.underline, t, h);
+            s.fill_rows(0, w, top, line);
+            s.fill_rows(0, w, top.saturating_add(line).saturating_add(gap), line);
         }
         (Kind::Curly, Some(amp)) if one_bit => curly_bits(&mut s, m, amp),
         (Kind::Curly, Some(amp)) => curly(&mut s, m, amp),
@@ -661,6 +692,39 @@ mod tests {
         }
     }
 
+    /// Whether the double at `w` by `h` is redrawn by the rule that a
+    /// double thins its lines before it rises above the single line
+    /// (vtium/vtium#463): in a cell 32 rows tall or more, whose lines are
+    /// two or more rows thick, `for_height` puts the single line on the
+    /// bottom rows, and the double there is no longer two lines as thick
+    /// as the single line. `cells.tsv` holds that earlier shape's digest
+    /// for the heights it reaches, 32 to 48.
+    fn thinned(kind: Kind, h: u32) -> bool {
+        kind == Kind::Double && Decorations::for_height(h).underline_thickness >= 2
+    }
+
+    /// Whether `px`, `w` by `h`, is the double that the rule draws in the
+    /// single line's rows of `for_height`, which are the cell's bottom
+    /// rows, and nothing else. Its two lines are as thick as they can be
+    /// while a row is left between them, one row at least, and the gap
+    /// takes the rest of the single line's rows. The lower line ends on
+    /// the cell's bottom row, and where the single line is too thin to
+    /// hold two lines and a gap, the double rises just enough to hold them.
+    /// So lines two or three rows thick, from 32 to 63 rows, give one-row
+    /// lines in the cell's third row from the bottom and its bottom row,
+    /// and lines four rows thick, from 64 to 79 rows, give one-row lines
+    /// two rows apart.
+    fn is_the_thinned_double(w: u32, h: u32, px: &[u8]) -> bool {
+        let t = Decorations::for_height(h).underline_thickness;
+        let line = ((t - 1) / 2).max(1);
+        let gap = t.saturating_sub(2 * line).max(1);
+        let upper = h - (2 * line + gap);
+        (0..h).all(|y| {
+            let lit = (upper..upper + line).contains(&y) || y >= h - line;
+            (0..w).all(|x| px[(y * w + x) as usize] == if lit { 0xff } else { 0 })
+        })
+    }
+
     /// Whether `px` is the dash at `w` by `h`: the font's line from the
     /// cell's left edge for `round(5w / 8)` pixels, kept from 1 to `w - 1`.
     fn is_the_dash(w: u32, h: u32, px: &[u8]) -> bool {
@@ -680,11 +744,12 @@ mod tests {
     // in `tests/digests/cells.tsv` (tests/digests/README.md); the curly
     // wave's sine is computed by `src/trig.rs`, so this is also the check
     // that the wave's bytes stay the same on every host. A double or curl
-    // past a quarter of the cell, and the dash and the dotted line in a
-    // cell 2 or more pixels wide, are redrawn: the stored digest is of the
-    // earlier shape, so each must differ from it and draw the fallback, the
-    // dash, or for the dotted line the whole single line, whose gaps the
-    // cell leaves out as it draws. When a digest differs, the test fails
+    // past a quarter of the cell, the double in a cell whose lines are two
+    // or more rows thick, and the dash and the dotted line in a cell 2 or
+    // more pixels wide, are redrawn: the stored digest is of the earlier
+    // shape, so each must differ from it and draw the fallback, the thinned
+    // double, the dash, or for the dotted line the whole single line, whose
+    // gaps the cell leaves out as it draws. When a digest differs, the test fails
     // and says how many lines differ. When the environment variable
     // VTIUM_DECO_DIGESTS names a file, the test also writes every `deco`
     // line as vtium draws it to that file, a redrawn sprite's line as it
@@ -722,6 +787,8 @@ mod tests {
                 (w >= 2).then(|| is_the_dash(w, h, &px))
             } else if k == Kind::Dotted {
                 (w >= 2).then(|| px == draw(Kind::Single, w, h, &Decorations::for_height(h)))
+            } else if thinned(k, h) {
+                Some(is_the_thinned_double(w, h, &px))
             } else {
                 past_a_quarter(k, w, h).then(|| falls_back(k, w, h, &px))
             };
@@ -763,13 +830,14 @@ mod tests {
             "{differ} of {checked} deco digests differ from tests/digests/cells.tsv; {written}"
         );
         assert_eq!(checked, 6 * 24 * 48);
-        // every width's double at heights 2 to 11; every width's curl at
-        // heights 1 to 11, and widths 12 to 24 at 12 to 15, 16 to 24 at
-        // 16 to 19, 20 to 24 at 20 to 23 and 24 at 24 to 27; the dash at
-        // widths 2 to 24 and every height, and the dotted line there too
+        // every width's double at heights 2 to 11, and at 32 to 48, where
+        // it thins its lines; every width's curl at heights 1 to 11, and
+        // widths 12 to 24 at 12 to 15, 16 to 24 at 16 to 19, 20 to 24 at
+        // 20 to 23 and 24 at 24 to 27; the dash at widths 2 to 24 and
+        // every height, and the dotted line there too
         assert_eq!(
             refit,
-            10 * 24 + (11 * 24 + 4 * 13 + 4 * 9 + 4 * 5 + 4) + 2 * 23 * 48
+            10 * 24 + 17 * 24 + (11 * 24 + 4 * 13 + 4 * 9 + 4 * 5 + 4) + 2 * 23 * 48
         );
     }
 
@@ -903,6 +971,59 @@ mod tests {
         let curl = draw(Kind::Curly, 16, 16, &own);
         assert_ne!(curl, single);
         assert_eq!(rows(&curl, 16), Some((12, 16)));
+    }
+
+    /// The rows of `px`, `w` wide, that the line covers, as `█` and `·`
+    /// from row `from` to the cell's bottom.
+    fn lit_rows(px: &[u8], w: u32, from: u32) -> String {
+        px.chunks(w as usize)
+            .skip(from as usize)
+            .map(|r| {
+                if r.iter().any(|&p| p != 0) {
+                    '█'
+                } else {
+                    '·'
+                }
+            })
+            .collect()
+    }
+
+    // A double underline rises above the font's single line only as far as
+    // it must, since each row it rises may cover the letters' lower rows
+    // (vtium/vtium#463). Unifont at twice its size takes the lines of a
+    // 32-pixel cell, two rows thick from row 30, while its letters end on
+    // row 27: the double draws two lines one row thick in rows 29 and 31,
+    // below the letters, not two rows thick in rows 26 to 27 and 30 to 31.
+    // covers: platform.compositor
+    #[test]
+    fn a_double_thins_its_lines_before_it_rises_above_the_single_line() {
+        let m = Decorations::for_height(32);
+        assert_eq!((m.underline, m.underline_thickness), (30, 2));
+        let px = draw(Kind::Double, 16, 32, &m);
+        assert_eq!(lit_rows(&px, 16, 24), "·····█·█");
+        // a face with lines of its own, two rows thick from row 27 of 32:
+        // the gap narrows to one row, and the double keeps its weight
+        // without rising
+        let own = Decorations { underline: 27, ..m };
+        let px = draw(Kind::Double, 16, 32, &own);
+        assert_eq!(lit_rows(&px, 16, 24), "···██·██");
+        // with room below the single line the double keeps the shape it
+        // had: two lines as thick as the single line, a line apart
+        let px = draw(Kind::Double, 16, 32, &Decorations { underline: 24, ..m });
+        assert_eq!(lit_rows(&px, 16, 24), "██··██··");
+        // unifont at four times its size takes the lines of a 64-pixel
+        // cell, four rows thick from row 60: the double draws two one-row
+        // lines in rows 60 and 63, so the gap between them is two rows
+        let m = Decorations::for_height(64);
+        assert_eq!((m.underline, m.underline_thickness), (60, 4));
+        let px = draw(Kind::Double, 16, 64, &m);
+        assert_eq!(lit_rows(&px, 16, 56), "····█··█");
+        assert!(is_the_thinned_double(16, 64, &px));
+        // unifont at its own size: the single line is the cell's bottom
+        // row, and the letters end on row 13, so no double fits below
+        // them; the double rises to rows 13 and 15
+        let px = draw(Kind::Double, 8, 16, &Decorations::for_height(16));
+        assert_eq!(lit_rows(&px, 8, 12), "·█·█");
     }
 
     // vtium/vtium#135: on a 1-bit display the curl is whole pixels, the

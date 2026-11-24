@@ -59,7 +59,7 @@ t.view.looks	t	view:looks	Tries the highlighted look or font set on this console
 enter.view.looks	Enter	view:looks	On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail.	supported		ADR-1205 D1, D6, D10; ADR-1403 D10	#379	open	1
 p.view.looks	p	view:looks	On a look or a font set, switches the preview between the sample characters and the picture of the console. On a font set that vtium cannot read, also says that the font set has no preview.	supported	the label names the preview p switches to, picture or sample	ADR-1201 D4	#379	picture | sample	
 window-ops.view.looks	w	view:looks	Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing.	supported	the notice line shows w	ADR-1201 D4	#379	resize grid	
-t.layer.flow-card	t	layer:flow-card	Tries the card's look on this console for 10 seconds.	planned	today t does nothing on a card	ADR-1201 D4; ADR-1205 D1; ADR-1403 D10	#379	try live	
+t.layer.flow-card	t	layer:flow-card	Tries the card's look on this console for 10 seconds.	planned	today t does nothing on a card	ADR-1201 D4; ADR-1205 D1; ADR-1403 D10	#453	try live	
 o.view.looks	o	view:looks	Does nothing here.	supported		ADR-1201 D4; ADR-1403 D7	#412	-	
 looks-keys.view.resources	n, r, t, p	view:resources	Does nothing here, because these keys act on a look or a font set.	supported		ADR-1403 D7, D10	#379	-	
 o.view	o	view	Does nothing here.	supported		ADR-1403 D7	#412	-	
@@ -77,14 +77,14 @@ enter.layer.settings-section	Enter	layer:settings-section	Lets you type the high
 esc.layer.settings-section	Esc	layer:settings-section	Goes back to the list of sections.	supported		ADR-1201 D3		back	1
 list.flow-card	Enter	layer:flow-card	Shows the card's displays, devices or VTs as a list inside the card.	planned	today a card joins them with commas across rows	ADR-1403 D7	#453	choose	
 list.filter-picker	Enter	layer:picker	Shows the devices that each value matches as a list.	planned	today the filter picker joins each value's devices with commas	ADR-1403 D7	#453	choose	
-list.font-set-files	Enter	layer:flow-card	On the card's look, shows the looks to choose from as a list.	planned	today Enter on the card's look sets the look the highlight is on, and Left and Right step through the draft's looks	ADR-1205 D1; ADR-1403 D10	#379	choose	
+list.font-set-files	Enter	layer:flow-card	On the card's look, shows the looks to choose from as a list.	planned	today Enter on the card's look sets the look the highlight is on, and Left and Right step through the draft's looks	ADR-1205 D1; ADR-1403 D10	#453	choose	
 list.terminals	Enter	layer:flow-card	Shows the terminals this configuration defines as a list.	planned		ADR-1403 D7	#453	choose	
 list.font-sets	Enter	layer:look	On the look's font set, shows the font sets to choose from as a list.	supported		ADR-1403 D10	#379	choose	
 list.font-sizes	Enter	layer:look	On the look's size, shows the sizes that the look's fonts supply as a list.	supported	a bitmap text font offers the point sizes that draw the bitmap sizes of the files the console draws, at the lowest density of the connected displays; any other text font offers vtium-config's usual sizes, and the line says why	ADR-1205 D7; ADR-1403 D10	#379	choose	
 list.palettes	Enter	layer:look	On the look's color scheme, shows the color schemes as a list: first the one vtium.conf sets, which leaves the look's own unset, then the built-in schemes, then the active scheme files.	supported		ADR-1205 D10; ADR-1403 D5, D10	#379	choose	1
 k.trial	k	trial	Keeps the font or size you are trying.	supported		ADR-1201 D4		keep	
 other.trial	any other key	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		put back	
-u.too-small	u	too-small	Puts back the font and size the console had when vtium-config started.	planned	today u puts back the start font; the start grid comes with the live size control	ADR-1201 D3	#379	undo	
+u.too-small	u	too-small	Puts back the font and size the console had when vtium-config started.	supported		ADR-1201 D3		undo	
 other.too-small	any other key	too-small	Does nothing here.	supported		ADR-1201 D3		-	
 updown.typing.settings	Up, Down	typing:settings	Do nothing while you type.	supported		ADR-1201 D3	#412	-	
 enter.typing.settings	Enter	typing:settings	Keeps the value you typed.	supported		ADR-1403 D7; ADR-1201 D3		keep	
@@ -214,4 +214,4 @@ key-line.view.flow	key line	view:flow	Shows one row. Where the keys do not fit o
 key-line.layer.file-view	key line	layer:file-view	Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number.	supported		ADR-1403 D7	#412	-	
 period.view	.	view	Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row.	supported		ADR-1403 D7	#412	more	
 period.layer	.	layer	Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row.	supported		ADR-1403 D7	#412	more	
-help.generated	Help and key line	any	Show, for the place you are in, the keys that act there and what each does.	supported	generated from this table's means and label columns and the interface tree into crates/vtium-config/src/tui/contract_text.rs; a node whose status is planned keeps its hand-written key line and help until the work that moves it to supported, and the screen below 80×25 shows its generated key line, with a sentence about u under it while the row for u is planned; the site's reference page, vtium-config's screens and keys, is generated from the same tables	ADR-1403 D7	#412	-	
+help.generated	Help and key line	any	Show, for the place you are in, the keys that act there and what each does.	supported	generated from this table's means and label columns and the interface tree into crates/vtium-config/src/tui/contract_text.rs; a node whose status is planned keeps its hand-written key line and help until the work that moves it to supported, and the screen below 80×25 shows its generated key line; the site's reference page, vtium-config's screens and keys, is generated from the same tables	ADR-1403 D7	#412	-	

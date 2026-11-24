@@ -750,6 +750,38 @@ fn the_policy_is_read_from_the_policy_lines() {
 }
 
 #[test]
+fn a_key_vtium_ignores_counts_as_no_error_of_the_file() {
+    // a key vtium ignores in a section leaves the rest as it would be with
+    // no error at all, and any error that drops something still counts
+    for policies in [&[][..], &[PolicyLine::Open], &[PolicyLine::Closed]] {
+        for &kept in Kept::ALL {
+            assert_eq!(
+                Trusted::of(policies, &[Scope::Key], kept),
+                Trusted::of(policies, &[], kept),
+                "{policies:?} {kept:?}"
+            );
+            for &other in Scope::ALL {
+                if other != Scope::Key {
+                    assert_eq!(
+                        Trusted::of(policies, &[Scope::Key, other], kept),
+                        Trusted::of(policies, &[other], kept),
+                        "{policies:?} {other:?} {kept:?}"
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(
+        Trusted::of(&[PolicyLine::Closed], &[Scope::Key], Kept::Heads).rest,
+        Rest::Valid
+    );
+    assert_eq!(
+        Trusted::of(&[], &[Scope::Key, Scope::Line], Kept::Heads).rest,
+        Rest::Partly
+    );
+}
+
+#[test]
 fn every_problem_has_its_scope() {
     let q = || Quoted::new("x");
     let cases = [
@@ -794,8 +826,29 @@ fn every_problem_has_its_scope() {
             Within::Header,
             Scope::Section,
         ),
-        (Problem::UnknownKey(q()), Within::Top, Scope::Line),
-        (Problem::UnknownKey(q()), Within::Head, Scope::Head),
+        // a key vtium ignores drops only its line, wherever it sits, and
+        // leaves the file's outcome as it is
+        (Problem::UnknownKey(q()), Within::Top, Scope::Key),
+        (Problem::UnknownKey(q()), Within::Head, Scope::Key),
+        (Problem::UnknownKey(q()), Within::Look, Scope::Key),
+        (
+            Problem::NotHere {
+                key: "font-name",
+                section: crate::keys::Level::Head,
+                levels: crate::keys::Levels::TOP_LOOK,
+            },
+            Within::Head,
+            Scope::Key,
+        ),
+        (
+            Problem::NotHere {
+                key: "mouse",
+                section: crate::keys::Level::Look,
+                levels: crate::keys::Levels::TOP,
+            },
+            Within::Look,
+            Scope::Key,
+        ),
         (Problem::DuplicateKey("policy"), Within::Top, Scope::Line),
         (Problem::DuplicateKey("login"), Within::Head, Scope::Head),
         (Problem::BadName(q()), Within::Header, Scope::Head),
@@ -815,6 +868,11 @@ fn every_problem_has_its_scope() {
         ),
         (
             Problem::Renamed(crate::error::Renamed::OnLoss),
+            Within::Head,
+            Scope::Key,
+        ),
+        (
+            Problem::Renamed(crate::error::Renamed::Nohup),
             Within::Head,
             Scope::Head,
         ),

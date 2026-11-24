@@ -2270,3 +2270,54 @@ fn the_console_s_text_under_the_size_list_follows_the_layout() {
     assert_eq!(app.tab().console_lines(&app.shared, size(25)), sample);
     assert!(app.tab().console_lines(&app.shared, size(12)).is_empty());
 }
+
+/// `u` on the screen below the minimum size puts back the font and the
+/// grid the console had when vtium-config started. Here a size and then a
+/// font set were kept from their trials, and the font set leaves a grid of
+/// 30×8. `u` switches the console back to its start font first, then asks
+/// for the start grid, because the font switch changes the grid too.
+///
+/// References:
+/// - ADR-1201 D3: `u` on the screen below the minimum size puts back the
+///   console's start font and grid.
+/// - ADR-1201 D4, "Giving the console back": the start font and the
+///   start grid that leaving gives back, which `u` gives back too.
+#[test]
+fn u_below_the_minimum_puts_back_the_start_font_then_the_start_grid() {
+    let conf = window_ops_on();
+    let mut keys = PICK_SIX.to_vec();
+    // keep the size, close the list and the card, then try tiny5, the
+    // fifth entry of the list, and keep it too
+    keys.extend_from_slice(&[
+        b"k".as_slice(),
+        ESC,
+        ESC,
+        DOWN,
+        DOWN,
+        DOWN,
+        DOWN,
+        b"t",
+        b"k",
+    ]);
+    keys.push(b"u");
+    let mut d = desk();
+    d.installed = conf.clone();
+    d.draft = conf.clone();
+    let mut c = Console::vtium(80, 25, true, "unifont")
+        .takes("proof", (80, 25))
+        .takes("tiny5", (30, 8))
+        .takes("unifont", (80, 25))
+        .keys(&keys);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(&conf), Some(&mut d)).expect("the loop");
+    assert_eq!(c.switches(), ["tiny5", "unifont"]);
+    let switch = find(&c.written, b"\x1b]50;unifont").expect("the start font's switch");
+    let grid = c
+        .written
+        .windows(b"\x1b[8;25;80t".len())
+        .rposition(|w| w == b"\x1b[8;25;80t")
+        .expect("the start grid's request");
+    assert!(
+        switch < grid,
+        "u asked for the start grid before the start font"
+    );
+}

@@ -591,10 +591,15 @@ impl<O: Open + 'static> Input<O> {
                 self.config.mouse,
                 &self.keymap,
             ) {
-                Some(probed) => device.probed = Some(probed),
-                None => {
+                Probe::Taken(probed) => device.probed = Some(*probed),
+                Probe::Dropped => {
                     close_with(&mut self.opener, &mut self.seat, &device.node, dev);
                     return false;
+                }
+                Probe::Later => {
+                    close_with(&mut self.opener, &mut self.seat, &device.node, dev);
+                    device.waiting = Some(Waiting::Wake);
+                    return true;
                 }
             }
         }
@@ -949,29 +954,57 @@ impl Input<Direct> {
     }
 }
 
+/// What a probe found.
+enum Probe {
+    /// A device vtium takes.
+    Taken(Box<Probed>),
+    /// A device vtium does not take: its bitmaps cannot be read, or it is
+    /// no keyboard or pointer and no rule places it.
+    Dropped,
+    /// A device whose descriptor answered ENODEV. evdev answers so once the
+    /// seat manager has revoked the file, as logind does when another
+    /// session takes the seat, and once the device is unplugged. vtium
+    /// keeps the device closed and probes it at the next wake-up, and
+    /// udev's removal drops a device that was unplugged.
+    Later,
+}
+
 /// Probes a device opened the first time: what it reports, its keyboard
-/// and its pointer, and the line saying what it is used as. `None` when
-/// vtium does not take it: with no disposition, a device that is no
-/// keyboard or pointer by the rule vtium has always used.
+/// and its pointer, and the line saying what it is used as. Without a
+/// disposition, vtium drops a device that is no keyboard or pointer by the
+/// rule vtium has always used.
 fn probe<E: EventDevice>(
     dev: &E,
     node: &Path,
     disposition: Option<Disposition>,
     mouse: bool,
     keymap: &Keymap,
-) -> Option<Probed> {
+) -> Probe {
+    // A device whose name cannot be read is named by its node alone.
     let name = dev.name();
+    let label = if name.is_empty() {
+        node.display().to_string()
+    } else {
+        format!("{} [{name}]", node.display())
+    };
     let caps = match dev.bits() {
         Ok(bits) => Capabilities::from_bits(&bits),
+        Err(e) if rustix::io::Errno::from_io_error(&e) == Some(rustix::io::Errno::NODEV) => {
+            log::warn!(
+                target: "input",
+                "cannot probe {label}: {e}. vtium skips the device and probes it again the next time it opens the input devices."
+            );
+            return Probe::Later;
+        }
         Err(e) => {
-            log::warn!(target: "input", "cannot probe {name}: {e}");
-            Capabilities::default()
+            log::warn!(target: "input", "cannot probe {label}: {e}. vtium does not use the device.");
+            return Probe::Dropped;
         }
     };
     let placed = disposition.is_some();
     if !placed && !caps.usable(mouse) {
-        log::debug!(target: "input", "ignoring {} [{name}]", node.display());
-        return None;
+        log::debug!(target: "input", "ignoring {label}");
+        return Probe::Dropped;
     }
     let keys = caps.keys || (placed && caps.any_key);
     let kind = caps.pointer_kind();
@@ -980,25 +1013,21 @@ fn probe<E: EventDevice>(
         .map(|(vendor, product)| format!(" {vendor:04x}:{product:04x}"))
         .unwrap_or_default();
     if disposition == Some(Disposition::Rescue) {
-        log::info!(
-            target: "input",
-            "watching {} [{name}]{id} for the VT keys",
-            node.display()
-        );
+        log::info!(target: "input", "watching {label}{id} for the VT keys");
     } else {
-        log::info!(
-            target: "input",
-            "using {} [{name}]{id} as {}{}",
-            node.display(),
-            if keys { "keyboard" } else { "" },
-            kind.name()
-        );
+        let what = match (keys, kind.name()) {
+            (true, "") => "keyboard".to_owned(),
+            (true, pointer) => format!("keyboard and {pointer}"),
+            (false, "") => "a device with no keys and no pointer".to_owned(),
+            (false, pointer) => pointer.to_owned(),
+        };
+        log::info!(target: "input", "using {label}{id} as {what}");
     }
-    Some(Probed {
+    Probe::Taken(Box::new(Probed {
         caps,
         keyboard: keys.then(|| Keyboard::new(keymap)),
         pointer: Pointer::new(kind),
-    })
+    }))
 }
 
 /// A screen's width and height as the pointer's last pixel.
