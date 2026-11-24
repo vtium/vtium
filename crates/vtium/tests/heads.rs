@@ -1716,9 +1716,10 @@ display card:mem-small -> a
 /// `flooded`. A background `cat` reads the replies, with echo off. vtium
 /// reads the flood until the held replies reach vtium-term's bound, and
 /// then stops reading the program until the release. While the hold is
-/// full, the loop waits for what it waits on and never wakes at once, so it
-/// does not spin. Once the test lets the helper answer, the hold ends, and
-/// vtium reads and draws the rest of the program's output.
+/// full, each turn leaves the loop nothing to do at once, so the loop waits
+/// for what it waits on and does not spin. Once the test lets the helper
+/// answer, the hold ends, and vtium reads and draws the rest of the
+/// program's output.
 ///
 /// References:
 /// - ADR-1200 D17: the cell that comes after the wait.
@@ -1759,14 +1760,28 @@ display card:mem-small -> a
     };
     assert!(s.until(BOUND, full), "the held replies reach the bound");
     assert!(head_shows(&s.app, "a", "drawn"), "drawn during the wait");
-    let mut at_once = 0;
-    s.until(Duration::from_millis(300), |a| {
-        if a.next_wake(now()) == Some(Duration::ZERO) {
-            at_once += 1;
-        }
-        false
-    });
-    assert_eq!(at_once, 0, "the loop does not spin while the hold is full");
+    // A turn handles everything that is due at the instant it is given, so
+    // right after the turn the loop owes nothing at once at that same
+    // instant. A wake of zero there would turn the loop again with nothing
+    // changed, which is a spin. The test reads the wake at the turn's own
+    // instant instead of counting zero wakes over a stretch of wall time.
+    // A timer that falls due between turns, such as the cursor's blink, is
+    // then the next turn's work and never counts against the loop.
+    for turn in 0..15 {
+        let wait = s
+            .app
+            .next_wake(now())
+            .unwrap_or(Duration::from_millis(20))
+            .min(Duration::from_millis(20));
+        s.lp.dispatch(Some(wait), &mut s.app).expect("dispatch");
+        let at = now();
+        s.app.turn(at);
+        assert_ne!(
+            s.app.next_wake(at),
+            Some(Duration::ZERO),
+            "the loop does not spin while the hold is full: turn {turn}"
+        );
+    }
     assert!(full(&s.app), "the hold stays full");
     assert!(!head_shows(&s.app, "a", "flooded"), "the rest waits");
     // The helper waits on the FIFO with its answer, so an open to write
