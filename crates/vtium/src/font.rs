@@ -29,7 +29,7 @@
 
 use std::path::{Path, PathBuf};
 
-use vtium_font::set::{SetFace, builtin, builtin_name, layer};
+use vtium_font::set::{SetFace, builtin, builtin_name, layer, scope};
 use vtium_font::spacing::{Band, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
@@ -557,31 +557,46 @@ fn frit_outline(text: &str) -> bool {
 
 /// Whether a frit's `text` gives a bitmap font with strikes as its first
 /// source: the first `source=` line names neither an outline file nor a
-/// family, and a `strike=` line follows it before the next `source=` or
-/// `layer=` line. Such a source is one font at several heights, so its
-/// cell changes with the height it draws at.
+/// family, and a `strike=` line describes that source. Such a source is
+/// one font at several heights, so its cell changes with the height it
+/// draws at.
 ///
-/// A first source that is a built-in font (`builtin:`) or the system's
-/// console font (`vconsole` or `console:`) takes no strikes. The font
-/// helper ignores a `strike=` line under such a source, so the console
-/// does not count one either, and both read the same set.
+/// A `strike=` line describes the first source when it follows that
+/// source's line and no `layer=` line comes between them. A first source
+/// that is a built-in font (`builtin:`) or the system's console font
+/// (`vconsole` or `console:`) takes no strikes. The font helper ignores a
+/// `strike=` line in either case, so the console does not count one
+/// either. Both ask vtium-font's `scope` module, so both read the same
+/// set.
+///
+/// This asks whether a zoom asks the helper for bitmap strikes, which is
+/// narrower than whether the helper keeps a `strike=` line: the helper
+/// keeps one under an `outline:` or `font:` source too.
 ///
 /// References:
 /// - ADR-1204 D2: the `strike=` key, and the strike each height draws.
 /// - ADR-1510 D2: the helper ignores a key where it does not apply, and reads the rest of the set.
 fn frit_struck(text: &str) -> bool {
-    let mut keys = text.split('\n').filter_map(|line| {
-        let (k, v) = line.split('#').next()?.split_once('=')?;
-        Some((k.trim(), v.trim()))
-    });
-    let Some((_, first)) = keys.by_ref().find(|(k, _)| *k == "source") else {
-        return false;
-    };
-    let unstruck = ["outline:", "font:", "builtin:", "console:"];
-    !(unstruck.iter().any(|kind| first.starts_with(kind)) || first == "vconsole")
-        && keys
-            .take_while(|(k, _)| *k != "source" && *k != "layer")
-            .any(|(k, _)| k == "strike")
+    let mut current = scope::CurrentSource::default();
+    let mut first = true;
+    for line in text.split('\n') {
+        let Some((k, v)) = line.split('#').next().and_then(|body| body.split_once('=')) else {
+            continue;
+        };
+        let (key, value) = (k.trim(), v.trim());
+        let describes = current.read(key, value);
+        match key {
+            // only the first source counts
+            "source" if !first => return false,
+            "source" if scope::may_be_outline(value) || !scope::takes_strikes(value) => {
+                return false;
+            }
+            "source" => first = false,
+            "strike" if matches!(describes, scope::Describes::Source(_)) => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// What `vtium check-config` says of the cell the frit `name`'s `text`
@@ -2138,6 +2153,33 @@ mod tests {
         f.set_own_cell(OwnCell::Bitmap(cell(8, 16)), false);
         assert!(!f.struck() && !f.wants_own_cell(24, false));
         assert!(!frit_of("source=kbd:x\n", true).wants_own_cell(24, true));
+    }
+
+    // A layer's keys of the whole set are left blank where the layer is
+    // put in place, so the console reads the set's own cell=, size=,
+    // line-spacing= and glyph-source= lines and never a layer's, while the
+    // layer's source stays in the set.
+    //
+    // References:
+    // - ADR-1510 D2: a key of the whole set in a layer is ignored alone.
+    // - ADR-1204 D5: the layer's lines in place of its layer= line.
+    #[test]
+    fn a_layers_keys_of_the_whole_set_do_not_reach_the_console() {
+        let sym = "role=symbols\nsource=font:S\ncell=12x24\nsize=20\nline-spacing=50\nglyph-source=font\nglyph-source-braille=auto\nstrike=kbd:y\n";
+        let mut read = |_: &str| Ok(Some(sym.to_owned()));
+        let spliced = layer::expand("cell=8x16\nsource=kbd:x\nlayer=sym\n", &mut read);
+        assert_eq!(spliced.placed.len(), 1);
+        assert_eq!(spliced.ignored.len(), 5);
+        assert!(spliced.text.contains("source=font:S\n"));
+        let text = spliced.text.as_str();
+        assert_eq!(frit_cell(text), Ok(Some(cell(8, 16))));
+        assert_eq!(frit_size(text), Ok(None));
+        assert_eq!(frit_line_spacing(text), Ok(None));
+        let face = SpritePolicy::SPRITES;
+        assert_eq!(frit_policy(text, face), face);
+        // the layer's strike= describes the layer's source, not the set's
+        // first source, so the set has no strikes
+        assert!(!frit_struck(text));
     }
 
     // overhang part 1: the helper's answer, not the frit's text, says what

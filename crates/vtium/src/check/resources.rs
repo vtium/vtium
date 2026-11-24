@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
+use vtium_font::set::scope::{self, CurrentSource, Describes};
 use vtium_settings::{Trust, at};
 
 use super::Settings;
@@ -441,7 +442,9 @@ pub(super) fn palette_findings(
 /// because a start never reads that line's font: one above the first
 /// `source=` line, one after a `layer=` line and before the next
 /// `source=` line, a `script-source=` under an `outline:` source, and a
-/// `strike=` under a `builtin:`, `vconsole` or `console:` source.
+/// `strike=` under a `builtin:`, `vconsole` or `console:` source. Both the
+/// check and the reader ask vtium-font's `scope` module, so they skip the
+/// same lines.
 ///
 /// References:
 /// - ADR-1205 D4: a font draws only while the batch holds it and it passes the trust rule, and check-config names the file and the check it failed.
@@ -454,10 +457,8 @@ pub(super) fn font_files(file: &Path, settings: &Settings) -> Vec<String> {
         return Vec::new();
     };
     let mut out = Vec::new();
-    // The `source=` value that a `script-source=` or `strike=` line
-    // describes: the last `source=` line's, or `None` above the first one
-    // and after a `layer=` line, where such a line describes nothing.
-    let mut source: Option<&str> = None;
+    // the source that a `script-source=` or `strike=` line describes
+    let mut current = CurrentSource::default();
     for (n, line) in text.lines().enumerate() {
         // A line may end in a `#` comment, which is not part of the path.
         let line = line.split('#').next().unwrap_or_default();
@@ -465,19 +466,10 @@ pub(super) fn font_files(file: &Path, settings: &Settings) -> Vec<String> {
             continue;
         };
         let (key, value) = (key.trim(), value.trim());
-        let read = match key {
-            "source" => {
-                source = Some(value);
-                true
-            }
-            "layer" => {
-                source = None;
-                false
-            }
-            "script-source" => source.is_some_and(|s| !s.starts_with("outline:")),
-            "strike" => source.is_some_and(|s| {
-                !(s == "vconsole" || s.starts_with("builtin:") || s.starts_with("console:"))
-            }),
+        let read = match (key, current.read(key, value)) {
+            ("source", _) => true,
+            ("script-source", Describes::Source(source)) => scope::takes_script_sources(source),
+            ("strike", Describes::Source(source)) => scope::takes_strikes(source),
             _ => false,
         };
         if !read {
