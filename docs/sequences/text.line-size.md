@@ -69,6 +69,7 @@ These tests check what vtium does with the sequences on this page.
 - `reverse_wraparound_goes_back_to_a_double_size_lines_last_column` in [crates/vtium-term/tests/line_size.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/line_size.rs)
 - `the_cursor_keeps_its_column_or_moves_to_the_lines_last_one` in [crates/vtium-term/tests/line_size.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/line_size.rs)
 - `without_autowrap_printing_overwrites_the_lines_last_column` in [crates/vtium-term/tests/line_size.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/line_size.rs)
+- `a_child_keeps_its_column_when_its_double_width_root_is_below_the_view` in [crates/vtium-term/tests/line_size_pictures.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/line_size_pictures.rs)
 - `a_child_of_a_picture_on_a_double_width_line_is_offset_in_screen_columns` in [crates/vtium-term/tests/line_size_pictures.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/line_size_pictures.rs)
 - `a_child_of_a_virtual_parent_on_a_double_width_line_is_offset_in_screen_columns` in [crates/vtium-term/tests/line_size_pictures.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/line_size_pictures.rs)
 - `a_child_on_a_double_width_line_is_offset_in_screen_columns` in [crates/vtium-term/tests/line_size_pictures.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/line_size_pictures.rs)
