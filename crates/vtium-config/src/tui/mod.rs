@@ -217,7 +217,8 @@ pub fn layers(dir: &Path) -> Vec<(String, vtium_font::set::layer::Role)> {
         .filter_map(|name| {
             let text = crate::frit::read_layer(&folder, &name).ok()??;
             let file = crate::frit::layer_file(&folder, &name);
-            let role = Frit::parse_layer(text.as_bytes(), &file, &name).ok()?;
+            // the list of layers has no place to show a layer's warnings
+            let (role, _) = Frit::parse_layer(text.as_bytes(), &file, &name).ok()?;
             Some((name, role))
         })
         .collect()

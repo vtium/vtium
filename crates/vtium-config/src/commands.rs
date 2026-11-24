@@ -22,7 +22,7 @@ use vtium_settings::fonts_report::Named;
 use vtium_settings::keys::{self, Default as KeyDefault, Kind, Scope};
 use vtium_settings::{Edit, fonts_report, setting, switch};
 
-use crate::frit::{FRIT_BYTES_MAX, Frit, Origin, RESERVED, valid_name};
+use crate::frit::{FRIT_BYTES_MAX, Frit, FritError, Origin, RESERVED, valid_name};
 use crate::needs::{Differ, Differs};
 use crate::specimen::{Found, Sources};
 use crate::tui::{Paths, model::FontState};
@@ -790,7 +790,9 @@ pub fn layer_order(frits: &Path, names: &[String]) -> Result<Vec<String>, String
             ));
         }
         let bytes = read_bounded(&file)?;
-        let role = Frit::parse_layer(&bytes, &file, name).map_err(|e| e.to_string())?;
+        // the layer's warnings are left to frit_checked, which reads the
+        // layer again in place in the new font set and warns once
+        let (role, _) = Frit::parse_layer(&bytes, &file, name).map_err(|e| e.to_string())?;
         if let Some(&(_, other)) = roles.iter().find(|&&(r, _)| r == role && role.single()) {
             return Err(format!(
                 "{other} and {name} are both {role} layers, and a font set holds one {role} layer"
@@ -806,14 +808,19 @@ pub fn layer_order(frits: &Path, names: &[String]) -> Result<Vec<String>, String
 /// Checks the frit `text`, to be installed at `path` in the frits'
 /// directory, with the layers of that directory in place, as the console
 /// will hand it to the helper. A layer that this machine lacks or cannot
-/// read passes, since the console draws the set without it until it is
-/// there. Any other `layer=` line that would add nothing is refused, such
-/// as a layer that would take the set past its 16 sources, and so is a
-/// value in a layer that the helper would refuse.
+/// read passes with a warning, since the console draws the set without it
+/// until it is there. Any other `layer=` line that would add nothing is
+/// refused, such as a layer that would take the set past its 16 sources,
+/// and so is a value in a layer that the helper would refuse. The answer
+/// is a warning for each line vtium ignores, in the frit's own lines and
+/// in its layers', and then one for each layer it lacks or cannot read,
+/// as `vtium-config check` gives them.
 ///
 /// References:
 /// - ADR-1204 D5: the splice the console makes, and `new-frit --layer`.
-fn check_layers(text: &str, path: &Path, name: &str) -> Result<(), String> {
+/// - ADR-1510 D2: an unknown or misplaced key is reported with its file
+///   and line, and ignored alone.
+fn check_layers(text: &str, path: &Path, name: &str) -> Result<Vec<FritError>, String> {
     let layers = path.parent().unwrap_or(Path::new("/")).join(layer::DIR);
     let expanded = layer::expand(text, &mut |n| crate::frit::read_layer(&layers, n));
     if let Some(note) = expanded.notes.iter().find(|note| {
@@ -830,17 +837,37 @@ fn check_layers(text: &str, path: &Path, name: &str) -> Result<(), String> {
             crate::frit::layer_why(&file, note)
         ));
     }
-    Frit::parse_spliced(expanded.text.as_bytes(), path, name, &layers)
-        .map(drop)
-        .map_err(|e| e.to_string())
+    let frit = Frit::parse_spliced(expanded.text.as_bytes(), path, name, &layers)
+        .map_err(|e| e.to_string())?;
+    let ignored = expanded.ignored.iter().map(|ignored| {
+        let file = crate::frit::layer_file(&layers, &ignored.layer);
+        crate::frit::ignored_warning(&file, &ignored.ignored)
+    });
+    // every note left is a layer this machine lacks or cannot read
+    let lacking = expanded.notes.iter().map(|note| FritError {
+        file: path.to_owned(),
+        line: note.line,
+        why: crate::frit::layer_why(&crate::frit::layer_file(&layers, &note.layer), note),
+    });
+    Ok(frit
+        .warnings
+        .into_iter()
+        .chain(ignored)
+        .chain(lacking)
+        .collect())
 }
 
 /// Checks the frit `text` that `new-frit` keeps as `name` in the current
 /// draft: the name is one a frit can have, no category folder of the
 /// catalog holds a set of that name, the frit reader takes the text
 /// strictly, as the glyph helper reads it, its layers are there, and its
-/// `name=` is `name`.
-pub fn frit_checked(paths: &Paths, name: &str, text: &str) -> Result<(), String> {
+/// `name=` is `name`. The answer is a warning for each line vtium
+/// ignores, in the frit's own lines and in its layers'.
+///
+/// References:
+/// - ADR-1510 D2: an unknown or misplaced key is reported with its file
+///   and line, and ignored alone.
+pub fn frit_checked(paths: &Paths, name: &str, text: &str) -> Result<Vec<FritError>, String> {
     if !valid_name(name) || RESERVED.contains(&name) {
         return Err(format!(
             "{name:?} cannot be a font set's name: a name has 1 to 64 letters, digits, '.', '_', '+' or '-', and cannot be a built-in font's name"
@@ -850,16 +877,20 @@ pub fn frit_checked(paths: &Paths, name: &str, text: &str) -> Result<(), String>
     crate::switch::unheld(frits, name)?;
     let path = frits.join(format!("{name}.vtfrit"));
     let frit = Frit::parse(text.as_bytes(), &path, name).map_err(|e| e.to_string())?;
-    if !frit.layers.is_empty() {
-        check_layers(text, &path, name)?;
-    }
+    // the spliced text holds the frit's own lines too, so its warnings
+    // take the place of the frit's own
+    let warnings = if frit.layers.is_empty() {
+        frit.warnings
+    } else {
+        check_layers(text, &path, name)?
+    };
     if frit.name != name {
         return Err(format!(
             "the font set says name={}, but it would be installed as {name}. Make the two names the same.",
             frit.name
         ));
     }
-    Ok(())
+    Ok(warnings)
 }
 
 /// `new-frit`'s non-interactive forms: `new-frit --template` prints a
@@ -940,8 +971,13 @@ pub fn new(
             );
         }
     };
-    if let Err(why) = frit_checked(paths, &name, &text) {
-        return failed(err, &why);
+    match frit_checked(paths, &name, &text) {
+        Ok(warnings) => {
+            for warning in &warnings {
+                let _ = writeln!(err, "warning\t{warning}");
+            }
+        }
+        Err(why) => return failed(err, &why),
     }
     crate::flowcli::font_set(
         &name,

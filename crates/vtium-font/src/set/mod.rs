@@ -18,6 +18,8 @@
 //!   they hold.
 //! - [`layer`] reads the layers a font set (a frit) adds by name, and puts
 //!   their sources in place of the set's `layer=` lines.
+//! - [`scope`] says which source a frit's key describes, and which sources
+//!   take `strike=` and `script-source=`, for every reader of a frit.
 //!
 //! The format is in `format.rs`, the bounds in `src/bounds.rs`, and the
 //! crate's README describes both.
@@ -35,6 +37,7 @@ pub mod own;
 #[cfg(feature = "deflate")]
 mod pack;
 mod read;
+pub mod scope;
 pub(crate) mod write;
 
 /// Without the `deflate` feature the writer stores every chunk raw.

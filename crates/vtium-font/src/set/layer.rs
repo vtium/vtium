@@ -14,12 +14,23 @@
 //! frit's own lines. The console and vtium-config both splice through
 //! [`expand`], so a set holds the same sources wherever it is read.
 //!
+//! A line that a layer cannot hold, such as a key vtium does not know or a
+//! key of the whole set, does not drop the layer. The reader leaves that
+//! line blank in the layer's text and notes it, and the layer's other lines
+//! join the set. Blanking matters because the console reads keys such as
+//! `cell=` on any line of the spliced text, so a layer's `cell=` left in
+//! place would reach the console as the set's own.
+//!
 //! References:
 //! - ADR-1204 D5: layers, their folder, `role=`, and the splice in place.
 //! - ADR-1204 D6: the roles, and one symbols, emoji and fallback layer at
 //!   most in a set.
+//! - ADR-1510 D2: a key where it does not apply is reported and ignored
+//!   alone, and the rest of the set loads.
 
 use std::fmt;
+
+use super::scope::CurrentSource;
 
 /// The folder of the frits' directory that holds the layers.
 pub const DIR: &str = "layers";
@@ -123,13 +134,23 @@ impl fmt::Display for LayerError {
     }
 }
 
+/// A line of a layer that vtium ignores: its line, from 1, and why,
+/// worded as the frit reader reports it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Ignored {
+    pub line: usize,
+    pub why: String,
+}
+
 /// A layer whose structure reads: its role, and its text with the
-/// `role=` line left blank, so that every other line keeps its number
-/// for a reader that checks the values.
+/// `role=` line and each ignored line left blank, so that every other
+/// line keeps its number for a reader that checks the values.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Layer {
     pub role: Role,
     pub body: String,
+    /// The lines left blank because the layer cannot hold them, in order.
+    pub ignored: Vec<Ignored>,
 }
 
 /// The key and value of a line in the frit's line syntax, with `#` to the
@@ -152,15 +173,49 @@ fn set_key(key: &str) -> bool {
     SET_KEYS.contains(&key) || key.starts_with("glyph-source-")
 }
 
+/// Why a layer's lines cannot hold the key `key`, worded as the frit
+/// reader reports it: a key of the whole set, or a key that only a frit's
+/// own source takes. `None` for any other key, `layer=` included, which a
+/// layer refuses on its own terms.
+pub fn not_in_layer(key: &str) -> Option<String> {
+    if key != "layer" && set_key(key) {
+        Some(format!(
+            "{key}= is a font set's key, which applies to every source, so a layer cannot set it."
+        ))
+    } else if FRIT_ONLY_SOURCE_KEYS.contains(&key) {
+        Some(format!(
+            "{key}= describes a font set's own source, and a layer's source does not take it."
+        ))
+    } else {
+        None
+    }
+}
+
 /// Reads a layer's structure: `role=` first, with one of the four roles;
-/// then `source=` lines, each followed by the keys that describe it. A
-/// set's key, a `layer=` line and any other key refuse the layer, each
-/// naming its line.
+/// then `source=` lines, each followed by the keys that describe it.
+///
+/// A line the layer cannot hold is left blank in [`Layer::body`] and
+/// listed in [`Layer::ignored`]: a key vtium does not know, a set's key, a
+/// key that only a frit's own source takes, and a source's key above the
+/// layer's first `source=` line. Such a line is left blank whatever its
+/// value, even an empty one or one with a control character. A line that
+/// is too long or holds a NUL byte stays in the body, so that the frit
+/// reader refuses it as it refuses such a line of a frit's own. A line
+/// that is not `key=value`, a second `role=` and a `layer=` line refuse
+/// the layer, each naming its line, and so does a layer with no `role=` or
+/// no `source=` line.
+///
+/// References:
+/// - ADR-1510 D2: an unknown or misplaced key is ignored alone, whatever
+///   its value, and a malformed line refuses what holds it.
+/// - ADR-1200 D1, its dated note: a layer's lines follow the frit's rule.
 pub fn parse(text: &str) -> Result<Layer, LayerError> {
     let err = |line: usize, why: String| LayerError { line, why };
     let mut role = None;
     let mut body = String::with_capacity(text.len());
+    let mut ignored = Vec::new();
     let mut sources = 0usize;
+    let mut current = CurrentSource::default();
     for (piece, n) in text.split_inclusive('\n').zip(1usize..) {
         let line = piece.strip_suffix('\n').unwrap_or(piece);
         let Some((key, value)) = key_value(line) else {
@@ -188,14 +243,11 @@ pub fn parse(text: &str) -> Result<Layer, LayerError> {
             body.push_str(&piece[line.len()..]);
             continue;
         }
-        match key {
+        let describes = current.read(key, value);
+        // why the layer cannot hold the line; vtium ignores such a line
+        // whatever its value, as it ignores a key it does not know
+        let cannot: Option<String> = match key {
             "role" => return Err(err(n, "role= appears twice".to_owned())),
-            "source" => sources = sources.saturating_add(1),
-            k if SOURCE_KEYS.contains(&k) => {
-                if sources == 0 {
-                    return Err(err(n, format!("{k}= comes before any source= line")));
-                }
-            }
             "layer" => {
                 return Err(err(
                     n,
@@ -203,31 +255,34 @@ pub fn parse(text: &str) -> Result<Layer, LayerError> {
                         .to_owned(),
                 ));
             }
-            k if set_key(k) => {
-                return Err(err(
-                    n,
-                    format!(
-                        "{k}= is a font set's key, which applies to every source: a layer holds only source= lines and the keys that describe a source"
-                    ),
-                ));
+            "source" => {
+                sources = sources.saturating_add(1);
+                None
             }
-            k if FRIT_ONLY_SOURCE_KEYS.contains(&k) => {
-                return Err(err(
-                    n,
-                    format!(
-                        "a layer's source does not take {k}=. It takes cover=, fit=, render=, style=, strike=, version=, check=, sha256= and url="
-                    ),
-                ));
+            k if SOURCE_KEYS.contains(&k) => describes.why_nothing(k),
+            k => Some(not_in_layer(k).unwrap_or_else(|| format!("{k}= is not a key vtium knows."))),
+        };
+        // The frit reader refuses a line that is too long or holds a NUL
+        // byte as malformed, before it reads the key. Such a line stays in
+        // the body, so the reader refuses it as it refuses a frit's own.
+        let malformed = line.len() > LINE_MAX || line.contains('\0');
+        match cannot {
+            Some(why) if !malformed => {
+                ignored.push(Ignored { line: n, why });
+                body.push_str(&piece[line.len()..]);
             }
-            k => return Err(err(n, format!("unknown key {k}"))),
+            _ => body.push_str(piece),
         }
-        body.push_str(piece);
     }
     let role = role.ok_or_else(|| err(0, "the layer has no role= line".to_owned()))?;
     if sources == 0 {
         return Err(err(0, "the layer has no source= line".to_owned()));
     }
-    Ok(Layer { role, body })
+    Ok(Layer {
+        role,
+        body,
+        ignored,
+    })
 }
 
 /// Whether `name` can name a layer: 1 to 64 characters of `A-Z a-z 0-9 .
@@ -250,6 +305,9 @@ pub const SET_SOURCES_MAX: usize = 16;
 
 /// The most bytes a font set's text holds, with its layers in place.
 pub const SET_BYTES_MAX: usize = 64 * 1024;
+
+/// The most bytes a line of a font set or a layer holds.
+pub const LINE_MAX: usize = 4096;
 
 /// The most `layer=` lines of a font set that vtium reads. Each layer adds
 /// one source at least, so a set reaches [`SET_SOURCES_MAX`] before it
@@ -321,6 +379,18 @@ pub struct Expanded {
     pub placed: Vec<Placed>,
     /// Each `layer=` line that added nothing.
     pub notes: Vec<Note>,
+    /// Each line of a layer put in place that vtium ignores, in the set's
+    /// order. A layer that adds nothing lists none.
+    pub ignored: Vec<IgnoredIn>,
+}
+
+/// A line of a layer put in place that vtium ignores: the layer's name,
+/// the frit's `layer=` line that adds it, and the layer's line and why.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct IgnoredIn {
+    pub layer: String,
+    pub at: usize,
+    pub ignored: Ignored,
 }
 
 /// What reading a layer by name gives: its text; `Ok(None)` when the
@@ -340,6 +410,10 @@ pub type Read<'a> = &'a mut dyn FnMut(&str) -> Result<Option<String>, String>;
 /// [`SET_BYTES_MAX`] bytes. The set then draws without that layer: of two
 /// layers of one role, the set keeps the one it names first. vtium reads
 /// [`LAYERS_MAX`] `layer=` lines at most, and notes each one past them.
+///
+/// A layer's line that [`parse`] leaves blank does not keep the layer
+/// out. [`Expanded::ignored`] lists it for the reader to report, with the
+/// layer's file and line.
 pub fn expand(text: &str, read: Read<'_>) -> Expanded {
     let mut out = Expanded::default();
     let mut sources = text
@@ -363,7 +437,7 @@ pub fn expand(text: &str, read: Read<'_>) -> Expanded {
         } else {
             place(&out.placed, layer, read)
         };
-        let region = placed.and_then(|(role, body)| {
+        let region = placed.and_then(|(role, body, ignored)| {
             let region = format!("{line}\n{}{END}\n", lines_of(&body));
             let added = body
                 .split('\n')
@@ -379,17 +453,23 @@ pub fn expand(text: &str, read: Read<'_>) -> Expanded {
             } else {
                 sources = sources.saturating_add(added);
                 bytes = grown;
-                Ok((role, region))
+                Ok((role, region, ignored))
             }
         });
         match region {
-            Ok((role, region)) => {
+            Ok((role, region, ignored)) => {
                 out.placed.push(Placed {
                     name: layer.to_owned(),
                     role,
                     line: n,
                 });
                 out.text.push_str(&region);
+                out.ignored
+                    .extend(ignored.into_iter().map(|ignored| IgnoredIn {
+                        layer: layer.to_owned(),
+                        at: n,
+                        ignored,
+                    }));
             }
             Err(problem) => {
                 out.text.push_str(END);
@@ -414,10 +494,14 @@ fn lines_of(body: &str) -> String {
     out
 }
 
-/// The role and body of the layer `name`, which `read` gives, when it can
-/// join a set that already holds the layers `placed`; else why it adds
-/// nothing.
-fn place(placed: &[Placed], name: &str, read: Read<'_>) -> Result<(Role, String), Problem> {
+/// The role, body and ignored lines of the layer `name`, which `read`
+/// gives, when it can join a set that already holds the layers `placed`;
+/// else why it adds nothing.
+fn place(
+    placed: &[Placed],
+    name: &str,
+    read: Read<'_>,
+) -> Result<(Role, String, Vec<Ignored>), Problem> {
     if !valid_name(name) {
         return Err(Problem::BadName);
     }
@@ -438,7 +522,7 @@ fn place(placed: &[Placed], name: &str, read: Read<'_>) -> Result<(Role, String)
             at: by.line,
         });
     }
-    Ok((layer.role, layer.body))
+    Ok((layer.role, layer.body, layer.ignored))
 }
 
 /// Where a line of a spliced frit came from.
@@ -636,12 +720,15 @@ mod tests {
                 (
                     8,
                     Problem::Invalid(LayerError {
-                        line: 2,
-                        why: "cover= comes before any source= line".to_owned()
+                        line: 0,
+                        why: "the layer has no source= line".to_owned()
                     })
                 ),
             ]
         );
+        // the broken layer's cover= above any source is ignored, but the
+        // layer adds nothing, so no ignored line of it is listed
+        assert!(out.ignored.is_empty());
     }
 
     // A layer that would take the set past its 16 sources or its 64 KiB of
@@ -707,44 +794,19 @@ mod tests {
     #[test]
     fn a_layer_starts_with_its_role_and_holds_only_sources() {
         let refused = |text: &str| parse(text).unwrap_err();
-        let cases: [(&str, usize, &str); 10] = [
+        let cases: [(&str, usize, &str); 5] = [
             ("source=font:A\n", 1, "a layer starts with role="),
             ("role=icons\nsource=font:A\n", 1, "role=icons is not a role"),
             ("role=emoji\nrole=emoji\n", 2, "role= appears twice"),
-            (
-                "role=emoji\nsource=font:A\ncell=8x16\n",
-                3,
-                "cell= is a font set's key",
-            ),
-            (
-                "role=emoji\nsource=font:A\nsize=12\n",
-                3,
-                "size= is a font set's key",
-            ),
-            (
-                "role=emoji\nsource=font:A\nline-spacing=10\n",
-                3,
-                "line-spacing= is a font set's key",
-            ),
-            (
-                "role=emoji\nsource=font:A\nglyph-source-box=font\n",
-                3,
-                "glyph-source-box= is a font set's key",
-            ),
             (
                 "role=emoji\nsource=font:A\nlayer=b\n",
                 3,
                 "a layer cannot add another layer",
             ),
             (
-                "role=emoji\nversion=2.0\nsource=font:A\n",
-                2,
-                "version= comes before any source= line",
-            ),
-            (
-                "role=emoji\nfit=natural\n",
-                2,
-                "fit= comes before any source= line",
+                "role=emoji\nsource=font:A\nsource\n",
+                3,
+                "the line is not key=value",
             ),
         ];
         for (text, line, why) in cases {
@@ -752,28 +814,188 @@ mod tests {
             assert_eq!(e.line, line, "{text:?}");
             assert!(e.why.starts_with(why), "{text:?}: {}", e.why);
         }
-        for key in ["unimap", "cp-size", "script-source"] {
-            let e = refused(&format!("role=symbols\nsource=font:A\n{key}=x\n"));
-            assert_eq!(
-                e.why,
-                format!(
-                    "a layer's source does not take {key}=. It takes cover=, fit=, render=, style=, strike=, version=, check=, sha256= and url="
-                )
-            );
-        }
         // the keys that say which font a source needs follow a layer's
         // source as a set's, and the frit reader checks their values
         for key in ["version", "check", "sha256", "url"] {
-            assert!(parse(&format!("role=symbols\nsource=font:A\n{key}=x\n")).is_ok());
+            let layer = parse(&format!("role=symbols\nsource=font:A\n{key}=x\n")).unwrap();
+            assert!(layer.ignored.is_empty(), "{key}");
         }
         assert_eq!(refused("# nothing\n").why, "the layer has no role= line");
         assert_eq!(
             refused("role=fallback\n").why,
             "the layer has no source= line"
         );
+        // a layer whose only lines are ignored still has no source
         assert_eq!(
-            refused("role=emoji\nsource\n").why,
-            "the line is not key=value"
+            refused("role=fallback\ncell=8x16\nfit=natural\n").why,
+            "the layer has no source= line"
+        );
+    }
+
+    // A line that a layer cannot hold is left blank and noted, and the
+    // layer's other lines stay: a key vtium does not know, a key of the
+    // whole set, a key that only a frit's own source takes, and a source's
+    // key above the layer's first source= line. Such a line is ignored
+    // whatever its value, even an empty one. The frit reader reports each
+    // note with the layer's file and line.
+    //
+    // References:
+    // - ADR-1510 D2: an unknown or misplaced key is reported and ignored
+    //   alone, whatever its value.
+    // - ADR-1200 D1, its dated note: a layer's lines follow the frit's
+    //   rule.
+    #[test]
+    fn a_line_a_layer_cannot_hold_is_left_blank_and_noted() {
+        let cases: [(&str, usize, &str); 10] = [
+            (
+                "role=emoji\nsource=font:A\nfrob=1\n",
+                3,
+                "frob= is not a key vtium knows.",
+            ),
+            (
+                "role=emoji\nsource=font:A\nfrob=\n",
+                3,
+                "frob= is not a key vtium knows.",
+            ),
+            (
+                "role=emoji\nsource=font:A\ncell=8x16\n",
+                3,
+                "cell= is a font set's key, which applies to every source, so a layer cannot set it.",
+            ),
+            (
+                "role=emoji\nsource=font:A\nsize=12\n",
+                3,
+                "size= is a font set's key, which applies to every source, so a layer cannot set it.",
+            ),
+            (
+                "role=emoji\nsource=font:A\nline-spacing=10\n",
+                3,
+                "line-spacing= is a font set's key, which applies to every source, so a layer cannot set it.",
+            ),
+            (
+                "role=emoji\nsource=font:A\nglyph-source-box=font\n",
+                3,
+                "glyph-source-box= is a font set's key, which applies to every source, so a layer cannot set it.",
+            ),
+            (
+                "role=emoji\nsource=font:A\nunimap=x\n",
+                3,
+                "unimap= describes a font set's own source, and a layer's source does not take it.",
+            ),
+            (
+                "role=emoji\nversion=2.0\nsource=font:A\n",
+                2,
+                "version= comes before any source= line, so it has no source to describe.",
+            ),
+            (
+                "role=emoji\nfit=natural\nsource=font:A\n",
+                2,
+                "fit= comes before any source= line, so it has no source to describe.",
+            ),
+            (
+                "role=emoji\n\n# c\nsource=font:A\ncp-size=8  # small\nscript-source=kbd:x\n",
+                5,
+                "cp-size= describes a font set's own source, and a layer's source does not take it.",
+            ),
+        ];
+        for (text, line, why) in cases {
+            let layer = parse(text).unwrap();
+            assert_eq!(
+                layer.ignored[0],
+                Ignored {
+                    line,
+                    why: why.to_owned()
+                },
+                "{text:?}"
+            );
+            // the line is blank and every line keeps its number
+            let body: Vec<&str> = layer.body.split('\n').collect();
+            assert_eq!(body.len(), text.split('\n').count(), "{text:?}");
+            assert_eq!(body[line - 1], "", "{text:?}");
+            assert!(body.contains(&"source=font:A"), "{text:?}");
+        }
+        // each ignored line is noted, in order
+        let layer =
+            parse("role=symbols\nstyle=bold\nsource=font:A\ncell=8x16\ncover=U+E000\nfrob=1\n")
+                .unwrap();
+        let lines: Vec<usize> = layer.ignored.iter().map(|i| i.line).collect();
+        assert_eq!(lines, [2, 4, 6]);
+        assert_eq!(layer.body, "\n\nsource=font:A\n\ncover=U+E000\n\n");
+        // a known key that a layer cannot hold is ignored whatever its
+        // value, so with no value or a control character in its value too
+        for (line, why) in [
+            (
+                "cell=",
+                "cell= is a font set's key, which applies to every source, so a layer cannot set it.",
+            ),
+            (
+                "unimap=a\u{7}b",
+                "unimap= describes a font set's own source, and a layer's source does not take it.",
+            ),
+        ] {
+            let text = format!("role=symbols\nsource=font:A\n{line}\n");
+            let layer = parse(&text).unwrap();
+            assert_eq!(
+                layer.ignored,
+                [Ignored {
+                    line: 3,
+                    why: why.to_owned()
+                }],
+                "{line:?}"
+            );
+            assert_eq!(layer.body, "\nsource=font:A\n\n", "{line:?}");
+        }
+        let layer = parse("role=symbols\nfit=\nsource=font:A\n").unwrap();
+        assert_eq!(
+            layer.ignored,
+            [Ignored {
+                line: 2,
+                why: "fit= comes before any source= line, so it has no source to describe."
+                    .to_owned()
+            }]
+        );
+        assert_eq!(layer.body, "\n\nsource=font:A\n");
+        // a line that is too long or holds a NUL byte is malformed, and
+        // stays for the frit reader to refuse, as it refuses such a line of
+        // a frit's own
+        for line in [
+            "frob=a\0b".to_owned(),
+            "cell=8x16 # a\0".to_owned(),
+            format!("frob={}", "x".repeat(LINE_MAX)),
+        ] {
+            let text = format!("role=symbols\nsource=font:A\n{line}\n");
+            let layer = parse(&text).unwrap();
+            assert_eq!(layer.ignored, [], "{line:?}");
+            assert_eq!(layer.body, format!("\nsource=font:A\n{line}\n"), "{line:?}");
+        }
+    }
+
+    #[test]
+    fn a_layers_ignored_lines_come_with_its_name_and_line() {
+        let sym = "role=symbols\nsource=font:S\ncell=8x16\nfrob=1\n";
+        let emoji = "role=emoji\nfit=room\nsource=font:E\n";
+        let layers = [("sym", sym), ("emoji", emoji), ("emoji-two", emoji)];
+        let mut read = reader(&layers);
+        let out = expand(
+            "cell=10x20\nsource=font:A\nlayer=sym\nlayer=emoji\nlayer=emoji-two\n",
+            &mut read,
+        );
+        assert_eq!(out.placed.len(), 2);
+        assert_eq!(
+            out.text,
+            "cell=10x20\nsource=font:A\nlayer=sym\n\nsource=font:S\n\n\nlayer=\nlayer=emoji\n\n\nsource=font:E\nlayer=\nlayer=\n"
+        );
+        let found: Vec<(&str, usize, usize)> = out
+            .ignored
+            .iter()
+            .map(|i| (i.layer.as_str(), i.at, i.ignored.line))
+            .collect();
+        // emoji-two adds nothing, as the set holds one emoji layer, so its
+        // ignored line is not listed
+        assert_eq!(found, [("sym", 3, 3), ("sym", 3, 4), ("emoji", 4, 2)]);
+        assert_eq!(
+            out.ignored[1].ignored.why,
+            "frob= is not a key vtium knows."
         );
     }
 

@@ -24,7 +24,8 @@
 //! and the console leaves it out here. The helper also ignores a source's
 //! key that has no source above it: one before the first `source=` line,
 //! or one after a `layer=` line and before the next `source=` line. The
-//! console leaves those out too, so both read the same set.
+//! console leaves those out too. Both ask vtium-font's `scope` module
+//! which source a key describes, so both read the same set.
 //!
 //! References:
 //! - ADR-1302 D13: `fit=` and the default fit of each kind of character.
@@ -32,6 +33,7 @@
 //! - ADR-1510 D2: the helper ignores a key where it does not apply, and reads the rest of the set.
 
 use vtium_font::Style;
+use vtium_font::set::scope::{CurrentSource, Describes};
 use vtium_font::spacing::Fit;
 
 /// One range of a source's `cover=` lines and the fit its glyphs take
@@ -87,6 +89,7 @@ impl FritFits {
     pub fn of(text: &str) -> FritFits {
         let mut ranges = Vec::new();
         let mut reading: Option<Reading> = None;
+        let mut current = CurrentSource::default();
         // the set a `fit=` line is for: true after a `cover=` line, false
         // after a `source=` line
         let mut after_cover = false;
@@ -96,15 +99,17 @@ impl FritFits {
                 continue;
             };
             let (key, value) = (key.trim(), value.trim());
-            // A `source=` line starts a new source. A `layer=` line, the
-            // opening `layer=NAME` and the closing `layer=` alike, ends the
-            // source above it without starting one, so a key after it
-            // describes nothing until the next `source=` line. The font
-            // helper ignores such a key, and the console must read the
-            // same set the helper reads.
-            if key == "source" || key == "layer" {
+            // A `source=` line starts a new source. A line after which a
+            // key describes no source, such as a `layer=` line, ends the
+            // source above it without starting one. The font helper
+            // ignores a key there, and the console must read the same set
+            // the helper reads.
+            let describes = current.read(key, value);
+            if key == "source" || !matches!(describes, Describes::Source(_)) {
                 ranges.extend(reading.take().into_iter().flat_map(Reading::ranges));
-                reading = (key == "source").then(Reading::default);
+            }
+            if key == "source" {
+                reading = Some(Reading::default());
                 after_cover = false;
                 continue;
             }
