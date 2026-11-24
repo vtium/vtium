@@ -214,11 +214,11 @@ A switch lasts until that program's session ends. vtium then returns to the font
 .IP
 \fBvtium\-config use\-frit NAME\fR switches the font with the same sequence.
 .IP
-The query reports the name of the font on screen. A font file's path or a font family is not a name a switch takes, so the query then reports no name.
+The query reports the name of the font on screen: the name of a font set or of a built-in font. A font that \fBfont\-name\fR gives as a file's path or as a font family is reported by that path or by the family's name. A program can send the reported name back to return to that font.
 .IP
 When off, vtium ignores OSC 50, queries included.
 .IP
-It is on by default. A program can choose only an installed font set, a built-in font or the font its console started in, never another file.
+The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when \fBbatch.conf\fR lists it and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See Active fonts <https://vtium.github.io/vtium/fonts/#active-fonts>.
 .IP
 vtium reads a font set only when root owns it and no other user can change it or a folder above it.
 .IP
