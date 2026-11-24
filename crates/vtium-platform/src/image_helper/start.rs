@@ -72,7 +72,7 @@ impl Program {
     }
 
     /// The arguments each helper starts with before its `--tmpdir`, such
-    /// as [`SANDBOX_OFF`].
+    /// as `--sandbox=off`.
     pub fn args(&self) -> &[OsString] {
         &self.args
     }
