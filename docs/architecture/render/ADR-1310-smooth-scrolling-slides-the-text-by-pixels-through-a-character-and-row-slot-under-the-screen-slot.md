@@ -80,6 +80,9 @@ considered:
   - operator: aaronsb
     said: "what about doubled cells? (the vt520 effect)"
     via: the maintainer, in the steering session, 2026-11-24, on how vtium can scroll without a full-frame copy
+  - operator: aaronsb
+    said: "ok. I think r8 makes sense to me."
+    via: the maintainer, in the steering session, 2026-11-24, after reading the amendment of D6 on a reading page and asking how much the copy costs and what buffering the display hardware has
 status: accepted
 date: 2026-11-17
 deciders:
