@@ -474,6 +474,13 @@ mod tests {
     /// What one run of the broker gave: its exit status, and how often it
     /// put the VT back.
     fn broker(mode: &str, bounds: Bounds) -> (u8, u32) {
+        let (status, restored, _) = broker_watching(mode, bounds);
+        (status, restored)
+    }
+
+    /// As [`broker`], and also whether the drawer was still running when
+    /// the broker first put the VT back.
+    fn broker_watching(mode: &str, bounds: Bounds) -> (u8, u32, Option<bool>) {
         let mut lp: Loop<Seen> = Loop::new().unwrap();
         let (ping, source) = make_ping().unwrap();
         lp.handle()
@@ -481,9 +488,22 @@ mod tests {
             .unwrap();
         let (link, theirs) = Link::pair().unwrap();
         let drawer = start::spawn(&stand_in(mode), &me(), theirs, false).unwrap();
+        let pidfd = drawer.pidfd.try_clone().unwrap();
         let restored = Rc::new(Cell::new(0));
-        let count = Rc::clone(&restored);
-        let mut restore = move || count.set(count.get() + 1);
+        let running = Rc::new(Cell::new(None));
+        let (count, first) = (Rc::clone(&restored), Rc::clone(&running));
+        let mut restore = move || {
+            count.set(count.get() + 1);
+            if first.get().is_none() {
+                // waits for nothing and reaps nothing
+                let options = rustix::process::WaitIdOptions::EXITED
+                    | rustix::process::WaitIdOptions::NOHANG
+                    | rustix::process::WaitIdOptions::NOWAIT;
+                let exited =
+                    rustix::process::waitid(rustix::process::WaitId::PidFd(pidfd.as_fd()), options);
+                first.set(Some(matches!(exited, Ok(None))));
+            }
+        };
         let status = run(
             &mut lp,
             &link,
@@ -493,7 +513,7 @@ mod tests {
             bounds,
             &now,
         );
-        (status, restored.get())
+        (status, restored.get(), running.get())
     }
 
     /// A drawer that has said it runs and exits with status N makes the
@@ -538,21 +558,31 @@ mod tests {
     }
 
     /// A message that the protocol refuses ends the drawer and fails the
-    /// broker, before the broker acts on it.
+    /// broker, before the broker acts on the message or any after it. The
+    /// stand-in follows the refused message with a power key and then
+    /// stops with status 7 when told, so a broker that let the refused
+    /// message pass would exit with 7.
     #[test]
     fn a_refused_message_ends_the_drawer() {
-        assert_eq!(broker("refused", LONG), (FAILURE, 1));
+        assert_eq!(broker("refused:7", LONG), (FAILURE, 1));
     }
 
     /// A drawer that closes its socket and hangs has the VT put back at
-    /// the close, and is killed at the stop bound.
+    /// the close, while it still runs, and is killed at the stop bound.
+    /// A drawer that never says it runs is killed first, and the VT comes
+    /// back after it.
     #[test]
     fn a_closed_socket_puts_the_vt_back_and_ends_the_drawer() {
         let short = Bounds {
             start: LONG.start,
             stop: Duration::ZERO,
         };
-        assert_eq!(broker("close", short), (FAILURE, 1));
+        assert_eq!(broker_watching("close", short), (FAILURE, 1, Some(true)));
+        let now = Bounds {
+            start: Duration::ZERO,
+            stop: Duration::ZERO,
+        };
+        assert_eq!(broker_watching("silent", now), (FAILURE, 1, Some(false)));
     }
 
     /// The drawer's real setup, checked from inside the drawer after the
@@ -584,10 +614,12 @@ mod tests {
             tv_nsec: 0,
         };
         rustix::event::poll(&mut fds, Some(&bound)).unwrap();
-        assert_eq!(
-            watch::ended(drawer.pidfd.as_fd()).unwrap(),
-            Some(watch::Ended::Signal(9))
-        );
+        let ended = watch::ended(drawer.pidfd.as_fd()).unwrap();
+        if ended.is_none() {
+            // a stand-in still running would hold the test's output open
+            watch::kill(drawer.pidfd.as_fd());
+        }
+        assert_eq!(ended, Some(watch::Ended::Signal(9)));
     }
 
     /// A stand-in drawer, run only by the tests above in a process of its
@@ -621,7 +653,13 @@ mod tests {
                 );
                 hang();
             }
-            "stop" | "stubborn" => {
+            "stop" | "stubborn" | "refused" => {
+                if mode == "refused" {
+                    // a VT of 0, which the reader refuses
+                    let mut bytes = Request::SwitchVt { vt: 1 }.encode();
+                    bytes[4] = 0;
+                    rustix::net::send(&link, &bytes, rustix::net::SendFlags::empty()).unwrap();
+                }
                 link.request(&Request::Power {
                     key: protocol::PowerKey::Reboot,
                 })
@@ -639,12 +677,6 @@ mod tests {
                         std::process::exit(code);
                     }
                 }
-            }
-            "refused" => {
-                let mut bytes = Request::SwitchVt { vt: 1 }.encode();
-                bytes[4] = 0;
-                rustix::net::send(&link, &bytes, rustix::net::SendFlags::empty()).unwrap();
-                hang();
             }
             "close" => {
                 drop(link);
