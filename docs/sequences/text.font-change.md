@@ -9,13 +9,13 @@
 
 ## Parameters
 
-- `Pt`: The name of a font set or a built-in font (1 to 64 characters of `A-Z a-z 0-9 . _ + -`, not starting with `.`), the absolute path of a font that root has installed and trusts (at most 4095 bytes), or the font family a head's configuration names.
+- `Pt`: One of three names. A font set or a built-in font is named by 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, not starting with `.`. A font that root has installed and trusts is named by its absolute path, at most 4095 bytes. A head's configured font family is named as the configuration gives it.
 
 ## What vtium does
 
 vtium switches to the font set that Pt names. For a font's path, vtium first checks that root has installed the font and trusts its folder, and then builds a font set of that one font. When the new font's character cell has another size, vtium resizes the grid to fit it. The query gets `OSC 50 ; NAME`, ended as it was asked, where NAME is the set in use, the font's path, or the family's name. While the `allow-font-ops` key is off, vtium ignores both forms.
 
-vtium takes three kinds of name: one of its font sets, the path of a font that root has installed and trusts, and the family a head's configuration names. It ignores anything else, such as an X font name or the path of any other font, and it also ignores a Pt that starts with `#`, the form that picks from a font menu. See [OSC strings and the Linux console's sequences in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#osc-strings-and-the-linux-consoles-sequences).
+vtium takes three kinds of name: one of its font sets, the path of a font that root has installed and trusts, and the family a head's configuration names. It ignores anything else, such as an X font name or the path of any other font. It also ignores a Pt that starts with `#`, the form that picks from a font menu. See [OSC strings and the Linux console's sequences in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#osc-strings-and-the-linux-consoles-sequences).
 
 ## Status
 
