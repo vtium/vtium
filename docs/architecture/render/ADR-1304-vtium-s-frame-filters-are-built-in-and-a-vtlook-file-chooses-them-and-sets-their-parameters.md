@@ -445,6 +445,8 @@ The CPU path has no spatial layer. **Decided by the maintainer (2026-11-03):** a
 
 > Note 2026-11-17: D17 to D20 add to this section without changing what it says. A piece also reads the frame through `SPATIAL_SMOOTH(at)`, which blends four pixels and counts as 4 reads (D18); `at` and the pixel it names follow D17's convention, and the colors are encoded unless the piece converts them. A filter whose header holds `#pragma vtium cursor` gets the cursor's uniforms besides its parameters, and a present after any change of the cursor is whole for it (D19). A filter in Ghostty's dialect gets Ghostty's names through the prelude (D20).
 
+> Note 2026-11-24: the note above says that a smooth read "counts as 4 reads (D18)". Since 2026-11-18 a smooth read counts as 1 read, as D18 decides and this section's caps bullet says.
+
 ### D4: the vtlook file, and the built-in default look
 
 **Decided by the maintainer (2026-11-03):** the pipeline's configuration lives in a file called a vtlook, as a frit holds a font set. When no look is named, a head takes a default look built into vtium, which needs no profile, as a head takes a built-in font when no frit is named. The default look holds no filters, so it runs nothing. A vtlook is tied to no profile.
@@ -1098,6 +1100,8 @@ vtlook big (/etc/vtium/looks/big.vtlook:5): requires: checking: min-size = 1920x
 - The code defines `vec4 apply(vec2 at)`, where `at` is the place in the upright frame, in pixels. It reads through `SPATIAL_IN(at)`, which returns the pixel that holds the place, with no filtering, so a shader that blends between pixels reads each one and counts them; `SPATIAL_SIZE` is the frame's size. Before each piece vtium defines `apply` as `<name>_apply` and each parameter's name as its uniform, `<name>_<parameter>` (D1), and undefines them after it, so authors and ported code use bare names and two pieces never collide.
 
 > Note 2026-11-17: `at` is a pixel's center, counted from the upright frame's top left (D17). Besides `SPATIAL_IN`, which still reads with no filtering, a shader may read through `SPATIAL_SMOOTH(at)`, a blend of four pixels that counts as 4 reads (D18).
+
+> Note 2026-11-24: the note above says that a smooth read "counts as 4 reads". Since 2026-11-18 a smooth read counts as 1 read, as D18 decides.
 
 The packaged scanlines and sharpen are the format's first worked examples, with mask and crt (D8). libplacebo's typed `//!PARAM` blocks are the alternative considered (Alternatives).
 
