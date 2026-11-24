@@ -274,6 +274,26 @@ considered:
     via: "question tool, 2026-11-24, on the reading page of this record's and ADR-1310's changes of 2026-11-22, on the brightness floor's shape: the floor is a setting of the tint filter, which lifts every dark color above black while black and the full phosphor color stay as they are, rather than a filter of its own; the option's wording is the steering session's"
     paraphrase: true
     covers: [the floor's shape]
+  - operator: aaronsb
+    said: "I'd like to be able to load a ghostty shader and use it unmodified."
+    via: the maintainer, in the steering session, 2026-11-24
+  - operator: aaronsb
+    said: "perhaps I'm sounding too strict: a ghostty shader should load without modification, but parts of that shader description language that do not get used get ignored, at the risk of breaking the shader. maybe what we need is a small 'virtualization' of shader code in a way that we interpet it into .vtshader format. I'm not sure. what do you think?"
+    via: "through the question tool, 2026-11-24, answering in the maintainer's own words the question on the shader file: whether a Ghostty shader file needs a header of vtium's added before it loads"
+  - operator: aaronsb
+    said: "No cap for Ghostty's (Recommended)"
+    via: "through the question tool, 2026-11-24, on the read cap, choosing the option \"A Ghostty shader is never refused for its read count. The frame-rate floor decides: a look that can't keep the display's rate falls back with an error naming the shader. vtium's own dialect keeps the cap.\"; the option's wording is the steering session's"
+    paraphrase: true
+  - operator: aaronsb
+    said: "Research first (Recommended)"
+    via: through the question tool, 2026-11-24, on desktop-GL syntax in Ghostty shaders, choosing the option "A short spike runs all 37 surveyed shaders through both ways and reports which compile and look right; the record then names the winner."; the option's wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "I think this give us a chance if we're virtualizing the glsl file, to offer more interpetation as code is encountered and ignored. a bug report stating that a glsl shader for ghostty x doesn't work on vtium becomes an exercise in looking at all the ignored things and adding feature support for it. this also brings up the question for compiling the shader into a cache - is it something that root does and stores it?"
+    via: the maintainer, in the steering session, 2026-11-24
+  - operator: aaronsb
+    said: "let's write it up. you're right about milliseconds per shader for translation. I think systemd caching is great, but we should consider systems that don't have systemd. we should also ensure that support documentation for shaders (and some sort of outline for docs with shaders includes these things)"
+    via: "the maintainer, in the steering session, 2026-11-24, on the steering session's proposal: a translator that runs at every load and keeps no cache of translations, root storing the shader's source while the GPU driver caches the compiled program, and an outline of the shader pages"
 status: accepted
 date: 2026-11-03
 deciders:
