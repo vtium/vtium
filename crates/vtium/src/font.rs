@@ -1242,7 +1242,7 @@ pub fn qualifying(path: &str, folders: &[PathBuf], gate: &cullet::Gate) -> Resul
         && !path.contains('#')
         && path.trim() == path;
     if !plain {
-        return Err("a font's path must start with `/` and be in its plain form, with no `.`, `..` or empty component and no `/` at its end, and it must hold no control character, no `#` and no space at either end".to_owned());
+        return Err("a font's path must be absolute and plain: no `.`, `..` or empty component, no `/` at its end, no control character, no `#`, and no space at either end".to_owned());
     }
     let searched = folders
         .iter()
@@ -3449,7 +3449,7 @@ mod tests {
     ///
     /// References:
     /// - ADR-1200 D5, "A qualifying font": the four checks.
-    const NOT_PLAIN: &str = "a font's path must start with `/` and be in its plain form, with no `.`, `..` or empty component and no `/` at its end, and it must hold no control character, no `#` and no space at either end";
+    const NOT_PLAIN: &str = "a font's path must be absolute and plain: no `.`, `..` or empty component, no `/` at its end, no control character, no `#`, and no space at either end";
     const OUTSIDE: &str = "the file is not in a folder that vtium searches for fonts: those of font-paths, the package's font folder and kbd's console-font folders";
     fn inactive() -> String {
         format!(
