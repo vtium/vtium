@@ -243,6 +243,100 @@ fn the_helper_started_with_the_sandbox_off_answers_without_its_filters() {
     }
 }
 
+// A kernel that offers seccomp filters and refuses the helper's: a thread
+// of the test makes `seccomp` answer EPERM, so the helper's socket filter
+// fails to install while its status still shows a kernel with seccomp
+// filters. The helper that thread starts takes the refusal for what it
+// is, sends a failed frame and exits 1, and so never answers unfiltered.
+// A helper the same thread starts with the sandbox off installs no filter
+// and answers.
+//
+// References:
+// - ADR-1200 D15, "A kernel without seccomp filters runs the helpers
+//   without them, at the default too": a kernel that offers the filters
+//   and refuses the helper's still fails the helper.
+#[test]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "a test fails by panicking"
+)]
+fn a_kernel_that_refuses_the_filter_fails_the_helper_unless_the_sandbox_is_off() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    if !vtium_config::seccomp::BUILT {
+        eprintln!("skipped: vtium has no seccomp filter for this architecture");
+        return;
+    }
+    let request = ServeRequest {
+        doubled: None,
+        cluster_width: Default::default(),
+        style: Default::default(),
+        script: vtium_font::Script::Baseline,
+        band: Default::default(),
+        kind: ASK,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: "source=builtin:unscii-8\n".to_owned(),
+        },
+        cell: Cell {
+            width: 8,
+            height: 16,
+        },
+        codepoints: vec![0x41],
+        clusters: Vec::new(),
+        held: Vec::new(),
+        console: None,
+    };
+    let (refused, off) = std::thread::spawn(move || {
+        let refuse = vtium_config::seccomp::compile(&[vtium_config::seccomp::Rule::Always(
+            libc::SYS_seccomp,
+        )])
+        .unwrap();
+        vtium_config::seccomp::install(&refuse).unwrap();
+        let run = |args: &[&str]| {
+            let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
+                .arg("serve")
+                .args(args)
+                .env_clear()
+                .current_dir("/")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let mut stdin = child.stdin.take().unwrap();
+            // a helper that failed may have exited before it read this
+            let _ = stdin.write_all(&request.encode());
+            drop(stdin);
+            let mut out = Vec::new();
+            child.stdout.take().unwrap().read_to_end(&mut out).unwrap();
+            (child.wait().unwrap().code(), frames(&out))
+        };
+        (run(&[]), run(&["--sandbox", "off"]))
+    })
+    .join()
+    .unwrap();
+    let (code, answer) = refused;
+    let kinds: Vec<u32> = answer.iter().map(|f| f.0).collect();
+    assert_eq!(
+        (code, &kinds[..]),
+        (Some(1), &[FRAME_FAILED][..]),
+        "{answer:?}"
+    );
+    let why = String::from_utf8_lossy(&answer[0].1);
+    assert!(why.contains("cannot install its socket filter"), "{why}");
+    let (code, answer) = off;
+    let kinds: Vec<u32> = answer.iter().map(|f| f.0).collect();
+    assert_eq!(
+        (code, &kinds[..]),
+        (Some(0), &[FRAME_SANDBOX, FRAME_GLYPHS, FRAME_DONE][..]),
+        "{answer:?}"
+    );
+}
+
 // on a kernel without landlock the helper installs its fallback filter in
 // place of the domain, says so in its report, and still reads a font file
 // and answers (ADR-1200 D15, the maintainer, 2026-11-13). A thread of the
@@ -328,7 +422,11 @@ fn the_helper_without_landlock_answers_under_its_fallback_filter() {
     );
     // the report's parts, and why the domain is missing: a kernel of
     // 5.13 or later whose landlock query answers ENOSYS was built without
-    // landlock (ADR-1200 D15)
+    // landlock
+    //
+    // References:
+    // - ADR-1200 D15, "Nothing on screen, and the log says why": the
+    //   landlock reasons.
     let report = u32::from_le_bytes(answer[0].1[..].try_into().unwrap());
     assert_eq!(
         report,
