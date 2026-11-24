@@ -7,8 +7,10 @@
 //! all little-endian, then a variable part:
 //!
 //! - The helper's first packet is a [`Hello`]: its wire version, the
-//!   landlock version the kernel offers, and whether its seccomp filter is
-//!   in force.
+//!   landlock version the kernel offers, whether its seccomp filter is in
+//!   force, and why its seccomp filter and its workers' landlock domains
+//!   are not, as a [`NoSeccomp`] and a [`NoLandlock`] at 20 and 24, each 0
+//!   when the part is in force.
 //! - A request is ADR-1100 D7's [`Request`], field for field, followed by
 //!   the name of a named medium. Inline bytes travel beside it in a sealed
 //!   memory file, never in the packet, so a decoded request's
@@ -55,7 +57,7 @@ use super::{Alpha, Description, FrameLimits, Layout, Medium, Request};
 use crate::login::{Fit, Fitting, Form, Geometry, Position};
 
 /// The wire's version, which both ends of one build share.
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 
 /// The helper's first packet.
 pub const KIND_HELLO: u32 = 1;
@@ -88,7 +90,7 @@ pub const REASON_MAX: usize = 255;
 /// The bytes of the kind and the length that begin every packet.
 pub const HEADER: usize = 8;
 /// The bytes of a hello.
-pub const HELLO_BYTES: usize = 20;
+pub const HELLO_BYTES: usize = 28;
 /// The bytes of a request before its name.
 pub const REQUEST_FIXED: usize = 120;
 /// The bytes of a reply before its delays and its reason.
@@ -121,6 +123,81 @@ pub struct Hello {
     pub landlock: u32,
     /// The helper's seccomp filter is in force.
     pub seccomp: bool,
+    /// Why the helper's seccomp filter is not in force; `None` when it is.
+    pub no_seccomp: Option<NoSeccomp>,
+    /// Why the workers enter no landlock domain; `None` when they do.
+    pub no_landlock: Option<NoLandlock>,
+}
+
+/// Why the image helper's seccomp filter is not in force, as its hello
+/// numbers it.
+///
+/// References:
+/// - ADR-1200 D15, "Nothing on screen, and the log says why": the five
+///   reasons, which hold for both helpers.
+/// - ADR-1101 D7: the hello carries them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoSeccomp {
+    /// `helper-sandbox=off` turns the filters off.
+    Off = 1,
+    /// vtium builds no filter for this architecture.
+    NoTable = 2,
+    /// The kernel is 3.8 or later and was built without seccomp: its
+    /// status has no `Seccomp:` line.
+    NotBuilt = 3,
+    /// The kernel is 5.9 or later and was built with seccomp but without
+    /// seccomp filters: its status has no `Seccomp_filters:` line.
+    NoFilters = 4,
+    /// The kernel is older than 3.8 and its status has no `Seccomp:` line,
+    /// so it is too old for the filters or was built without seccomp.
+    TooOld = 5,
+}
+
+/// Why the image helper's workers enter no landlock domain, as its hello
+/// numbers it.
+///
+/// References:
+/// - ADR-1200 D15, "Nothing on screen, and the log says why": the four
+///   reasons a landlock domain is not in force.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoLandlock {
+    /// `helper-sandbox=off` turns the domains off.
+    Off = 1,
+    /// The kernel is older than landlock, Linux 5.13.
+    TooOld = 2,
+    /// The kernel is 5.13 or later and was built without landlock, so
+    /// landlock's version query answers `ENOSYS`.
+    NotBuilt = 3,
+    /// The kernel was built with landlock but did not turn it on at boot,
+    /// so the version query answers `EOPNOTSUPP`.
+    NotEnabled = 4,
+}
+
+impl NoSeccomp {
+    fn from_wire(n: u32) -> Result<Option<Self>, Malformed> {
+        Ok(Some(match n {
+            0 => return Ok(None),
+            1 => Self::Off,
+            2 => Self::NoTable,
+            3 => Self::NotBuilt,
+            4 => Self::NoFilters,
+            5 => Self::TooOld,
+            _ => return Err(Malformed("a hello with an unknown seccomp reason")),
+        }))
+    }
+}
+
+impl NoLandlock {
+    fn from_wire(n: u32) -> Result<Option<Self>, Malformed> {
+        Ok(Some(match n {
+            0 => return Ok(None),
+            1 => Self::Off,
+            2 => Self::TooOld,
+            3 => Self::NotBuilt,
+            4 => Self::NotEnabled,
+            _ => return Err(Malformed("a hello with an unknown landlock reason")),
+        }))
+    }
 }
 
 /// A reply's outcome, as the wire numbers it.
@@ -241,6 +318,8 @@ pub fn encode_hello(hello: &Hello) -> Vec<u8> {
     put32(&mut out, hello.version);
     put32(&mut out, hello.landlock);
     put32(&mut out, u32::from(hello.seccomp));
+    put32(&mut out, hello.no_seccomp.map_or(0, |n| n as u32));
+    put32(&mut out, hello.no_landlock.map_or(0, |n| n as u32));
     out
 }
 
@@ -262,10 +341,18 @@ pub fn decode_hello(packet: &[u8]) -> Result<Hello, Malformed> {
         1 => true,
         _ => return Err(Malformed("a hello with an unknown seccomp state")),
     };
+    let no_seccomp = NoSeccomp::from_wire(get32(packet, 20))?;
+    if seccomp == no_seccomp.is_some() {
+        return Err(Malformed(
+            "a hello whose seccomp filter is both in force and missing, or neither",
+        ));
+    }
     Ok(Hello {
         version: VERSION,
         landlock: get32(packet, 12),
         seccomp,
+        no_seccomp,
+        no_landlock: NoLandlock::from_wire(get32(packet, 24))?,
     })
 }
 
@@ -955,6 +1042,8 @@ mod tests {
             version: VERSION,
             landlock: 6,
             seccomp: true,
+            no_seccomp: None,
+            no_landlock: None,
         };
         assert_eq!(decode_hello(&encode_hello(&hello)).unwrap(), hello);
         let old = Hello {
@@ -968,6 +1057,76 @@ mod tests {
         bad[16] = 2;
         assert!(decode_hello(&bad).is_err());
         assert!(decode_hello(&packet).is_err());
+    }
+
+    // The hello carries why the helper's seccomp filter and its workers'
+    // landlock domains are not in force, and a hello of the wire before
+    // the reasons, version 4 and 20 bytes long, is refused whole, with
+    // its version still read so vtium can say which version the helper
+    // speaks. A reason the wire does not number, and a filter both in
+    // force and missing, are refused too.
+    //
+    // References:
+    // - ADR-1101 D7: the hello and its reasons.
+    // - ADR-1200 D15, "Nothing on screen, and the log says why".
+    #[test]
+    fn a_hello_carries_its_reasons_and_one_of_the_older_wire_is_refused() {
+        let off = Hello {
+            version: VERSION,
+            landlock: 6,
+            seccomp: false,
+            no_seccomp: Some(NoSeccomp::Off),
+            no_landlock: Some(NoLandlock::Off),
+        };
+        let bytes = encode_hello(&off);
+        assert_eq!(bytes.len(), 28);
+        assert_eq!(&bytes[20..], &[1, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(decode_hello(&bytes).unwrap(), off);
+        for (no_seccomp, at) in [
+            (NoSeccomp::NoTable, 2),
+            (NoSeccomp::NotBuilt, 3),
+            (NoSeccomp::NoFilters, 4),
+            (NoSeccomp::TooOld, 5),
+        ] {
+            let h = Hello {
+                no_seccomp: Some(no_seccomp),
+                ..off
+            };
+            assert_eq!(encode_hello(&h)[20], at);
+            assert_eq!(decode_hello(&encode_hello(&h)).unwrap(), h);
+        }
+        for (no_landlock, at) in [
+            (NoLandlock::TooOld, 2),
+            (NoLandlock::NotBuilt, 3),
+            (NoLandlock::NotEnabled, 4),
+        ] {
+            let h = Hello {
+                no_landlock: Some(no_landlock),
+                ..off
+            };
+            assert_eq!(encode_hello(&h)[24], at);
+            assert_eq!(decode_hello(&encode_hello(&h)).unwrap(), h);
+        }
+        // the hello of version 4: kind, length 20, version, landlock, seccomp
+        let mut four = Vec::new();
+        for word in [KIND_HELLO, 20, 4, 6, 1] {
+            four.extend(word.to_le_bytes());
+        }
+        assert_eq!(hello_version(&four), Some(4));
+        assert!(decode_hello(&four).is_err());
+        // reasons the wire does not number, and a filter in force with a reason
+        let mut bad = bytes.clone();
+        bad[20] = 6;
+        assert!(decode_hello(&bad).is_err());
+        let mut bad = bytes.clone();
+        bad[24] = 5;
+        assert!(decode_hello(&bad).is_err());
+        let mut bad = bytes.clone();
+        bad[16] = 1;
+        assert!(decode_hello(&bad).is_err());
+        let mut bad = bytes;
+        bad[20] = 0;
+        assert!(decode_hello(&bad).is_err());
     }
 
     // The login picture's fitting travels with its request, and a fit

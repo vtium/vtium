@@ -584,6 +584,7 @@ impl App {
         let image_helpers = Some(crate::head::images::hosts(
             &image_program,
             crate::head::images::tmpdir(&inherited),
+            crate::helper::sandbox_on(&config),
         ));
         #[cfg(not(feature = "images"))]
         let _ = image_program;

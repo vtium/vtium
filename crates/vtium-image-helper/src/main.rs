@@ -56,6 +56,16 @@ fn main() -> ExitCode {
         return ExitCode::from(4);
     }
     let landlock = sandbox::landlock_version();
+    // why the workers enter no landlock domain, which the hello tells
+    // vtium, asked before the helper's filter is in, since the kernel's
+    // release comes from `uname`, a call the filter leaves out
+    let no_landlock = if !sandboxed {
+        Some(sandbox::NoLandlock::Off)
+    } else if landlock == 0 {
+        Some(sandbox::kernel_lacks_landlock())
+    } else {
+        None
+    };
     let before = sandbox::seccomp_filters();
     // under helper-sandbox=off the helper installs no filter; otherwise
     // its filter is in force, or the kernel or the architecture offers
@@ -91,6 +101,8 @@ fn main() -> ExitCode {
         version: wire::VERSION,
         landlock,
         seccomp,
+        no_seccomp: missing,
+        no_landlock,
     };
     if channel::send(&socket, &wire::encode_hello(&hello), &[]).is_err() {
         return ExitCode::from(serve::EXIT_FAILED);

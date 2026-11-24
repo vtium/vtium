@@ -26,49 +26,10 @@ use landlock::{
 /// every filesystem right of the kernel's version up to it.
 const LANDLOCK_NEWEST: ABI = ABI::V9;
 
-/// Why the helper's seccomp filters are not in force, which its hello
-/// tells vtium.
-///
-/// References:
-/// - ADR-1200 D15, "Nothing on screen, and the log says why": the five
-///   reasons, which hold for both helpers.
-/// - ADR-1101 D9: the image helper's filters, and what the setting and a
-///   kernel without seccomp filters leave out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NoSeccomp {
-    /// `helper-sandbox=off` turns the filters off.
-    Off,
-    /// `seccompiler` builds no filter for this architecture ([`SECCOMP`]).
-    NoTable,
-    /// The kernel is 3.8 or later and was built without seccomp: its
-    /// status has no `Seccomp:` line.
-    NotBuilt,
-    /// The kernel is 5.9 or later and was built with seccomp but without
-    /// seccomp filters: its status has no `Seccomp_filters:` line.
-    NoFilters,
-    /// The kernel is older than 3.8 and its status has no `Seccomp:` line,
-    /// so it is too old for the filters or was built without seccomp.
-    TooOld,
-}
-
-/// Why the workers enter no landlock domain, which the hello tells vtium.
-///
-/// References:
-/// - ADR-1200 D15, "Nothing on screen, and the log says why": the four
-///   reasons a landlock domain is not in force.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NoLandlock {
-    /// `helper-sandbox=off` turns the domains off.
-    Off,
-    /// The kernel is older than landlock, Linux 5.13.
-    TooOld,
-    /// The kernel is 5.13 or later and was built without landlock, so
-    /// landlock's version query answers `ENOSYS`.
-    NotBuilt,
-    /// The kernel was built with landlock but did not turn it on at boot,
-    /// so the version query answers `EOPNOTSUPP`.
-    NotEnabled,
-}
+/// Why the helper's seccomp filter is not in force, and why its workers
+/// enter no landlock domain: the reasons its hello carries, which the wire
+/// both ends link numbers.
+pub use vtium_image::decode::wire::{NoLandlock, NoSeccomp};
 
 /// The major and minor version of a kernel release as `uname` gives it,
 /// such as `6.7.0-arch1-1`; `None` when the text does not start with two

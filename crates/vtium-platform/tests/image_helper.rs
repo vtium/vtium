@@ -112,6 +112,8 @@ fn stand_in(role: &str, tmpdir: Option<&str>) -> ! {
             },
             landlock: 0,
             seccomp: false,
+            no_seccomp: Some(wire::NoSeccomp::NoTable),
+            no_landlock: Some(wire::NoLandlock::NotBuilt),
         };
         send(&socket, &wire::encode_hello(&hello), None);
     }

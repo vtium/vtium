@@ -575,7 +575,15 @@ fn the_real_helper_serves_every_request_on_a_kernel_without_landlock() {
         hide_landlock();
         let mut host = ImageHost::new(Some(program()), None);
         every_kind_of_request(&mut host, SECCOMP);
-        assert_eq!(host.hello().unwrap().landlock, 0, "landlock is hidden");
+        let hello = host.hello().unwrap();
+        assert_eq!(hello.landlock, 0, "landlock is hidden");
+        // a kernel of 5.13 or later whose landlock query answers ENOSYS
+        // was built without landlock, and the hello says so
+        assert_eq!(
+            hello.no_landlock,
+            Some(vtium_image::decode::wire::NoLandlock::NotBuilt)
+        );
+        assert_eq!(hello.no_seccomp, None);
         a_stream(&mut ImageHost::new(Some(program()), None));
         return;
     }
@@ -618,6 +626,15 @@ fn the_real_helper_with_the_sandbox_off_serves_every_request_without_its_filters
     let ours = filters_of("thread-self");
     let mut host = ImageHost::new(Some(program().sandboxed(false)), None);
     every_kind_of_request(&mut host, false);
+    // the hello gives the setting as the reason for both parts
+    let hello = host.hello().unwrap();
+    assert_eq!(
+        (hello.no_seccomp, hello.no_landlock),
+        (
+            Some(vtium_image::decode::wire::NoSeccomp::Off),
+            Some(vtium_image::decode::wire::NoLandlock::Off)
+        )
+    );
     assert_eq!(
         filters_of(&host.pid().unwrap().to_string()),
         ours,

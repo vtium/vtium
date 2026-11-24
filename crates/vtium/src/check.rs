@@ -495,11 +495,8 @@ fn image_helper_note(program: &Path, me: u32) -> Option<String> {
 /// References:
 /// - ADR-1200 D15, "What turning it off gives up": the note's content.
 fn sandbox_note(config: &Config) -> Option<String> {
-    (!helper::sandbox_on(config)).then(|| SANDBOX_OFF.to_owned())
+    (!helper::sandbox_on(config)).then(|| check_config::HELPER_SANDBOX_OFF.to_owned())
 }
-
-/// check-config's note on `helper-sandbox=off`.
-const SANDBOX_OFF: &str = "helper-sandbox is off, so the font helper and the image helper run without their seccomp filters and landlock domains. A font or an image that takes over a helper can then open network connections, change any file that the helper's account may change, and signal and trace that account's other processes. Turn it off only when vtium runs inside another sandbox whose kernel refuses the helpers' filters.";
 
 /// What check-config notes of a helper that `open` opens for an account:
 /// `refused` of its refusal for `me`, the account the check runs as,
@@ -1509,7 +1506,7 @@ mod tests {
         assert_eq!(off.len(), 1, "{off:?}");
         let note = off.first().map(String::as_str).unwrap_or_default();
         assert!(
-            note.starts_with("helper-sandbox is off, so the font helper and the image helper run without their seccomp filters and landlock domains."),
+            note.starts_with("helper-sandbox: the sandbox is off, so the font helper and the image helper run without their seccomp filters and landlock domains."),
             "{note}"
         );
         assert!(note.contains("open network connections"), "{note}");

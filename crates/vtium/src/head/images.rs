@@ -234,11 +234,14 @@ mod built {
     /// `path`, opened and checked here, once, so every helper starts from
     /// the file vtium opened at start (ADR-1101 D1), and with `tmpdir`,
     /// vtium's own `TMPDIR`, where a temporary file may also lie (D3, D5).
-    /// A program vtium refuses is logged here, once, and every host then
-    /// answers as with no helper.
-    pub fn hosts(path: &Path, tmpdir: Option<PathBuf>) -> Helpers {
+    /// With `sandboxed` false, which vtium.conf's `helper-sandbox=off`
+    /// asks for, each helper is told to install no seccomp filter and its
+    /// workers to enter no landlock domain (ADR-1101 D9). A program vtium
+    /// refuses is logged here, once, and every host then answers as with
+    /// no helper.
+    pub fn hosts(path: &Path, tmpdir: Option<PathBuf>, sandboxed: bool) -> Helpers {
         let program = match Program::open(path) {
-            Ok(program) => Some(program),
+            Ok(program) => Some(program.sandboxed(sandboxed)),
             Err(why) => {
                 log::warn!(
                     "{why}; files, shared memory, PNG and zlib pictures are answered as with no helper"

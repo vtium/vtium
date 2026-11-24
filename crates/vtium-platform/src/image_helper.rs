@@ -80,9 +80,8 @@ use start::Started;
 /// is received and closed, and one too many is seen.
 const REPLY_FDS: usize = 8;
 
-/// Each of these is logged once a boot.
-static NO_SECCOMP: AtomicBool = AtomicBool::new(false);
-static NO_LANDLOCK: AtomicBool = AtomicBool::new(false);
+/// Whether this boot has logged an image helper's sandbox line ([`note`]).
+static SANDBOX_NOTED: AtomicBool = AtomicBool::new(false);
 
 /// A running helper and what it was started for.
 #[derive(Debug)]
@@ -540,14 +539,71 @@ pub fn without_helper(request: &Request) -> Reply {
     }
 }
 
-/// Logs once a boot what the helper's hello says it lacks.
+/// Logs once a boot what the helper's hello says it lacks, as
+/// [`sandbox_line`] words it, and shows nothing on screen.
 fn note(hello: &Hello) {
-    if !hello.seccomp && !NO_SECCOMP.swap(true, Ordering::Relaxed) {
-        log::warn!("the image helper runs without its seccomp filter on this architecture");
+    if let Some(line) = sandbox_line(hello)
+        && !SANDBOX_NOTED.swap(true, Ordering::Relaxed)
+    {
+        log::warn!("{line}");
     }
-    if hello.landlock == 0 && !NO_LANDLOCK.swap(true, Ordering::Relaxed) {
-        log::warn!("the kernel offers no landlock, so the image helper's workers run without it");
+}
+
+/// The line vtium logs when the helper's hello says a part of its sandbox
+/// is not in force: each missing part and the reason the helper gives, and
+/// whether the workers' third filter stands in for their landlock domains.
+/// `None` when every part is in force.
+///
+/// References:
+/// - ADR-1200 D15, "Nothing on screen, and the log says why": one line
+///   once a boot, with the reasons it tells apart.
+/// - ADR-1101 D9: the workers' third filter on a kernel without landlock.
+fn sandbox_line(hello: &Hello) -> Option<String> {
+    use vtium_image::decode::wire::{NoLandlock, NoSeccomp};
+    if hello.no_seccomp == Some(NoSeccomp::Off) && hello.no_landlock == Some(NoLandlock::Off) {
+        return Some(
+            "The image helper runs without its seccomp filter, and its workers without their landlock domains, because helper-sandbox=off in vtium.conf turns them off. An image that took over the image helper could open network connections and change any file that the image helper's account may change.".to_owned(),
+        );
     }
+    let seccomp = (!hello.seccomp).then(|| {
+        let why = match hello.no_seccomp {
+            Some(NoSeccomp::Off) => "helper-sandbox=off in vtium.conf turns it off",
+            Some(NoSeccomp::NotBuilt) => {
+                "this kernel is new enough to offer seccomp but was built without it"
+            }
+            Some(NoSeccomp::NoFilters) => {
+                "this kernel was built with seccomp but without seccomp filters"
+            }
+            Some(NoSeccomp::TooOld) => {
+                "this kernel is older than Linux 3.8, too old for vtium's seccomp filters"
+            }
+            Some(NoSeccomp::NoTable) | None => {
+                "vtium has no seccomp filter for this machine's architecture"
+            }
+        };
+        format!("The image helper runs without its seccomp filter, because {why}.")
+    });
+    let landlock = (hello.landlock == 0 || hello.no_landlock.is_some()).then(|| {
+        let why = match hello.no_landlock {
+            Some(NoLandlock::Off) => "helper-sandbox=off in vtium.conf turns them off",
+            Some(NoLandlock::TooOld) => {
+                "this kernel is older than Linux 5.13, which added landlock"
+            }
+            Some(NoLandlock::NotEnabled) => {
+                "this kernel did not turn landlock on at boot, as when the boot's lsm= list leaves it out"
+            }
+            Some(NoLandlock::NotBuilt) => "this kernel was built without landlock",
+            None => "this kernel does not offer landlock",
+        };
+        let stands_in = if hello.seccomp {
+            "A third seccomp filter in each worker refuses opening and removing files in their place."
+        } else {
+            "No filter takes their place."
+        };
+        format!("The image helper's workers run without their landlock domains, because {why}. {stands_in}")
+    });
+    let lines: Vec<String> = seccomp.into_iter().chain(landlock).collect();
+    (!lines.is_empty()).then(|| lines.join(" "))
 }
 
 /// The helper's reason, every byte outside printable ASCII as `?`, at
