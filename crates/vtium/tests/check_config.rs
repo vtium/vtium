@@ -427,7 +427,7 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
          policy = closed
          [head desk]
          [head kiosk]
-         frob = 1
+         consoles = 0
          [rules]
          display * -> desk
          input * -> kiosk
@@ -444,9 +444,7 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
     assert_eq!(
         lines,
         [
-            format!(
-                "{f}:5: This section has no key named \"frob\". Check the spelling, or remove the line."
-            ),
+            format!("{f}:5: `consoles` cannot be \"0\": it takes 1 or more."),
             format!(
                 "{f}:5: Because of this error, vtium ignores this head and every rule that names it."
             ),
@@ -478,6 +476,47 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
         ],
         "{notes}"
     );
+}
+
+// A key vtium ignores inside a head is still reported with its line, and
+// the check exits 1 for it, but it drops nothing: under either policy the
+// outcome is the file as written, with no notice.
+//
+// References:
+// - ADR-1510 D2: an ignored key in a section counts toward the outcome as an unknown top-level key does.
+#[test]
+fn a_key_vtium_ignores_in_a_head_is_reported_and_the_file_runs_as_written() {
+    for (name, policy) in [
+        ("ignored-open", ""),
+        ("ignored-closed", "policy = closed\n"),
+    ] {
+        let (d, file) = head_file(
+            name,
+            &format!(
+                "version = 1\n{policy}[head desk]\nisolated = yes\nfrob = 1\n[rules]\ndisplay * -> desk\ninput * -> desk\n"
+            ),
+        );
+        let out = check(&d, &["--no-devices"]);
+        assert_eq!(out.status.code(), Some(1), "{name}");
+        let f = file.display();
+        let n = if policy.is_empty() { 4 } else { 5 };
+        let err = String::from_utf8_lossy(&out.stderr);
+        let lines: Vec<&str> = err.lines().collect();
+        assert_eq!(
+            lines,
+            [
+                format!(
+                    "{f}:{n}: This section has no key named \"frob\". Check the spelling, or remove the line."
+                ),
+                format!("{f}:{n}: Because of this error, vtium ignores this line."),
+            ],
+            "{name}: {err}"
+        );
+        let notes = String::from_utf8_lossy(&out.stdout);
+        let outcome = format!("{f}: vtium starts with this file as written and shows no notice.");
+        assert!(notes.lines().any(|l| l == outcome), "{name}: {notes}");
+        assert!(!notes.contains("not isolated"), "{name}: {notes}");
+    }
 }
 
 // ADR-1401 D9, D10: a head's `consoles` past vtium.conf's

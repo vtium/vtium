@@ -136,15 +136,18 @@ fn heads_run(loaded: &vtium::config::Loaded) -> Vec<String> {
         .collect()
 }
 
-// ADR-1403 D3: the two parts of vtium.conf take their mistakes apart. A
-// look that sets a key no look takes is dropped with its error, and a
-// file with sections but no `version` line drops every section; in both
-// the top level's font-size still applies. An unknown key and a value
-// out of bounds at the top level are reported and leave the sections
+// The two parts of vtium.conf take their mistakes apart. A look that
+// gives a key a value the key cannot take is dropped with its error, and
+// a file with sections but no `version` line drops every section; in both
+// the top level's font-size still applies. An unknown key and a value out
+// of bounds at the top level are reported and leave the sections
 // standing.
+//
+// References:
+// - ADR-1403 D3: the top level and the sections are read apart.
 #[test]
 fn an_error_in_a_section_leaves_the_top_level_keys_applied() {
-    let bad_look = "font-size=31\nversion = 1\n[look big]\nconsoles = 2\n\
+    let bad_look = "font-size=31\nversion = 1\n[look big]\nfont-size = many\n\
                     [head desk]\nlook = big\n[rules]\ndisplay * -> desk\n";
     let no_version = "font-size=31\n[head desk]\n[rules]\ndisplay * -> desk\n";
     for (name, text) in [("bad-look", bad_look), ("no-version", no_version)] {

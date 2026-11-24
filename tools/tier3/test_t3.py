@@ -1311,7 +1311,11 @@ class VtiumGoldenTest(unittest.TestCase):
 
     def test_shipped(self):
         # The maintainer has reviewed every golden that tier 3 has listed as
-        # provisional, so the list in the tree is empty. The reviews ran from
+        # provisional, but the four panic goldens that moved on 2026-11-23.
+        # Their second line now says no display head can run, and
+        # heads-closed-broken's errors are those of `consoles = 0` and
+        # `isolated = maybe`, because vtium ignores an unknown key alone.
+        # The four wait for the maintainer's review. The reviews ran from
         # 2026-11-05 to 2026-11-15:
         # - 2026-11-05: every provisional golden at that date.
         # - 2026-11-06: the four notice goldens, recaptured with the reworded
@@ -1333,8 +1337,12 @@ class VtiumGoldenTest(unittest.TestCase):
         # - ADR-1100 D15: kitty's replies that the img-delete golden follows.
         # - ADR-1100 D17: the login picture.
         # - ADR-1204 D1: the built-in font.
+        # - ADR-1510 D2: vtium ignores an unknown key in a section alone.
         prov = t3_evaluate.read_provisional()
-        self.assertEqual(sorted(prov), [])
+        self.assertEqual(sorted(prov), ["heads-closed-broken/panic",
+                                        "heads-closed-broken/panic+images",
+                                        "heads-policy-typo/policy-panic",
+                                        "heads-policy-typo/policy-panic+images"])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:

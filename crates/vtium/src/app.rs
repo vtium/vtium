@@ -6932,7 +6932,7 @@ mod tests {
             Rc::new(Instant::now),
             Vec::new(),
         );
-        let partly = "version = 1\n[head a]\nbogus = 1\n[head b]\n[rules]\ndisplay * -> b\n";
+        let partly = "version = 1\n[head a]\nconsoles = 0\n[head b]\n[rules]\ndisplay * -> b\n";
         app.set_heads(start(partly));
         assert_eq!(app.outcome.runs, vtium_settings::Runs::Survivors);
         let input = vtium_settings::Identity::input;
