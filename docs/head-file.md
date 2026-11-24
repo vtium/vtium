@@ -163,8 +163,9 @@ When every policy line is readable, a `policy = closed` line wins over any other
 
 **3. The rest.** vtium drops only the part of the file that an error is in:
 
-- An error inside a head's section drops that head.
-- An error inside a look's section drops that look. A head that names the dropped look draws with the default look.
+- A key that vtium does not know, or one that the section does not take, drops only its line. vtium logs the key and reads the rest of the section. Such a key drops nothing else, so the file runs as written and vtium shows no notice, as with an unknown key at the top level. `vtium check-config` still reports the key.
+- Any other error inside a head's section, such as a value the key cannot take, drops that head.
+- Any other error inside a look's section drops that look. A head that names the dropped look draws with the default look.
 - A bad rule drops that rule alone.
 - A missing or unknown `version` drops every section and keeps the policy. So does an error that leaves the structure of the sections untrustworthy.
 
