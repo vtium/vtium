@@ -1667,6 +1667,7 @@ name = "vtium"
 version = "0.1.0-alpha.11"
 dependencies = [
  "calloop",
+ "libc",
  "log",
  "rustix",
  "vtium-config",
