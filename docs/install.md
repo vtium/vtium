@@ -141,7 +141,7 @@ Each release from 0.1.0-alpha.11 on carries more files, which the same workflow 
 
 To check a download, put it beside `SHA256SUMS` and run `sha256sum --check --ignore-missing SHA256SUMS`. Each file also has a build provenance attestation, which shows that vtium's release workflow made the file from the tagged commit. With the [GitHub CLI](https://cli.github.com/), `gh attestation verify vtium-VERSION.tar.gz --repo vtium/vtium` checks a file's attestation. The "Source code" links that GitHub adds to every release page are made on the fly, so `SHA256SUMS` does not list them.
 
-When a release is published, a CI workflow makes these files. The workflow builds vtium offline from the vendor archive before it attaches the files to the release. In a checkout, `make vendor-archive` writes the same files for the commit you have checked out. `make vendor-archive-check` also checks them against `SHA256SUMS` and the commit, and builds vtium offline from the vendor archive.
+A CI workflow makes these files before the release is published. The workflow builds vtium offline from the vendor archive, then attaches the files to the release. In a checkout, `make vendor-archive` writes the same files for the commit you have checked out. `make vendor-archive-check` also checks them against `SHA256SUMS` and the commit, and builds vtium offline from the vendor archive.
 
 With both `libseat` and `logind` in `FEATURES`, `make install` also stages a second unit, `vtium-seat@.service`, and the PAM file `/etc/pam.d/vtium`. These two files run vtium in seat mode, which [Direct mode and seat mode](#direct-mode-and-seat-mode) describes. See [systemd.md](systemd.md) for details.
 

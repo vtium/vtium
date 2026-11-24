@@ -774,6 +774,7 @@ test-tools: ## Test the VT review tools, the locale mode scripts with the real v
 	python3 -I -B tools/stage/test_check.py
 	python3 -I -B tools/vendor/test_manifest.py
 	python3 -I -B tools/vendor/test_archive.py
+	python3 -I -B tools/release/test_check.py
 	python3 -I -B tools/fonts/test_files.py
 	cargo test -q -p vtium-font --test set
 	cargo test -q -p vtium-tier1-shots --features draw
