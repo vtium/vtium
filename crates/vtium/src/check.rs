@@ -1507,11 +1507,12 @@ mod tests {
         };
         let off = about(&["--helper-sandbox=off"]);
         assert_eq!(off.len(), 1, "{off:?}");
+        let note = off.first().map(String::as_str).unwrap_or_default();
         assert!(
-            off[0].starts_with("helper-sandbox is off, so the font helper and the image helper run without their seccomp filters and landlock domains."),
-            "{off:?}"
+            note.starts_with("helper-sandbox is off, so the font helper and the image helper run without their seccomp filters and landlock domains."),
+            "{note}"
         );
-        assert!(off[0].contains("open network connections"), "{off:?}");
+        assert!(note.contains("open network connections"), "{note}");
         assert!(about(&["--helper-sandbox=on"]).is_empty());
         assert!(about(&[]).is_empty());
     }

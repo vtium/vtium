@@ -1390,11 +1390,9 @@ pub const HELPER_SANDBOX: Key = Key {
     default: Default::Text("on"),
     scope: Scope::Anywhere,
     levels: TOP,
-    what: "Whether the font helper and the image helper lock themselves in with seccomp filters and landlock before they read a font or an image.\n\n\
-           When off, neither helper installs its seccomp filters or enters a landlock domain. The rest of their sandbox stays. Each helper runs as an account that is never root, with no capabilities and no new privileges, in an empty environment, under memory and CPU limits. vtium still checks everything a helper sends back.\n\n\
-           Turning it off lets a font or an image that takes over a helper open network connections and change any file that the helper's account may change. It can also signal and trace that account's other processes. Turn it off only when vtium runs inside another sandbox whose kernel refuses the helpers' filters, or to find out whether the sandbox causes a failure. vtium shows nothing on screen, and logs once a boot that the sandbox is off.\n\n\
-           Only vtium.conf and vtium's command line set it, so a font set, a look or a program cannot.\n\n\
-           [docs] On a kernel built without seccomp filters, the helpers run without them even when this key is on, and vtium logs why.",
+    what: "Whether the font helper and the image helper lock themselves in with seccomp filters and landlock.\n\n\
+           When off, a font or an image that takes over a helper can reach the network and change the files of the helper's account.\n\n\
+           [docs] The rest of the helpers' sandbox stays: an account that is never root, no capabilities, no new privileges, an empty environment, and memory and CPU limits. vtium still checks everything a helper sends back. A helper taken over can also signal and trace its account's other processes. Turn the sandbox off only when vtium runs inside another sandbox whose kernel refuses the helpers' filters, or to find out whether the sandbox causes a failure. Only vtium.conf and vtium's command line set it, so a font set, a look or a program cannot. On a kernel built without seccomp filters, the helpers run without them even when this key is on, and vtium logs why.",
 };
 
 pub const FONT_SIZE: Key = Key {
