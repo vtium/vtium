@@ -33,6 +33,8 @@ use vtium_platform::udev::Udev;
 use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
+mod broker;
+
 fn help() -> String {
     let mut out = vtium::notice::usage::lines();
     out.push('\n');
@@ -85,7 +87,22 @@ fn clock() -> Clock {
 
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
-    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    #[allow(unused_mut, reason = "only the privilege split's drawer changes them")]
+    let mut args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    // The privilege split, behind its switch `broker::SPLIT`, which is off
+    // until the split's later cards land: a drawer takes its word off the
+    // arguments and holds its link to the broker for the rest of the run.
+    let drawer = if broker::SPLIT {
+        match broker::drawer(&mut args) {
+            Ok(link) => link,
+            Err(e) => {
+                log::error!("the drawer cannot reach its broker: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
     if let Some(status) = vtium::config_tool::subcommand(&args)
         .or_else(|| vtium::blank::subcommand(&args))
         .or_else(|| vtium::console::subcommand(&args))
@@ -132,6 +149,14 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     log::info!(target: "log", "{}", vtium::logger::revision());
+    // As root with the account `vtium`, this process becomes the broker
+    // and runs the rest of vtium as the drawer, behind `broker::SPLIT`.
+    if broker::SPLIT
+        && drawer.is_none()
+        && let Some(status) = broker::split(&args)
+    {
+        return ExitCode::from(status);
+    }
     let start = Start::new(&config, locale());
     log::set_max_level(start.log.to_level_filter());
     let path = match start.vt.clone() {

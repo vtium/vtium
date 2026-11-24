@@ -1,0 +1,27 @@
+# The broker's fuzz target, run with cargo-fuzz on nightly:
+#   cargo +nightly fuzz run protocol
+# Its own workspace, so the main workspace and CI do not build it.
+[package]
+name = "vtium-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+# The protocol's reader is a module of the vtium binary, which the target
+# includes as a file; it needs only rustix's sockets beside std.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "net"] }
+
+[[bin]]
+name = "protocol"
+path = "fuzz_targets/protocol.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
