@@ -348,9 +348,9 @@ The step is one short process. Most of its time goes to the one run of `vtium ch
 
 A frit has one `key=value` a line. Blanks around the key and the value are dropped. A `#` starts a comment that runs to the line's end, as vtium.conf reads it.
 
-A key that vtium does not know changes one setting at most. The frit reader reports the key with the file and line, ignores the line, and reads the rest of the frit. A frit written for a newer release then loads in an older one, without the keys it adds. A known key where it cannot apply counts as an unknown key. Examples are `render=` under a bitmap source, `cp-size=` under a font that is not a CPI font, and a `cover=` line above the first `source=` line. `vtium-config check` prints each such line as a warning, and the console logs the helper's warning.
+A key that vtium does not know changes one setting at most. The frit reader reports the key with the file and line, ignores the line, and reads the rest of the frit. A frit written for a newer release then loads in an older one, without the keys it adds. A known key where it cannot apply counts as an unknown key. Examples are `render=` under a bitmap source, `cp-size=` under a font that is not a CPI font, and a `cover=` line above the first `source=` line. vtium ignores such a key whatever its value, so a `fit=` with nothing after it above the first `source=` line is ignored too. `vtium-config check` prints each such line as a warning, and the console logs the helper's warning.
 
-A malformed line, or a value that a key cannot take, refuses the whole frit, and the refusal names the file and line. A value with a control character and a key given twice count as bad values. The helper runs unattended, and a half-read frit draws the wrong glyphs, so the frit has no smaller part that vtium could leave out (ADR-1200 D1, ADR-1510 D2).
+A malformed line, or a value that a key cannot take where the key applies, refuses the whole frit, and the refusal names the file and line. A malformed line has no `=` or no key before it, is too long, or holds a NUL byte. An empty value, a value with a control character and a key given twice count as bad values. The helper runs unattended, and a half-read frit draws the wrong glyphs, so the frit has no smaller part that vtium could leave out (ADR-1200 D1, ADR-1510 D2).
 
 This slice reads ADR-1200 D1's keys and ADR-1301 D4's `antialias=`:
 
@@ -430,7 +430,7 @@ The console reads each layer from the `layers/` folder of the frits' directory, 
 
 The frit draws without that layer. `vtium check-config` reports each such line for the frit that `font-name` and each look name, and `vtium-config check` reports it as a warning. The console does not check a layer's values. So when the helper refuses a value in a layer, such as a `cover=` it cannot read, it refuses the whole frit. A bad value in the frit's own lines does the same. Its message names the layer's file and line, and `vtium-config check` refuses the frit with the same message. `vtium-config new-frit` refuses a frit that would leave out any layer it names, apart from a layer this machine lacks or cannot read.
 
-A key that vtium does not know or that a layer cannot hold, such as `cell=`, does not drop the layer. vtium ignores that line and logs it once a boot with the layer's file and line. `vtium check-config`, `vtium-config check` and `vtium-config new-frit` report it as a warning.
+A key that vtium does not know or that a layer cannot hold, such as `cell=`, does not drop the layer, whatever its value. vtium ignores that line and logs it once a boot with the layer's file and line. `vtium check-config`, `vtium-config check` and `vtium-config new-frit` report it as a warning.
 
 `vtium-config new-frit FONT --layer NAME`, once for each layer, writes the layers after the fonts in the order of their roles: script layers, then symbols, then emoji, then the fallback (ADR-1204 D6).
 

@@ -197,16 +197,17 @@ pub fn not_in_layer(key: &str) -> Option<String> {
 /// A line the layer cannot hold is left blank in [`Layer::body`] and
 /// listed in [`Layer::ignored`]: a key vtium does not know, a set's key, a
 /// key that only a frit's own source takes, and a source's key above the
-/// layer's first `source=` line. A known key of those with no value, or
-/// with a control character in its value, stays in the body, so that the
-/// frit reader refuses it as it refuses such a line of a frit's own. A
-/// line that is not `key=value`, a second `role=` and a `layer=` line
-/// refuse the layer, each naming its line, and so does a layer with no
-/// `role=` or no `source=` line.
+/// layer's first `source=` line. Such a line is left blank whatever its
+/// value, even an empty one or one with a control character. A line that
+/// is too long or holds a NUL byte stays in the body, so that the frit
+/// reader refuses it as it refuses such a line of a frit's own. A line
+/// that is not `key=value`, a second `role=` and a `layer=` line refuse
+/// the layer, each naming its line, and so does a layer with no `role=` or
+/// no `source=` line.
 ///
 /// References:
-/// - ADR-1510 D2: an unknown or misplaced key is ignored alone, and a
-///   malformed line refuses what holds it.
+/// - ADR-1510 D2: an unknown or misplaced key is ignored alone, whatever
+///   its value, and a malformed line refuses what holds it.
 /// - ADR-1200 D1, its dated note: a layer's lines follow the frit's rule.
 pub fn parse(text: &str) -> Result<Layer, LayerError> {
     let err = |line: usize, why: String| LayerError { line, why };
@@ -243,9 +244,9 @@ pub fn parse(text: &str) -> Result<Layer, LayerError> {
             continue;
         }
         let describes = current.read(key, value);
-        // why the layer cannot hold the line, and whether vtium ignores
-        // it whatever its value, as it ignores a key it does not know
-        let cannot: Option<(String, bool)> = match key {
+        // why the layer cannot hold the line; vtium ignores such a line
+        // whatever its value, as it ignores a key it does not know
+        let cannot: Option<String> = match key {
             "role" => return Err(err(n, "role= appears twice".to_owned())),
             "layer" => {
                 return Err(err(
@@ -258,20 +259,15 @@ pub fn parse(text: &str) -> Result<Layer, LayerError> {
                 sources = sources.saturating_add(1);
                 None
             }
-            k if SOURCE_KEYS.contains(&k) => describes.why_nothing(k).map(|why| (why, false)),
-            k => match not_in_layer(k) {
-                Some(why) => Some((why, false)),
-                None => Some((format!("{k}= is not a key vtium knows."), true)),
-            },
+            k if SOURCE_KEYS.contains(&k) => describes.why_nothing(k),
+            k => Some(not_in_layer(k).unwrap_or_else(|| format!("{k}= is not a key vtium knows."))),
         };
         // The frit reader refuses a line that is too long or holds a NUL
-        // byte before it reads the key, and a known key with no usable
-        // value before it asks where the key applies. Such a line stays in
+        // byte as malformed, before it reads the key. Such a line stays in
         // the body, so the reader refuses it as it refuses a frit's own.
         let malformed = line.len() > LINE_MAX || line.contains('\0');
-        let no_value = value.is_empty() || value.chars().any(char::is_control);
         match cannot {
-            Some((why, unknown)) if !malformed && (unknown || !no_value) => {
+            Some(why) if !malformed => {
                 ignored.push(Ignored { line: n, why });
                 body.push_str(&piece[line.len()..]);
             }
@@ -839,12 +835,13 @@ mod tests {
     // A line that a layer cannot hold is left blank and noted, and the
     // layer's other lines stay: a key vtium does not know, a key of the
     // whole set, a key that only a frit's own source takes, and a source's
-    // key above the layer's first source= line. The frit reader reports
-    // each note with the layer's file and line.
+    // key above the layer's first source= line. Such a line is ignored
+    // whatever its value, even an empty one. The frit reader reports each
+    // note with the layer's file and line.
     //
     // References:
     // - ADR-1510 D2: an unknown or misplaced key is reported and ignored
-    //   alone.
+    //   alone, whatever its value.
     // - ADR-1200 D1, its dated note: a layer's lines follow the frit's
     //   rule.
     #[test]
@@ -924,13 +921,44 @@ mod tests {
         let lines: Vec<usize> = layer.ignored.iter().map(|i| i.line).collect();
         assert_eq!(lines, [2, 4, 6]);
         assert_eq!(layer.body, "\n\nsource=font:A\n\ncover=U+E000\n\n");
-        // a known key with no value or a control character in its value,
-        // and a line the reader refuses outright, stay for the frit reader
-        // to refuse, as it refuses such a line of a frit's own
+        // a known key that a layer cannot hold is ignored whatever its
+        // value, so with no value or a control character in its value too
+        for (line, why) in [
+            (
+                "cell=",
+                "cell= is a font set's key, which applies to every source, so a layer cannot set it.",
+            ),
+            (
+                "unimap=a\u{7}b",
+                "unimap= describes a font set's own source, and a layer's source does not take it.",
+            ),
+        ] {
+            let text = format!("role=symbols\nsource=font:A\n{line}\n");
+            let layer = parse(&text).unwrap();
+            assert_eq!(
+                layer.ignored,
+                [Ignored {
+                    line: 3,
+                    why: why.to_owned()
+                }],
+                "{line:?}"
+            );
+            assert_eq!(layer.body, "\nsource=font:A\n\n", "{line:?}");
+        }
+        let layer = parse("role=symbols\nfit=\nsource=font:A\n").unwrap();
+        assert_eq!(
+            layer.ignored,
+            [Ignored {
+                line: 2,
+                why: "fit= comes before any source= line, so it has no source to describe."
+                    .to_owned()
+            }]
+        );
+        assert_eq!(layer.body, "\n\nsource=font:A\n");
+        // a line that is too long or holds a NUL byte is malformed, and
+        // stays for the frit reader to refuse, as it refuses such a line of
+        // a frit's own
         for line in [
-            "cell=".to_owned(),
-            "fit=".to_owned(),
-            "unimap=a\u{7}b".to_owned(),
             "frob=a\0b".to_owned(),
             "cell=8x16 # a\0".to_owned(),
             format!("frob={}", "x".repeat(LINE_MAX)),
@@ -940,8 +968,6 @@ mod tests {
             assert_eq!(layer.ignored, [], "{line:?}");
             assert_eq!(layer.body, format!("\nsource=font:A\n{line}\n"), "{line:?}");
         }
-        let layer = parse("role=symbols\nfit=\nsource=font:A\n").unwrap();
-        assert_eq!(layer.ignored, []);
     }
 
     #[test]
