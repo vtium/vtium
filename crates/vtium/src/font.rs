@@ -311,7 +311,8 @@ fn layer_file(dir: &Path, name: &str) -> PathBuf {
 
 /// The frit `name`'s `text` with the sources of each layer it names in
 /// place of the layer's `layer=` line, and a sentence for each `layer=`
-/// line that adds nothing. vtium reads each layer from the layers' folder
+/// line that adds nothing and for each line of a placed layer that vtium
+/// leaves out. vtium reads each layer from the layers' folder
 /// of the frits' directory `frits`, under the ownership check `trust` that
 /// the frit passed. It draws the set without a layer that is missing, that
 /// the check refuses, whose structure is wrong, or that would take the set
@@ -322,6 +323,8 @@ fn layer_file(dir: &Path, name: &str) -> PathBuf {
 /// References:
 /// - ADR-1204 D5: the splice in place, and the ownership check a layer
 ///   passes.
+/// - ADR-1510 D2: a layer's unknown or misplaced key is reported with the
+///   layer's file and line, and ignored alone.
 pub fn with_layers(name: &str, frits: &Path, text: &str, trust: &Trust) -> (String, Vec<String>) {
     let dir = layers_dir(frits);
     let mut read = |layer: &str| trusted_text(&layer_file(&dir, layer), trust);
@@ -330,8 +333,30 @@ pub fn with_layers(name: &str, frits: &Path, text: &str, trust: &Trust) -> (Stri
         .notes
         .iter()
         .map(|note| layer_note(name, &dir, note))
+        .chain(
+            expanded
+                .ignored
+                .iter()
+                .map(|ignored| layer_ignored(name, &dir, ignored)),
+        )
         .collect();
     (expanded.text, notes)
+}
+
+/// The sentence that says vtium leaves out a line of a layer of the frit
+/// `name`, whose layers are in `dir`, because the layer cannot hold that
+/// line: a key vtium does not know, a key of the whole set, or a source's
+/// key with no source above it. The rest of the layer and of the set
+/// still loads. The sentence names the layer's file and the line in it,
+/// as `vtium-config check` does.
+fn layer_ignored(name: &str, dir: &Path, ignored: &layer::IgnoredIn) -> String {
+    let layer::IgnoredIn { layer, ignored, .. } = ignored;
+    format!(
+        "font set {name}: line {} of the layer {layer} in {}: {} vtium ignores this line and reads the rest of the font set.",
+        ignored.line,
+        quoted(&layer_file(dir, layer)),
+        ignored.why
+    )
 }
 
 /// The sentence that says why the `layer=` line `note` names, in the frit
@@ -3236,6 +3261,44 @@ mod tests {
                     quoted(&layers.join("gone.vtlayer"))
                 ),
             ]
+        );
+    }
+
+    // A line that a layer cannot hold, such as a key vtium does not know,
+    // does not drop the layer: vtium leaves that line out, keeps the
+    // layer's sources, and says which line of which layer file it left
+    // out. The start and OSC 50 log the sentence, and `vtium check-config`
+    // prints it.
+    //
+    // References:
+    // - ADR-1510 D2: an unknown or misplaced key is reported with its file
+    //   and line, and ignored alone.
+    #[test]
+    fn a_layers_ignored_line_is_named_with_its_file_and_line() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("font-layer-ignored");
+        let layers = dir.join("layers");
+        std::fs::create_dir_all(&layers).expect("the layers' folder");
+        let sym = layers.join("sym.vtlayer");
+        std::fs::write(&sym, "role=symbols\nsource=font:S\nfrob=1\n").expect("the layer");
+        for path in [&*dir, &*layers] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+                .expect("the mode");
+        }
+        std::fs::set_permissions(&sym, std::fs::Permissions::from_mode(0o644)).expect("the mode");
+        let (text, notes) = with_layers(
+            "set",
+            &dir,
+            "source=kbd:x\nlayer=sym\n",
+            &trust().below(&dir),
+        );
+        assert_eq!(text, "source=kbd:x\nlayer=sym\n\nsource=font:S\n\nlayer=\n");
+        assert_eq!(
+            notes,
+            [format!(
+                "font set set: line 3 of the layer sym in {}: frob= is not a key vtium knows. vtium ignores this line and reads the rest of the font set.",
+                quoted(&sym)
+            )]
         );
     }
 
