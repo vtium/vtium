@@ -3397,6 +3397,20 @@ const BASE: &[Case] = &[
         screen: ligatures("ligatures-off", LIGATURES_OFF_DESC, &AT_40, false),
     },
     Case {
+        screen: block_fill(
+            "block-fill-dejavu",
+            BLOCK_FILL_DEJAVU_DESC,
+            InkFonts::DejaVu,
+        ),
+    },
+    Case {
+        screen: block_fill(
+            "block-fill-iosevka",
+            BLOCK_FILL_IOSEVKA_DESC,
+            InkFonts::Scripts,
+        ),
+    },
+    Case {
         screen: shipped(0, "frit-arabic", FRIT_ARABIC_DESC, FRIT_ARABIC, 5),
     },
     Case {
@@ -3958,6 +3972,44 @@ const fn scripts(
         ..Screen::new(name, desc, bytes, cols, rows)
     }
 }
+
+/// The block fill screens' text, 40 by 5 cells: full blocks stacked
+/// three rows high beside text with accents and descenders, upper and
+/// lower half blocks stacked in turn, boxes of light, heavy and double
+/// lines, then blocks, shades and lines in yellow on blue, where any gap
+/// between rows or cells shows blue, and eighths, rounded corners and
+/// diagonals.
+const BLOCK_FILL: &[u8] = concat!(
+    "Égjy ████ ▀▀▀▀ ┌──┬──┐ ┏━━┳━━┓ ╔══╦══╗\r\n",
+    "████ ████ ▄▄▄▄ │  │  │ ┃  ┃  ┃ ║  ║  ║\r\n",
+    "████ ████ ▀▀▀▀ ├──┼──┤ ┣━━╋━━┫ ╠══╬══╣\r\n",
+    "Égjy ████ ▄▄▄▄ └──┴──┘ ┗━━┻━━┛ ╚══╩══╝\r\n",
+    "\x1b[33;44m██▀▀▄▄▌▐░▒▓ │┃║ ─━═ ┼╋╬\x1b[0m ▏▕▔▁ ╭─╮╰─╯ ╱╲╳",
+)
+.as_bytes();
+
+/// The block fill screens' three drawings, stacked: at 12, 16 and 24
+/// pixels.
+const BLOCK_FILL_TAKES: [Take; 3] = [Take::at(12), Take::at(16), Take::at(24)];
+
+/// The block fill screen drawn in `fonts` at each of [`BLOCK_FILL_TAKES`],
+/// named `name`. Each font maps every box line and block element, so the
+/// default glyph source draws them from the font, not from vtium's
+/// sprites.
+const fn block_fill(name: &'static str, desc: &'static str, fonts: InkFonts) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes: &BLOCK_FILL_TAKES,
+            spacing: None,
+            fonts,
+        },
+        ..Screen::new(name, desc, BLOCK_FILL, 40, 5)
+    }
+}
+
+const BLOCK_FILL_DEJAVU_DESC: &str = "Box lines and block elements drawn from DejaVu Sans Mono, which maps all of them, at 12, 16 and 24 pixels, stacked: full blocks three rows high beside `Égjy`, upper and lower half blocks stacked, boxes of light, heavy and double lines, then blocks, shades and lines in yellow on blue, eighths, rounded corners and diagonals. DejaVu Sans Mono draws its full block taller than its line, 20 units above its ascent and 29 below its descent. The helper maps the full block's ink onto the cell, and every box line and block element with it, and cuts their ink at the cell. Correct: at every size the stacked full blocks form one solid rectangle with no line between rows and no spill into the `Égjy` rows; each half block fills exactly its half; each line meets the next cell's line with no gap, across and down; the blue shows only around the yellow glyphs, never as a line between two blocks or two lines that meet.";
+
+const BLOCK_FILL_IOSEVKA_DESC: &str = "The block-fill-dejavu screen drawn from Iosevka Term, as the scripts screens' font set draws it, at 12, 16 and 24 pixels. Iosevka Term draws its full block exactly from its descent to its ascent, so the size rule, which spans those with the cell's height less half a pixel, left the block short of the cell. Correct: the same as block-fill-dejavu, in Iosevka Term's narrower cells: solid stacked blocks, halves that fill their halves, and lines that meet from cell to cell.";
 
 /// The ligatures screens' text: operators that Iosevka Term draws as its
 /// ligatures, runs it does not join, and an arrow in two colors, with the
