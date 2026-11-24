@@ -87,7 +87,6 @@ fn clock() -> Clock {
 
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
-    #[allow(unused_mut, reason = "only the privilege split's drawer changes them")]
     let mut args: Vec<OsString> = std::env::args_os().skip(1).collect();
     // The privilege split, behind its switch `broker::SPLIT`, which is off
     // until the split's later cards land: a drawer takes its word off the
