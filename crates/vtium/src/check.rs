@@ -1748,15 +1748,15 @@ mod tests {
     // - ADR-1200 D5, "A qualifying font": OSC 50's fourth check, the trust rule on the font's folder.
     // - ADR-1205 D4: the trust rule on a resource and every folder above it.
     #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn check_config_notes_each_font_folder_that_osc_50_refuses() {
         use std::os::unix::fs::PermissionsExt;
         let dir = Scratch::new("check-font-folder-rule");
         let mounts = vtium_settings::mounts::Mounts::system().unwrap_or_default();
         let (plain, linked) = (dir.join("fonts"), dir.join("linked"));
-        std::fs::create_dir(&plain).expect("a font folder");
-        std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o755))
-            .expect("a folder others can read");
-        std::os::unix::fs::symlink(&plain, &linked).expect("a link to the folder");
+        std::fs::create_dir(&plain).unwrap();
+        std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::os::unix::fs::symlink(&plain, &linked).unwrap();
         for folder in [&plain, &linked] {
             let refused = font::trusted_folder(
                 folder,
