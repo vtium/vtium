@@ -562,38 +562,36 @@ fn sandbox_line(hello: &Hello) -> Option<String> {
     use vtium_image::decode::wire::{NoLandlock, NoSeccomp};
     if hello.no_seccomp == Some(NoSeccomp::Off) && hello.no_landlock == Some(NoLandlock::Off) {
         return Some(
-            "The image helper runs without its seccomp filter, and its workers without their landlock domains, because helper-sandbox=off in vtium.conf turns them off. An image that took over the image helper could open network connections and change any file that the image helper's account may change.".to_owned(),
+            "The image helper runs without its seccomp filter, and its workers without their landlock domains, because the setting helper-sandbox=off turns them off. An image that took over the image helper could open network connections and change any file that the image helper's account may change.".to_owned(),
         );
     }
-    let seccomp = (!hello.seccomp).then(|| {
-        let why = match hello.no_seccomp {
-            Some(NoSeccomp::Off) => "helper-sandbox=off in vtium.conf turns it off",
-            Some(NoSeccomp::NotBuilt) => {
+    // the decoder refuses a hello whose filter is missing without a
+    // reason, or whose landlock version is 0 without one, so each reason
+    // here is the one the helper gave
+    let seccomp = hello.no_seccomp.map(|why| {
+        let why = match why {
+            NoSeccomp::Off => "the setting helper-sandbox=off turns it off",
+            NoSeccomp::NoTable => "vtium has no seccomp filter for this machine's architecture",
+            NoSeccomp::NotBuilt => {
                 "this kernel is new enough to offer seccomp but was built without it"
             }
-            Some(NoSeccomp::NoFilters) => {
+            NoSeccomp::NoFilters => {
                 "this kernel was built with seccomp but without seccomp filters"
             }
-            Some(NoSeccomp::TooOld) => {
+            NoSeccomp::TooOld => {
                 "this kernel is older than Linux 3.8, too old for vtium's seccomp filters"
-            }
-            Some(NoSeccomp::NoTable) | None => {
-                "vtium has no seccomp filter for this machine's architecture"
             }
         };
         format!("The image helper runs without its seccomp filter, because {why}.")
     });
-    let landlock = (hello.landlock == 0 || hello.no_landlock.is_some()).then(|| {
-        let why = match hello.no_landlock {
-            Some(NoLandlock::Off) => "helper-sandbox=off in vtium.conf turns them off",
-            Some(NoLandlock::TooOld) => {
-                "this kernel is older than Linux 5.13, which added landlock"
-            }
-            Some(NoLandlock::NotEnabled) => {
+    let landlock = hello.no_landlock.map(|why| {
+        let why = match why {
+            NoLandlock::Off => "the setting helper-sandbox=off turns them off",
+            NoLandlock::TooOld => "this kernel is older than Linux 5.13, which added landlock",
+            NoLandlock::NotEnabled => {
                 "this kernel did not turn landlock on at boot, as when the boot's lsm= list leaves it out"
             }
-            Some(NoLandlock::NotBuilt) => "this kernel was built without landlock",
-            None => "this kernel does not offer landlock",
+            NoLandlock::NotBuilt => "this kernel was built without landlock",
         };
         let stands_in = if hello.seccomp {
             "A third seccomp filter in each worker refuses opening and removing files in their place."

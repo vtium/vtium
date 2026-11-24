@@ -517,7 +517,7 @@ fn the_sandbox_line_names_each_missing_part_and_its_reason() {
     assert_eq!(
         sandbox_line(&off).as_deref(),
         Some(
-            "The image helper runs without its seccomp filter, and its workers without their landlock domains, because helper-sandbox=off in vtium.conf turns them off. An image that took over the image helper could open network connections and change any file that the image helper's account may change."
+            "The image helper runs without its seccomp filter, and its workers without their landlock domains, because the setting helper-sandbox=off turns them off. An image that took over the image helper could open network connections and change any file that the image helper's account may change."
         )
     );
     let seccomp = |why: NoSeccomp| {

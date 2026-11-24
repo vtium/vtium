@@ -1,18 +1,22 @@
 //! `vtium-image [--sandbox=on|off] [--tmpdir=DIR]`: the image helper
 //! vtium starts with its socket on descriptor 3, an empty environment and
-//! its sandbox already set (ADR-1101 D3). It checks that it has one thread
-//! and its socket, sets no-new-privileges, installs its seccomp filter,
-//! sends its hello and serves requests until vtium closes the socket or it
-//! idles.
+//! its sandbox already set. It checks that it has one thread and its
+//! socket, sets no-new-privileges, installs its seccomp filter, sends its
+//! hello and serves requests until vtium closes the socket or it idles.
 //!
-//! `--sandbox=off` is vtium.conf's `helper-sandbox=off`: the helper then
-//! installs no seccomp filter, and its workers add none and enter no
-//! landlock domain. A helper started without the option, or with
-//! `--sandbox=on`, sandboxes itself in full. `--tmpdir` is vtium's own
-//! `TMPDIR`, where a temporary file may also lie; it reaches the helper as
-//! an argument so its environment stays empty. An unknown argument, a
-//! missing socket, or a sandbox it cannot set exits with status 2, 3 or 4
-//! before any request is read.
+//! vtium passes `--sandbox=off` under the setting `helper-sandbox=off`:
+//! the helper then installs no seccomp filter, and its workers add none
+//! and enter no landlock domain. A helper started without the option, or
+//! with `--sandbox=on`, sandboxes itself in full. `--tmpdir` is vtium's
+//! own `TMPDIR`, where a temporary file may also lie; it reaches the
+//! helper as an argument so its environment stays empty. An unknown
+//! argument, a missing socket, or a sandbox it cannot set exits with
+//! status 2, 3 or 4 before any request is read.
+//!
+//! References:
+//! - ADR-1101 D3: how vtium starts the helper and the sandbox it sets.
+//! - ADR-1101 D9, "The sandbox setting": what the helper and its workers
+//!   leave out under `--sandbox=off`.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

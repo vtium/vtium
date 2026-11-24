@@ -464,8 +464,12 @@ impl Cli<'_> {
 
     /// `serve`: the helper the console starts (ADR-1301 D2), its kbd and
     /// font directories and vconsole files as the options name them, and
-    /// its sandbox on unless `--sandbox off` turns it off, as vtium.conf's
-    /// `helper-sandbox` does (ADR-1200 D15).
+    /// its sandbox on unless `--sandbox off` turns it off. The console
+    /// passes `--sandbox off` under the setting `helper-sandbox=off`.
+    ///
+    /// References:
+    /// - ADR-1200 D15, "A setting turns the sandbox off": the option and
+    ///   the setting it carries.
     fn serve(&mut self, rest: &[String]) -> u8 {
         if !rest.is_empty() {
             return self.usage("serve takes no argument");
