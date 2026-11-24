@@ -208,6 +208,30 @@ fn a_child_of_a_virtual_parent_on_a_double_width_line_is_offset_in_screen_column
     }
 }
 
+// A root placed in the third cell of a double-width line on the screen's
+// bottom row starts at screen column 4, so its child with H=1 and V=-1
+// starts at screen column 5, one row above. Scrolling the view back one
+// line moves the root below the view while its child stays in view, and
+// the child keeps screen column 5: vtium reads the root's line, below the
+// view, from the screen to find where the root is drawn.
+//
+// References:
+// - ADR-1004 D8: a relative placement starts from where its parent is
+//   drawn on the screen, offset in screen columns.
+// covers: image.kitty-relative, text.line-size
+#[test]
+fn a_child_keeps_its_column_when_its_double_width_root_is_below_the_view() {
+    let mut t = term(12, 3, "");
+    t.screen_mut().set_scrollback_max(100);
+    second(&mut t);
+    t.input(b"a\r\nb\r\nc\r\nd\r\ne\x1b#6\x1b[3;3H");
+    t.input(b"\x1b_Ga=p,i=1,p=1,C=1,q=2\x1b\\");
+    t.input(b"\x1b_Ga=p,i=2,p=1,P=1,Q=1,H=1,V=-1,q=2\x1b\\");
+    assert_eq!(entries(&t), [(2, 4, 2, 16), (1, 5, 2, 16)]);
+    t.screen_mut().scroll_view_up(1);
+    assert_eq!(entries(&t), [(2, 5, 2, 16)]);
+}
+
 // ADR-1004 D8: a picture placed in the third cell of a double-width line
 // starts at screen column 4, and keeps that column once its top row has
 // scrolled above the view: the line's size is read from the scrollback.

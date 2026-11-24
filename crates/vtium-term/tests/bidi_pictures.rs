@@ -214,3 +214,31 @@ fn a_child_of_a_picture_in_a_right_to_left_row_is_offset_from_where_its_parent_i
         assert_eq!(places(&t), [(0, parent), (1, parent + 1)], "{start:?}");
     }
 }
+
+// On a double-width right-to-left row of six cells, the third cell is
+// drawn in the row's fourth place, at screen columns 6 and 7. A root placed
+// there on the screen's bottom row starts at screen column 6, so its child
+// with H=1 and V=-1 starts at screen column 7, one row above. Scrolling
+// the view back one line moves the root below the view while its child
+// stays in view, and the child keeps screen column 7: vtium reads the
+// root's line and its drawing order, below the view, from the screen.
+//
+// References:
+// - ADR-1004 D8: a relative placement starts from where its parent is
+//   drawn on the screen, on right-to-left rows of any size.
+// covers: text.bidi
+#[test]
+fn a_child_keeps_its_column_when_its_right_to_left_double_width_root_is_below_the_view() {
+    let mut t = term(12, 3, "\x1b[2 k");
+    t.screen_mut().set_scrollback_max(100);
+    let mut s = b"\x1b_Ga=t,f=24,s=16,v=16,i=2,q=2;".to_vec();
+    s.extend(b"////".repeat(2 * 128));
+    s.extend(b"\x1b\\");
+    t.input(&s);
+    t.input(b"a\r\nb\r\nc\r\nd\r\ne\x1b#6\x1b[3;3H");
+    t.input(b"\x1b_Ga=p,i=1,p=1,C=1,q=2\x1b\\");
+    t.input(b"\x1b_Ga=p,i=2,p=1,P=1,Q=1,H=1,V=-1,q=2\x1b\\");
+    assert_eq!(places(&t), [(2, 6), (1, 7)]);
+    t.screen_mut().scroll_view_up(1);
+    assert_eq!(places(&t), [(2, 7)]);
+}
