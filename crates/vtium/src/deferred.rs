@@ -989,8 +989,22 @@ fn pack(pixels: &[u8], width: u32) -> Option<Vec<u8>> {
 #[derive(Debug, Default)]
 pub struct Generated {
     entries: Vec<Entry>,
+    /// The underline and strike-through lines the helper's answers report
+    /// at each cell and band, one for each script, from the first answer
+    /// that reports them. They are kept apart from the glyphs, so a cell
+    /// keeps its font's lines when a full store evicts every glyph at it,
+    /// and they go only when [`Generated::retain`] drops the cell.
+    lines: Vec<CellLines>,
     /// Counts [`Generated::touch`]es: the store's clock.
     tick: u64,
+}
+
+/// The lines the helper's answers in `script` report at `at`.
+#[derive(Clone, Copy, Debug)]
+struct CellLines {
+    at: SpacedCell,
+    script: Script,
+    lines: Decorations,
 }
 
 /// The store, shared between the console and its displays' faces, which
@@ -1116,15 +1130,39 @@ impl Generated {
     }
 
     /// Adds `fresh`: the face it draws through, for the caller to ask what
-    /// it holds; `None` when it adds no glyph.
+    /// it holds; `None` when it adds no glyph. The lines its strikes
+    /// report are kept for its cell and script when the store keeps none
+    /// there yet, even when it adds no glyph.
     pub fn add(&mut self, fresh: Fresh) -> Option<SetFace> {
         let Fresh(entry) = fresh;
+        self.keep_lines(&entry);
         if entry.glyphs.is_empty() {
             return None;
         }
         let face = entry.face.clone();
         self.entries.push(entry);
         Some(face)
+    }
+
+    /// Keeps the lines `entry`'s strikes report at its cell and band in
+    /// its script, unless lines there are kept already. Every answer in
+    /// one script at one cell and band reports the same lines: the frit's
+    /// first source's, at the small glyph's size for a superscript or
+    /// subscript. An answer drawn at a double size reports the lines of
+    /// the larger cell, so it says nothing about the cell's own lines.
+    fn keep_lines(&mut self, entry: &Entry) {
+        if entry.doubled.is_some() {
+            return;
+        }
+        let (at, script) = (entry.at(), entry.variant.script);
+        if self.lines.iter().any(|l| l.at == at && l.script == script) {
+            return;
+        }
+        let lines = match script {
+            Script::Baseline => entry.face.decorations(),
+            _ => entry.face.script_decorations(script),
+        };
+        self.lines.push(CellLines { at, script, lines });
     }
 
     /// Whether the store holds at `at`, in any variant, the glyph of a
@@ -1191,7 +1229,8 @@ impl Generated {
     /// free less than their share, the next least recently shown glyphs
     /// go too. The texts no longer held, by cell, band, variant and double
     /// size; nothing is redrawn, and each is asked for again when the
-    /// screen shows it.
+    /// screen shows it. Each cell keeps the lines its answers reported,
+    /// even when no glyph at it is left.
     pub fn make_room(&mut self, overrun: u64) -> Vec<(Held, Vec<Text>)> {
         let mut out: Vec<(Held, Vec<Text>)> = Vec::new();
         let mut short = overrun;
@@ -1274,9 +1313,11 @@ impl Generated {
         }
     }
 
-    /// Drops the glyphs of every cell and band but `cells`.
+    /// Drops the glyphs and the kept lines of every cell and band but
+    /// `cells`.
     pub fn retain(&mut self, cells: &[SpacedCell]) {
         self.entries.retain(|e| cells.contains(&e.at()));
+        self.lines.retain(|l| cells.contains(&l.at));
     }
 
     /// Whether any glyph at `at` is held.
@@ -1284,28 +1325,27 @@ impl Generated {
         self.entries.iter().any(|e| e.at() == at)
     }
 
-    /// The lines the helper's normal strikes at `at` report (ADR-1302 D3):
-    /// every answer for normal glyphs at one cell and band reports the
-    /// frit's first source's, so the first such set held there gives them.
-    /// `None` while no set of normal glyphs at `at` is held, since a
-    /// superscript or subscript set reports the lines of its own script.
-    fn decorations(&self, at: SpacedCell) -> Option<Decorations> {
-        let e = self
-            .normal()
-            .find(|e| e.at() == at && e.variant.script == Script::Baseline)?;
-        Some(e.face.decorations())
+    /// The lines the helper's strikes in `script` at `at` report, kept
+    /// from the first answer in that script at the cell and band: for the
+    /// baseline, the frit's first source's lines, and for a superscript
+    /// or subscript, those lines at the small glyph's size, where its own
+    /// box lies. `None` until the helper's first answer in `script` at
+    /// `at` is added, and again once the store drops the cell.
+    ///
+    /// References:
+    /// - ADR-1302 D3: the underline and strike-through follow the font's lines.
+    /// - ADR-1202 D8: a superscript or subscript strike reports its script's lines.
+    fn decorations(&self, at: SpacedCell, script: Script) -> Option<Decorations> {
+        self.lines
+            .iter()
+            .find(|l| l.at == at && l.script == script)
+            .map(|l| l.lines)
     }
 
-    /// The lines the helper's strikes of `script` at `at` report: the
-    /// lines of the frit's first source at the small glyph's size, where
-    /// its own box lies (ADR-1202 D8). Every answer in one script at one
-    /// cell and band reports the same lines, so the first such set held
-    /// there gives them. `None` while none is held.
-    fn script_decorations(&self, at: SpacedCell, script: Script) -> Option<Decorations> {
-        let e = self
-            .normal()
-            .find(|e| e.at() == at && e.variant.script == script)?;
-        Some(e.face.script_decorations(script))
+    /// Whether the store keeps lines at `at` in any script: whether the
+    /// helper has answered at the cell since the store last dropped it.
+    fn answered(&self, at: SpacedCell) -> bool {
+        self.lines.iter().any(|l| l.at == at)
     }
 
     /// How many cells the store's normal glyph for `c` at `at` spans, as
@@ -1962,18 +2002,21 @@ impl Face for DeferredFace {
         (glyph.format() == Format::Mask && (text || glyph.width() <= width)).then_some(glyph)
     }
 
-    /// The lines the helper's strikes at the cell report, once a set there
-    /// is held: an outline first source's own, measured from the font's
-    /// `post` and `OS/2` tables, and a bitmap first source's the lines for
-    /// the cell's height. The helper moves a font's line that would pass
-    /// the cell inside it, and the set reader refuses a strike whose line
-    /// passes its cell, so a line held here always lies in the cell's rows.
-    /// Before any set at the cell is held: the built-in font's in its own
-    /// cell, and in another the lines for the cell's height. Line spacing
+    /// The lines the helper's strikes at the cell report, once the helper
+    /// has answered there: an outline first source's own, measured from
+    /// the font's `post` and `OS/2` tables, and a bitmap first source's
+    /// the lines for the cell's height. The helper moves a font's line
+    /// that would pass the cell inside it, and the set reader refuses a
+    /// strike whose line passes its cell, so a line held here always lies
+    /// in the cell's rows. The store keeps these lines after a full store
+    /// evicts every glyph at the cell, so the underline stays on the
+    /// font's row while the built-in font draws the cell's text. Before
+    /// the helper's first answer at the cell: the built-in font's lines in
+    /// its own cell, and in another the lines for the cell's height. Line spacing
     /// moves the built-in font's lines down with its text band (ADR-1302
     /// D13); the helper's strikes report them moved already.
     fn decorations(&self) -> Decorations {
-        if let Some(lines) = lock(&self.generated).decorations(self.at()) {
+        if let Some(lines) = lock(&self.generated).decorations(self.at(), Script::Baseline) {
             return lines;
         }
         let text = self.text();
@@ -1994,8 +2037,8 @@ impl Face for DeferredFace {
     /// the cell. While it is on its way, the cell's normal lines go
     /// through D4's map, the text band their own box
     /// ([`vtium_font::script::lines::of_face`]), and the strike's lines
-    /// replace them when it arrives. Before any set of the frit's at the
-    /// cell is held, the built-in font's own script lines in its own cell,
+    /// replace them when it arrives. Before the helper's first answer at
+    /// the cell, the built-in font's own script lines in its own cell,
     /// moved down with its text band, as its glyphs are drawn then.
     fn script_decorations(&self, script: Script) -> Decorations {
         if script == Script::Baseline {
@@ -2004,9 +2047,9 @@ impl Face for DeferredFace {
         let at = self.at();
         let held = {
             let store = lock(&self.generated);
-            match store.script_decorations(at, script) {
+            match store.decorations(at, script) {
                 Some(lines) => return lines,
-                None => store.holds(at),
+                None => store.answered(at) || store.holds(at),
             }
         };
         if !held && self.builtin.cell() == self.text() {
@@ -2914,6 +2957,185 @@ mod tests {
         assert_eq!(
             f.script_decorations(Script::Sub),
             vtium_font::script::lines::mapped(normal, Script::Sub, (0, 19), 19, Band::NONE)
+        );
+    }
+
+    /// A set at `cell` mapping 'A' to one solid glyph in `script`, whose
+    /// strike reports `lines`, as the helper answers an ask for a
+    /// superscript or subscript glyph.
+    fn script_set(cell: Cell, script: Script, lines: Decorations) -> Arc<Set> {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default())
+            .script(script)
+            .decorations(lines);
+        let g = s.glyph(
+            Width::Narrow,
+            vec![255; (cell.width * cell.height) as usize],
+        );
+        s.map('A', g);
+        Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
+    }
+
+    /// The lines of a font at [`CELL`] that differ from the built-in
+    /// font's and from the lines for the cell's height, and the lines of
+    /// its superscript strike there.
+    const FONT_LINES: Decorations = Decorations {
+        underline: 12,
+        underline_thickness: 1,
+        strike: 7,
+        strike_thickness: 1,
+        overline: 0,
+    };
+    const SUPER_LINES: Decorations = Decorations {
+        underline: 8,
+        underline_thickness: 1,
+        strike: 4,
+        strike_thickness: 1,
+        overline: 0,
+    };
+
+    /// Adds to `generated` a normal set and a superscript set at [`CELL`],
+    /// each holding 'A' and taking one byte, whose strikes report
+    /// [`FONT_LINES`] and [`SUPER_LINES`].
+    fn add_lines_at_cell(generated: &Shared) {
+        let mut store = lock(generated);
+        add(
+            &mut store,
+            CELL,
+            with_lines(CELL, &['A'], FONT_LINES),
+            vec![(0x41, 1)],
+            1,
+        );
+        let variant = Variant {
+            style: Style::default(),
+            script: Script::Super,
+        };
+        let fresh = store
+            .fresh(
+                (AT, variant),
+                script_set(CELL, Script::Super, SUPER_LINES),
+                &[(0x41, 1)],
+                1,
+            )
+            .unwrap();
+        store.add(fresh).unwrap();
+    }
+
+    // #462: a cell keeps the lines its font's answers reported after a
+    // full store evicts every set at the cell. The screen at the cell may
+    // show nothing the font draws (a cleared screen, a row of underlined
+    // spaces), so no glyph there is asked for again, and the underline
+    // must stay on the font's row instead of moving to the cell's bottom
+    // row. A script the store never held keeps the lines mapped from the
+    // font's normal lines, not the built-in font's own script lines.
+    #[test]
+    fn a_cells_lines_outlast_the_eviction_of_its_glyphs() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        add_lines_at_cell(&generated);
+        let other = Cell {
+            width: 10,
+            height: 19,
+        };
+        add(
+            &mut lock(&generated),
+            other,
+            solid(other, &['A']),
+            vec![(0x41, 1)],
+            100,
+        );
+        let sub = f.script_decorations(Script::Sub);
+        assert_eq!(f.decorations(), FONT_LINES);
+        assert_eq!(f.script_decorations(Script::Super), SUPER_LINES);
+        assert_ne!(sub, Unifont::new(16).script_decorations(Script::Sub));
+        // the other cell's glyph is on the screen, so the two at CELL
+        // are the least recently shown, and making room for 2 bytes
+        // drops both sets there
+        lock(&generated).touch(SpacedCell::plain(other), &shown(&['A']));
+        lock(&generated).make_room(2);
+        assert!(!lock(&generated).holds(AT));
+        assert!(lock(&generated).holds(SpacedCell::plain(other)));
+        assert_eq!(f.decorations(), FONT_LINES);
+        assert_eq!(f.script_decorations(Script::Super), SUPER_LINES);
+        assert_eq!(f.script_decorations(Script::Sub), sub);
+    }
+
+    // #462: when no set in a full store maps a text, making room clears
+    // the store, and each cell still keeps the lines its answers reported
+    #[test]
+    fn clearing_the_store_keeps_each_cells_lines() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        add_lines_at_cell(&generated);
+        let sub = f.script_decorations(Script::Sub);
+        for e in &mut lock(&generated).entries {
+            e.glyphs.clear();
+        }
+        assert_eq!(lock(&generated).make_room(1), vec![]);
+        assert!(lock(&generated).entries.is_empty());
+        assert_eq!(f.decorations(), FONT_LINES);
+        assert_eq!(f.script_decorations(Script::Super), SUPER_LINES);
+        assert_eq!(f.script_decorations(Script::Sub), sub);
+    }
+
+    // #462: lines from an answer for bold glyphs count for the normal
+    // cell, since every answer at a cell in the baseline script reports
+    // the font's lines, and an answer drawn at a double size says nothing
+    // about the cell's own lines
+    #[test]
+    fn a_bold_answer_gives_the_cell_its_lines_and_a_double_one_does_not() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        let doubled = Doubled::Height;
+        let big = doubled.cell(CELL).unwrap();
+        let mut store = lock(&generated);
+        let fresh = store
+            .fresh_doubled(
+                (AT, Variant::default(), doubled),
+                with_lines(big, &['A'], Decorations::for_height(big.height)),
+                &[(0x41, 1)],
+                1,
+            )
+            .unwrap();
+        store.add(fresh).unwrap();
+        drop(store);
+        assert_eq!(f.decorations(), Unifont::new(16).decorations());
+        let bold_style = Style {
+            bold: true,
+            italic: false,
+        };
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, bold_style).decorations(FONT_LINES);
+        let g = s.glyph(Width::Narrow, vec![255; 128]);
+        s.map('A', g);
+        let bold =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        let variant = Variant {
+            style: bold_style,
+            script: Script::Baseline,
+        };
+        let mut store = lock(&generated);
+        let fresh = store.fresh((AT, variant), bold, &[(0x41, 1)], 1).unwrap();
+        store.add(fresh).unwrap();
+        for e in &mut store.entries {
+            e.glyphs.clear();
+        }
+        store.make_room(1);
+        drop(store);
+        assert_eq!(f.decorations(), FONT_LINES);
+    }
+
+    // #462: a cell the store drops loses its kept lines, so a display that
+    // draws at the cell again starts from the built-in font's lines
+    #[test]
+    fn a_cell_the_store_drops_loses_its_lines() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        add_lines_at_cell(&generated);
+        let unifont = Unifont::new(16);
+        lock(&generated).retain(&[]);
+        assert_eq!(f.decorations(), unifont.decorations());
+        assert_eq!(
+            f.script_decorations(Script::Super),
+            unifont.script_decorations(Script::Super)
         );
     }
 
