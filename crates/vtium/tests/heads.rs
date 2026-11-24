@@ -5760,6 +5760,8 @@ fn a_partly_broken_open_file_runs_its_survivors_then_the_shipped_tail_with_no_he
     let mut s = Seat::with_rules(&[], Some(start(text)), displays, ECHO, no_fonts());
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-bad"));
     assert!(s.until(BOUND, |a| head_shows(a, "desk", "ready")));
+    let names: Vec<&str> = s.app.heads().iter().map(Head::name).collect();
+    assert_eq!(names, ["desk"], "head bad is dropped with its rule");
     assert_eq!(s.app.focus_head(), Some("desk"), "not isolated");
     s.type_on(KBD_A, "t\r");
     assert!(
@@ -5783,6 +5785,8 @@ fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() 
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-bad"));
     s.app.add_input(Path::new(KBD_B), keyboard("kbd-desk"));
     assert!(s.until(BOUND, |a| head_shows(a, "desk", "ready")));
+    let names: Vec<&str> = s.app.heads().iter().map(Head::name).collect();
+    assert_eq!(names, ["desk"], "head bad is dropped with its rule");
     assert_eq!(notice(&s.app, "desk").as_deref(), Some(PARTLY));
     s.type_on(KBD_A, "x\r");
     s.type_on(KBD_B, "d\r");
