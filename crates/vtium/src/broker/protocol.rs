@@ -802,13 +802,21 @@ pub struct Link(OwnedFd);
 impl Link {
     /// A new socket pair, both ends close-on-exec: the broker's link and
     /// the drawer's end, which the drawer's start puts on descriptor 3.
+    ///
+    /// The broker's end never blocks. A drawer that stops reading its
+    /// orders fills the socket, and a send that waited for room would
+    /// stop the broker's loop, with its signals, its bounds and the VT's
+    /// restore. So a send to a full socket fails at once with
+    /// [`io::ErrorKind::WouldBlock`], and the broker ends that drawer. The
+    /// drawer's end blocks as usual.
     pub fn pair() -> io::Result<(Link, OwnedFd)> {
         let (ours, theirs) = rustix::net::socketpair(
             AddressFamily::UNIX,
             SocketType::SEQPACKET,
-            SocketFlags::CLOEXEC,
+            SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
             None,
         )?;
+        rustix::io::ioctl_fionbio(&theirs, false)?;
         Ok((Link(ours), theirs))
     }
 
@@ -819,7 +827,7 @@ impl Link {
         let seqpacket = rustix::net::sockopt::socket_type(&fd)? == SocketType::SEQPACKET;
         if !(unix && seqpacket) {
             return Err(io::Error::other(
-                "the drawer's descriptor 3 is not the broker's socket",
+                "descriptor 3 is not the socket from vtium's root process",
             ));
         }
         Ok(Link(fd))
@@ -830,7 +838,9 @@ impl Link {
         self.send(&request.encode(), None)
     }
 
-    /// Sends an order, with `fd` exactly when the order carries one.
+    /// Sends an order, with `fd` exactly when the order carries one. On
+    /// the broker's end, a full socket fails the send with
+    /// [`io::ErrorKind::WouldBlock`].
     pub fn order(&self, order: &Order, fd: Option<BorrowedFd<'_>>) -> io::Result<()> {
         if order.carries_descriptor() != fd.is_some() {
             return Err(io::Error::other(
@@ -918,7 +928,7 @@ impl Link {
                 fds.extend(passed);
             }
         }
-        if got.bytes == 0 && fds.is_empty() {
+        if got.bytes == 0 && fds.is_empty() && self.hung_up()? {
             return Ok(Got::Closed);
         }
         if got
@@ -931,6 +941,27 @@ impl Link {
             return Ok(Got::Message(Err(Refusal::Size(got.bytes))));
         }
         Ok(Got::Message(Ok((bytes, fds))))
+    }
+
+    /// Whether the other end has closed the socket. A read of 0 bytes
+    /// means either a closed socket or an empty message, which a
+    /// `SOCK_SEQPACKET` socket carries like any other, so the reader asks
+    /// `poll` without waiting: only a closed socket sets `POLLHUP`.
+    fn hung_up(&self) -> io::Result<bool> {
+        use rustix::event::{PollFd, PollFlags};
+        let mut fds = [PollFd::new(&self.0, PollFlags::IN)];
+        let now = rustix::time::Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        loop {
+            match rustix::event::poll(&mut fds, Some(&now)) {
+                Ok(_) => break,
+                Err(rustix::io::Errno::INTR) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(fds.iter().any(|fd| fd.revents().contains(PollFlags::HUP)))
     }
 }
 
@@ -1411,8 +1442,8 @@ mod tests {
     /// Over a real socket pair: a request arrives whole and checked; an
     /// order and its descriptor arrive together; a request that comes
     /// with a descriptor, an order without the descriptor it carries, a
-    /// short message and a long one are each refused; and the end of the
-    /// other side reads as closed.
+    /// short message, a long one and an empty one are each refused; and
+    /// the end of the other side reads as closed.
     #[test]
     fn the_socket_carries_messages_and_descriptors_and_refuses_the_rest() {
         let (broker, theirs) = Link::pair().unwrap();
@@ -1460,6 +1491,19 @@ mod tests {
         assert!(matches!(
             broker.next_request().unwrap(),
             Got::Message(Err(Refusal::Truncated))
+        ));
+        // A SOCK_SEQPACKET socket carries an empty message, which reads 0
+        // bytes as a closed socket does. While the drawer's end stays open,
+        // it is a message of the wrong size, and the socket still works.
+        rustix::net::send(&drawer, &[], SendFlags::empty()).unwrap();
+        assert!(matches!(
+            broker.next_request().unwrap(),
+            Got::Message(Err(Refusal::Size(0)))
+        ));
+        drawer.request(&Request::Ready).unwrap();
+        assert!(matches!(
+            broker.next_request().unwrap(),
+            Got::Message(Ok(Request::Ready))
         ));
         drop(drawer);
         assert!(matches!(broker.next_request().unwrap(), Got::Closed));

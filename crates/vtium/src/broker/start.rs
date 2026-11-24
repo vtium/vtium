@@ -410,7 +410,7 @@ pub fn begin() -> io::Result<Link> {
     let mut passed = vtium_platform::take_passed(1)?;
     let fd = passed
         .pop()
-        .ok_or_else(|| io::Error::other("the broker passed the drawer no socket"))?;
+        .ok_or_else(|| io::Error::other("vtium's root process passed no socket on descriptor 3"))?;
     let link = Link::passed(fd)?;
     link.request(&Request::Ready)?;
     Ok(link)

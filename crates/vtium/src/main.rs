@@ -95,7 +95,7 @@ fn main() -> ExitCode {
         match broker::drawer(&mut args) {
             Ok(link) => link,
             Err(e) => {
-                log::error!("the drawer cannot reach its broker: {e}");
+                log::error!("vtium's drawing process cannot reach vtium's root process: {e}");
                 return ExitCode::FAILURE;
             }
         }

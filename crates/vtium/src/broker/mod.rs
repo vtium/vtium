@@ -129,7 +129,10 @@ pub fn plan(facts: &dyn Facts) -> Plan {
 }
 
 /// What the broker does for each of the drawer's requests other than
-/// ready, which the broker's loop handles itself.
+/// ready, which the broker's loop handles itself. An error of the kind
+/// [`io::ErrorKind::WouldBlock`] from an answer's send means that the
+/// drawer reads none of its orders, so `serve` passes the link's error on
+/// as it is, and the broker's loop ends that drawer.
 pub trait Serve {
     fn serve(&mut self, request: Request, link: &Link) -> io::Result<()>;
 }
@@ -163,7 +166,7 @@ impl Serve for Unserved {
                 started: refused,
             },
             other => {
-                log::debug!(target: "broker", "the broker does not serve {other:?} yet");
+                log::debug!(target: "broker", "vtium's root process does not serve {other:?} yet");
                 return Ok(());
             }
         };
@@ -199,7 +202,7 @@ pub fn split(args: &[OsString]) -> Option<u8> {
     Some(match broker(args, &account) {
         Ok(status) => status,
         Err(e) => {
-            log::error!(target: "broker", "vtium cannot start its drawer: {e}");
+            log::error!(target: "broker", "vtium cannot start its drawing process: {e}");
             FAILURE
         }
     })
@@ -228,7 +231,7 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     let drawer = start::spawn(&Program::vtium(arg0, args), account, theirs, true)?;
     log::info!(
         target: "broker",
-        "vtium started its drawer as the account {ACCOUNT}, process {}",
+        "vtium runs as two processes: this root process, and drawing process {}, which runs everything else as the account {ACCOUNT}",
         drawer.pid.as_raw_nonzero()
     );
     // The broker does not hold the VT yet, so there is nothing to put
@@ -255,7 +258,8 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
 /// - The broker serves each other request through `serve`. A message that
 ///   the protocol's reader refuses comes only from a drawer that is broken
 ///   or taken over, so the broker kills that drawer and exits with a
-///   failure.
+///   failure. A drawer whose socket is too full to take an answer reads
+///   none of its orders, and the broker ends it the same way.
 /// - When something asks the broker to stop, it sends the drawer
 ///   [`Order::Stop`] and waits [`Bounds::stop`] for the drawer to exit.
 /// - When the drawer closes its socket, the broker puts the VT back at
@@ -283,7 +287,7 @@ pub fn run(
     let mut socket = match watch::watch(lp, link.as_fd(), pidfd) {
         Ok(watched) => Some(watched),
         Err(e) => {
-            log::error!(target: "broker", "the broker cannot watch its drawer: {e}");
+            log::error!(target: "broker", "vtium cannot watch its drawing process, so vtium stops it: {e}");
             watch::kill(pidfd);
             back.run();
             return FAILURE;
@@ -311,7 +315,7 @@ pub fn run(
             deadline.map(|d| d.saturating_duration_since(now)),
             &mut seen,
         ) {
-            log::error!(target: "broker", "the broker's loop failed, so vtium stops its drawer: {e}");
+            log::error!(target: "broker", "vtium's root process cannot wait for events, so vtium stops its drawing process: {e}");
             watch::kill(pidfd);
             back.run();
             return FAILURE;
@@ -322,15 +326,25 @@ pub fn run(
             loop {
                 match link.next_request() {
                     Ok(Got::Message(Ok(Request::Ready))) => ready = true,
-                    Ok(Got::Message(Ok(request))) => {
-                        if let Err(e) = serve.serve(request, link) {
-                            log::warn!(target: "broker", "the broker cannot answer its drawer: {e}");
+                    Ok(Got::Message(Ok(request))) => match serve.serve(request, link) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            log::error!(
+                                target: "broker",
+                                "vtium's drawing process reads none of the answers that vtium's root process sends it, so vtium stops the drawing process"
+                            );
+                            watch::kill(pidfd);
+                            back.run();
+                            return FAILURE;
                         }
-                    }
+                        Err(e) => {
+                            log::warn!(target: "broker", "vtium's root process cannot answer its drawing process: {e}");
+                        }
+                    },
                     Ok(Got::Message(Err(refusal))) => {
                         log::error!(
                             target: "broker",
-                            "The drawer sent a message that the broker refuses, so vtium stops the drawer: {refusal}."
+                            "vtium's drawing process sent a message that vtium refuses, so vtium stops the drawing process: {refusal}"
                         );
                         watch::kill(pidfd);
                         back.run();
@@ -356,6 +370,8 @@ pub fn run(
             back.run();
             return status(ended, ready, failed);
         }
+        // A stop that finds the drawer's socket full is not sent, and the
+        // stop bound ends that drawer.
         if seen.stop && stop_by.is_none() {
             let _ = link.order(&Order::Stop, None);
             stop_by = stop_at(clock());
@@ -363,7 +379,7 @@ pub fn run(
         if !ready && stop_by.is_none() && clock() >= ready_by {
             log::error!(
                 target: "broker",
-                "The drawer did not start within {} ms, so vtium stops it.",
+                "vtium's drawing process did not start within {} ms, so vtium stops it",
                 bounds.start.as_millis()
             );
             failed = true;
@@ -375,7 +391,7 @@ pub fn run(
         {
             log::warn!(
                 target: "broker",
-                "The drawer did not stop within {} ms, so vtium kills it.",
+                "vtium's drawing process did not stop within {} ms, so vtium kills it",
                 bounds.stop.as_millis()
             );
             let ended = watch::kill(pidfd);
@@ -459,15 +475,17 @@ mod tests {
 
     /// Serves the stand-ins' requests: a power key asks the broker to
     /// stop, the way systemd's SIGTERM does, so a test stops the broker
-    /// once its drawer is ready and without a timer.
+    /// once its drawer is ready and without a timer. Every other request
+    /// gets the answer [`Unserved`] gives it.
     struct StopOnPower(Ping);
 
     impl Serve for StopOnPower {
-        fn serve(&mut self, request: Request, _: &Link) -> io::Result<()> {
+        fn serve(&mut self, request: Request, link: &Link) -> io::Result<()> {
             if matches!(request, Request::Power { .. }) {
                 self.0.ping();
+                return Ok(());
             }
-            Ok(())
+            Unserved.serve(request, link)
         }
     }
 
@@ -567,6 +585,44 @@ mod tests {
         assert_eq!(broker("refused:7", LONG), (FAILURE, 1));
     }
 
+    /// An empty message from a drawer that keeps its socket open is a
+    /// message of the wrong size, not a closed socket: the broker kills
+    /// the drawer before it puts the VT back. A broker that took the empty
+    /// message for a close would put the VT back while the drawer still
+    /// runs, and one that passed over it would stop the drawer at the
+    /// power key that follows, and exit with the drawer's 7. The stop
+    /// bound only shortens the run of a broken broker.
+    #[test]
+    fn an_empty_message_is_refused_and_not_a_close() {
+        let bounds = Bounds {
+            start: LONG.start,
+            stop: Duration::from_secs(2),
+        };
+        assert_eq!(
+            broker_watching("empty:7", bounds),
+            (FAILURE, 1, Some(false))
+        );
+    }
+
+    /// A drawer that floods the broker with requests and never reads the
+    /// answers fills its socket. The broker never waits on the full
+    /// socket: it ends that drawer as it ends one that sends a refused
+    /// message, so it stays free to stop and to put the VT back. The
+    /// broker runs on a thread of its own, and the wait for it is bounded
+    /// only so that a broker stuck in a send fails the test instead of
+    /// hanging it.
+    #[test]
+    fn a_drawer_that_reads_no_answers_cannot_hold_the_broker() {
+        let (done, ran) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(broker_watching("flood", LONG));
+        });
+        let ran = ran
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the broker is stuck sending to a drawer that reads nothing");
+        assert_eq!(ran, (FAILURE, 1, Some(false)));
+    }
+
     /// A drawer that closes its socket and hangs has the VT put back at
     /// the close, while it still runs, and is killed at the stop bound.
     /// A drawer that never says it runs is killed first, and the VT comes
@@ -653,12 +709,15 @@ mod tests {
                 );
                 hang();
             }
-            "stop" | "stubborn" | "refused" => {
+            "stop" | "stubborn" | "refused" | "empty" => {
                 if mode == "refused" {
                     // a VT of 0, which the reader refuses
                     let mut bytes = Request::SwitchVt { vt: 1 }.encode();
                     bytes[4] = 0;
                     rustix::net::send(&link, &bytes, rustix::net::SendFlags::empty()).unwrap();
+                }
+                if mode == "empty" {
+                    rustix::net::send(&link, &[], rustix::net::SendFlags::empty()).unwrap();
                 }
                 link.request(&Request::Power {
                     key: protocol::PowerKey::Reboot,
@@ -680,6 +739,19 @@ mod tests {
             }
             "close" => {
                 drop(link);
+                hang();
+            }
+            "flood" => {
+                let path = protocol::DevicePath::new("/dev/dri/card0").unwrap();
+                for device in 1.. {
+                    let open = Request::OpenDevice {
+                        device,
+                        path: path.clone(),
+                    };
+                    if link.request(&open).is_err() {
+                        break;
+                    }
+                }
                 hang();
             }
             "check" => {
