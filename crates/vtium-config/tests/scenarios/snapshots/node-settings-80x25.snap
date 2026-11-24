@@ -15,7 +15,7 @@ description: "settings at 80×25, keys: 5"
    Displays                       9 settings
    Power and blanking             5 settings
    Images                         12 settings
-   Running vtium                  3 settings
+   Running vtium                  4 settings
 
  Press Enter to open a section and change its settings.
  The console's font and its size, who draws box-drawing and block characters,
