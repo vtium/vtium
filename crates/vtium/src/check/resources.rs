@@ -436,8 +436,16 @@ pub(super) fn palette_findings(
 /// named by its family or by kbd's name is found by the font helper, so
 /// the check does not judge it here.
 ///
+/// The check skips each `script-source=` and `strike=` line that the font
+/// set's reader, the frit reader in vtium-config's `frit.rs`, ignores,
+/// because a start never reads that line's font: one above the first
+/// `source=` line, one after a `layer=` line and before the next
+/// `source=` line, a `script-source=` under an `outline:` source, and a
+/// `strike=` under a `builtin:`, `vconsole` or `console:` source.
+///
 /// References:
 /// - ADR-1205 D4: a font draws only while the batch holds it and it passes the trust rule, and check-config names the file and the check it failed.
+/// - ADR-1510 D2: the font set's reader ignores a key where it does not apply, and reads the rest of the set.
 pub(super) fn font_files(file: &Path, settings: &Settings) -> Vec<String> {
     let Some(gate) = settings.gate else {
         return Vec::new();
@@ -446,16 +454,36 @@ pub(super) fn font_files(file: &Path, settings: &Settings) -> Vec<String> {
         return Vec::new();
     };
     let mut out = Vec::new();
+    // The `source=` value that a `script-source=` or `strike=` line
+    // describes: the last `source=` line's, or `None` above the first one
+    // and after a `layer=` line, where such a line describes nothing.
+    let mut source: Option<&str> = None;
     for (n, line) in text.lines().enumerate() {
         // A line may end in a `#` comment, which is not part of the path.
         let line = line.split('#').next().unwrap_or_default();
         let Some((key, value)) = line.trim().split_once('=') else {
             continue;
         };
-        if !matches!(key.trim(), "source" | "script-source" | "strike") {
+        let (key, value) = (key.trim(), value.trim());
+        let read = match key {
+            "source" => {
+                source = Some(value);
+                true
+            }
+            "layer" => {
+                source = None;
+                false
+            }
+            "script-source" => source.is_some_and(|s| !s.starts_with("outline:")),
+            "strike" => source.is_some_and(|s| {
+                !(s == "vconsole" || s.starts_with("builtin:") || s.starts_with("console:"))
+            }),
+            _ => false,
+        };
+        if !read {
             continue;
         }
-        let Some((kind, font)) = value.trim().split_once(':') else {
+        let Some((kind, font)) = value.split_once(':') else {
             continue;
         };
         let font = Path::new(font);
@@ -682,4 +710,131 @@ pub(super) fn needs_of(
         }
     }
     if named { found } else { (None, None) }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
+    use crate::check::DraftFrits;
+    use crate::scratch::Scratch;
+
+    /// What [`font_files`] says of the font set `frit`, where `{read}` and
+    /// `{skipped}` stand for two font files that pass the trust rule and
+    /// that the batch does not list, so each line that names one and that
+    /// the font set's reader reads draws a warning that the font is not
+    /// active. Each test names `{read}` on a line the reader reads, so
+    /// that the gate is seen at work, and `{skipped}` on a line the
+    /// reader ignores. The answer is each warning's line number and font
+    /// file's name.
+    fn warned(name: &str, frit: &str) -> Vec<(usize, String)> {
+        let dir = Scratch::new(name);
+        let _ = std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o755));
+        let me = rustix::process::geteuid().as_raw();
+        let font = |name: &str| {
+            let path = dir.join(name);
+            let _ = std::fs::write(&path, "x");
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+            path
+        };
+        let (read, skipped) = (font("read.bdf"), font("skipped.bdf"));
+        let file = dir.join("desk.vtfrit");
+        let _ = std::fs::write(
+            &file,
+            frit.replace("{read}", &read.display().to_string())
+                .replace("{skipped}", &skipped.display().to_string()),
+        );
+        let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644));
+        let gate = vtium_settings::cullet::Gate::new(
+            vtium_settings::cullet::Rule::new(Trust::owner(me)).below(&dir),
+            Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+            vtium_settings::batch::Batch::new(Vec::new()),
+        );
+        let settings = Settings {
+            head_cap: 4,
+            total: vtium_settings::CONSOLES_TOTAL_DEFAULT,
+            frits: &dir,
+            trust: Trust::owner(me).below(&dir),
+            squeeze: None,
+            sources: None,
+            gate: Some(&gate),
+            draft: DraftFrits::default(),
+        };
+        let prefix = format!("{}:", file.display());
+        font_files(&file, &settings)
+            .iter()
+            .filter_map(|said| {
+                let (n, rest) = said.strip_prefix(&prefix)?.split_once(": The font ")?;
+                assert!(
+                    rest.contains("is not active"),
+                    "a warning other than an inactive font: {said}"
+                );
+                let path = rest.split(' ').next()?;
+                let name = Path::new(path).file_name()?.to_str()?.to_owned();
+                Some((n.parse().ok()?, name))
+            })
+            .collect()
+    }
+
+    /// The reader reads `{read}` on line `n` and nothing else.
+    fn only_read(n: usize) -> Vec<(usize, String)> {
+        vec![(n, "read.bdf".to_owned())]
+    }
+
+    // The font set's reader ignores a strike= under a built-in font, for
+    // that font has no other heights a font set can name, so the check
+    // says nothing of the strike's file.
+    #[test]
+    fn a_strike_under_a_builtin_font_is_not_checked() {
+        let frit = "source=builtin:unscii-8\nstrike=bdf:{skipped}\nsource=bdf:{read}\n";
+        assert_eq!(warned("check-strike-builtin", frit), only_read(3));
+    }
+
+    // The reader ignores a strike= under the system's console font, named
+    // by vconsole.
+    #[test]
+    fn a_strike_under_vconsole_is_not_checked() {
+        let frit = "source=vconsole\nstrike=bdf:{skipped}\nsource=bdf:{read}\n";
+        assert_eq!(warned("check-strike-vconsole", frit), only_read(3));
+    }
+
+    // The reader ignores a strike= under the system's console font, named
+    // by a VT's number.
+    #[test]
+    fn a_strike_under_a_vts_console_font_is_not_checked() {
+        let frit = "source=console:3\nstrike=file:{skipped}\nsource=bdf:{read}\n";
+        assert_eq!(warned("check-strike-console", frit), only_read(3));
+    }
+
+    // The reader ignores a script-source= under an outline font, because a
+    // script source is a smaller bitmap font for a bitmap source. A
+    // strike= under an outline font is read, so its file is checked.
+    #[test]
+    fn a_script_source_under_an_outline_font_is_not_checked() {
+        let frit = "source=outline:{read}\nscript-source=bdf:{skipped}\n";
+        assert_eq!(warned("check-script-outline", frit), only_read(1));
+        let frit = "source=outline:/nonexistent/vtium/a.otf\nstrike=bdf:{read}\n";
+        assert_eq!(warned("check-strike-outline", frit), only_read(2));
+    }
+
+    // The reader ignores a script-source= or a strike= above the first
+    // source= line, since there is no source for it to describe.
+    #[test]
+    fn a_key_above_the_first_source_is_not_checked() {
+        let frit = "script-source=bdf:{skipped}\nsource=bdf:{read}\n";
+        assert_eq!(warned("check-script-first", frit), only_read(2));
+        let frit = "strike=bdf:{skipped}\nsource=bdf:{read}\n";
+        assert_eq!(warned("check-strike-first", frit), only_read(2));
+    }
+
+    // The reader ignores a script-source= or a strike= after a layer=
+    // line and before the next source= line, since the layer= line ends
+    // the source above it. The next source= line starts a source again,
+    // whose strike is read.
+    #[test]
+    fn a_key_after_a_layer_line_is_not_checked() {
+        let frit = "source=bdf:/nonexistent/vtium/a.bdf\nlayer=sym\nscript-source=bdf:{skipped}\nstrike=file:{skipped}\nsource=kbd:lat2-16\nstrike=bdf:{read}\n";
+        assert_eq!(warned("check-after-layer", frit), only_read(6));
+    }
 }
