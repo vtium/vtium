@@ -2,7 +2,3 @@
 # golden under goldens/, and why. A case compared with a provisional golden
 # is drawn and compared, and its difference is noted but does not fail the
 # run; the row goes when the operator accepts the golden.
-heads-closed-broken/panic	the panic screen moved on 2026-11-23: its second line says no display head can run, and its errors are those of `consoles = 0` and `isolated = maybe`; captured by make tier3 at 7234ce9dd in a build without images; waits for the maintainer to accept the new picture
-heads-closed-broken/panic+images	the panic screen moved on 2026-11-23: its second line says no display head can run, and its errors are those of `consoles = 0` and `isolated = maybe`; captured by make tier3 FEATURES=images at 7234ce9dd; waits for the maintainer to accept the new picture
-heads-policy-typo/policy-panic	the panic screen moved on 2026-11-23: its second line says no display head can run; captured by make tier3 at 7234ce9dd in a build without images; waits for the maintainer to accept the new picture
-heads-policy-typo/policy-panic+images	the panic screen moved on 2026-11-23: its second line says no display head can run; captured by make tier3 FEATURES=images at 7234ce9dd; waits for the maintainer to accept the new picture
