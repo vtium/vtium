@@ -69,7 +69,7 @@ _Cells and images to pixels - the renderer and its display interface_
 | [ADR-1307](./render/ADR-1307-an-indic-cluster-wider-than-its-cell-is-squeezed-sideways-to-it-at-full-height.md) | An Indic cluster wider than its cell is squeezed sideways to it at full height | accepted |
 | [ADR-1308](./render/ADR-1308-a-run-of-cells-that-draws-one-scaled-glyph-is-one-unit-for-every-edit-and-a-ligature-is-drawn-across-its-cells-under-an-option-that-is-off-by-default.md) | A run of cells that draws one scaled glyph is one unit for every edit, and a ligature is drawn across its cells under an option that is off by default | accepted |
 | [ADR-1309](./render/ADR-1309-an-svg-file-or-a-cursor-theme-can-replace-vtium-s-pointer-pictures-and-the-font-helper-draws-them.md) | An SVG file or a cursor theme can replace vtium's pointer pictures, and the font helper draws them | accepted |
-| [ADR-1310](./render/ADR-1310-smooth-scrolling-slides-the-text-by-pixels-through-a-character-and-row-slot-under-the-screen-slot.md) | Smooth scrolling slides the text by pixels through a character and row slot under the screen slot | proposed |
+| [ADR-1310](./render/ADR-1310-smooth-scrolling-slides-the-text-by-pixels-through-a-character-and-row-slot-under-the-screen-slot.md) | Smooth scrolling slides the text by pixels through a character and row slot under the screen slot | accepted |
 
 ## Platform
 _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_

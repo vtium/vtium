@@ -59,7 +59,7 @@ considered:
     via: "question tool, 2026-11-24, after reading this record's changes of 2026-11-22 on a reading page, on reading back the display's buffer: if the copy of the frame in system memory wins the faster-scroll work's tier 3 measurement, smooth scrolling's CPU ring grows out of that copy rather than adding a second one; the option's wording is the steering session's"
     paraphrase: true
     covers: [reading back the display's buffer]
-status: proposed
+status: accepted
 date: 2026-11-17
 deciders:
   - aaronsb
