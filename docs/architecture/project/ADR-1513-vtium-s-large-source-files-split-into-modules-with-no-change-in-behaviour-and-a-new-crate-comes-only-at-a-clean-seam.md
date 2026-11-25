@@ -31,6 +31,26 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "yes ~1000 and tests out at 1500 with warnings over not hard stops"
+    via: the question tool, 2026-11-25, on the reading page of ADR-1513, answering in the maintainer's own words
+    covers: [the size]
+  - operator: aaronsb
+    said: "Protocol crate first (Recommended)"
+    via: the question tool, 2026-11-25, on the reading page of ADR-1513; the option's wording is the steering session's
+    paraphrase: true
+    covers: [the broker's messages]
+  - operator: aaronsb
+    said: "Make it a crate (Recommended)"
+    via: the question tool, 2026-11-25, on the reading page of ADR-1513; the option's wording is the steering session's
+    paraphrase: true
+    covers: [the glyph store]
+  - operator: aaronsb
+    said: "Two halves (Recommended)"
+    via: the question tool, 2026-11-25, on the reading page of ADR-1513; the option's wording is the steering session's
+    paraphrase: true
+    covers: [the first card]
 status: proposed
 date: 2026-11-25
 deciders:
@@ -47,15 +67,17 @@ related:
 
 ## Summary
 
-- **Decided:** Before 0.1.0, every source file in crates/ that holds more than 1,500 lines of code splits into modules by what its code does. A file aims at about 1,000 lines of code. A file between 1,000 and 1,500 lines of code splits when its crate's split card finds a natural cut. Unit tests move to a `tests.rs` beside their module once a file passes 1,500 lines. Generated tables, test files and the key table are exempt (D2). A split changes no behaviour. The same tests pass, no golden moves, the public items stay the same, and the minspec binary grows by at most 1 KiB for each card, or 2 KiB for a card that makes a crate. A reviewer checks in the diff that moved code is only moved (D1). A new crate comes only where this record shows a clean boundary. The broker's protocol becomes a crate before the drawer's broker backend is built, because that backend lives in vtium-platform (D4). The deferred glyph store becomes a crate once the privilege split's first slice has landed (D4). The first card splits crates/vtium's app.rs, helper.rs and check.rs before the privilege split's next cards start, as two halves that run side by side (D6). The other crates follow one at a time, each while no other card changes its files (D5).
+- **Decided:** Before 0.1.0, vtium's large source files split into modules by what their code does. A file aims at about 1,000 lines of code, and unit tests move to a `tests.rs` beside their module once a file passes 1,500 lines (the maintainer, `considered`, 2026-11-25). A file whose code passes 1,500 lines draws a warning, not a hard stop: its crate's split card and any check report it, and nothing fails on it. A file between 1,000 and 1,500 lines of code splits when its crate's split card finds a natural cut. Generated tables, test files and the key table are exempt (D2). A split changes no behaviour. The same tests pass, no golden moves, the public items stay the same, and the minspec binary grows by at most 1 KiB for each card, or 2 KiB for a card that makes a crate. A reviewer checks in the diff that moved code is only moved (D1). A new crate comes only where this record shows a clean boundary. The broker's protocol becomes a crate before the drawer's broker backend is built, because that backend lives in vtium-platform (D4; the maintainer, `considered`, 2026-11-25). The deferred glyph store becomes a crate once the privilege split's first slice has landed (D4; the maintainer, `considered`, 2026-11-25). The first card splits crates/vtium's app.rs, helper.rs and check.rs before the privilege split's next cards start, as two halves that run side by side (D6; the maintainer, `considered`, 2026-11-25). The other crates follow one at a time, each while no other card changes its files (D5).
 - **Trades away:** Every split card moves thousands of lines, so `git blame` without `-C` and `git log` without `--follow` stop at the move, and a branch that is open across a split meets a conflict it can only resolve by moving its change by hand. The splits use up to about 4 KiB of the 38 KiB left under tier 3's size budget, mostly for the paths of about 65 new files in the console's crates. The split cards take the place of feature work for several waves, and the claim files, crate READMEs and ADR-1000's `tests` column change with each one.
 - **One-way?** No. A module split is reversible: the code moves back in one commit. A new crate is cheap to fold back while nothing outside the workspace uses it, and nothing does.
 - **Probes:**
-  - *Confident (the size):* a file aims at about 1,000 lines of code, a file must split once its code passes 1,500 lines, and unit tests move out once a file passes 1,500 lines in all. Generated tables, test files and the hand-written key table keep their size (D2). Lean: these numbers, because a card's brief can then hand an agent whole files it reads in one pass. Is about 1,000 lines the size you want?
-  - *Not confident (the broker's messages):* the messages between the broker and the drawer move into a small crate of their own, `vtium-broker-protocol`, in a card that runs after the first split and before the card that moves the devices and the VT into the broker (D4, D5). Lean: yes, because that card builds the drawer's side of the protocol inside vtium-platform, which cannot use the vtium crate. The other way is to put that backend in the vtium crate, which splits the device code across two crates. Should the protocol crate come first?
-  - *Not confident (the glyph store):* the store of glyphs the font helper sends, crates/vtium/src/deferred.rs and its tables, becomes a crate of its own once the privilege split's first slice has landed (D4). Lean: yes, because only one type alias crosses its boundary, and the vtium crate then compiles about 8,000 fewer lines on each change. Do you want this crate, or should the store stay a module of the console?
-  - *Not confident (the first card):* the first card is cut in two halves that run at the same time, one for app.rs and one for helper.rs and check.rs (D6). Lean: two halves, because app.rs alone moves about 10,000 lines and its file set touches no file of the other half. Is that how you want your "one card" run?
+  - *Confident (the size):* a file aims at about 1,000 lines of code, a file must split once its code passes 1,500 lines, and unit tests move out once a file passes 1,500 lines in all. Generated tables, test files and the hand-written key table keep their size (D2). Lean: these numbers, because a card's brief can then hand an agent whole files it reads in one pass. Is about 1,000 lines the size you want? (Answered 2026-11-25; see `considered`.)
+  - *Not confident (the broker's messages):* the messages between the broker and the drawer move into a small crate of their own, `vtium-broker-protocol`, in a card that runs after the first split and before the card that moves the devices and the VT into the broker (D4, D5). Lean: yes, because that card builds the drawer's side of the protocol inside vtium-platform, which cannot use the vtium crate. The other way is to put that backend in the vtium crate, which splits the device code across two crates. Should the protocol crate come first? (Answered 2026-11-25; see `considered`.)
+  - *Not confident (the glyph store):* the store of glyphs the font helper sends, crates/vtium/src/deferred.rs and its tables, becomes a crate of its own once the privilege split's first slice has landed (D4). Lean: yes, because only one type alias crosses its boundary, and the vtium crate then compiles about 8,000 fewer lines on each change. Do you want this crate, or should the store stay a module of the console? (Answered 2026-11-25; see `considered`.)
+  - *Not confident (the first card):* the first card is cut in two halves that run at the same time, one for app.rs and one for helper.rs and check.rs (D6). Lean: two halves, because app.rs alone moves about 10,000 lines and its file set touches no file of the other half. Is that how you want your "one card" run? (Answered 2026-11-25; see `considered`.)
 - **Inversion:** Between "one file for each subject, however large it grows" and "a crate for each subject". vtium splits files into modules by what the code does, and makes a crate only where little crosses the boundary.
+
+> Edited 2026-11-25: the maintainer answered the size probe "yes ~1000 and tests out at 1500 with warnings over not hard stops" (`considered`), so a file past 1,500 lines of code draws a warning instead of having to split. The Decided item began: "Before 0.1.0, every source file in crates/ that holds more than 1,500 lines of code splits into modules by what its code does. A file aims at about 1,000 lines of code. A file between 1,000 and 1,500 lines of code splits when its crate's split card finds a natural cut. Unit tests move to a `tests.rs` beside their module once a file passes 1,500 lines."
 
 ## Context
 
@@ -87,7 +109,11 @@ History stays readable. Each split moves code in one commit that only moves, as 
 
 ### D2: the size a file aims for
 
-A source file aims at about 1,000 lines of code outside its unit tests. A file whose code passes 1,500 lines splits by what its code does. A file between 1,000 and 1,500 lines of code splits when the card that splits its crate finds a natural cut, and otherwise stays whole. The band keeps a file from splitting over a few hundred lines, and keeps files that are already modules of an earlier split, such as vtium-term's screen/edit.rs, from splitting again for little gain. A file that passes 1,500 lines in all moves its unit tests into a `tests.rs` beside it, as `console/tests.rs` and `config/tests.rs` already do.
+A source file aims at about 1,000 lines of code outside its unit tests (the maintainer, `considered`, 2026-11-25). A file whose code passes 1,500 lines draws a warning, not a hard stop. The card that splits its crate splits it by what its code does, and that card and any check that counts lines report it, but no gate fails on a file's size. A file between 1,000 and 1,500 lines of code splits when the card that splits its crate finds a natural cut, and otherwise stays whole. The band keeps a file from splitting over a few hundred lines, and keeps files that are already modules of an earlier split, such as vtium-term's screen/edit.rs, from splitting again for little gain. A file that passes 1,500 lines in all moves its unit tests into a `tests.rs` beside it, as `console/tests.rs` and `config/tests.rs` already do.
+
+A check of file sizes, if one is built, lists each file over the aim and each file whose code passes 1,500 lines as a warning, and never fails a gate, as the gates' report of the minspec binary's size does.
+
+> Edited 2026-11-25: the maintainer said "yes ~1000 and tests out at 1500 with warnings over not hard stops" (`considered`). The paragraph began: "A source file aims at about 1,000 lines of code outside its unit tests. A file whose code passes 1,500 lines splits by what its code does. A file between 1,000 and 1,500 lines of code splits when the card that splits its crate finds a natural cut, and otherwise stays whole."
 
 The aim is 1,000 lines because that is a file an agent reads whole in one pass, so a card's brief can name the files it owns and the agent reads each one completely. It is also about the size at which one file holds one subject, so two cards rarely need the same file. AGENTS.md sizes each card to finish in well under half of an agent's context, and smaller files keep a brief's file set honest about what the card touches.
 
@@ -98,7 +124,7 @@ Four kinds of file are exempt:
 - **A hand-written table.** vtium-settings' `keys.rs` holds the key table: a constant for each of its 140 keys, and the list `KEYS`. vtium's example configuration, its man pages and vtium-config's help come from it. One table in one file lets a reader see every key in order.
 - **One function that cannot be cut.** A function whose body is one match over its cases, or one long sequence of steps, stays whole, because cutting it would change its code. It goes into a module of its own, so the module around it still keeps to the aim. vtium-config's `Engine::glyphs`, about 630 lines, is one.
 
-ADR-1513-files.tsv lists every file over 1,500 lines as measured on 2026-11-25, with its kind, its test lines, its code lines and its plan. Of the 57 files, 19 must split, 11 sit in the band where a split is optional, 4 only move their tests out, and 23 are exempt. Twenty more files of 1,500 lines or fewer hold between 1,000 and 1,500 lines of code, such as vtium-term's terminal.rs and screen.rs, vtium-platform's seat.rs and input.rs, and vtium-image's protocol/kitty.rs and store/anim.rs. They are in the same band, and the card that splits their crate weighs each one.
+ADR-1513-files.tsv lists every file over 1,500 lines as measured on 2026-11-25, with its kind, its test lines, its code lines and its plan. Of the 57 files, 19 pass 1,500 lines of code and draw the warning, so their crates' cards split them, 11 sit in the band where a split is optional, 4 only move their tests out, and 23 are exempt. Twenty more files of 1,500 lines or fewer hold between 1,000 and 1,500 lines of code, such as vtium-term's terminal.rs and screen.rs, vtium-platform's seat.rs and input.rs, and vtium-image's protocol/kitty.rs and store/anim.rs. They are in the same band, and the card that splits their crate weighs each one.
 
 ### D3: the layout of each crate
 
