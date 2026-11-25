@@ -278,18 +278,82 @@ fn an_ended_wrap_marks_the_pad_it_empties() {
     covers_every_change(218, TEXT);
 }
 
+/// A frame as one display drew it: each cell, and whether it was marked.
+type Drawing = Vec<Vec<(Drawn, bool)>>;
+
+/// The displays the property keeps at once: each drew a step older than
+/// the one before it.
+const HELD: usize = 5;
+
+/// The cells of the view that the scroll record marks changed in place
+/// for a display at `since`, with the rows it says the view moved.
+fn in_place(screen: &Screen, since: vtium_term::Age) -> (Option<isize>, Vec<Vec<bool>>) {
+    let palette = palette();
+    let frame = screen.frame(&palette, since);
+    let marks = (0..frame.rows())
+        .map(|r| {
+            (0..frame.cols())
+                .map(|c| frame.changed_in_place(r, c))
+                .collect()
+        })
+        .collect();
+    (frame.scrolled(), marks)
+}
+
+/// Checks the scroll record for a display that drew `before` at `since`:
+/// once the display moves its picture by the rows the record gives, every
+/// cell that differs from `after` is marked changed in place, and so is
+/// every cell of a row that came into view.
+fn moved_picture_matches(
+    screen: &Screen,
+    since: vtium_term::Age,
+    before: &[Vec<(Drawn, bool)>],
+    after: &[Vec<(Drawn, bool)>],
+    at: &str,
+) {
+    let (Some(by), marks) = in_place(screen, since) else {
+        return;
+    };
+    if before.len() != after.len() || before.first().map(Vec::len) != after.first().map(Vec::len) {
+        panic!("{at}: the record moved the rows by {by} across a resize");
+    }
+    for (r, (now, marked)) in after.iter().zip(&marks).enumerate() {
+        let from = isize::try_from(r)
+            .ok()
+            .and_then(|r| r.checked_add(by))
+            .and_then(|r| usize::try_from(r).ok())
+            .and_then(|r| before.get(r));
+        for (c, ((now, _), &marked)) in now.iter().zip(marked).enumerate() {
+            let was = from.and_then(|row| row.get(c)).map(|(was, _)| was);
+            assert!(
+                marked || was == Some(now),
+                "{at}: after moving by {by}, cell {r},{c} went from {was:?} to {now:?} unmarked in place"
+            );
+        }
+    }
+}
+
 /// Runs the property's 100 random changes from `seed`, the text it writes
-/// picked from `text`.
+/// picked from `text`. Beside the display that drew just before each
+/// change, it keeps displays that drew up to [`HELD`] steps before it, and
+/// checks the scroll record for each of them.
 fn covers_every_change(seed: u64, text: &[&str]) {
     {
         let mut rng = Rng(seed);
         let mut t = Terminal::new(1 + rng.below(12), 1 + rng.below(8), 6);
         t.screen_mut().set_scrollback_max(rng.below(6));
+        let mut held: Vec<(vtium_term::Age, Drawing)> = Vec::new();
         for step in 0..100 {
             let seen = t.screen_mut().checkpoint();
             let before = draw(t.screen(), seen);
+            held.insert(0, (seen, before.clone()));
+            held.truncate(HELD);
             let what = change(&mut t, &mut rng, text);
             let after = draw(t.screen(), seen);
+            for (i, (age, drew)) in held.iter().enumerate() {
+                let at = format!("seed {seed}, step {step}, {what}, a display {i} steps older");
+                moved_picture_matches(t.screen(), *age, drew, &after, &at);
+            }
             if before.len() != after.len()
                 || before.first().map(Vec::len) != after.first().map(Vec::len)
             {
@@ -359,4 +423,221 @@ fn a_new_palette_marks_every_cell() {
     let seen = t.screen_mut().checkpoint();
     t.set_palette(changed);
     assert!(draw(t.screen(), seen).iter().flatten().all(|&(_, c)| !c));
+}
+
+/// The rows the scroll record says the view moved for a display at
+/// `since`, and the cells it marks changed in place, row by row.
+fn record(t: &Terminal, since: vtium_term::Age) -> (Option<isize>, Vec<(usize, usize)>) {
+    let (by, marks) = in_place(t.screen(), since);
+    let cells = marks
+        .iter()
+        .enumerate()
+        .flat_map(|(r, row)| {
+            row.iter()
+                .enumerate()
+                .filter(|&(_, &m)| m)
+                .map(move |(c, _)| (r, c))
+        })
+        .collect();
+    (by, cells)
+}
+
+/// Every cell of the rows in `rows` on a screen `cols` wide.
+fn rows_of(rows: core::ops::Range<usize>, cols: usize) -> Vec<(usize, usize)> {
+    rows.flat_map(|r| (0..cols).map(move |c| (r, c))).collect()
+}
+
+// One line feed on the bottom row moves the view up a row. The cell
+// written there before the line feed is changed in place one row higher,
+// the new bottom row is changed in place, and nothing else is, though by
+// position every row is changed.
+#[test]
+fn a_line_feed_moves_the_ages_with_the_rows() {
+    let mut t = Terminal::new(6, 4, 10);
+    t.input(b"one\r\ntwo\r\nsix\r\nten");
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\x1b[4;2HX\n");
+    let (by, cells) = record(&t, seen);
+    assert_eq!(by, Some(1));
+    let mut want = vec![(2, 1)];
+    want.extend(rows_of(3..4, 6));
+    assert_eq!(cells, want);
+    let palette = palette();
+    let frame = t.screen().frame(&palette, seen);
+    let rows: Vec<bool> = (0..4).map(|r| frame.row_changed_in_place(r)).collect();
+    assert_eq!(rows, [false, false, true, true]);
+    assert!((0..4).all(|r| frame.row_changed(r)));
+    let drawn = draw(t.screen(), seen);
+    assert!(drawn.iter().flatten().all(|&(_, changed)| changed));
+}
+
+// A reverse index on the top row moves the view down a row, and SU and SD
+// with the margins at the screen's edges count as a line feed and a
+// reverse index do.
+#[test]
+fn a_reverse_index_on_the_top_row_counts_down() {
+    let mut t = Terminal::new(6, 4, 10);
+    t.input(b"one\r\ntwo\r\nsix\r\nten");
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\x1b[1;1H\x1bM");
+    assert_eq!(record(&t, seen), (Some(-1), rows_of(0..1, 6)));
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\x1b[2T");
+    assert_eq!(record(&t, seen), (Some(-2), rows_of(0..2, 6)));
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\x1b[3S");
+    assert_eq!(record(&t, seen), (Some(3), rows_of(1..4, 6)));
+}
+
+// Two displays that drew at different ages read the count each since its
+// own age.
+#[test]
+fn two_displays_at_different_ages_read_different_counts() {
+    let mut t = Terminal::new(6, 4, 10);
+    t.input(b"\x1b[4;1H");
+    let old = t.screen_mut().checkpoint();
+    t.input(b"a\n");
+    let new = t.screen_mut().checkpoint();
+    t.input(b"b\n\n");
+    let frame_old = record(&t, old);
+    let frame_new = record(&t, new);
+    assert_eq!(frame_old.0, Some(3));
+    assert_eq!(frame_new.0, Some(2));
+    // `a` sits on the top row and `b` one row and column below it, since a
+    // line feed keeps the column. Both were written after the old display
+    // drew, and only `b` after the new one drew.
+    let mut want_old = vec![(0, 0)];
+    want_old.extend(rows_of(1..4, 6));
+    let mut want_new = vec![(1, 1)];
+    want_new.extend(rows_of(2..4, 6));
+    assert_eq!(frame_old.1, want_old);
+    assert_eq!(frame_new.1, want_new);
+}
+
+// Moving the view back through the scrollback counts down by the rows it
+// moved, and forward counts up; a move past the scrollback's end counts
+// only the rows the view moved.
+#[test]
+fn moving_the_view_counts_its_rows() {
+    let mut t = Terminal::new(6, 4, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7");
+    let seen = t.screen_mut().checkpoint();
+    t.screen_mut().scroll_view_up(2);
+    assert_eq!(record(&t, seen), (Some(-2), rows_of(0..2, 6)));
+    let back = t.screen_mut().checkpoint();
+    t.screen_mut().scroll_view_up(100);
+    assert_eq!(record(&t, back).0, Some(-1));
+    let top = t.screen_mut().checkpoint();
+    t.screen_mut().scroll_view_down(1);
+    t.screen_mut().reset_view();
+    assert_eq!(record(&t, top), (Some(3), rows_of(1..4, 6)));
+    assert_eq!(record(&t, seen).0, Some(0));
+}
+
+// The scrolls the record cannot state as every row moving by one count
+// mark every row they touch, as they did before the record: a scroll
+// inside margins narrower than the screen, a scroll on the alternate
+// screen, a scroll while a selection is shown, a scroll while the view is
+// back in the scrollback, and a move of the view while a selection is
+// shown.
+#[test]
+fn the_scrolls_the_record_cannot_state_mark_every_row_they_touch() {
+    let text = b"one\r\ntwo\r\nsix\r\nten";
+
+    let mut t = Terminal::new(6, 4, 10);
+    t.input(text);
+    t.input(b"\x1b[2;3r\x1b[3;1H");
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\n");
+    assert_eq!(record(&t, seen), (Some(0), rows_of(1..3, 6)), "margins");
+
+    let mut t = Terminal::new(6, 4, 10);
+    t.input(b"\x1b[?1049h");
+    t.input(text);
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\n");
+    assert_eq!(record(&t, seen), (Some(0), rows_of(0..4, 6)), "alternate");
+
+    let mut t = Terminal::new(6, 4, 10);
+    t.input(text);
+    t.screen_mut().select_start(0, 0);
+    t.screen_mut().select_to(2, 1);
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\n");
+    assert_eq!(record(&t, seen), (None, rows_of(0..4, 6)), "selection");
+
+    let mut t = Terminal::new(6, 4, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"1\r\n2\r\n3\r\n4\r\n5\r\n6");
+    t.screen_mut().scroll_view_up(1);
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\n");
+    assert_eq!(record(&t, seen), (None, rows_of(0..4, 6)), "view back");
+
+    let mut t = Terminal::new(6, 4, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"1\r\n2\r\n3\r\n4\r\n5\r\n6");
+    t.screen_mut().select_start(0, 0);
+    t.screen_mut().select_to(2, 1);
+    let seen = t.screen_mut().checkpoint();
+    t.screen_mut().scroll_view_up(1);
+    assert_eq!(record(&t, seen), (None, rows_of(0..4, 6)), "view move");
+}
+
+// A display older than the scroll log's oldest entry reads no count, and
+// its frame's changes in place are its changes by position, which cover
+// every row that moved.
+#[test]
+fn a_display_older_than_the_log_reads_every_moved_row() {
+    let mut t = Terminal::new(6, 4, 10);
+    t.input(b"\x1b[4;1H");
+    let old = t.screen_mut().checkpoint();
+    // more checkpoints with a scroll than the log keeps
+    for _ in 0..1000 {
+        t.input(b"\n");
+        t.screen_mut().checkpoint();
+    }
+    assert_eq!(record(&t, old), (None, rows_of(0..4, 6)));
+}
+
+// A scroll that drops the first line of a right-to-left paragraph leaves
+// the rest of it in a paragraph of its own, drawn in another order: the
+// record marks those rows changed in place, though they only moved.
+#[cfg(feature = "bidi")]
+#[test]
+fn a_scroll_that_drops_a_paragraphs_first_line_marks_the_rest() {
+    let mut t = Terminal::new(4, 3, 10);
+    t.screen_mut().set_scrollback_max(0);
+    t.input("\x1b[?2501h\u{05D0}\u{05D1}\u{05D2}\u{05D3}12 3".as_bytes());
+    let seen = t.screen_mut().checkpoint();
+    let before = draw(t.screen(), seen);
+    t.input(b"\x1b[S");
+    let after = draw(t.screen(), seen);
+    // "3 12" was drawn on the second row and moves to the first as "12 3"
+    assert_ne!(
+        before[1].iter().map(|(d, _)| &d.glyph).collect::<Vec<_>>(),
+        after[0].iter().map(|(d, _)| &d.glyph).collect::<Vec<_>>()
+    );
+    let mut want = rows_of(0..1, 4);
+    want.extend(rows_of(2..3, 4));
+    assert_eq!(record(&t, seen), (Some(1), want));
+}
+
+// Seed 4783 found IL cutting a right-to-left paragraph at the cursor's row
+// and leaving the paragraph's row above it, drawn in another order without
+// its tail, unmarked by position (ADR-1004 D8).
+#[cfg(feature = "bidi")]
+#[test]
+fn an_insert_that_cuts_a_paragraph_marks_its_rows_above() {
+    covers_every_change(4783, BIDI_TEXT);
+}
+
+// Seed 3856 found SD dropping the tail of a right-to-left paragraph at the
+// bottom and leaving the rest of it, moved down a row and drawn in another
+// order, unmarked in place.
+#[cfg(feature = "bidi")]
+#[test]
+fn a_scroll_down_that_drops_a_paragraphs_tail_marks_the_rest() {
+    covers_every_change(3856, BIDI_TEXT);
 }

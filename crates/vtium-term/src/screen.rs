@@ -745,28 +745,69 @@ impl Screen {
         self.damage.mark_all();
     }
 
-    /// Scrolls the view `n` lines back into the scrollback.
+    /// Scrolls the view `n` lines back into the scrollback. The scroll
+    /// record counts the rows the view moved, down while it goes back and
+    /// up while it goes forward, unless the move is one the record leaves
+    /// out, which marks everything.
     pub fn scroll_view_up(&mut self, n: usize) {
+        let was = (self.scrollback.offset(), self.scrollback.len());
         self.scrollback.view_up(n);
+        self.view_moved(was);
         self.images_dropped();
-        self.damage.mark_all();
         self.refresh_hover();
     }
 
     /// Scrolls the view `n` lines forward, towards the screen.
     pub fn scroll_view_down(&mut self, n: usize) {
+        let was = (self.scrollback.offset(), self.scrollback.len());
         self.scrollback.view_down(n);
-        self.damage.mark_all();
+        self.view_moved(was);
         self.refresh_hover();
     }
 
     /// Returns the view to the screen.
     pub fn reset_view(&mut self) {
         if self.scrollback.offset() != 0 {
+            let was = (self.scrollback.offset(), self.scrollback.len());
             self.scrollback.reset_view();
-            self.damage.mark_all();
+            self.view_moved(was);
             self.refresh_hover();
         }
+    }
+
+    /// Marks a move of the view through the scrollback, from the offset and
+    /// the scrollback's length in `was`. Every line in view moved by the
+    /// offset's change, so the scroll record counts it: down while the view
+    /// goes back, up while it goes forward. Everything is marked instead
+    /// when the record cannot state the move as every row moving by one
+    /// count: the scrollback rewrapped lines as the view reached them, so
+    /// lines changed as well as moved, or the screen is in a state that
+    /// [`records_moves`](Self::records_moves) leaves out.
+    fn view_moved(&mut self, was: (usize, usize)) {
+        let now = self.scrollback.offset();
+        if self.scrollback.len() != was.1 || !self.records_moves() {
+            self.damage.mark_all();
+        } else if now > was.0 {
+            self.damage.scroll_down(now.saturating_sub(was.0));
+        } else {
+            self.damage.scroll_up(was.0.saturating_sub(now));
+        }
+    }
+
+    /// Whether a move of every row in view can go into the scroll record.
+    /// It cannot on the alternate screen, nor while a selection, the
+    /// link's overlay row or the labels of link hints are shown, since
+    /// those stay where they are while the rows move, or change with them.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "A scroll record in every build": the scrolls the
+    ///   record leaves out and marks as before.
+    fn records_moves(&self) -> bool {
+        !self.flags.alternate
+            && !self.selection.is_active()
+            && self.hover.overlay.is_none()
+            && self.hover.hints.is_empty()
+            && self.damage.rows() == self.rows
     }
 
     /// Resizes the screen to `cols` by `rows`, as
@@ -1389,6 +1430,31 @@ impl Screen {
             self.damage.mark_all();
         } else {
             self.damage.mark_rows(rows);
+        }
+    }
+
+    /// Marks the rows in `rows` after their lines moved `n` rows, up or
+    /// down, as SU, SD, a line feed and a reverse index move them. A move
+    /// of every row on the main screen, with the view on the screen, goes
+    /// into the scroll record, which keeps each row's ages with its line
+    /// and marks every row by position. Any other move marks the rows as
+    /// `mark_rows` does: a region between the top and bottom margins, the
+    /// alternate screen, and the states that
+    /// [`records_moves`](Self::records_moves) leaves out.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "A scroll record in every build": which scrolls the
+    ///   record counts, and that the others mark every row they touch.
+    fn mark_moved(&mut self, rows: Range<usize>, n: usize, up: bool) {
+        let whole = rows.start == 0 && rows.end == self.rows;
+        if whole && self.scrollback.offset() == 0 && self.records_moves() {
+            if up {
+                self.damage.scroll_up(n);
+            } else {
+                self.damage.scroll_down(n);
+            }
+        } else {
+            self.mark_rows(rows);
         }
     }
 }
