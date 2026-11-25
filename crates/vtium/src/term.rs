@@ -86,6 +86,11 @@ pub struct Term {
     /// The time from each key to the present of the frame that carries its
     /// echo.
     echoes: Echoes,
+    /// The most rows of history above the screen that a view of this term
+    /// asked its frames to hold: the overscan's, or the rows the spare lines
+    /// above its grid show. The frames taken for every view hold as many.
+    #[cfg(feature = "scroll-pan")]
+    rows_above: usize,
 }
 
 /// How many keys' send times a term keeps. A display whose last frame
@@ -150,6 +155,8 @@ impl Term {
             sent_at: [None; KEYS_KEPT],
             answered: 0,
             echoes: Echoes::default(),
+            #[cfg(feature = "scroll-pan")]
+            rows_above: 0,
         }
     }
 
@@ -394,11 +401,70 @@ pub struct Snapshot {
     /// rebuilds reads its cells through.
     #[cfg(feature = "bidi")]
     order: vtium_term::Order,
+    /// The rows of history above the screen, top to bottom, which the
+    /// renderer draws into the spare lines above the grid and whose ink
+    /// reaches the screen's top row.
+    #[cfg(feature = "scroll-pan")]
+    above: Above,
+}
+
+/// What a snapshot holds of the rows of history above the screen, as the
+/// screen's frame hands them: each row's line, its selected columns, its
+/// order, and the pictures on every row the frame holds.
+///
+/// References:
+/// - ADR-1310 D2, "What the capture holds under `scroll-pan`": the K+1 rows above the screen always, where they exist.
+/// - ADR-1310 D10: the spare lines above the grid show the rows above, as many as fit.
+#[cfg(feature = "scroll-pan")]
+#[derive(Default)]
+struct Above {
+    lines: Vec<Line>,
+    selection: Vec<Range<usize>>,
+    #[cfg(feature = "images")]
+    placements: Vec<vtium_image::FramePlacement>,
+    #[cfg(feature = "bidi")]
+    order: vtium_term::Order,
 }
 
 impl Snapshot {
     /// What `terminal`'s view shows now.
     pub fn take(terminal: &Terminal) -> Snapshot {
+        #[cfg(feature = "scroll-pan")]
+        return Self::take_reaching(terminal, 0);
+        #[cfg(not(feature = "scroll-pan"))]
+        Self::take_frame(terminal)
+    }
+
+    /// What `terminal`'s view shows now, with the `above` rows of history
+    /// above the screen where they exist, and one more for the ink of the
+    /// row above the last.
+    ///
+    /// References:
+    /// - ADR-1310 D2: the rows the snapshot asks for, and one more for the ink of the rows next to them.
+    #[cfg(feature = "scroll-pan")]
+    pub fn take_reaching(terminal: &Terminal, above: usize) -> Snapshot {
+        let mut taken = Self::take_frame(terminal);
+        if above > 0 {
+            let palette = terminal.palette();
+            let reach = vtium_term::Reach {
+                above,
+                ..vtium_term::Reach::default()
+            };
+            let frame = terminal.screen().frame_reaching(palette, Age::NEVER, reach);
+            taken.above = Above {
+                lines: frame.lines_above().iter().map(|&l| l.clone()).collect(),
+                selection: frame.selection_beyond().0.to_vec(),
+                #[cfg(feature = "images")]
+                placements: frame.placements_beyond().to_vec(),
+                #[cfg(feature = "bidi")]
+                order: frame.order_beyond().0.clone(),
+            };
+        }
+        taken
+    }
+
+    /// What `terminal`'s view shows now, the screen's rows alone.
+    fn take_frame(terminal: &Terminal) -> Snapshot {
         let screen = terminal.screen();
         let palette = terminal.palette().clone();
         let frame = screen.frame(&palette, Age::NEVER);
@@ -431,6 +497,8 @@ impl Snapshot {
             placements,
             #[cfg(feature = "bidi")]
             order,
+            #[cfg(feature = "scroll-pan")]
+            above: Above::default(),
         }
     }
 
@@ -456,6 +524,19 @@ impl Snapshot {
         // cell is, so only the cells take the order
         #[cfg(feature = "bidi")]
         let frame = frame.with_order(self.order.clone());
+        // the rows of history above the screen
+        #[cfg(feature = "scroll-pan")]
+        let frame = {
+            let above = &self.above;
+            let frame = frame
+                .with_rows_beyond(above.lines.iter().collect(), Vec::new())
+                .with_selection_beyond(above.selection.clone(), Vec::new());
+            #[cfg(feature = "images")]
+            let frame = frame.with_placements_beyond(above.placements.clone());
+            #[cfg(feature = "bidi")]
+            let frame = frame.with_order_beyond(above.order.clone(), vtium_term::Order::default());
+            frame
+        };
         frame
     }
 }
@@ -1804,13 +1885,40 @@ impl View {
             video.give_back(token);
             return Prepared::Nothing;
         };
+        // The frames hold the rows of history above the screen that this
+        // view's spare lines show, or the overscan's, and as many as any
+        // other view of the term asked for, since one snapshot serves them
+        // all. The screen learns the reach before the snapshot is taken,
+        // so a change of width rewraps the rows the capture holds.
+        #[cfg(feature = "scroll-pan")]
+        {
+            let screen = term.terminal.screen();
+            let asked = drawing
+                .renderer
+                .rows_above_asked((screen.cols(), screen.rows()));
+            term.rows_above = term.rows_above.max(asked);
+        }
         let (snapshot, upto) = snapshot.get_or_insert_with(|| {
+            #[cfg(feature = "scroll-pan")]
+            #[cfg_attr(not(feature = "images"), expect(unused_mut, reason = "no pictures"))]
+            let mut taken = {
+                let reach = vtium_term::Reach {
+                    above: term.rows_above,
+                    ..vtium_term::Reach::default()
+                };
+                term.terminal.screen_mut().set_reach(reach);
+                Snapshot::take_reaching(&term.terminal, term.rows_above)
+            };
+            #[cfg(not(feature = "scroll-pan"))]
             #[cfg_attr(not(feature = "images"), expect(unused_mut, reason = "no pictures"))]
             let mut taken = Snapshot::take(&term.terminal);
             // Each animated picture shows the frame the clock chose.
             #[cfg(feature = "images")]
             term.animation
                 .show(&mut taken.placements, term.terminal.screen().images());
+            #[cfg(all(feature = "images", feature = "scroll-pan"))]
+            term.animation
+                .show(&mut taken.above.placements, term.terminal.screen().images());
             (Arc::new(taken), term.terminal.screen_mut().checkpoint())
         });
         let since = std::mem::replace(&mut self.since, *upto);
@@ -2175,6 +2283,43 @@ mod tests {
 
     const ID: DisplayId = DisplayId(1);
     const SIZE: (u32, u32) = (36, 34);
+
+    // The snapshot holds the rows of history above the screen that its
+    // views ask for, and one more for the ink of the row above the last,
+    // each with its text; none before the screen has history, and none on
+    // the alternate screen.
+    //
+    // References:
+    // - ADR-1310 D2, "What the capture holds under `scroll-pan`": the K+1 rows above, where they exist.
+    #[cfg(feature = "scroll-pan")]
+    #[test]
+    fn a_snapshot_holds_the_rows_above_the_screen_that_its_views_ask_for() {
+        let mut t = Terminal::new(4, 3, 1000);
+        t.screen_mut().set_scrollback_max(100);
+        let held = |t: &Terminal| {
+            let s = Snapshot::take_reaching(t, 4);
+            let frame = s.frame(Age::NEVER);
+            let text = |row: isize| -> String {
+                (0..2)
+                    .filter_map(|c| frame.cell_at(row, c))
+                    .map(|c| match c.glyph {
+                        vtium_term::Glyph::Char(c) => c,
+                        _ => ' ',
+                    })
+                    .collect()
+            };
+            (frame.rows_above(), text(-1), text(-5))
+        };
+        assert_eq!(held(&t).0, 0, "no history yet");
+        for i in 0..20 {
+            t.input(format!("{i:02}\r\n").as_bytes());
+        }
+        // the screen shows 18, 19 and the cursor's empty line
+        assert_eq!(held(&t), (5, "17".into(), "13".into()));
+        assert_eq!(Snapshot::take(&t).frame(Age::NEVER).rows_above(), 0);
+        t.input(b"\x1b[?1049h");
+        assert_eq!(held(&t).0, 0, "the alternate screen");
+    }
 
     // A display's view hands the head's color table to its renderer at
     // the next draw, and to each renderer a rebuild makes after it; the

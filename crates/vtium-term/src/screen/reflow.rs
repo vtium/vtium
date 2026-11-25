@@ -48,8 +48,6 @@ use core::mem;
 
 use super::Screen;
 use super::selection::Anchor;
-#[cfg(feature = "rows-beyond")]
-use crate::bounds::ROWS_MAX;
 use crate::cell::{Cell, Width};
 use crate::line::{IndexMap, Line, LineFlags, LineId, LineSize, SizedRun};
 use crate::style::Style;
@@ -576,9 +574,10 @@ impl Screen {
         #[cfg(not(feature = "images"))]
         let margin = rows;
         // and the rows a frame can capture above the screen, which must
-        // exist at the new width for it to hold them
+        // exist at the new width for it to hold them: as many as the
+        // capture's holder asks for
         #[cfg(feature = "rows-beyond")]
-        let margin = margin.saturating_add(ROWS_MAX.saturating_add(1));
+        let margin = margin.saturating_add(self.reach_margin());
         #[cfg(feature = "images")]
         self.images_give_anchors();
         let taken = self

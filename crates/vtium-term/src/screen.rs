@@ -213,6 +213,11 @@ pub struct Screen {
     /// takes (ADR-1004 D2; `paragraph.rs`).
     #[cfg(feature = "bidi")]
     paragraph: LineFlags,
+    /// The reach of the last capture its holder asked for, which sets how
+    /// many rows of the scrollback above the screen a change of width
+    /// rewraps at once; `None` until the holder tells it.
+    #[cfg(feature = "rows-beyond")]
+    reach: Option<Reach>,
 }
 
 impl Screen {
@@ -259,6 +264,8 @@ impl Screen {
             images: vtium_image::Store::new(),
             #[cfg(feature = "bidi")]
             paragraph: LineFlags::empty(),
+            #[cfg(feature = "rows-beyond")]
+            reach: None,
         };
         for _ in 0..rows {
             let line = screen.new_line(cols, &Style::DEFAULT);
@@ -769,6 +776,35 @@ impl Screen {
             crate::order::Order::new(order_below),
         );
         frame
+    }
+
+    /// The holder of the frames tells the screen the reach it asks
+    /// [`frame_reaching`](Self::frame_reaching) for. A change of width then
+    /// rewraps at once only the rows of the scrollback above the screen
+    /// that such a capture can hold, one row past the farthest it asks for
+    /// on a side, instead of [`ROWS_MAX`] + 1 rows. A capture that asks for
+    /// more than the reach told last may find fewer rows above the screen
+    /// until the view moves, so the holder tells the reach before it takes
+    /// the frame.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "What the capture holds under `scroll-pan`": the rows above that the capture always holds.
+    #[cfg(feature = "rows-beyond")]
+    pub fn set_reach(&mut self, reach: Reach) {
+        self.reach = Some(reach);
+    }
+
+    /// How many rows of the scrollback above the screen a change of width
+    /// rewraps at once for a capture: one past the farthest row the reach
+    /// told last asks for on a side, or [`ROWS_MAX`] + 1 before the holder
+    /// told one.
+    #[cfg(feature = "rows-beyond")]
+    pub(super) fn reach_margin(&self) -> usize {
+        self.reach
+            .map_or(ROWS_MAX, |r| {
+                r.above.max(r.below).max(r.spare).min(ROWS_MAX)
+            })
+            .saturating_add(1)
     }
 
     /// How many rows [`frame_reaching`](Self::frame_reaching) captures
@@ -1634,4 +1670,53 @@ impl Screen {
 /// A tab stop every eighth column, from the first.
 fn default_tabs(cols: usize) -> Vec<bool> {
     (0..cols).map(|c| c & 7 == 0).collect()
+}
+
+#[cfg(all(test, feature = "rows-beyond"))]
+mod reach_told {
+    use super::Reach;
+    use crate::{Age, Palette, Terminal};
+
+    // ADR-1310 D2: once the holder of the frames tells the screen the
+    // reach it asks for, a change of width rewraps at once only the rows
+    // above the screen that such a capture holds, and the capture still
+    // holds them all; before the holder tells one, every row a capture can
+    // ask for is rewrapped.
+    #[test]
+    fn a_change_of_width_rewraps_the_rows_the_told_reach_asks_for() {
+        let palette = Palette::default();
+        let told = Reach {
+            above: 2,
+            ..Reach::default()
+        };
+        let more = Reach {
+            above: 10,
+            ..Reach::default()
+        };
+        let lines = |t: &mut Terminal| {
+            t.screen_mut().set_scrollback_max(100);
+            for i in 0..20 {
+                t.input(format!("{i:02}xx\r\n").as_bytes());
+            }
+        };
+        let mut t = Terminal::new(4, 3, 1000);
+        lines(&mut t);
+        t.screen_mut().set_reach(told);
+        t.screen_mut().resize(8, 3);
+        let frame = t.screen().frame_reaching(&palette, Age::NEVER, told);
+        assert_eq!(frame.rows_above(), 3, "the told reach's rows and one more");
+        // the scrollback rewraps the screen's 3 rows, which a taller screen
+        // would take back, and the told reach's 3 rows: none past them
+        let frame = t.screen().frame_reaching(&palette, Age::NEVER, more);
+        assert_eq!(frame.rows_above(), 6, "no row past them is rewrapped yet");
+        let mut t = Terminal::new(4, 3, 1000);
+        lines(&mut t);
+        t.screen_mut().resize(8, 3);
+        let frame = t.screen().frame_reaching(&palette, Age::NEVER, more);
+        assert_eq!(
+            frame.rows_above(),
+            11,
+            "with no reach told, every row asked"
+        );
+    }
 }
