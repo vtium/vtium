@@ -99,7 +99,7 @@ FAKE_VT_LINE = "vt: no VTs: using a fake VT"
 VT_LINE = "vt: using tty "
 
 # vtium's log line when no display came within display-wait under open
-# (crates/vtium/src/app.rs).
+# (crates/vtium/src/app/turn.rs).
 NO_DISPLAY_LINE = re.compile(r"no display appeared within (\d+) s")
 # The cell of each head's display in two-heads.conf, by connector: the cell
 # the frit of each head's look states, desk's 8x16 on the first output and
