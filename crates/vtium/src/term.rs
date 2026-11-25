@@ -448,6 +448,10 @@ pub struct Snapshot {
 #[cfg(feature = "scroll-pan")]
 #[derive(Default)]
 struct Above {
+    /// How many rows above the screen the snapshot asked for. The frame
+    /// holds one more where it exists, and fewer where the history holds
+    /// fewer.
+    asked: usize,
     lines: Vec<Line>,
     selection: Vec<Range<usize>>,
     #[cfg(feature = "images")]
@@ -486,6 +490,7 @@ impl Snapshot {
             .screen()
             .frame_reaching(terminal.palette(), Age::NEVER, reach);
         let above = Above {
+            asked: above,
             lines: frame.lines_above().iter().map(|&l| l.clone()).collect(),
             selection: frame.selection_beyond().0.to_vec(),
             #[cfg(feature = "images")]
@@ -1937,14 +1942,15 @@ impl View {
         // all. The screen learns the reach before the snapshot is taken,
         // so a change of width rewraps the rows the capture holds.
         #[cfg(feature = "scroll-pan")]
-        {
+        let asked = {
             let screen = term.terminal.screen();
             let asked = drawing
                 .renderer
                 .rows_above_asked((screen.cols(), screen.rows()));
             self.rows_above.set(asked);
             term.ask_rows_above(&self.rows_above);
-        }
+            asked
+        };
         let (snapshot, upto) = snapshot.get_or_insert_with(|| {
             #[cfg(feature = "scroll-pan")]
             #[cfg_attr(not(feature = "images"), expect(unused_mut, reason = "no pictures"))]
@@ -1969,12 +1975,22 @@ impl View {
                 .show(&mut taken.above.placements, term.terminal.screen().images());
             (Arc::new(taken), term.terminal.screen_mut().checkpoint())
         });
+        // A view that asks for more rows above than another view of the
+        // pass took the snapshot with draws this frame with the rows the
+        // snapshot holds, and draws again in the next pass, whose snapshot
+        // holds the rows it asks for.
+        #[cfg(feature = "scroll-pan")]
+        let short = asked > snapshot.above.asked;
         let since = std::mem::replace(&mut self.since, *upto);
         let whole = self.lost;
         if whole {
             self.drop_kept();
         }
         self.pending = false;
+        #[cfg(feature = "scroll-pan")]
+        if short {
+            self.pending = true;
+        }
         self.wait.taken();
         self.owed = false;
         self.unshown = false;

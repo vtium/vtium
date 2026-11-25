@@ -934,6 +934,39 @@ const SHORT: (u32, u32) = (32, 2 * 16 + 2);
 /// 9 rows.
 const TALL: (u32, u32) = (32, 2 * 16 + 8 * 16 + 2);
 
+// One snapshot serves every view of a pass, and the first view to prepare
+// takes it. When a view that asks for more rows above the screen prepares
+// after it, that view draws its frame and is pending, and the next pass
+// draws it again from a snapshot that holds the rows it asks for, though
+// nothing changed.
+//
+// References:
+// - ADR-1310 D10, "A strip taller than a row": as many rows of history as fit fill the spare lines.
+#[test]
+fn a_taller_display_that_prepares_second_draws_again_with_its_rows() {
+    let mut term = term_with_history();
+    let (mut short, mut short_video) = display(SHORT);
+    let (mut tall, mut tall_video) = display(TALL);
+    let mut views = [(&mut short, &mut short_video), (&mut tall, &mut tall_video)];
+    let first = pass(&mut term, &mut views);
+    assert_eq!((first.above.asked, held(&first)), (4, 5), "the first pass");
+    assert!(views[1].0.pending, "the tall display draws again");
+    assert!(!views[0].0.pending);
+    let tall = &mut views[1];
+    assert!(
+        tall.0
+            .draws(&term, &*tall.1, false, false, false, Instant::now()),
+        "nothing changed, and the tall display still draws"
+    );
+    let second = pass(&mut term, &mut views);
+    assert_eq!(
+        (second.above.asked, held(&second)),
+        (9, 10),
+        "the second pass"
+    );
+    assert!(!views[1].0.pending, "the tall display has its rows");
+}
+
 // The snapshot asks for the most rows above the screen that a view of the
 // term still asks for. The count goes down when the view that asked for
 // the most goes away or asks for fewer, and the screen's rewrap margin
