@@ -30,7 +30,7 @@
 //! **Requests.** A handler that needs the image helper, for a file, shared
 //! memory, PNG or zlib, leaves a request on its terminal, and the input
 //! call stops after the string that made it. Each console has one
-//! [`Helper`], vtium-platform's image host, for as long as the console
+//! `Helper`, vtium-platform's image host, for as long as the console
 //! lives, so the crashes its session counts last as long as the session
 //! (ADR-1101 D4, D8). The head hands the host each request with the
 //! console's session: the login child and the pty's owner, read again
@@ -38,7 +38,7 @@
 //! the answer goes straight back to the terminal with the pty never
 //! paused, or sends the request: then the head pauses the console's pty,
 //! watches the host's socket in the loop, so the loop wakes when the
-//! reply arrives, and starts the reply timer, [`REPLY_TIMEOUT`]. The
+//! reply arrives, and starts the reply timer, `REPLY_TIMEOUT`. The
 //! reply, its sizes checked against the request, or `FAILED` once the
 //! timer fires, goes back to the terminal, the replies it writes go to the
 //! program, and the pty resumes. The host stops its helper itself on a
@@ -63,7 +63,7 @@
 //!
 //! [`crate::app::App`] opens the program `image-helper` names once at
 //! start and makes each console's host from it
-//! ([`crate::app::App::set_image_helpers`] puts a test's stand-in in its
+//! (`App::set_image_helpers` puts a test's stand-in in its
 //! place).
 
 use crate::config::{Config, keys};
