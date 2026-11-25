@@ -92,7 +92,14 @@ fn read_resources(
         if c <= crtcs.len() && n <= connectors.len() {
             crtcs.truncate(c);
             connectors.truncate(n);
-            return Ok(Resources { crtcs, connectors });
+            return Ok(Resources {
+                crtcs,
+                connectors,
+                #[cfg(feature = "scroll-pan")]
+                max_width: 0,
+                #[cfg(feature = "scroll-pan")]
+                max_height: 0,
+            });
         }
         crtcs.resize(c, 0);
         connectors.resize(n, 0);
@@ -164,9 +171,22 @@ impl Kms for Card {
 
     fn resources(&self) -> io::Result<Resources> {
         self.noted(|| -> io::Result<Resources> {
-            read_resources(|crtcs, connectors| {
+            #[cfg_attr(
+                not(feature = "scroll-pan"),
+                expect(unused_mut, reason = "set only with scroll-pan")
+            )]
+            let mut res = read_resources(|crtcs, connectors| {
                 crate::ioctl::drm_get_resources(self.raw(), crtcs, connectors)
-            })
+            })?;
+            // The largest framebuffer comes from a GETRESOURCES that asks
+            // for no lists, so the kernel writes no ids and only counts.
+            #[cfg(feature = "scroll-pan")]
+            {
+                let card = drm_ffi::mode::get_resources(self.raw(), None, None, None, None)?;
+                res.max_width = card.max_width;
+                res.max_height = card.max_height;
+            }
+            Ok(res)
         })
     }
 

@@ -11,6 +11,14 @@
 //! takes them and the hardware cursor on the cursor plane; any other
 //! device, a device with universal planes and no atomic commits among
 //! them, uses the legacy calls and presents whole frames.
+//!
+//! In a build with `scroll-pan`, the owner can ask a display for buffers
+//! taller than the screen (`Drm2d::set_tall`). The display then shows a
+//! window of each buffer as large as the screen, and each frame's commit
+//! sets where that window starts through the primary plane's source
+//! rectangle. The display tests the window at its furthest start with a
+//! test-only commit when it makes such buffers, and keeps buffers the
+//! screen's size where the card refuses them.
 
 mod back;
 mod buffers;
@@ -36,6 +44,8 @@ use drm_ffi::{
 };
 use rustix::io::Errno;
 
+#[cfg(feature = "scroll-pan")]
+use super::Tall;
 use super::edid::{Edid, EdidId};
 use super::kms::{Connector, CrtcEvent, Dumb, Encoder, Kms, Object, Property, Request, Resources};
 use super::mode::{self, Choice, Mode, ModePolicy};
@@ -188,12 +198,21 @@ enum Scan {
 /// A DRM card's displays, drawn into the buffers `S` makes, dumb buffers
 /// by default. Outside the crate the card is a [`Card`](crate::display::Card); the tests stand
 /// one in.
+/// What a modeset staged for one display: its new buffers, where its mode
+/// needs them, and its mode's blob.
+#[cfg(feature = "scroll-pan")]
+type Staged<M> = (Option<Vec<Buffer<M>>>, u32);
+
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     card: K,
     source: S,
     /// The buffers each display keeps.
     buffers: Buffers,
+    /// The widest and the tallest framebuffer the card makes, as its
+    /// resources reported them at the last scan.
+    #[cfg(feature = "scroll-pan")]
+    max_fb: (u32, u32),
     /// Buffers a display let go of while a token for them was out, as at a
     /// modeset that gave it new ones: each stays allocated and mapped until
     /// its token comes back, and is freed then.
@@ -320,6 +339,8 @@ impl<K: Kms> Drm2d<K> {
             card,
             source: Dumbs,
             buffers: Buffers::default(),
+            #[cfg(feature = "scroll-pan")]
+            max_fb: (0, 0),
             retired: RefCell::new(Vec::new()),
             levels,
             legacy,
@@ -503,6 +524,52 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.buffers
     }
 
+    /// Asks display `id` for buffers taller than its screen, or, with
+    /// `None`, for buffers the screen's size again. Where the buffers it
+    /// holds differ from those asked for, a modeset makes new ones, and
+    /// [`Event::Redraw`] follows; while the displays are blanked, the input
+    /// that ends the blank runs that modeset. Each new ask is tried afresh:
+    /// the display tests the pan when it makes the tall buffers, and keeps
+    /// buffers the screen's size, logged once, where the card refuses them
+    /// ([`Drm2d::pans`]). A display the card drives through the legacy
+    /// calls never pans.
+    #[cfg(feature = "scroll-pan")]
+    pub fn set_tall(&mut self, id: DisplayId, tall: Option<Tall>) -> io::Result<()> {
+        let awake = self.awake;
+        let Some(o) = self.outputs.iter_mut().find(|o| o.id == id) else {
+            return Ok(());
+        };
+        if o.pan.asked == tall {
+            return Ok(());
+        }
+        o.pan.asked = tall;
+        o.pan.refused = false;
+        o.pan.proven = None;
+        if tall.is_some() && o.planes.is_none() {
+            Self::refuse_pan(
+                o,
+                "the card has only the legacy calls, which cannot move the window without a modeset",
+            );
+        }
+        let stale = o.online && o.buffers.first().is_some_and(|b| b.size != o.buffer_size());
+        if !(stale && awake) {
+            return Ok(());
+        }
+        if self.blanked {
+            self.owed = true;
+            return Ok(());
+        }
+        self.request_modeset(false)
+    }
+
+    /// Whether display `id` holds buffers taller than its screen and shows
+    /// a window of them: each token it lends then reports the buffer's size
+    /// and the screen's apart, and carries the window.
+    #[cfg(feature = "scroll-pan")]
+    pub fn pans(&self, id: DisplayId) -> bool {
+        self.output(id).is_some_and(Output::holds_tall)
+    }
+
     /// Whether a frame swapped is still waiting to reach the screen, or a
     /// frame the card refused as busy waits for the display's next vblank.
     pub fn is_flipping(&self, id: DisplayId) -> bool {
@@ -592,10 +659,15 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             o.back,
             o.ages.age(o.back),
             o.lease,
-            o.size(),
+            buffer.size,
             buffer.pitch,
             memory,
         );
+        #[cfg(feature = "scroll-pan")]
+        let token = match o.tall().filter(|_| o.holds_tall()) {
+            Some(t) => token.showing(o.size(), o.pan.window, t.turned),
+            None => token,
+        };
         o.loan = Some(loan);
         Some(token)
     }
@@ -656,11 +728,25 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.reap();
             return Err(SwapError::Dropped);
         }
+        // A frame that moves the window is presented even where nothing
+        // was drawn, since the screen shows another part of the buffer.
+        #[cfg(feature = "scroll-pan")]
+        let moved = {
+            let moved = o.holds_tall() && token.window() != o.pan.shown;
+            if o.holds_tall() {
+                o.pan.window = token.window();
+            }
+            moved
+        };
+        #[cfg(not(feature = "scroll-pan"))]
+        let moved = false;
         drop(token);
         // The frame drawn into the token's buffer is kept whatever the
         // swap's outcome: the back buffer holds it, so it counts as a frame.
-        if !damage.is_empty() {
-            let (w, h) = o.size();
+        // Its damage is in the buffer's coordinates, which on a tall buffer
+        // reach past the screen.
+        if !damage.is_empty() || moved {
+            let (w, h) = o.buffer_size();
             o.damage.add(damage, w, h);
             o.ages.drawn(o.back);
             o.fresh = true;
@@ -721,8 +807,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 // A cursor-only commit leaves the primary plane as it is,
                 // so the kernel sees no damage to it.
                 match swapped {
+                    // The damage clips are in the framebuffer's coordinates.
+                    // A commit that moves the source rectangle updates the
+                    // whole plane whatever its clips say
+                    // (`drm_atomic_helper_damage_iter_init`).
                     Swapped::Frame => {
-                        o.prepare(&mut req, o.back_fb(), o.mode_blob, clips, hotspot)?;
+                        let origin = o.frame_origin();
+                        o.prepare(&mut req, o.back_fb(), origin, o.mode_blob, clips, hotspot)?;
                     }
                     _ => o.prepare_cursor(&mut req, hotspot)?,
                 }
@@ -806,6 +897,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             o.back = o.after_back();
             o.damage.clear();
             o.fresh = false;
+            #[cfg(feature = "scroll-pan")]
+            {
+                o.pan.shown = o.pan.window;
+            }
         }
         o.cursor_committed();
         self.settle();
@@ -1687,6 +1782,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         // falls asleep, so a scan always runs under master.
         debug_assert_eq!(self.master, Master::Held, "an awake card holds DRM master");
         let res = self.card.resources()?;
+        #[cfg(feature = "scroll-pan")]
+        {
+            self.max_fb = (res.max_width, res.max_height);
+        }
         // Every connector is read before the scan changes anything, and
         // the loop is asked between the reads whether the kernel wants
         // the VT, so a release stops the scan there with nothing changed.
@@ -2186,6 +2285,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             available: true,
             announced: false,
             returning: self.scanned,
+            #[cfg(feature = "scroll-pan")]
+            pan: output::Pan::default(),
         })
     }
 
@@ -2939,14 +3040,15 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// New buffers for `o` where its mode needs them: as many as
-    /// [`Buffers`] says, cleared, the size of its mode. `None` where its
-    /// buffers already fit, so a display online keeps what it shows.
+    /// [`Buffers`] says, cleared, the size of its mode, or taller where the
+    /// display makes tall buffers. `None` where its buffers already fit, so
+    /// a display online keeps what it shows.
     fn stage(&self, o: &Output<S::Memory>) -> io::Result<Option<Vec<Buffer<S::Memory>>>> {
         let count = self.buffers.count();
         if o.buffers.len() == count && self.buffer_size_matches(o) {
             return Ok(None);
         }
-        let (w, h) = o.size();
+        let (w, h) = o.buffer_size();
         let mut made = Vec::with_capacity(count);
         for _ in 0..count {
             match self.source.create(&self.card, w, h) {
@@ -2961,6 +3063,93 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
         }
         Ok(Some(made))
+    }
+
+    /// The new buffers of `o`, as [`Self::stage`] makes them, where the
+    /// display makes tall buffers that fit the card. Tall buffers past the
+    /// largest framebuffer the card makes are refused before any is made,
+    /// and tall buffers the card fails to make are refused too. Either way
+    /// the display then makes buffers the screen's size.
+    #[cfg(feature = "scroll-pan")]
+    fn stage_tall(&self, o: &mut Output<S::Memory>) -> io::Result<Option<Vec<Buffer<S::Memory>>>> {
+        if let Some(t) = o.tall() {
+            let (w, h) = t.buffer(o.size());
+            let (most_w, most_h) = self.max_fb;
+            if w > most_w || h > most_h {
+                Self::refuse_pan(
+                    o,
+                    &format!(
+                        "its buffers would be {w}×{h}, past the largest framebuffer the card makes, {most_w}×{most_h}"
+                    ),
+                );
+            }
+        }
+        match self.stage(o) {
+            Err(e) if o.tall().is_some() && !card_removed(&e) => {
+                Self::refuse_pan(o, &format!("the card cannot make its buffers: {e}"));
+                self.stage(o)
+            }
+            made => made,
+        }
+    }
+
+    /// Gives up the tall buffers of `o` for good, until its owner asks for
+    /// other ones, and logs why once.
+    #[cfg(feature = "scroll-pan")]
+    fn refuse_pan(o: &mut Output<S::Memory>, why: &str) {
+        o.pan.refused = true;
+        o.pan.proven = None;
+        log::warn!(
+            "Display {} cannot scroll by moving its window over a tall buffer: {why}. Its buffers stay the size of its screen.",
+            o.name
+        );
+    }
+
+    /// Tests the pan of each display in the modeset `req` that is about to
+    /// show tall buffers whose pan is not yet proven: a test-only commit of
+    /// `req` with that display's window at its furthest start. Returns each
+    /// display tested, with why the card refused its pan or `None` where
+    /// the card took it. Where the card refuses `req` without the pan too,
+    /// the pan is not to blame, so that display is left out, and the
+    /// modeset fails or takes by itself.
+    #[cfg(feature = "scroll-pan")]
+    fn test_pans(
+        &self,
+        outputs: &[Output<S::Memory>],
+        staged: &[Staged<S::Memory>],
+        req: &Request,
+    ) -> Vec<(DisplayId, Option<String>)> {
+        let mut tested = Vec::new();
+        for (o, (made, _)) in outputs.iter().zip(staged) {
+            let Some(t) = o.tall() else {
+                continue;
+            };
+            let shown = made.as_deref().unwrap_or(&o.buffers);
+            let size = t.buffer(o.size());
+            if shown.first().is_none_or(|b| b.size != size) || o.pan.proven == Some(size) {
+                continue;
+            }
+            let mut test = req.clone();
+            if let Err(e) = o.prepare_origin(&mut test, o.origin(t.ring)) {
+                tested.push((o.id, Some(e.to_string())));
+                continue;
+            }
+            match self.test_commit(&test, true) {
+                Ok(()) => tested.push((o.id, None)),
+                Err(e) if self.test_commit(req, true).is_ok() => {
+                    let e = e.into_inner();
+                    tested.push((
+                        o.id,
+                        Some(format!(
+                            "the card refused a window that starts {} pixels into the buffer: {e}",
+                            t.ring
+                        )),
+                    ));
+                }
+                Err(_) => {}
+            }
+        }
+        tested
     }
 
     /// The framebuffer a modeset puts on the primary plane: the first of
@@ -3000,7 +3189,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     fn buffer_size_matches(&self, o: &Output<S::Memory>) -> bool {
-        o.buffers.first().is_some_and(|b| b.size == o.size())
+        o.buffers.first().is_some_and(|b| b.size == o.buffer_size())
     }
 
     fn free_buffers(&self, o: &mut Output<S::Memory>) {
@@ -3337,19 +3526,26 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             o.dpms = o.dpms.map(|(prop, _)| (prop, Dpms::On));
         }
         let mut prepared = Ok(());
-        for o in &outputs {
+        for o in &mut outputs {
             log::info!(
                 "preparing the modeset of {} at {}x{}",
                 o.name,
                 o.size().0,
                 o.size().1
             );
-            prepared = self.stage(o).and_then(|made| {
+            #[cfg(feature = "scroll-pan")]
+            let made = self.stage_tall(o);
+            #[cfg(not(feature = "scroll-pan"))]
+            let made = self.stage(o);
+            let o = &*o;
+            prepared = made.and_then(|made| {
                 let fb = Self::staged_fb(o, made.as_ref());
                 match self.card.create_blob(&mode_bytes(&o.mode.0)) {
                     Ok(blob) => {
                         staged.push((made, blob));
-                        o.prepare(&mut req, fb, blob, None, self.hotspot)
+                        // The modeset shows each display's window at the
+                        // buffer's start.
+                        o.prepare(&mut req, fb, (0, 0), blob, None, self.hotspot)
                     }
                     Err(e) => {
                         self.release(made.unwrap_or_default());
@@ -3364,10 +3560,19 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         if self.card.removed() {
             prepared = Err(Errno::NODEV.into());
         }
+        #[cfg(feature = "scroll-pan")]
+        let mut pans: Vec<(DisplayId, Option<String>)> = Vec::new();
         let outcome = prepared.map_err(Failure::Other).and_then(|()| {
             let req = self.with_color(&outputs, req)?;
             if !commit {
                 return Ok(());
+            }
+            #[cfg(feature = "scroll-pan")]
+            {
+                pans = self.test_pans(&outputs, &staged, &req);
+                if pans.iter().any(|(_, why)| why.is_some()) {
+                    return Ok(());
+                }
             }
             self.card
                 .commit(
@@ -3385,6 +3590,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         });
         // A display not set keeps what it had: an online one its buffers
         // and what it shows.
+        #[cfg(feature = "scroll-pan")]
+        let pan_refused = pans.iter().any(|(_, why)| why.is_some());
+        #[cfg(feature = "scroll-pan")]
+        let set = commit && outcome.is_ok() && !pan_refused;
+        #[cfg(not(feature = "scroll-pan"))]
         let set = commit && outcome.is_ok();
         for (o, (made, blob)) in outputs.iter_mut().zip(staged) {
             if set {
@@ -3393,6 +3603,15 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 }
                 o.mode_blob = blob;
                 self.install(o, made);
+                // Every modeset shows the window at the buffer's start: the
+                // one a wake-up runs after a sleep, and a hotplug's.
+                #[cfg(feature = "scroll-pan")]
+                {
+                    o.reset_window();
+                    if pans.iter().any(|(id, _)| *id == o.id) {
+                        o.pan.proven = o.buffers.first().map(|b| b.size);
+                    }
+                }
                 o.online = true;
                 o.returning = false;
                 o.start_flip();
@@ -3414,6 +3633,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             } else if was.is_some_and(|(_, d)| d != Dpms::On) {
                 o.powered_on();
             }
+        }
+        #[cfg(feature = "scroll-pan")]
+        if pan_refused {
+            // The card refused the pan of these displays: each keeps
+            // buffers the screen's size from now on, and the modeset runs
+            // again with them. Each run refuses at least one more display's
+            // pan, so this ends.
+            for o in outputs.iter_mut() {
+                if let Some((_, Some(why))) = pans.iter().find(|(id, _)| *id == o.id) {
+                    Self::refuse_pan(o, why);
+                }
+            }
+            self.outputs = outputs;
+            return self.atomic_modeset(dark, commit);
         }
         self.outputs = outputs;
         outcome
@@ -3786,5 +4019,7 @@ impl<K: Kms, S: Source<K>> Drop for Drm2d<K, S> {
         }
     }
 }
+#[cfg(test)]
+mod pan_tests;
 #[cfg(test)]
 mod tests;

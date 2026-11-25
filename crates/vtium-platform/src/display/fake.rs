@@ -35,7 +35,12 @@
 //! ENOSPC, as the kernel refuses it: a commit whose plane reads past its
 //! framebuffer's edge (`drm_atomic_plane_check`), and a legacy CRTC set or
 //! page flip whose framebuffer is smaller than the CRTC's mode
-//! (`drm_crtc_check_viewport`).
+//! (`drm_crtc_check_viewport`). A framebuffer wider or taller than the
+//! largest the card reports in its resources is refused with EINVAL when
+//! it is added (`drm_internal_framebuffer_create`). A card can be made to
+//! refuse a plane whose source rectangle does not start at the
+//! framebuffer's corner, with EINVAL, as a driver whose planes cannot scan
+//! out from an offset would ([`State::src_offset_refused`]).
 //!
 //! A framebuffer removed while a plane shows it takes the plane off its
 //! CRTC (`atomic_remove_fb`). What happens to the CRTC depends on the
@@ -142,6 +147,16 @@ pub(crate) struct Plane {
 /// What the card holds. Tests reach it through [`FakeCard::state`].
 #[derive(Debug, Default)]
 pub(crate) struct State {
+    /// The widest and the tallest framebuffer the card makes, as its
+    /// resources report them; [`FakeCard::new`] sets 16,384 for each, as
+    /// amdgpu reports. A card a test builds by hand leaves them at 0, and
+    /// then adds a framebuffer of any size, but drm2d makes no tall buffer
+    /// on it.
+    pub(crate) max_fb: (u32, u32),
+    /// The driver refuses a plane whose source rectangle starts anywhere
+    /// but the framebuffer's corner, with EINVAL, test-only commits
+    /// included.
+    pub(crate) src_offset_refused: bool,
     pub(crate) atomic: bool,
     pub(crate) universal: bool,
     pub(crate) hotspot: bool,
@@ -642,6 +657,7 @@ impl FakeCard {
         let card = FakeCard::default();
         {
             let mut s = card.state.borrow_mut();
+            s.max_fb = (16_384, 16_384);
             s.atomic = true;
             s.universal = true;
             s.hotspot = true;
@@ -1057,6 +1073,15 @@ fn commit_reads_past_a_framebuffer(s: &State, commit: &Commit) -> bool {
     })
 }
 
+/// Whether `commit` sets a plane's source rectangle to start anywhere but
+/// its framebuffer's corner.
+fn commit_moves_a_source_rectangle(commit: &Commit) -> bool {
+    commit
+        .props
+        .iter()
+        .any(|(_, n, v)| (n == "SRC_X" || n == "SRC_Y") && *v != 0)
+}
+
 /// Whether `commit` puts a plane or a connector on a CRTC the card does
 /// not have, which the kernel refuses with EACCES as it sets the property
 /// (`drm_atomic_plane_set_property`, `drm_atomic_connector_set_property`).
@@ -1199,6 +1224,10 @@ impl Kms for FakeCard {
         Ok(Resources {
             crtcs: s.crtcs.clone(),
             connectors: s.listed.clone(),
+            #[cfg(feature = "scroll-pan")]
+            max_width: s.max_fb.0,
+            #[cfg(feature = "scroll-pan")]
+            max_height: s.max_fb.1,
         })
     }
 
@@ -1390,7 +1419,8 @@ impl Kms for FakeCard {
             return Err(err(e));
         }
         let line = u64::from(width) * 4;
-        if u64::from(pitch) < line {
+        let past = |size: u32, most: u32| most != 0 && size > most;
+        if u64::from(pitch) < line || past(width, s.max_fb.0) || past(height, s.max_fb.1) {
             return Err(err(Errno::INVAL));
         }
         let (w, h) = *s.dumbs.get(&handle).ok_or_else(|| err(Errno::NOENT))?;
@@ -1515,6 +1545,9 @@ impl Kms for FakeCard {
         }
         if commit_reads_past_a_framebuffer(&s, &commit) {
             return Err(err(Errno::NOSPC));
+        }
+        if s.src_offset_refused && commit_moves_a_source_rectangle(&commit) {
+            return Err(err(Errno::INVAL));
         }
         if commit_puts_a_plane_on_a_crtc_it_cannot_drive(&s, &commit) {
             return Err(err(Errno::INVAL));
@@ -1904,6 +1937,26 @@ mod tests {
     const CONN: u32 = 41;
     const CRTC: u32 = 100;
     const PRIMARY_PLANE: u32 = 300;
+
+    // A framebuffer wider or taller than the largest the card reports is
+    // refused when it is added, as `drm_internal_framebuffer_create` refuses
+    // it, and one that fits is taken.
+    #[test]
+    fn a_framebuffer_past_the_largest_is_refused() {
+        let card = FakeCard::new(&[(CONN, vec![mode(640, 480, 60, true)])]);
+        card.state().max_fb = (1000, 900);
+        for (w, h, taken) in [(1000, 900, true), (1001, 8, false), (8, 901, false)] {
+            let dumb = card.create_dumb(w, h).expect("a dumb buffer");
+            let added = card.add_fb(dumb.handle, dumb.pitch, w, h, 0);
+            match added {
+                Ok(_) => assert!(taken, "{w}x{h}"),
+                Err(e) => {
+                    assert!(!taken, "{w}x{h}");
+                    assert_eq!(e.raw_os_error(), Some(Errno::INVAL.raw_os_error()));
+                }
+            }
+        }
+    }
 
     /// A framebuffer of `width` by `height` over a dumb buffer its size.
     fn fb(card: &FakeCard, width: u32, height: u32) -> u32 {

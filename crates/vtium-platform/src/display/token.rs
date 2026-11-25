@@ -27,6 +27,13 @@
 //! back, as fbdev does before it lets its framebuffer go to the next VT,
 //! revokes it while it holds the memory's lock: the token draws nothing
 //! from then on.
+//!
+//! A token reports two sizes: the buffer's and the screen's. They are the
+//! same unless the display keeps buffers taller than the screen, which a
+//! build with the `scroll-pan` feature can ask for (`Tall`). Such a
+//! display shows a window of each buffer as large as the screen, and the
+//! token carries where that window starts, which the owner moves for each
+//! frame and the display commits at the swap.
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,6 +82,42 @@ impl Buffers {
     }
 }
 
+/// A buffer taller than the screen that the owner asks a display for, in a
+/// build with the `scroll-pan` feature, so that a scroll moves the window
+/// the display shows instead of the rows drawn. The buffer is the screen
+/// plus `ring` pixels long along the axis the text scrolls on: down, or
+/// across on a display turned on its side, where a row of text is a column
+/// of the buffer. The window that the display shows can then start
+/// anywhere from 0 to `ring` along that axis and still lie inside the
+/// buffer.
+///
+/// References:
+/// - ADR-1401 D2, "A buffer taller than the screen": the token's two sizes
+///   and the window it carries.
+/// - ADR-1310 D6, "The ring inside the buffer": a buffer one screen longer
+///   than the ring of drawn rows.
+#[cfg(feature = "scroll-pan")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Tall {
+    /// The ring's length in pixels, which the buffer adds to the screen's.
+    pub ring: u32,
+    /// The display is turned on its side: the buffer is wider than the
+    /// screen, and the window moves across.
+    pub turned: bool,
+}
+
+#[cfg(feature = "scroll-pan")]
+impl Tall {
+    /// The size of the buffer for a `screen` of this size.
+    pub fn buffer(self, (width, height): (u32, u32)) -> (u32, u32) {
+        if self.turned {
+            (width.saturating_add(self.ring), height)
+        } else {
+            (width, height.saturating_add(self.ring))
+        }
+    }
+}
+
 /// A display's buffer, lent for one frame. It names the buffer by its
 /// index among the display's buffers and carries the buffer's age: how
 /// many of the display's own frames ago the buffer was last drawn, 1 for
@@ -89,8 +132,17 @@ pub struct Token {
     buffer: usize,
     age: u32,
     lease: u64,
+    /// The buffer's size.
     width: u32,
     height: u32,
+    /// The screen's size, which the window shown has.
+    screen: (u32, u32),
+    /// Where the window shown starts in the buffer, along the axis the text
+    /// scrolls on, and whether that axis runs across.
+    #[cfg(feature = "scroll-pan")]
+    window: u32,
+    #[cfg(feature = "scroll-pan")]
+    turned: bool,
     lent: Lent,
     ticket: Arc<()>,
     /// Set by the display, under the memory's lock, once the token may
@@ -127,10 +179,36 @@ impl Token {
             lease: 0,
             width,
             height,
+            screen: (width, height),
+            #[cfg(feature = "scroll-pan")]
+            window: 0,
+            #[cfg(feature = "scroll-pan")]
+            turned: false,
             lent: Lent::Memory { stride, memory },
             ticket: Arc::new(()),
             revoked: Arc::default(),
         }
+    }
+
+    /// The token, for a stand-in display outside this crate, with a buffer
+    /// longer than its `screen` along the axis the text scrolls on, across
+    /// where `turned`, and the window at the buffer's start. A `screen`
+    /// larger than the buffer on either side, or one that leaves the
+    /// buffer longer than it on the other axis too, leaves the token as
+    /// it was.
+    #[cfg(feature = "scroll-pan")]
+    pub fn tall(mut self, screen: (u32, u32), turned: bool) -> Token {
+        let fits = if turned {
+            screen.0 <= self.width && screen.1 == self.height
+        } else {
+            screen.0 == self.width && screen.1 <= self.height
+        };
+        if fits {
+            self.screen = screen;
+            self.turned = turned;
+            self.window = 0;
+        }
+        self
     }
 
     /// A token for `buffer`, a dma-buf, for a stand-in display outside this
@@ -145,10 +223,25 @@ impl Token {
             lease: 0,
             width,
             height,
+            screen: (width, height),
+            #[cfg(feature = "scroll-pan")]
+            window: 0,
+            #[cfg(feature = "scroll-pan")]
+            turned: false,
             lent: Lent::DmaBuf(buffer),
             ticket: Arc::new(()),
             revoked: Arc::default(),
         }
+    }
+
+    /// The token, from a display whose buffer is longer than its `screen`,
+    /// with the window that display shows now starting at `window`.
+    #[cfg(feature = "scroll-pan")]
+    pub(crate) fn showing(mut self, screen: (u32, u32), window: u32, turned: bool) -> Token {
+        self.screen = screen;
+        self.turned = turned;
+        self.window = window.min(self.last_window());
+        self
     }
 
     /// The token with `lease`, the stand-in display's lease when it lent
@@ -178,9 +271,57 @@ impl Token {
         self.age
     }
 
-    /// The buffer's size in pixels.
+    /// The buffer's size in pixels. It is the screen's size, apart from a
+    /// display that keeps a buffer taller than the screen (`Tall`).
     pub fn size(&self) -> (u32, u32) {
         (self.width, self.height)
+    }
+
+    /// The screen's size in pixels: the size of the window of the buffer
+    /// that the display shows.
+    pub fn screen(&self) -> (u32, u32) {
+        self.screen
+    }
+
+    /// Where the window the display shows starts in the buffer, in pixels
+    /// along the axis the text scrolls on: down from the buffer's top, or
+    /// across from its left edge on a display turned on its side. It is 0
+    /// for a buffer the screen's size.
+    #[cfg(feature = "scroll-pan")]
+    pub fn window(&self) -> u32 {
+        self.window
+    }
+
+    /// Whether the window moves across the buffer, as on a display turned
+    /// on its side, rather than down it.
+    #[cfg(feature = "scroll-pan")]
+    pub fn turned(&self) -> bool {
+        self.turned
+    }
+
+    /// The furthest the window can start and still lie inside the buffer:
+    /// how much longer the buffer is than the screen along the axis the
+    /// text scrolls on.
+    #[cfg(feature = "scroll-pan")]
+    pub fn last_window(&self) -> u32 {
+        if self.turned {
+            self.width.saturating_sub(self.screen.0)
+        } else {
+            self.height.saturating_sub(self.screen.1)
+        }
+    }
+
+    /// Moves the window the display shows to start at `at`, which the swap
+    /// commits with the frame. Returns whether it did: a window past
+    /// [`Token::last_window`] would show memory past the buffer's end, and
+    /// the token keeps the window it had.
+    #[cfg(feature = "scroll-pan")]
+    pub fn set_window(&mut self, at: u32) -> bool {
+        let fits = at <= self.last_window();
+        if fits {
+            self.window = at;
+        }
+        fits
     }
 
     /// Calls `draw` with the buffer as a canvas in XRGB8888, and returns
@@ -203,6 +344,9 @@ impl Token {
             pixels,
             width: self.width,
             height: self.height,
+            screen: self.screen,
+            #[cfg(feature = "scroll-pan")]
+            window: self.window,
             stride,
             age: self.age,
         }))
@@ -237,6 +381,7 @@ impl fmt::Debug for Token {
             .field("age", &self.age)
             .field("lease", &self.lease)
             .field("size", &(self.width, self.height))
+            .field("screen", &self.screen)
             .finish_non_exhaustive()
     }
 }
@@ -286,6 +431,11 @@ impl Loan {
             lease,
             width,
             height,
+            screen: (width, height),
+            #[cfg(feature = "scroll-pan")]
+            window: 0,
+            #[cfg(feature = "scroll-pan")]
+            turned: false,
             lent: Lent::Memory { stride, memory },
             ticket,
             revoked,
@@ -430,6 +580,28 @@ mod tests {
         assert_eq!(token.draw(|_| ()), None);
         let memory_token = Token::new(DisplayId(2), (2, 2), 8, 0, memory(16));
         assert!(memory_token.dma_buf().is_none());
+    }
+
+    // A stand-in's tall token reports the buffer's size and the screen's
+    // apart, and keeps its window inside the buffer, down or across. A
+    // screen that does not fit the buffer leaves the token as it was.
+    #[cfg(feature = "scroll-pan")]
+    #[test]
+    fn a_tall_token_reports_two_sizes_and_keeps_its_window_inside() {
+        let down = Token::new(DisplayId(1), (4, 10), 16, 0, memory(160)).tall((4, 6), false);
+        assert_eq!(
+            (down.size(), down.screen(), down.last_window()),
+            ((4, 10), (4, 6), 4)
+        );
+        let mut across = Token::new(DisplayId(1), (10, 4), 40, 0, memory(160)).tall((6, 4), true);
+        assert_eq!((across.turned(), across.last_window()), (true, 4));
+        assert!(across.set_window(4));
+        assert!(!across.set_window(5));
+        assert_eq!(across.window(), 4);
+        let canvas = across.draw(|c| (c.width, c.screen, c.window));
+        assert_eq!(canvas, Some((10, (6, 4), 4)));
+        let wrong = Token::new(DisplayId(1), (4, 10), 16, 0, memory(160)).tall((3, 6), false);
+        assert_eq!((wrong.screen(), wrong.last_window()), ((4, 10), 0));
     }
 
     #[test]
