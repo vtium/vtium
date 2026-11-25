@@ -1,5 +1,5 @@
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
- draft workstation · 1 change · no problems                      text preview · live trial in Looks
+ draft workstation · 1 change · no problems                      text preview · trial: Fonts, Looks
 ----------------------------------------------------------------------------------------------------
  Settings › Fonts and text
 
@@ -22,9 +22,9 @@
  Press Enter to type a setting's value, or to pick it from a list when the setting takes a fixed
  set of values. Leave a typed value empty to use the default.
  The console's font. The value is the name of a font set (a frit file, `NAME.vtfrit` in
- `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with `font-engine = psf`
- the path of a PSF font; vtium then uses that one font. When unset, vtium uses the font from
- vconsole.conf, or else the font set `terminus`. If vtium cannot find the font, it uses its …
+ `/etc/vtium/fonts`). It can also be the name of a kbd console font, or the absolute path of a font
+ file, such as a PSF, BDF or TrueType font; vtium then uses that one font. When unset, vtium uses
+ the font from vconsole.conf, or else the font set `terminus`. If vtium cannot find the font, it …
 
 ----------------------------------------------------------------------------------------------------
  ↑↓ move  Enter change  Esc back  q quit  . more 1/3

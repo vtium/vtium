@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "settings.section.list at 80×25, keys: 5 Down Enter Enter"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
- draft mine · no changes · no problems       text preview · live trial in Looks
+ draft mine · no changes · no problems       text preview · trial: Fonts, Looks
 --------------------------------------------------------------------------------
  Settings › Colors › palette
 

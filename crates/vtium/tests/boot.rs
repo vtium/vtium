@@ -7462,6 +7462,181 @@ fn osc_50_names_a_path_and_a_family_and_switches_back_to_each() {
     }
 }
 
+/// A font that root installed and trusts, as OSC 50's four checks see it:
+/// a copy of `fixture` at `fonts/sub/<name>` in a scratch folder `scratch`,
+/// whose folders only their owner can write. The console's batch lists the
+/// copy, under the trust rule of the account the test runs as below the
+/// scratch folder. The batch is read on this thread before the console
+/// starts, so the console keeps it. The real font helper serves the
+/// console, and the kind of each frame it sends goes to the kinds file.
+/// The result is the scratch folder, the sources, the `--font-paths`
+/// argument that names `fonts`, the copy's path and the kinds file.
+fn a_qualifying_font(
+    scratch: &str,
+    fixture: &Path,
+    name: &str,
+) -> (Scratch, Sources, String, String, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Scratch::new(&format!("boot-qualifying-{scratch}"));
+    let sub = dir.join("fonts/sub");
+    std::fs::create_dir_all(&sub).expect("the folders");
+    for folder in [dir.to_path_buf(), dir.join("fonts"), sub.clone()] {
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("0755");
+    }
+    let file = sub.join(name);
+    std::fs::copy(fixture, &file).expect("the font");
+    let batch = dir.join("batch.conf");
+    std::fs::write(&batch, format!("{}\n", file.display())).expect("the batch");
+    let me = rustix::process::geteuid().as_raw();
+    let places = vtium_settings::batch::Places {
+        file: batch,
+        vconsole_conf: PathBuf::from("/dev/null"),
+        cmdline: PathBuf::from("/dev/null"),
+        palettes: dir.to_path_buf(),
+        ..vtium_settings::batch::Places::system()
+    };
+    let _ = vtium::font::load_batch(
+        &places,
+        &vtium::font::trust().below(&dir),
+        vtium_settings::cullet::Rule::new(vtium_settings::Trust::owner(me)).below(&dir),
+    );
+    let kinds = dir.join("kinds");
+    let fonts = Sources {
+        frits: dir.join("frits"),
+        helper: Some(real_helper(&kinds, None)),
+        ..no_fonts()
+    };
+    let paths = format!("--font-paths={}", dir.join("fonts").display());
+    let path = file.display().to_string();
+    (dir, fonts, paths, path, kinds)
+}
+
+/// A PSF2 console font of Terminus, 16×32, compressed with gzip.
+fn terminus_psf() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../vtium-font/tests/fixtures/ter-v32n.psf.gz")
+}
+
+// A program switches the console to an outline font by the path of its
+// `.ttf` file, which root installed and activated. vtium makes a font set
+// whose one source reads the file as an outline font, and the real font
+// helper draws it: the console takes the outline font's own 9×16 cell at
+// 16 pixels, where the built-in font's is 8×16, and the helper sends the
+// glyphs the screen shows.
+//
+// References:
+// - ADR-1200 D5, "A qualifying font": OSC 50 takes the path of a font that
+//   passes the four checks, and builds a one-source frit for it.
+// - ADR-1200 D1: `outline:` reads an outline font, and `file:` only a
+//   console font.
+// covers: text.font-change
+#[test]
+fn osc_50_switches_to_an_outline_font_by_its_path_and_draws_from_it() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
+    let (_dir, fonts, paths, path, kinds) = a_qualifying_font("ttf", &dejavu(), "a.ttf");
+    logged();
+    let h = osc50(
+        &["--font-name=unifont", "--font-size=16", &paths],
+        &format!("\\033]50;{path}\\007"),
+        fonts,
+    );
+    let lines = logged();
+    assert_eq!(switches(&lines), [path.as_str()], "{lines:?}");
+    assert_eq!(h.app.font_name(), path);
+    assert_eq!(h.app.cells(), vec![(9, 16)], "the outline font's cell");
+    assert!(
+        !lines.iter().any(|l| l.contains("could not draw the font")),
+        "{lines:?}"
+    );
+    assert!(
+        kinds_sent(&kinds).contains(&10),
+        "the helper gave the outline font's cell: {:?}",
+        kinds_sent(&kinds)
+    );
+}
+
+// The same switch by the path of a PSF console font compressed with gzip
+// makes a font set whose source reads a console font. The helper draws it
+// in the font's own 16×32 cell.
+//
+// References:
+// - ADR-1200 D5, "A qualifying font".
+// - ADR-1200 D1: `file:` reads a PSF font, plain or compressed.
+// covers: text.font-change
+#[test]
+fn osc_50_switches_to_a_console_font_by_its_path_and_draws_from_it() {
+    let (_dir, fonts, paths, path, _kinds) =
+        a_qualifying_font("psf", &terminus_psf(), "ter-v32n.psf.gz");
+    logged();
+    let mut h = osc50(
+        &["--font-name=unifont", "--font-size=0", &paths],
+        &format!("\\033]50;{path}\\007"),
+        fonts,
+    );
+    assert!(
+        h.until(BOUND, |a| a.cells() == vec![(16, 32)]),
+        "the console font's cell: {:?}",
+        h.app.cells()
+    );
+    let lines = logged();
+    assert_eq!(switches(&lines), [path.as_str()], "{lines:?}");
+    assert_eq!(h.app.font_name(), path);
+    let cell = vtium_font::Cell {
+        width: 16,
+        height: 32,
+    };
+    let known: Vec<_> = h
+        .app
+        .frit_cells(&path)
+        .into_iter()
+        .map(|(_, a)| a)
+        .collect();
+    assert_eq!(
+        known,
+        [Ok(vtium::helper::OwnCell::Bitmap(cell))],
+        "{lines:?}"
+    );
+    assert!(
+        !lines.iter().any(|l| l.contains("could not draw the font")),
+        "{lines:?}"
+    );
+}
+
+// `font-name` names an outline font by the path of its `.ttf` file, with
+// font-engine unset and with font-engine=freetype. vtium starts in a font
+// set whose one source reads the file as an outline font, and the real
+// font helper draws it in the font's own 9×16 cell at 16 pixels.
+//
+// References:
+// - ADR-1200 D9: a path at the start becomes a one-source frit.
+// - ADR-1200 D1: `outline:` reads an outline font, and `font:` names a
+//   family alone.
+#[test]
+fn font_name_draws_an_outline_font_from_its_path() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
+    let path = std::fs::canonicalize(dejavu()).expect("the fixture");
+    let path = path.to_str().expect("a UTF-8 path");
+    for (n, engine) in [None, Some("--font-engine=freetype")]
+        .into_iter()
+        .enumerate()
+    {
+        let (_dir, fonts, kinds, _go) = outline_frit(&format!("start-path-{n}"), false);
+        let name = format!("--font-name={path}");
+        let args: Vec<&str> = [name.as_str(), "--font-size=16"]
+            .into_iter()
+            .chain(engine)
+            .collect();
+        logged();
+        let h = with_fonts(&args, fonts);
+        let lines = logged();
+        assert_eq!(h.app.font_name(), path, "{engine:?}");
+        assert_eq!(h.app.cells(), vec![(9, 16)], "{engine:?}: {lines:?}");
+        assert!(
+            kinds_sent(&kinds).contains(&10),
+            "{engine:?}: the helper gave the outline font's cell"
+        );
+    }
+}
+
 // A program asks for a font by a path that holds DEL and a right-to-left
 // override and runs to 328 bytes. vtium refuses the path, and its log line
 // shows each of those characters escaped, so the line cannot reorder or

@@ -92,7 +92,14 @@ fn read_resources(
         if c <= crtcs.len() && n <= connectors.len() {
             crtcs.truncate(c);
             connectors.truncate(n);
-            return Ok(Resources { crtcs, connectors });
+            return Ok(Resources {
+                crtcs,
+                connectors,
+                #[cfg(feature = "scroll-pan")]
+                max_width: 0,
+                #[cfg(feature = "scroll-pan")]
+                max_height: 0,
+            });
         }
         crtcs.resize(c, 0);
         connectors.resize(n, 0);
@@ -164,9 +171,27 @@ impl Kms for Card {
 
     fn resources(&self) -> io::Result<Resources> {
         self.noted(|| -> io::Result<Resources> {
-            read_resources(|crtcs, connectors| {
+            #[cfg_attr(
+                not(feature = "scroll-pan"),
+                expect(unused_mut, reason = "set only with scroll-pan")
+            )]
+            let mut res = read_resources(|crtcs, connectors| {
                 crate::ioctl::drm_get_resources(self.raw(), crtcs, connectors)
-            })
+            })?;
+            // The largest framebuffer comes from drm-ffi's `get_resources`
+            // asked for no lists. That call makes two GETRESOURCES ioctls
+            // of its own: one that reads the counts, and one with null list
+            // pointers and counts of 0, so the kernel writes no ids. A scan
+            // with `scroll-pan` thus makes two GETRESOURCES calls more than
+            // one without it: three or four in all, where the lists do not
+            // change between the reads.
+            #[cfg(feature = "scroll-pan")]
+            {
+                let card = drm_ffi::mode::get_resources(self.raw(), None, None, None, None)?;
+                res.max_width = card.max_width;
+                res.max_height = card.max_height;
+            }
+            Ok(res)
         })
     }
 

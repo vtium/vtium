@@ -821,16 +821,9 @@ fn a_font_file_whose_name_a_font_set_cannot_hold_is_not_previewed() {
     assert_eq!(frit.text, "source=outline:/f/My Font.ttf\n");
 }
 
-/// `t` in the Fonts tab tries nothing, since vtium can try a font set on
-/// its console but not a single font file, and says where to try one;
-/// `n` and `r` do nothing here.
+/// `n` and `r` do nothing in the Fonts tab.
 #[test]
-fn t_says_where_to_try_a_font_and_n_and_r_do_nothing() {
-    let mut c = console().keys(&on_font(1, &[b"t"]));
-    run(&mut c);
-    assert_eq!(c.switches(), Vec::<String>::new());
-    let screen = c.seen.clone().expect("the screen");
-    assert!(flat(&screen).contains(words::TRY_A_FONT_SET), "{screen}");
+fn n_and_r_do_nothing_in_the_fonts_tab() {
     let before = app_after(&[Key::Down]);
     for key in ['n', 'r'] {
         let after = app_after(&[Key::Down, Key::Char(key)]);
@@ -838,6 +831,247 @@ fn t_says_where_to_try_a_font_and_n_and_r_do_nothing() {
         assert_eq!(after.shared.frits(), before.shared.frits());
         assert_eq!(after.shared.message, before.shared.message);
     }
+}
+
+/// The fixture's first font, active and trusted in a system folder, so
+/// the console can try it.
+const DEJAVU: &str = "/usr/share/fonts/TTF/DejaVuSansMono.ttf";
+
+/// The TUI at 80×25 in a vtium console that draws unifont with
+/// `allow-font-ops` on, the font helper's descriptions in, after `keys`.
+fn in_vtium_after(keys: &[Key]) -> App {
+    use vtium_config::tui::input::Reply;
+    let mut app = app_after(&[]);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Font("unifont".into()),
+        Reply::Attributes,
+    ] {
+        app.event(Event::Input(Input::Reply(r)));
+    }
+    for key in keys {
+        app.event(Event::Input(Input::Key(*key)));
+    }
+    app
+}
+
+/// `t` on DejaVu Sans Mono, and the console's answer that it draws the
+/// font now: the trial counts down.
+fn trying_dejavu() -> App {
+    use vtium_config::tui::input::Reply;
+    use vtium_config::tui::model::Effect;
+    let mut app = in_vtium_after(&[Key::Down]);
+    let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        tried,
+        [
+            Effect::Write(model::switch(DEJAVU)),
+            Effect::Wait(vtium_config::tui::shot::TICK)
+        ]
+    );
+    for reply in [Reply::Font(DEJAVU.into()), Reply::Attributes] {
+        assert_eq!(app.event(Event::Input(Input::Reply(reply))), []);
+    }
+    app
+}
+
+/// `t` on a font that the console can take sends `OSC 50 ; PATH ST` with
+/// the font file's path, then the query `OSC 50 ; ? ST` and DA1, the
+/// bytes the Looks tab's trial sends for a font set's name. The message
+/// line counts down from 10 s.
+///
+/// References:
+/// - ADR-1200 D5, "Trying one font from vtium-config's Fonts tab": the
+///   bytes `t` sends and the countdown.
+#[test]
+fn t_sends_the_font_file_s_path_and_the_query() {
+    use vtium_config::tui::model::Effect;
+    let mut app = in_vtium_after(&[Key::Down]);
+    let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
+    let bytes = b"\x1b]50;/usr/share/fonts/TTF/DejaVuSansMono.ttf\x1b\\\x1b]50;?\x1b\\\x1b[c";
+    assert_eq!(
+        tried,
+        [
+            Effect::Write(bytes.to_vec()),
+            Effect::Wait(vtium_config::tui::shot::TICK)
+        ]
+    );
+    assert_eq!(model::switch(DEJAVU), bytes.to_vec());
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(words::trial_countdown("DejaVuSansMono.ttf", 10).as_str())
+    );
+}
+
+/// `k` during the countdown keeps the font: no tick puts it back, and
+/// the message line says how to keep the font after vtium-config quits.
+#[test]
+fn k_keeps_the_font_file_tried() {
+    let mut app = trying_dejavu();
+    assert_eq!(app.event(Event::Input(Input::Key(Key::Char('k')))), []);
+    for _ in 0..20 {
+        assert_eq!(app.event(Event::Timeout), []);
+    }
+    assert_eq!(app.shared.shown_font.as_deref(), Some(DEJAVU));
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(words::font_file_kept("DejaVuSansMono.ttf").as_str())
+    );
+}
+
+/// Any other key during the countdown switches the console back to the
+/// font it drew before, and does nothing else.
+#[test]
+fn any_other_key_puts_the_font_before_the_trial_back() {
+    use vtium_config::tui::model::Effect;
+    for key in [Key::Down, Key::Char('q'), Key::Enter, Key::Char('t')] {
+        let mut app = trying_dejavu();
+        let at = app.fonts.at();
+        assert_eq!(
+            app.event(Event::Input(Input::Key(key))),
+            [Effect::Write(model::switch("unifont"))],
+            "{key:?}"
+        );
+        assert_eq!(app.fonts.at(), at, "{key:?} moved the highlight");
+        assert!(
+            app.nav.trial.is_none() && app.shared.leaving.is_none(),
+            "{key:?}"
+        );
+        assert_eq!(
+            app.shared.message.as_deref(),
+            Some(words::trial_back("unifont").as_str())
+        );
+    }
+}
+
+/// The countdown's end switches the console back to the font it drew
+/// before: nine ticks count down, and the tenth sends unifont's name.
+#[test]
+fn the_countdown_s_end_puts_the_font_before_the_trial_back() {
+    use vtium_config::tui::model::Effect;
+    let mut app = trying_dejavu();
+    for left in (1..10).rev() {
+        assert_eq!(
+            app.event(Event::Timeout),
+            [Effect::Wait(vtium_config::tui::shot::TICK)]
+        );
+        assert_eq!(
+            app.shared.message.as_deref(),
+            Some(words::trial_countdown("DejaVuSansMono.ttf", left).as_str())
+        );
+    }
+    assert_eq!(
+        app.event(Event::Timeout),
+        [Effect::Write(model::switch("unifont"))]
+    );
+    assert!(app.nav.trial.is_none());
+}
+
+/// A console that answers the query with another font refused the path:
+/// the message line says that the console takes only fonts that root has
+/// installed and trusts, the trial ends, and nothing more is sent. A
+/// second `t` sends nothing and says so again. The console reads the
+/// batch only at its start and at each login, so the sentence also says
+/// that a font activated since the person logged in can be tried after
+/// the next login.
+///
+/// References:
+/// - ADR-1200 D5, "Trying one font from vtium-config's Fonts tab": a
+///   reply that names another font means that the console refused it.
+#[test]
+fn a_font_file_the_console_refuses_says_why_and_changes_nothing() {
+    use vtium_config::tui::input::Reply;
+    let mut app = in_vtium_after(&[Key::Down]);
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    for reply in [Reply::Font("unifont".into()), Reply::Attributes] {
+        assert_eq!(app.event(Event::Input(Input::Reply(reply))), []);
+    }
+    assert!(app.nav.trial.is_none());
+    assert_eq!(app.shared.shown_font.as_deref(), Some("unifont"));
+    let refused = words::font_file_refused("DejaVuSansMono.ttf");
+    assert_eq!(app.shared.message.as_deref(), Some(refused.as_str()));
+    assert!(
+        refused.ends_with(
+            " A font activated since you logged in can be tried after you log in again."
+        ),
+        "{refused}"
+    );
+    assert_eq!(app.event(Event::Input(Input::Key(Key::Char('t')))), []);
+    assert_eq!(app.shared.message.as_deref(), Some(refused.as_str()));
+    // the screen shows the sentence, through the real loop and a console
+    // that takes no font file
+    let mut c = console().keys(&on_font(1, &[b"t"]));
+    run(&mut c);
+    assert_eq!(c.switches(), [DEJAVU]);
+    assert!(c.log.contains(&format!("refuse {DEJAVU}")), "{:?}", c.log);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(flat(&screen).contains(&refused), "{screen}");
+}
+
+/// A font that the console would not take sends nothing, and `t` says
+/// why: a font that is not active, and a font in the person's own folder,
+/// which can be installed as a system font from its detail. The filter
+/// line holds no font.
+///
+/// References:
+/// - ADR-1200 D5, "Trying one font from vtium-config's Fonts tab": on a
+///   font that does not qualify, `t` sends nothing and says why.
+#[test]
+fn t_on_a_font_the_console_does_not_take_sends_nothing_and_says_why() {
+    for (downs, said) in [
+        (0, words::TRY_ON_FILTER_LINE.to_owned()),
+        (2, words::try_inactive("ter-u16n.otb")),
+        (3, words::try_inactive("NotoColorEmoji.ttf")),
+        (5, words::try_own_font("Mine-Regular.ttf")),
+    ] {
+        let mut app = in_vtium_after(&vec![Key::Down; downs]);
+        assert_eq!(app.event(Event::Input(Input::Key(Key::Char('t')))), []);
+        assert_eq!(app.shared.message.as_deref(), Some(said.as_str()));
+        assert!(app.nav.trial.is_none());
+    }
+    // vtium's own fonts are in a folder the console searches
+    let mut app = in_vtium_after(&[Key::Down; 4]);
+    let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        tried.first(),
+        Some(&vtium_config::tui::model::Effect::Write(model::switch(
+            "/usr/share/vtium/fonts/cullet-mono.otf"
+        )))
+    );
+}
+
+/// Where this terminal is not a vtium console, or the vtium console has
+/// `allow-font-ops` off, `t` says that the live trial is off and sends
+/// nothing, as the Looks tab's `t` does. It says so first, on a font the
+/// console would take and on one it would not.
+#[test]
+fn t_in_the_fonts_tab_is_off_outside_a_vtium_console() {
+    use vtium_config::tui::input::Reply;
+    for replies in [
+        vec![Reply::Version("XTerm(390)".into()), Reply::Attributes],
+        vec![Reply::Version("vtium(test)".into()), Reply::Attributes],
+    ] {
+        for downs in [1, 5] {
+            let mut app = app_after(&[]);
+            for r in replies.clone() {
+                app.event(Event::Input(Input::Reply(r)));
+            }
+            for _ in 0..downs {
+                app.event(Event::Input(Input::Key(Key::Down)));
+            }
+            assert_eq!(
+                app.event(Event::Input(Input::Key(Key::Char('t')))),
+                [],
+                "{replies:?}"
+            );
+            assert_eq!(app.shared.message.as_deref(), Some(words::TRIAL_OFF));
+            assert!(app.nav.trial.is_none());
+        }
+    }
+    // through the real loop, in a vtium console with allow-font-ops off
+    let mut c = outside().keys(&on_font(1, &[b"t"]));
+    run(&mut c);
+    assert_eq!(c.switches(), Vec::<String>::new());
 }
 
 /// The Fonts tab's key line fits on one row at 80 columns.
@@ -867,6 +1101,33 @@ fn the_fonts_tab_s_screens() {
     ] {
         for (cols, rows) in [(80, 25), (100, 30)] {
             let (screen, bytes) = shot(cols, rows, &keys);
+            golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
+        }
+    }
+}
+
+/// The Fonts tab's live trial in a vtium console with `allow-font-ops`
+/// on: DejaVu Sans Mono kept with `k`, and the sentence after the console
+/// refuses it, at 80×25 and at 100×30, as provisional goldens and `make
+/// tui-shots` pictures. The countdown itself is the scenarios' snapshot of
+/// the node `any.trial`.
+#[test]
+fn the_fonts_tab_s_trial_screens() {
+    for (name, takes, keys) in [
+        ("fonts-trial-kept", true, on_font(1, &[b"t", b"k"])),
+        ("fonts-trial-refused", false, on_font(1, &[b"t"])),
+    ] {
+        for (cols, rows) in [(80, 25), (100, 30)] {
+            let mut c = Console::vtium(cols, rows, true, "unifont")
+                .takes("unifont", (cols, rows))
+                .keys(&keys);
+            if takes {
+                c = c.takes(DEJAVU, (cols, rows));
+            }
+            let mut d = desk();
+            run_desk(&mut c, &mut d);
+            let screen = c.seen.clone().expect("the screen");
+            let bytes = c.written.get(..c.seen_at).unwrap_or_default().to_vec();
             golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
         }
     }

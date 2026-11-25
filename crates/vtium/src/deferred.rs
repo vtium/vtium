@@ -261,7 +261,7 @@ pub fn shown_index(all: &mut Vec<Shown>, variant: Variant, doubled: Option<Doubl
 /// superscript or subscript at a double size. Every build reads them, so
 /// every build draws an outline font's lines of double size from glyphs
 /// rendered at that size. A build with the bidi feature adds the joined
-/// forms and syllables those lines draw ([`read_shown`]).
+/// forms and syllables those lines draw (`read_shown`).
 pub fn read_doubled(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
     use vtium_term::Glyph;
     for row in 0..frame.rows() {

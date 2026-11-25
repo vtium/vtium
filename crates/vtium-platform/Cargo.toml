@@ -31,6 +31,16 @@ gpu = ["dep:glow", "dep:khronos-egl", "dep:libloading"]
 # each device retried from the loop's timers. Off in the minspec and
 # default builds, which link no libseat.
 libseat = ["dep:libseat"]
+# A display whose buffers are taller than the screen, or wider on a display
+# turned on its side, and which shows a window of each buffer as large as
+# the screen. A scroll then moves the window through the plane's source
+# rectangle instead of redrawing the rows. Off in the minspec build, which
+# makes every buffer the screen's size.
+#
+# References:
+# - ADR-1401 D2, "A buffer taller than the screen": the display's half.
+# - ADR-1310 D6, "Where the driver allows it": the feature that holds it.
+scroll-pan = []
 
 [dependencies]
 calloop = { version = "0.14.4", features = ["signals"] }

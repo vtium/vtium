@@ -190,6 +190,10 @@ pub struct Frame<'a> {
     /// changed since `since`, which marks every cell of the row changed.
     #[cfg(feature = "bidi")]
     paragraph_changed: Vec<bool>,
+    /// For each row with an order, whether any row of its paragraph
+    /// changed in place since `since`, as the scroll record reads it.
+    #[cfg(feature = "bidi")]
+    paragraph_in_place: Vec<bool>,
 }
 
 impl<'a> Frame<'a> {
@@ -221,6 +225,8 @@ impl<'a> Frame<'a> {
             order: Order::default(),
             #[cfg(feature = "bidi")]
             paragraph_changed: Vec::new(),
+            #[cfg(feature = "bidi")]
+            paragraph_in_place: Vec::new(),
         }
     }
 
@@ -228,28 +234,38 @@ impl<'a> Frame<'a> {
     /// screen built it. A row of a paragraph that draws in another order
     /// than it was written reads as changed in every cell whenever any row
     /// of the paragraph changed since `since` (ADR-1004 D8).
+    ///
+    /// The scroll record reads such a row the same way: it changed in
+    /// place when any row of its paragraph changed in place.
     #[cfg(feature = "bidi")]
     pub fn with_order(mut self, order: Order) -> Self {
-        let mut changed = vec![false; self.lines.len()];
-        let mut last: Option<(Range<usize>, bool)> = None;
+        let rows = self.lines.len();
+        let mut changed = vec![false; rows];
+        let mut in_place = vec![false; rows];
+        let mut last: Option<(Range<usize>, bool, bool)> = None;
         for (row, r) in order.rows() {
-            let any = match &last {
-                Some((p, any)) if *p == r.paragraph => *any,
+            let (any, here) = match &last {
+                Some((p, any, here)) if *p == r.paragraph => (*any, *here),
                 _ => {
-                    let any = r
-                        .paragraph
+                    let p = r.paragraph.clone();
+                    let any = p.clone().any(|y| self.damage.row_changed(y, self.since));
+                    let here = p
                         .clone()
-                        .any(|y| self.damage.row_changed(y, self.since));
-                    last = Some((r.paragraph.clone(), any));
-                    any
+                        .any(|y| self.damage.row_changed_in_place(y, self.since));
+                    last = Some((p, any, here));
+                    (any, here)
                 }
             };
             if let Some(slot) = changed.get_mut(row) {
                 *slot = any;
             }
+            if let Some(slot) = in_place.get_mut(row) {
+                *slot = here;
+            }
         }
         self.order = order;
         self.paragraph_changed = changed;
+        self.paragraph_in_place = in_place;
         self
     }
 
@@ -436,6 +452,58 @@ impl<'a> Frame<'a> {
         self.damage.row_changed(row, self.since)
     }
 
+    /// The rows the whole view moved since this display's age, from the
+    /// scroll record: up counting positive, down negative. A display that
+    /// kept what it drew can move its picture by this many rows, then
+    /// redraw only the rows and cells that
+    /// [`row_changed_in_place`](Self::row_changed_in_place) and
+    /// [`changed_in_place`](Self::changed_in_place) mark. `None` when the
+    /// record cannot say, as [`Damage::scrolled`] lists; the display then
+    /// redraws what [`row_changed`](Self::row_changed) and
+    /// [`FrameCell::changed`] mark, which covers every row that moved.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "A scroll record in every build": the count each
+    ///   display reads since its own buffer's age.
+    pub fn scrolled(&self) -> Option<isize> {
+        self.damage.scrolled(self.since)
+    }
+
+    /// Whether any cell of `row` still differs for this display once it
+    /// moved its picture by [`scrolled`](Self::scrolled) rows. While the
+    /// record cannot say, it is [`row_changed`](Self::row_changed).
+    pub fn row_changed_in_place(&self, row: usize) -> bool {
+        if self.scrolled().is_none() {
+            return self.row_changed(row);
+        }
+        #[cfg(feature = "bidi")]
+        if self.order.row(row).is_some() {
+            return self.paragraph_in_place.get(row).copied().unwrap_or(true);
+        }
+        self.damage.row_changed_in_place(row, self.since)
+    }
+
+    /// Whether the cell drawn at `row`, column `col` from the left still
+    /// differs for this display once it moved its picture by
+    /// [`scrolled`](Self::scrolled) rows. While the record cannot say, it
+    /// is the cell's [`FrameCell::changed`].
+    pub fn changed_in_place(&self, row: usize, col: usize) -> bool {
+        #[cfg(feature = "bidi")]
+        if self.order.row(row).is_some() {
+            let changed = if self.scrolled().is_none() {
+                &self.paragraph_changed
+            } else {
+                &self.paragraph_in_place
+            };
+            return changed.get(row).copied().unwrap_or(true);
+        }
+        let col = self.logical(row, col);
+        if self.scrolled().is_none() {
+            return self.damage.changed(row, col, self.since);
+        }
+        self.damage.changed_in_place(row, col, self.since)
+    }
+
     /// The share of each sized run that crosses `row`, ordered by column:
     /// the block of cells that one OSC 66 sequence writes, with the row of
     /// the run this line holds, the run's columns, its scale, its width,
@@ -453,7 +521,7 @@ impl<'a> Frame<'a> {
     /// The cell drawn at `row`, column `col` from the left, resolved;
     /// `None` outside the frame. A row drawn in another order than it was
     /// written shows there the cell of another logical column
-    /// ([`FrameCell::col`] in a build with the bidi feature).
+    /// (`FrameCell::col` in a build with the bidi feature).
     pub fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'a>> {
         let line = self.line(row)?;
         if col >= self.cols() {

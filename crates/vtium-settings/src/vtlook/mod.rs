@@ -16,12 +16,12 @@
 //!
 //! This part is in every build, so a build without frame filters still
 //! reads `vtlook` and says that it draws `default`. With the `filters`
-//! feature, [`read`] reads a vtlook against the filters' declarations,
-//! [`Report`] says where a vtlook fails, [`table_with`] merges a vtlook's
+//! feature, `read` reads a vtlook against the filters' declarations,
+//! `Report` says where a vtlook fails, `table_with` merges a vtlook's
 //! color filters into the one color table both drawing paths read, and
-//! [`template`] gives the built-in vtlook's text, which vtium-config writes
+//! `template` gives the built-in vtlook's text, which vtium-config writes
 //! out to start a new vtlook. A `cube` filter takes its table from a
-//! `.cube` file in [`LOOKS`], which [`read_cube`] reads once the file has
+//! `.cube` file in [`LOOKS`], which `read_cube` reads once the file has
 //! passed the [`crate::cullet::Gate`]: the batch must hold it, and it must pass the trust
 //! rule.
 //!

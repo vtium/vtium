@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "effects.filter at 100×30, keys: Tab Enter"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
- draft mine · no changes · no problems                           text preview · live trial in Looks
+ draft mine · no changes · no problems                           text preview · trial: Fonts, Looks
 ----------------------------------------------------------------------------------------------------
    ● All effects
    ○ vtlooks (filter files)

@@ -35,6 +35,7 @@ use vtium_font::spacing::{Band, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
 use vtium_settings::cullet::{self, Rule};
+use vtium_settings::fontpath::{self, path_source};
 use vtium_settings::mounts::Mounts;
 use vtium_settings::{Trust, batch};
 
@@ -872,16 +873,24 @@ pub struct Wanted {
 }
 
 impl Wanted {
-    /// The one source of the frit made on the fly for the name (ADR-1200
-    /// D9): `vconsole` for vconsole's font, `font:` for an outline family,
-    /// `file:` for a path, else `kbd:`.
+    /// The one source of the frit made on the fly for the name:
+    /// `vconsole` for vconsole's font, and for a name that starts with `/`
+    /// the source of the kind of font the file's extension names
+    /// ([`path_source`]). A family's name, from `font-engine=freetype` or
+    /// `pango`, takes `font:`, and any other name `kbd:`. A path takes the
+    /// path's source under every `font-engine`, because `font:` names a
+    /// family alone and the font helper refuses a `/` in it.
     /// The default set's name never reaches this, because [`frit_named`]
     /// refuses it when no set bears it; it reads as a kbd name.
+    ///
+    /// References:
+    /// - ADR-1200 D9: the frit made on the fly for a name no frit bears.
+    /// - ADR-1200 D1: the source forms.
     fn source(&self) -> String {
         match self.came {
             Came::Vconsole => "vconsole".to_owned(),
+            Came::Config | Came::Family if self.name.starts_with('/') => path_source(&self.name),
             Came::Family => format!("font:{}", self.name),
-            Came::Config if self.name.starts_with('/') => format!("file:{}", self.name),
             Came::Config | Came::Default => format!("kbd:{}", self.name),
         }
     }
@@ -1159,31 +1168,25 @@ pub fn by_name(
 
 /// The folders where installed outline fonts are found when `font-paths`
 /// is unset, as fontconfig's default configuration names them for the
-/// system. vtium-config's font helper searches the same list.
+/// system. vtium-settings holds the list, and vtium-config's font helper
+/// searches the same folders.
 ///
 /// References:
 /// - ADR-1200 D25: `font-paths` replaces this list.
-pub const FONT_DIRS: [&str; 2] = ["/usr/share/fonts", "/usr/local/share/fonts"];
+pub const FONT_DIRS: [&str; 2] = fontpath::SYSTEM_FONTS;
 
 /// The folders a font that OSC 50 names by its path must sit in, or below.
 /// They are the folders of `font-paths`, else [`FONT_DIRS`], then the
 /// package's font folder and kbd's console-font folders. Root installs
 /// fonts in each of them, and a fresh batch already activates the fonts in
 /// the last two. The configuration has already left out each folder of
-/// `font-paths` that is not an absolute path.
+/// `font-paths` that is not an absolute path. vtium-settings holds the
+/// rule, so vtium-config's Fonts tab searches the same folders.
 ///
 /// References:
 /// - ADR-1200 D5, "A qualifying font": the second check and its folders.
 pub fn font_folders(config: &Config) -> Vec<PathBuf> {
-    let configured: Vec<PathBuf> = match config.text(&FONT_PATHS) {
-        Some(paths) => paths.split(':').map(PathBuf::from).collect(),
-        None => FONT_DIRS.iter().map(PathBuf::from).collect(),
-    };
-    configured
-        .into_iter()
-        .chain(std::iter::once(PathBuf::from(batch::PACKAGE_FONTS)))
-        .chain(batch::CONSOLE_FONT_FOLDERS.iter().map(PathBuf::from))
-        .collect()
+    fontpath::folders(config.text(&FONT_PATHS))
 }
 
 /// Checks the folder `dir` under the trust rule `rule`, judging its
@@ -1231,18 +1234,11 @@ fn one_source(path: &str) -> Result<FritText, String> {
         came: Came::Config,
     }
     .on_the_fly();
-    let source = format!("file:{path}");
+    let source = path_source(path);
     match frit_line(&frit.text, "source") {
         Ok(Some((1, read))) if read == source => Ok(frit),
         _ => Err("the font set vtium would make for this path would name another file".to_owned()),
     }
-}
-
-/// Whether `path` is in its plain form: the form `Path` gives when it
-/// rebuilds the path from its components. Such a path has no `.`
-/// component, no `//` and no `/` at its end.
-fn plain_form(path: &Path) -> bool {
-    path.components().collect::<PathBuf>().as_os_str() == path.as_os_str()
 }
 
 /// Whether `path`, the text OSC 50 carries, names a qualifying font: one
@@ -1273,21 +1269,10 @@ fn plain_form(path: &Path) -> bool {
 /// - ADR-1205 D4: the trust rule and the batch.
 pub fn qualifying(path: &str, folders: &[PathBuf], gate: &cullet::Gate) -> Result<(), String> {
     let file = Path::new(path);
-    let plain = path.starts_with('/')
-        && plain_form(file)
-        && !file
-            .components()
-            .any(|c| c == std::path::Component::ParentDir)
-        && !path.chars().any(char::is_control)
-        && !path.contains('#')
-        && path.trim() == path;
-    if !plain {
+    if !fontpath::plain(path) {
         return Err("a font's path must be absolute and plain: no `.`, `..` or empty component, no `/` at its end, no control character, no `#`, and no space at either end".to_owned());
     }
-    let searched = folders
-        .iter()
-        .any(|dir| file != dir && file.starts_with(dir));
-    if !searched {
+    if !fontpath::inside(file, folders) {
         return Err(
             "the file is not in a folder that vtium searches for fonts: those of font-paths, the package's font folder and kbd's console-font folders".to_owned(),
         );
@@ -3108,7 +3093,8 @@ mod tests {
     }
 
     // ADR-1200 D9: a name no frit bears is a one-source frit made on the
-    // fly, named as it was named: kbd:, file:, font: or vconsole
+    // fly, named as it was named: kbd:, font: or vconsole, and a path by
+    // the kind of font its extension names, whatever font-engine says
     #[test]
     fn a_name_no_frit_bears_is_a_one_source_frit() {
         let none = Sources {
@@ -3139,6 +3125,16 @@ mod tests {
                 "source=file:/fonts/my font.psf\n".into()
             ))
         );
+        for came in [Came::Config, Came::Family] {
+            assert_eq!(
+                text("/fonts/DejaVu Sans Mono.ttf", came),
+                Ok((
+                    "/fonts/DejaVu Sans Mono.ttf".into(),
+                    "source=outline:/fonts/DejaVu Sans Mono.ttf\n".into()
+                )),
+                "{came:?}"
+            );
+        }
         assert_eq!(
             text("lat9w-16", Came::Vconsole),
             Ok(("lat9w-16".into(), "source=vconsole\n".into()))
@@ -3625,7 +3621,7 @@ mod tests {
             Chosen::Builtin { .. } => (String::new(), String::new()),
         };
         assert_eq!(name, path, "the name the query reports");
-        assert_eq!(text, format!("source=file:{path}\n"));
+        assert_eq!(text, format!("source=outline:{path}\n"));
         let at_start = frit_named(
             &sources,
             &Wanted {
@@ -3757,7 +3753,7 @@ mod tests {
         let path = "/usr/share/fonts/TTF/DejaVu Sans Mono.ttf";
         assert_eq!(
             made(path),
-            Ok((path.to_owned(), format!("source=file:{path}\n")))
+            Ok((path.to_owned(), format!("source=outline:{path}\n")))
         );
         for other in [
             "/usr/share/fonts/a#b.ttf",
@@ -3766,6 +3762,159 @@ mod tests {
             "/usr/share/fonts/a.ttf\nsource=file:/etc/passwd",
         ] {
             assert_eq!(made(other), Err(READS_ANOTHER.to_owned()), "{other:?}");
+        }
+    }
+
+    // A font file's path builds the source that reads that kind of font,
+    // by the file's extension with case ignored: `outline:` for an
+    // OpenType or TrueType file or collection, `bdf:` and `hex:` for those
+    // formats, and `file:` for a console font and any other name. A PSF or
+    // BDF font's extension may be followed by a compression's.
+    //
+    // References:
+    // - ADR-1200 D1: the source forms, and which kinds of font each reads.
+    // - ADR-1200 D5: the console decides from the path's text and opens no
+    //   font file.
+    #[test]
+    fn a_font_paths_source_follows_the_files_extension() {
+        for (path, source) in [
+            ("/f/DejaVuSansMono.ttf", "outline"),
+            ("/f/A.OTF", "outline"),
+            ("/f/NotoSansCJK-Regular.ttc", "outline"),
+            ("/f/b.otc", "outline"),
+            ("/f/ter-u16n.otb", "outline"),
+            ("/f/ter-v16n.psf.gz", "file"),
+            ("/f/ter-v16n.psf", "file"),
+            ("/f/lat9w-16.psfu.zst", "file"),
+            ("/f/ter-u16n.bdf", "bdf"),
+            ("/f/ter-u16n.bdf.xz", "bdf"),
+            ("/f/unifont.hex", "hex"),
+            ("/f/ega.cp", "file"),
+            ("/f/raw", "file"),
+            ("/f/a.ttf.d/raw", "file"),
+            ("/f/gz", "file"),
+        ] {
+            assert_eq!(path_source(path), format!("{source}:{path}"), "{path}");
+        }
+    }
+
+    // vtium-config's Fonts tab sends OSC 50 the path of a font file that
+    // it lists, and draws its own preview of that file from a font set
+    // whose source it builds by the same rule. For each extension of a file
+    // the tab lists, the console builds the source that the preview builds,
+    // so the console draws the font the tab showed.
+    //
+    // References:
+    // - ADR-1200 D5, "Trying one font from vtium-config's Fonts tab".
+    #[test]
+    fn a_font_paths_source_is_the_one_the_fonts_tab_previews() {
+        use vtium_config::discover::{COMPRESSED, COMPRESSIBLE_SUFFIXES, FONT_SUFFIXES};
+        use vtium_config::tui::fonts_found::source_of;
+        let mut names: Vec<String> = FONT_SUFFIXES.iter().map(|s| format!("a.{s}")).collect();
+        for s in COMPRESSIBLE_SUFFIXES {
+            names.extend(COMPRESSED.iter().map(|c| format!("a.{s}.{c}")));
+        }
+        for name in names {
+            for name in [name.clone(), name.to_ascii_uppercase()] {
+                let path = format!("/usr/share/fonts/{name}");
+                assert_eq!(
+                    Some(path_source(&path)),
+                    source_of(Path::new(&path)),
+                    "{path}"
+                );
+            }
+        }
+    }
+
+    /// What vtium-config's real serve mode, run in this process, answers a
+    /// sources query for the font set `text` named `generated`: an empty
+    /// text when it reads every source, one line for each source it leaves
+    /// out, and `Err` with its reason when it draws nothing. No batch is
+    /// sent, so the helper reads any file, as in vtium-config's previews.
+    #[expect(
+        clippy::unwrap_used,
+        clippy::indexing_slicing,
+        reason = "a test fails by panicking"
+    )]
+    fn served_sources(text: &str) -> Result<String, String> {
+        use vtium_config::serve;
+        let request = serve::ServeRequest {
+            kind: serve::SOURCES,
+            frit: serve::FritText {
+                name: "generated".to_owned(),
+                text: text.to_owned(),
+            },
+            cell: Cell {
+                width: 0,
+                height: 0,
+            },
+            band: vtium_font::spacing::Band::NONE,
+            style: vtium_font::Style::default(),
+            script: vtium_font::Script::Baseline,
+            doubled: None,
+            cluster_width: Default::default(),
+            codepoints: Vec::new(),
+            clusters: Vec::new(),
+            held: Vec::new(),
+            console: None,
+        };
+        let mut out = Vec::new();
+        let status = serve::serve(
+            std::io::Cursor::new(request.encode()),
+            &mut out,
+            &serve::Paths::default(),
+            std::time::Duration::from_secs(5),
+        );
+        assert_eq!(status, 0);
+        let mut rest = out.as_slice();
+        while let [k0, k1, k2, k3, l0, l1, l2, l3, tail @ ..] = rest {
+            let kind = u32::from_le_bytes([*k0, *k1, *k2, *k3]);
+            let len = u32::from_le_bytes([*l0, *l1, *l2, *l3]) as usize;
+            let text = String::from_utf8(tail[..len].to_vec()).unwrap();
+            rest = &tail[len..];
+            match kind {
+                serve::FRAME_SOURCES => return Ok(text),
+                serve::FRAME_DRAWS_NOTHING => return Err(text),
+                _ => {}
+            }
+        }
+        Err("the helper sent no answer".to_owned())
+    }
+
+    // The font set vtium makes for a font file's path is one that the
+    // real font helper reads, for an outline font, a PSF console font
+    // compressed with gzip and a BDF font. The helper's PSF reader refuses
+    // an outline font, and its outline reader a console font, so a set
+    // whose source names the wrong kind draws nothing.
+    //
+    // References:
+    // - ADR-1200 D1: the source forms, and which kinds of font each reads.
+    // - ADR-1200 D9: the one-source frit vtium makes for a path.
+    #[test]
+    fn the_font_helper_reads_the_font_set_made_for_each_kind_of_path() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        for file in [
+            "vtium-config/tests/fixtures/DejaVuSansMono-W-M-0.ttf",
+            "vtium-font/tests/fixtures/ter-v16n.psf.gz",
+            "vtium-font/data/ter-u16n.bdf",
+        ] {
+            let path = std::fs::canonicalize(root.join(file)).expect("the fixture");
+            let path = path.to_str().expect("a UTF-8 path");
+            let made = one_source(path).expect("a plain path").text;
+            assert_eq!(served_sources(&made), Ok(String::new()), "{made}");
+        }
+        let ttf = std::fs::canonicalize(
+            root.join("vtium-config/tests/fixtures/DejaVuSansMono-W-M-0.ttf"),
+        )
+        .expect("the fixture");
+        let psf = std::fs::canonicalize(root.join("vtium-font/tests/fixtures/ter-v16n.psf.gz"))
+            .expect("the fixture");
+        for wrong in [
+            format!("source=file:{}\n", ttf.display()),
+            format!("source=outline:{}\n", psf.display()),
+        ] {
+            let answer = served_sources(&wrong).expect("an answer");
+            assert!(answer.contains("\nrefused\t1\t"), "{wrong}: {answer}");
         }
     }
 

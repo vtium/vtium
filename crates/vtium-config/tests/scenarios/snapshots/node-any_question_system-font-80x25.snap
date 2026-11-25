@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "any.question.system-font at 80×25, keys: PgDn Enter Enter"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
- draft mine · no changes · no problems       text preview · live trial in Looks
+ draft mine · no changes · no problems       text preview · live trial on fonts
 --------------------------------------------------------------------------------
  Font Mine-Regular.ttf
  To install /home/user/.local/share/fonts/Mine-Regular.ttf as

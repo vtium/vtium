@@ -111,7 +111,10 @@ fn a_stand_in_ended_by_a_signal_leaves_no_core_dump() {
 
 /// The glyph helper the outline tests run: this test binary again, its
 /// [`the_helper_stand_in`] alone, which serves with vtium-config's real
-/// serve mode, so each answer is the one the real helper gives. With
+/// serve mode, so each answer is the one the real helper gives. So the
+/// stand-in reads each source with the real helper's reader of its kind,
+/// and refuses an outline font under `file:` and a console font under
+/// `outline:` as the real helper does. With
 /// `go`, a FIFO, its first answer waits until the test opens `go` to
 /// write, and the kind of each frame it sends is appended to `kinds`, one
 /// line each. The module is included as `stand_in`, the name the test

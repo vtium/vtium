@@ -14,14 +14,17 @@
 //! needs one (ADR-1200 D21, ADR-1202 D11); the helper draws it from the
 //! frit's face for that style or synthesises it, and makes a superscript
 //! or subscript glyph small from the source that draws the normal glyph.
-//! A fill is regular and normal, and fills a cell's
-//! coverage while nothing is asked: the screen's characters, then printable Latin and box drawing,
-//! then the rest, a batch at a time, a waiting ask answered before the
-//! next batch. The fill stops at the store's limit ([`crate::deferred`]),
-//! so speculative glyphs never churn the store; only an ask past the limit
-//! evicts, compacting the store by the overrun, the glyphs least recently
-//! shown leaving, and an evicted glyph is asked for again when the screen
-//! shows it.
+//! A fill is regular and normal, and fills a cell's coverage while nothing
+//! is asked: the screen's characters, then printable Latin, punctuation,
+//! arrows, box drawing and geometric shapes, then the rest, a batch at a
+//! time, a waiting ask answered before the next batch. The fill stops at
+//! the store's limit ([`crate::deferred`]), so speculative glyphs never
+//! churn the store; only an ask past the limit evicts, compacting the
+//! store by the overrun, the glyphs least recently shown leaving, and an
+//! evicted glyph is asked for again when the screen shows it. Once the
+//! helper has answered a cell's first asks, the console asks once for bold
+//! printable ASCII there while the store is under its limit, because the
+//! fill brings no bold glyph ([`BOLD_EARLY`]).
 //!
 //! The helper runs with an empty environment in `/`, in its own process
 //! group, holding only its pipes, as `nobody` when the console is root
@@ -171,6 +174,13 @@ pub const CLUSTERS_WAITING_MAX: usize = CLUSTERS_LACKED_MAX;
 /// a program that writes faster than the helper answers grows no queue.
 // One ask a cell a turn, a few cells at most; 64 is many turns of a busy screen behind.
 pub const ASKS_MAX: usize = 64;
+/// The characters the console asks for in bold at a cell once the helper
+/// has answered every ask sent at that cell: printable ASCII, U+0021 to
+/// U+007E. A program's interface shows its bold text in these characters
+/// most often, and the background fill draws regular glyphs alone, so
+/// without this ask each bold character would wait for the screen to show
+/// it.
+pub const BOLD_EARLY: (char, char) = ('!', '~');
 /// The most warnings about a frit logged a boot: those its text gives,
 /// each source the helper refuses, and each font it needs that is missing.
 /// A helper that sends more is not given up. The console logs once that it
@@ -1388,6 +1398,13 @@ struct CellState {
     /// When the fill was asked for, and when its first glyphs came.
     started: Option<Instant>,
     first_glyphs: Option<Instant>,
+    /// The console has decided its one early ask for bold printable ASCII
+    /// at the cell ([`Helper::ask_bold_early`]): it sent the ask, or the
+    /// store was at its limit. Kept in the regular normal record alone.
+    bold_early: bool,
+    /// The early bold ask fell due while the last start of a search ran,
+    /// and waits until the search ends ([`Helper::ask_bold_waiting`]).
+    bold_waits: bool,
 }
 
 impl CellState {
@@ -1425,6 +1442,8 @@ impl CellState {
             first: Vec::new(),
             started: None,
             first_glyphs: None,
+            bold_early: false,
+            bold_waits: false,
         }
     }
 }
@@ -1675,6 +1694,10 @@ pub struct Helper {
     request: Duration,
     /// When vtium started, for the line each fill logs.
     epoch: Instant,
+    /// Whether the console makes its early ask for bold printable ASCII
+    /// at each cell ([`Helper::ask_bold_early`]). It does, but for the
+    /// stand-ins of the tests whose answers are written out in full.
+    asks_bold_early: bool,
 }
 
 impl Helper {
@@ -1725,6 +1748,7 @@ impl Helper {
             pointers_only: false,
             answer: Duration::from_millis(ANSWER_MS),
             request: Duration::from_millis(REQUEST_MS),
+            asks_bold_early: true,
         }
     }
 
@@ -2101,7 +2125,7 @@ impl Helper {
                             // as poll does after each answer, so that a
                             // search this answer ends is not left waiting
                             // for an answer already taken
-                            self.settle();
+                            self.settle(clock());
                         }
                         // As poll does after each answer: the watchdog
                         // runs from this answer while the helper still
@@ -2767,6 +2791,7 @@ impl Helper {
             return self.fail("it failed on every font of the font set");
         }
         self.resend(now, false);
+        self.ask_bold_waiting(now);
     }
 
     /// Starts the helper again after `why`, a failure of a helper whose
@@ -2807,7 +2832,7 @@ impl Helper {
             if self.failed.is_none() {
                 self.due = (!open.is_empty()).then(|| after(now, self.answer));
                 self.suspect = Some(Suspect { open, ..suspect });
-                self.settle();
+                self.settle(now);
             }
             return;
         }
@@ -2835,8 +2860,9 @@ impl Helper {
 
     /// Ends the search once the last start has ended the work it was
     /// sent: no source fails on its own, and vtium goes on with that
-    /// helper, with every source still in use.
-    fn settle(&mut self) {
+    /// helper, with every source still in use. The early bold asks that
+    /// waited for the search go out then.
+    fn settle(&mut self, now: Instant) {
         if self.suspect.as_ref().is_some_and(|s| s.open.is_empty())
             && let Some(suspect) = self.suspect.take()
         {
@@ -2845,6 +2871,7 @@ impl Helper {
                 suspect.why,
                 escaped(&self.frit.name)
             );
+            self.ask_bold_waiting(now);
         }
     }
 
@@ -3054,7 +3081,7 @@ impl Helper {
                     if let Some(suspect) = &mut self.suspect {
                         suspect.open.ask();
                     }
-                    self.done()
+                    self.done(now)
                 }
                 Event::Filled(at) => {
                     if let Some(suspect) = &mut self.suspect {
@@ -3115,7 +3142,7 @@ impl Helper {
                 self.fail(&why);
                 break;
             }
-            self.settle();
+            self.settle(now);
             self.due = (self.owes() || self.suspect.is_some()).then(|| after(now, self.answer));
         }
         if self.failed.is_none() {
@@ -3407,12 +3434,16 @@ impl Helper {
     }
 
     /// The oldest ask is answered whole: what it did not send, the frit
-    /// lacks or cannot shape.
-    fn done(&mut self) -> Result<(), String> {
+    /// lacks or cannot shape. When it was the last ask waiting at its cell,
+    /// at the normal size, the console makes its early bold ask there.
+    fn done(&mut self, now: Instant) -> Result<(), String> {
         let ask = self
             .asks
             .pop_front()
             .ok_or_else(|| "the helper answered an ask not made".to_owned())?;
+        if ask.doubled.is_none() && !self.asks.iter().any(|a| a.at == ask.at) {
+            self.ask_bold_early(ask.at, now);
+        }
         if let Some(state) = self.known_of(ask.at, (ask.variant, ask.doubled)) {
             for &c in &ask.want {
                 state.pending.put(c, false);
@@ -3428,6 +3459,86 @@ impl Helper {
             }
         }
         Ok(())
+    }
+
+    /// Asks once at `at` for bold printable ASCII ([`BOLD_EARLY`]), once
+    /// the helper has answered every ask sent at the cell. The screen's
+    /// first asks then reach the helper first, and the console's first
+    /// frame waits for nothing more. The background fill draws regular
+    /// glyphs alone, so this ask is what brings a program's bold text
+    /// before the program shows it. The console decides once for each
+    /// cell it knows of, and decides again only for a cell dropped and
+    /// made again. It sends the ask only while the store is under its
+    /// limit, so glyphs the screen does not show are never asked for into
+    /// a full store. Once sent, the ask's glyphs count in eviction as any
+    /// glyphs do: a glyph evicted before the screen shows it comes back
+    /// with the screen's own ask.
+    ///
+    /// While the last start of a search runs, the ask waits until the
+    /// search ends. A request sent to that start after it began is work
+    /// the search never tried, so a crash on its fill would then begin a
+    /// new search and cost another chance, where it should leave out the
+    /// source the search added last at once. When [`ASKS_MAX`] asks wait,
+    /// the console has not decided, so the cell's next answer tries again.
+    ///
+    /// References:
+    /// - ADR-1200 D15, "Restarted after a failure": the chances a boot
+    ///   gives the helper, which a search uses.
+    /// - ADR-1200 D18, note of 2026-11-25: the one ask for glyphs the
+    ///   screen does not show yet, and when the console sends it.
+    /// - ADR-1200 D21, note of 2026-11-25: this ask is not the fill.
+    fn ask_bold_early(&mut self, at: SpacedCell, now: Instant) {
+        if !self.asks_bold_early || !self.cells.iter().any(|c| c.at == at) {
+            return;
+        }
+        let searching = self.suspect.is_some();
+        let full = self.asks.len() >= ASKS_MAX;
+        let under = crate::deferred::lock(&self.store).bytes() < self.limit;
+        let Some(state) = self.state(at, Variant::default()) else {
+            return;
+        };
+        if state.bold_early {
+            return;
+        }
+        state.bold_waits = searching;
+        if searching || full {
+            return;
+        }
+        state.bold_early = true;
+        if !under {
+            return;
+        }
+        let bold = Shown {
+            variant: vtium_font::Style {
+                bold: true,
+                italic: false,
+            }
+            .into(),
+            doubled: None,
+            cluster_width: ClusterWidth::default(),
+            chars: (BOLD_EARLY.0..=BOLD_EARLY.1).collect(),
+            clusters: Vec::new(),
+        };
+        self.ask(at.cell, at.band, &bold, now);
+    }
+
+    /// Sends the early bold asks that waited while the last start of a
+    /// search ran, once the search has ended. A cell where an ask still
+    /// waits makes its bold ask when the helper answers that ask.
+    fn ask_bold_waiting(&mut self, now: Instant) {
+        if self.search.is_some() || self.suspect.is_some() {
+            return;
+        }
+        let waiting: Vec<SpacedCell> = self
+            .cells
+            .iter_mut()
+            .filter_map(|c| std::mem::take(&mut c.bold_waits).then_some(c.at))
+            .collect();
+        for at in waiting {
+            if !self.asks.iter().any(|a| a.at == at) {
+                self.ask_bold_early(at, now);
+            }
+        }
     }
 
     /// The helper took the oldest stop at `cell`: the frames after it are
@@ -3815,19 +3926,20 @@ mod tests {
             let wake = Arc::new(move || {
                 let _ = tx.lock().map(|t| t.send(()));
             });
-            StandIn {
-                helper: Helper::new(
-                    Launcher::open(command).unwrap(),
-                    wake,
-                    t0(),
-                    frit(text),
-                    None,
-                    Shared::default(),
-                    limit,
-                ),
-                woke,
-                dir,
-            }
+            let mut helper = Helper::new(
+                Launcher::open(command).unwrap(),
+                wake,
+                t0(),
+                frit(text),
+                None,
+                Shared::default(),
+                limit,
+            );
+            // a stand-in's answers are written out in full, and the early
+            // bold ask would wait for one the fixture does not hold; the
+            // tests of that ask turn it on
+            helper.asks_bold_early = false;
+            StandIn { helper, woke, dir }
         }
 
         /// Polls as the loop does, each time the reader wakes it, until the
@@ -3872,6 +3984,7 @@ mod tests {
                 self.helper.limit,
             );
             self.helper = fresh.remembering(record);
+            self.helper.asks_bold_early = false;
         }
 
         /// Polls until the helper's process is gone.
@@ -4306,6 +4419,276 @@ mod tests {
         assert!(!held(&s, ITALIC, 'A'), "italic A left the store");
         s.helper.ask(CELL, Band::NONE, &italic, now);
         assert!(s.helper.busy(), "and is asked for again");
+    }
+
+    const BOLD: Style = Style {
+        bold: true,
+        italic: false,
+    };
+
+    /// The characters of the early bold ask, printable ASCII.
+    fn bold_ascii() -> Vec<char> {
+        (BOLD_EARLY.0..=BOLD_EARLY.1).collect()
+    }
+
+    /// The bytes of a request of `kind` at [`CELL`] in `style` that names
+    /// `chars`, as the console sends it for the stand-ins' frit.
+    fn request_of(kind: u32, style: Style, chars: &[char]) -> Vec<u8> {
+        let codepoints: Vec<u32> = chars.iter().map(|&c| u32::from(c)).collect();
+        encode(
+            &frit("source=builtin:unscii-8\n"),
+            None,
+            (
+                kind,
+                CELL,
+                Band::NONE,
+                (style.into(), None),
+                ClusterWidth::Double,
+            ),
+            (&codepoints, &[]),
+            &[],
+        )
+    }
+
+    /// The helper's answer to an ask: a set of `chars` in `style`, then
+    /// the ask's end.
+    fn answered(style: Style, chars: &[char]) -> Vec<u8> {
+        let mut out = frame_bytes(FRAME_GLYPHS, &styled(CELL, style, chars));
+        out.extend(frame_bytes(FRAME_DONE, &[]));
+        out
+    }
+
+    /// Whether the helper's record of [`AT`] in `style` holds `c`.
+    fn held_in(helper: &Helper, style: Style, c: char) -> bool {
+        helper
+            .cells
+            .iter()
+            .any(|r| (r.at, r.variant) == (AT, Variant::from(style)) && r.held.has(u32::from(c)))
+    }
+
+    // Once the helper has answered the first ask at a cell, the console
+    // asks once for bold printable ASCII there, so a bold screen that
+    // follows finds every one of its glyphs held
+    //
+    // References:
+    // - ADR-1200 D18, note of 2026-11-25: the one ask for glyphs the
+    //   screen does not show yet.
+    #[test]
+    fn bold_printable_ascii_is_held_before_a_bold_cell_is_shown() {
+        let first = request_of(ASK, Style::default(), &['A']).len();
+        let bold = request_of(ASK, BOLD, &bold_ascii());
+        let script = format!(
+            "head -c {first} >/dev/null; cat \"$1\"; head -c {} >\"$1.bold\"; cat \"$1.b\"; cat >/dev/null",
+            bold.len()
+        );
+        let mut s = StandIn::new("bold-early", &script, &answered(Style::default(), &['A']));
+        s.helper.asks_bold_early = true;
+        std::fs::write(s.dir.join("answer.b"), answered(BOLD, &bold_ascii())).unwrap();
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 2, "the screen's glyph, then the bold ones");
+        assert_eq!(std::fs::read(s.dir.join("answer.bold")).unwrap(), bold);
+        for c in bold_ascii() {
+            assert!(held_in(&s.helper, BOLD, c), "bold {c} is held");
+        }
+        // a bold screen then asks for nothing
+        let bold_screen = Shown {
+            variant: BOLD.into(),
+            ..shown(&['H', 'i', '!'])
+        };
+        s.helper.ask(CELL, Band::NONE, &bold_screen, now);
+        assert!(!s.helper.busy());
+    }
+
+    // The early bold ask goes out only while the store is under its
+    // limit, so the console never asks for glyphs the screen does not show
+    // into a store that is full
+    //
+    // References:
+    // - ADR-1200 D18, note of 2026-11-25: only while the store is under
+    //   its limit.
+    #[test]
+    fn no_bold_ask_goes_out_while_the_store_is_at_its_limit() {
+        let fixture = answered(Style::default(), &['A']);
+        let first = request_of(ASK, Style::default(), &['A']).len();
+        let script = format!("head -c {first} >/dev/null; cat \"$1\"; cat >\"$1.rest\"");
+        // the limit is the bytes of the answer's set, so the store is at
+        // its limit once it holds the answer
+        let limit = styled(CELL, Style::default(), &['A']).len() as u64;
+        let mut s = StandIn::limited("bold-full", &script, &fixture, limit);
+        s.helper.asks_bold_early = true;
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        s.until(now, |h| !h.busy());
+        assert_eq!(s.helper.failed(), None);
+        assert!(held_in(&s.helper, Style::default(), 'A'));
+        assert_eq!(crate::deferred::lock(&s.helper.store).bytes(), limit);
+        assert!(s.helper.asks.is_empty(), "no bold ask waits");
+        assert!(!s.helper.busy());
+    }
+
+    // The console asks for bold printable ASCII once at a cell. A later
+    // ask at the cell whose answer evicts those bold glyphs, which the
+    // screen never showed, sends no second bold ask for them, so the early
+    // ask never churns the store
+    //
+    // References:
+    // - ADR-1200 D18, note of 2026-11-25: the console decides this once
+    //   for each cell, and its glyphs count in eviction as any glyphs do.
+    #[test]
+    fn the_bold_ask_goes_out_once_at_a_cell() {
+        let first = request_of(ASK, Style::default(), &['A']).len();
+        let bold = request_of(ASK, BOLD, &bold_ascii()).len();
+        let second = request_of(ASK, Style::default(), &['B']).len();
+        let script = format!(
+            "head -c {first} >/dev/null; cat \"$1\"; head -c {bold} >/dev/null; cat \"$1.b\"; head -c {second} >/dev/null; cat \"$1.c\"; cat >\"$1.rest\""
+        );
+        // the store holds the first answer and the bold one, so the third
+        // answer evicts what was shown least recently: the bold glyphs
+        let limit = (styled(CELL, Style::default(), &['A']).len()
+            + styled(CELL, BOLD, &bold_ascii()).len()) as u64;
+        let mut s = StandIn::limited(
+            "bold-once",
+            &script,
+            &answered(Style::default(), &['A']),
+            limit,
+        );
+        s.helper.asks_bold_early = true;
+        std::fs::write(s.dir.join("answer.b"), answered(BOLD, &bold_ascii())).unwrap();
+        std::fs::write(s.dir.join("answer.c"), answered(Style::default(), &['B'])).unwrap();
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        assert_eq!(s.run(now).len(), 2);
+        assert!(held_in(&s.helper, BOLD, '!'));
+        crate::deferred::lock(&s.helper.store).touch(AT, &shown(&['A']));
+        s.helper.ask(CELL, Band::NONE, &shown(&['B']), now);
+        s.until(now, |h| !h.busy());
+        assert_eq!(s.helper.failed(), None);
+        assert!(held_in(&s.helper, Style::default(), 'A'));
+        assert!(held_in(&s.helper, Style::default(), 'B'));
+        assert!(
+            bold_ascii()
+                .into_iter()
+                .any(|c| !held_in(&s.helper, BOLD, c)),
+            "the answer evicted bold glyphs"
+        );
+        assert!(s.helper.asks.is_empty(), "no second bold ask waits");
+        assert!(!s.helper.busy());
+    }
+
+    // The first frame's ask goes out first and alone, the fill after it,
+    // and the bold ask only once the helper has answered the first ask,
+    // so the bold ask never delays the first frame's glyphs
+    //
+    // References:
+    // - ADR-1200 D18: asks come first, and the helper answers an ask whole
+    //   ahead of anything else.
+    // - ADR-1200 D18, note of 2026-11-25: the bold ask follows the cell's
+    //   first asks.
+    #[test]
+    fn the_bold_ask_follows_the_first_frames_ask_and_its_fill() {
+        let ask = request_of(ASK, Style::default(), &['A']);
+        let fill = request_of(FILL, Style::default(), &['A']);
+        let bold = request_of(ASK, BOLD, &bold_ascii());
+        let script = format!(
+            "head -c {} >\"$1.1\"; head -c {} >\"$1.2\"; cat \"$1\"; head -c {} >\"$1.3\"; cat \"$1.b\"; cat >/dev/null",
+            ask.len(),
+            fill.len(),
+            bold.len()
+        );
+        let mut s = StandIn::new("bold-order", &script, &answered(Style::default(), &['A']));
+        s.helper.asks_bold_early = true;
+        let mut rest = answered(BOLD, &bold_ascii());
+        rest.extend(filled(CELL));
+        std::fs::write(s.dir.join("answer.b"), rest).unwrap();
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        s.helper.fill(CELL, Band::NONE, &['A'], now);
+        assert_eq!(s.helper.asks.len(), 1, "the first frame's ask waits alone");
+        s.until(now, |h| !h.busy());
+        assert_eq!(s.helper.failed(), None);
+        let sent = |n: &str| std::fs::read(s.dir.join(format!("answer.{n}"))).unwrap();
+        assert_eq!(sent("1"), ask, "the first frame's ask goes out first");
+        assert_eq!(sent("2"), fill, "then the fill");
+        assert_eq!(sent("3"), bold, "then the bold ask");
+        assert!(held_in(&s.helper, BOLD, '~'));
+    }
+
+    /// Whether an ask for bold printable ASCII waits at [`AT`].
+    fn bold_ask_waits(helper: &Helper) -> bool {
+        helper.asks.iter().any(|a| {
+            a.at == AT && a.variant == Variant::from(BOLD) && a.want.len() == bold_ascii().len()
+        })
+    }
+
+    // The console can decide on the early bold ask while ASKS_MAX asks
+    // wait, as it does when a search ends. The bound then refuses the ask,
+    // so the console has not decided: the cell's next answer sends it.
+    //
+    // References:
+    // - ADR-1200 D18, note of 2026-11-25: the console asks once for bold
+    //   printable ASCII at each cell.
+    #[test]
+    fn a_bold_ask_that_the_asks_bound_refuses_goes_out_with_the_next_answer() {
+        let mut s = StandIn::new("bold-bound", "cat >/dev/null", b"");
+        s.helper.asks_bold_early = true;
+        let now = t0();
+        let other = Cell {
+            width: 16,
+            height: 32,
+        };
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        for c in ('\u{4e00}'..).take(ASKS_MAX - 1) {
+            s.helper.ask(other, Band::NONE, &shown(&[c]), now);
+        }
+        assert_eq!(s.helper.asks.len(), ASKS_MAX);
+        s.helper.ask_bold_early(AT, now);
+        assert_eq!(s.helper.asks.len(), ASKS_MAX, "the bound refused the ask");
+        assert!(!bold_ask_waits(&s.helper));
+        // the helper answers the ask at the cell, which frees room
+        s.helper.done(now).unwrap();
+        assert!(bold_ask_waits(&s.helper), "the next answer sends it");
+    }
+
+    // An ask whose cell the console dropped before the answer came sends
+    // no bold ask, and does not make the cell's record again
+    //
+    // References:
+    // - ADR-1200 D18, note of 2026-11-25: the console decides again only
+    //   for a cell dropped and made again.
+    #[test]
+    fn an_ask_answered_after_its_cell_is_dropped_sends_no_bold_ask() {
+        let mut s = StandIn::new("bold-dropped", "cat >/dev/null", b"");
+        s.helper.asks_bold_early = true;
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        s.helper.retain(&[], now);
+        s.helper.done(now).unwrap();
+        assert!(s.helper.asks.is_empty(), "no bold ask waits");
+        assert!(!s.helper.cells.iter().any(|c| c.at == AT));
+    }
+
+    // With two asks waiting at a cell, the first answer sends no bold
+    // ask; the second, the cell's last, sends it
+    //
+    // References:
+    // - ADR-1200 D18, note of 2026-11-25: the bold ask follows the cell's
+    //   first asks.
+    #[test]
+    fn the_bold_ask_waits_for_every_ask_at_the_cell() {
+        let mut s = StandIn::new("bold-two", "cat >/dev/null", b"");
+        s.helper.asks_bold_early = true;
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['B']), now);
+        assert_eq!(s.helper.asks.len(), 2);
+        s.helper.done(now).unwrap();
+        assert_eq!(s.helper.asks.len(), 1, "the second ask waits alone");
+        assert!(!bold_ask_waits(&s.helper));
+        s.helper.done(now).unwrap();
+        assert!(bold_ask_waits(&s.helper), "the last answer sends it");
     }
 
     // ADR-1200 D21: the console refuses a strike in a style other than the
@@ -6327,6 +6710,55 @@ if [ $k -ge 6 ]; then cat \"$1\"; cat \"$1.done\"; exec cat >/dev/null; fi";
                 "chance 2 of the 3 that vtium gives the font helper each boot)"
             ]
         );
+    }
+
+    // The last start of a search is sent the waiting ask and the fill at
+    // its start. It answers the ask, then crashes while the fill is still
+    // open. The early bold ask that the answer makes due waits until the
+    // search has ended, so the last start is sent nothing after its
+    // start, and its crash blames the source the search added last. vtium
+    // leaves that source out at once, uses no second chance, and sends
+    // the bold ask to the helper it starts without the source.
+    //
+    // References:
+    // - ADR-1200 D15, "Restarted after a failure": three chances a boot,
+    //   shared by the searches and the plain restarts.
+    // - ADR-1200 D18, note of 2026-11-25: the one ask for glyphs the
+    //   screen does not show yet.
+    #[test]
+    fn a_bold_ask_waits_until_the_search_ends_so_the_last_starts_crash_blames_its_source() {
+        crate::getty::tests::logged();
+        // the first helper crashes at once; the fifth start, the last of
+        // the search, answers the ask and crashes with the fill open; the
+        // helper started after the blame answers the fill and the bold ask
+        let fails = "if [ $k = 1 ]; then kill -SEGV $$; fi
+if [ $k = 5 ]; then cat \"$1.ask\"; kill -SEGV $$; fi
+if [ $k -ge 6 ]; then cat \"$1.after\"; exec cat >/dev/null; fi";
+        let mut s = sourced("source-bold-early", "true", fails, &filled(CELL));
+        s.helper.asks_bold_early = true;
+        let mut ask = frame_bytes(FRAME_GLYPHS, &set(CELL, &['A']));
+        ask.extend(frame_bytes(FRAME_DONE, &[]));
+        std::fs::write(s.dir.join("answer.ask"), ask).unwrap();
+        let mut after = filled(CELL);
+        after.extend(answered(BOLD, &bold_ascii()));
+        std::fs::write(s.dir.join("answer.after"), after).unwrap();
+        let mut now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        s.helper.fill(CELL, Band::NONE, &['A'], now);
+        let _ = drive(&mut s, &mut now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(s.helper.restarts(), 1, "the search alone used a chance");
+        assert_eq!(s.helper.left_out(), 0b100, "the third source is left out");
+        assert_eq!(masks(&s), [0, 7, 6, 4, 0, 4]);
+        assert!(s.held('A'));
+        assert!(held_in(&s.helper, BOLD, '~'), "the bold ask went out after");
+        assert!(s.helper.asks.is_empty());
+        let blamed: Vec<String> = crate::getty::tests::logged()
+            .into_iter()
+            .filter(|l| l.contains("leaves out source="))
+            .collect();
+        assert_eq!(blamed.len(), 1, "{blamed:?}");
+        assert!(blamed[0].contains("source=builtin:unifont"), "{blamed:?}");
     }
 
     // ADR-1302 D13 changed the request's and the answers' layout: a helper
