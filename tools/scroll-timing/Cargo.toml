@@ -1,0 +1,41 @@
+# Measures three ways to scroll on the CPU path before smooth scrolling's
+# CPU half is built (ADR-1310 D6, "The measurement"): the copy of the
+# visible window from a ring in system memory, the move of rows within the
+# display's buffer, and the pan over a buffer taller than the screen. It
+# runs on a KMS device as DRM master, so it runs by hand through make
+# scroll-timing, in tier 3's guest or on a console nobody else draws on. It
+# is its own workspace, so the main workspace and CI do not build it.
+[package]
+name = "vtium-scroll-timing"
+description = "Times three ways to scroll the CPU path's display on a KMS device"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "scroll-timing"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[dependencies]
+# drm2d, its dumb buffers and atomic commits, the event loop it runs in,
+# and the mapped dumb buffer the pan's stand-in draws into.
+vtium-platform = { path = "../../crates/vtium-platform" }
+# The pan's stand-in drives the card through the kernel's ioctls, at the
+# version vtium-platform pins.
+drm-ffi = "=0.9.1"
+# The thread's CPU clock, the card's events and its node, at the version
+# vtium-platform pins.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "event", "fs", "time", "system"] }
+# drm2d's log lines, which the tool prints to standard error.
+log = "0.4"
+
+[workspace]
+members = ["."]
