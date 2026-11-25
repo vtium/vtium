@@ -24,7 +24,7 @@ use std::os::fd::{AsFd, OwnedFd};
 use std::rc::Rc;
 
 use vtium_broker_protocol::{
-    ConsoleRef, Courier, Display, Got, Grid, Head, Link, Order, PowerKey, Request,
+    ConsoleRef, Courier, Display, Got, Grid, Head, Link, Order, PowerKey, Request, Status,
 };
 use vtium_platform::calloop::generic::Generic;
 use vtium_platform::calloop::ping::make_ping;
@@ -72,6 +72,15 @@ pub fn open_session(
             "vtium's root process answered without the pty's master",
         )),
     }
+}
+
+/// `status`, as the process's own exit status would read it.
+fn exit_status(status: Status) -> std::process::ExitStatus {
+    use std::os::unix::process::ExitStatusExt;
+    std::process::ExitStatus::from_raw(match status {
+        Status::Code(code) => i32::from(code) << 8,
+        Status::Signal(signal) => i32::from(signal),
+    })
 }
 
 /// The root process, as the process that started a console's session: it
@@ -257,6 +266,39 @@ impl App {
         }
     }
 
+    /// The root process reaped the session of `console`, which ended with
+    /// `status`. The console's pty feeds the output the session left to
+    /// the console's terminal, and then the console ends as at the exit
+    /// of a session vtium started itself, with the session's own status.
+    /// A console that has closed since is not looked for.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker reaps every
+    ///   process it starts and reports each exit to the drawer.
+    fn session_exit(&mut self, console: &ConsoleRef, status: Status) {
+        log::debug!(
+            target: "broker",
+            "head {}: console {}: the session ended: {status:?}",
+            console.head.as_str(),
+            console.console
+        );
+        let Some(head) = self
+            .heads
+            .iter_mut()
+            .find(|h| h.name() == console.head.as_str())
+        else {
+            return;
+        };
+        if let Some(crate::head::console::Console {
+            pty: Some(pty),
+            term,
+            ..
+        }) = head.console_mut(console.console)
+        {
+            pty.ended(exit_status(status), term);
+        }
+    }
+
     /// Acts on one order from the root process.
     fn broker_order(&mut self, order: Order, fd: Option<OwnedFd>) {
         match order {
@@ -290,14 +332,7 @@ impl App {
             Order::Blank => self.order(blank::Order::Blank),
             Order::Wake => self.order(blank::Order::Wake),
             Order::Stop => self.request_exit(Exit::Signal),
-            // Each console watches its session's leader for the exit, so
-            // the report only adds the status to the log.
-            Order::SessionExit { console, status } => log::debug!(
-                target: "broker",
-                "head {}: console {}: the session ended: {status:?}",
-                console.head.as_str(),
-                console.console
-            ),
+            Order::SessionExit { console, status } => self.session_exit(&console, status),
             Order::HelperExit { helper, status } => log::debug!(
                 target: "broker",
                 "helper {helper} ended: {status:?}"
@@ -326,7 +361,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    use vtium_broker_protocol::{CELL_MAX, Errno, Status};
+    use vtium_broker_protocol::{CELL_MAX, Errno};
     use vtium_platform::pty::{Erase, open_session as start_on_pty};
 
     use crate::app::tests::{Still, no_fonts, seat_with, shown};
@@ -334,6 +369,16 @@ mod tests {
     /// What the stand-in saw, in order, until the drawing process closed
     /// its socket.
     fn stand_in(link: Link, sends: Vec<Order>) -> std::thread::JoinHandle<Vec<Request>> {
+        stand_in_ending(link, sends, None)
+    }
+
+    /// [`stand_in`], whose first session it reports ended with `exit`
+    /// once it has passed the session's master, when `exit` is given.
+    fn stand_in_ending(
+        link: Link,
+        sends: Vec<Order>,
+        mut exit: Option<Status>,
+    ) -> std::thread::JoinHandle<Vec<Request>> {
         std::thread::spawn(move || {
             let mut seen = Vec::new();
             let mut sessions = Vec::new();
@@ -385,6 +430,13 @@ mod tests {
                                     };
                                     link.order(&order, Some(session.master.as_fd())).unwrap();
                                     sessions.push(session);
+                                    if let Some(status) = exit.take() {
+                                        let order = Order::SessionExit {
+                                            console: console.clone(),
+                                            status,
+                                        };
+                                        link.order(&order, None).unwrap();
+                                    }
                                 }
                                 Err(errno) => {
                                     let order = Order::Pty {
@@ -495,7 +547,10 @@ mod tests {
         shown(&mut app);
         let id = app.heads.first().unwrap().console.id;
         let pty = app.heads.first().unwrap().console.pty.as_ref().unwrap();
-        assert!(pty.adopted(), "the session is not the root process's");
+        assert!(
+            pty.started_elsewhere(),
+            "the session is not the root process's"
+        );
         assert_eq!(app.order, None);
         // The courier pings the loop for the order its call queued.
         lp.dispatch(Some(std::time::Duration::ZERO), &mut app)
@@ -522,6 +577,51 @@ mod tests {
                 Request::CloseSession { console }
             ]
         );
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test's seat reads the host's clock, as the seat tests' do"
+    )]
+    fn a_session_ends_with_the_status_the_root_process_reports() {
+        crate::getty::tests::logged();
+        let (broker, theirs) = Link::pair().unwrap();
+        let seen = stand_in_ending(broker, vec![], Some(Status::Code(3)));
+        let (mut lp, mut app) = seat_with(&[], None, no_fonts());
+        app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
+            .unwrap();
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        app.start();
+        shown(&mut app);
+        assert!(app.heads.first().unwrap().console.pty.is_some());
+        // The session's program still runs in the stand-in, so only the
+        // root process's report can end the console's session.
+        let mut ended = Vec::new();
+        for _ in 0..50 {
+            lp.dispatch(Some(std::time::Duration::from_millis(20)), &mut app)
+                .unwrap();
+            app.turn(std::time::Instant::now());
+            ended.extend(
+                crate::getty::tests::logged()
+                    .into_iter()
+                    .filter(|l| l.starts_with("child exited")),
+            );
+            if !ended.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(ended, ["child exited: exit status: 3"]);
+        drop((app, lp));
+        let seen = seen.join().unwrap();
+        let opened = seen
+            .iter()
+            .filter(|r| matches!(r, Request::OpenSession { .. }))
+            .count();
+        assert_eq!(opened, 2, "the console's next session starts: {seen:?}");
     }
 
     #[test]

@@ -113,8 +113,10 @@ pub struct Pty {
     adopted: Option<u32>,
     /// How the child exited, until the consumer is told.
     exit: Option<ExitStatus>,
-    /// The child's pidfd, or the adopted process's.
-    pidfd: Rc<OwnedFd>,
+    /// The child's pidfd, or the adopted process's; `None` for a pty
+    /// [`Pty::passed`] made, whose session's end the process that started
+    /// the session reports through [`Pty::ended`].
+    pidfd: Option<Rc<OwnedFd>>,
     size: Size,
     link: Option<Box<dyn Link>>,
     /// Whether dropping the pty hangs its session up; [`Pty::release`]
@@ -124,6 +126,8 @@ pub struct Pty {
     /// session, which hangs the session up and signals it in the pty's
     /// place.
     remote: Option<Box<dyn Remote>>,
+    /// Whether [`Pty::ended`] has taken the session's end.
+    reported: bool,
 }
 
 /// The process that started a session whose pty master another process
@@ -203,11 +207,12 @@ impl Pty {
             child: Some(child),
             adopted: None,
             exit: None,
-            pidfd: Rc::new(pidfd),
+            pidfd: Some(Rc::new(pidfd)),
             size,
             link: None,
             hang_up: true,
             remote: None,
+            reported: false,
         })
     }
 
@@ -233,14 +238,7 @@ impl Pty {
             return Err(ended());
         }
         let leader = u32::try_from(sid.as_raw_nonzero().get()).map_err(|_| ended())?;
-        let held = tcgetwinsize(&master)?;
-        let cell = |px: u16, cells: u16| u32::from(px).checked_div(u32::from(cells)).unwrap_or(0);
-        let size = Size {
-            cols: held.ws_col,
-            rows: held.ws_row,
-            cell_width: cell(held.ws_xpixel, held.ws_col),
-            cell_height: cell(held.ws_ypixel, held.ws_row),
-        };
+        let size = held_size(&master)?;
         fcntl_setfl(&master, fcntl_getfl(&master)? | OFlags::NONBLOCK)?;
         let master = Rc::new(master);
         Ok(Pty {
@@ -249,23 +247,60 @@ impl Pty {
             child: None,
             adopted: Some(leader),
             exit: None,
-            pidfd: Rc::new(pidfd),
+            pidfd: Some(Rc::new(pidfd)),
             size,
             link: None,
             hang_up: true,
             remote: None,
+            reported: false,
         })
     }
 
     /// Makes a pty of `master`, which `remote` started a session on and
-    /// passed to vtium, at the size the kernel holds for it. The pty
-    /// watches the session's leader as [`Pty::adopt`] does. Dropping the
-    /// pty asks `remote` to hang the session up, and [`Pty::redraw`] asks
-    /// it for `SIGWINCH`, since vtium cannot signal the session itself.
+    /// passed to vtium, at the size the kernel holds for it. vtium did not
+    /// start the session, so it neither waits for the session's leader
+    /// nor watches it: `remote` reports how the session ended, and the
+    /// host hands that status to [`Pty::ended`]. A session that has
+    /// already ended when its master arrives is no error, because its end
+    /// is still to be reported. Dropping the pty asks `remote` to hang the
+    /// session up, and [`Pty::redraw`] asks it for `SIGWINCH`, since vtium
+    /// cannot signal the session itself.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker reaps every
+    ///   process it starts and reports each exit to the drawer.
     pub fn passed(master: OwnedFd, remote: Box<dyn Remote>) -> io::Result<Pty> {
-        let mut pty = Pty::adopt(master)?;
-        pty.remote = Some(remote);
-        Ok(pty)
+        let size = held_size(&master)?;
+        fcntl_setfl(&master, fcntl_getfl(&master)? | OFlags::NONBLOCK)?;
+        let master = Rc::new(master);
+        Ok(Pty {
+            channel: Channel::new(Master(Rc::clone(&master))),
+            master,
+            child: None,
+            adopted: None,
+            exit: None,
+            pidfd: None,
+            size,
+            link: None,
+            hang_up: true,
+            remote: Some(remote),
+            reported: false,
+        })
+    }
+
+    /// The session on a pty [`Pty::passed`] made has ended with `status`,
+    /// as the process that started it reports. The output the session left
+    /// is fed to `consumer` first, and then `consumer` is told the status,
+    /// as for a child vtium started. A second report, and a report for any
+    /// other pty, does nothing.
+    pub fn ended<C: Consumer + ?Sized>(&mut self, status: ExitStatus, consumer: &mut C) {
+        if self.remote.is_none() || self.reported {
+            return;
+        }
+        self.reported = true;
+        self.exit = Some(status);
+        let next = self.channel.orphan();
+        self.settle(next, consumer);
     }
 
     /// Puts the pty in the loop behind `handle`. `access` finds the pty
@@ -301,9 +336,12 @@ impl Pty {
                 .map_err(|e| io::Error::from(e.error))
         })?;
         let exit = fail_at(Step::ExitSource).and_then(|()| {
+            let Some(pidfd) = &self.pidfd else {
+                return Ok(None);
+            };
             handle
                 .insert_source(
-                    Generic::new(Rc::clone(&self.pidfd), Interest::READ, Mode::Level),
+                    Generic::new(Rc::clone(pidfd), Interest::READ, Mode::Level),
                     {
                         let access = access.clone();
                         move |_, _, data: &mut D| {
@@ -331,6 +369,7 @@ impl Pty {
                         }
                     },
                 )
+                .map(Some)
                 .map_err(|e| io::Error::from(e.error))
         });
         let exit = match exit {
@@ -462,6 +501,12 @@ impl Pty {
         self.adopted.is_some()
     }
 
+    /// Whether [`Pty::passed`] made the pty, so another process started
+    /// its session and reports the session's end.
+    pub fn started_elsewhere(&self) -> bool {
+        self.remote.is_some()
+    }
+
     /// The master, which the host lends to whatever keeps a copy of it
     /// through a restart (ADR-1401 D13).
     pub fn master(&self) -> BorrowedFd<'_> {
@@ -558,12 +603,13 @@ impl Drop for Pty {
             None => self.signal_leader(),
         }
         let link = self.link.take();
-        let Some(child) = self.child.take() else {
+        // Only a pty that started its child holds the child, and its pidfd.
+        let (Some(child), Some(pidfd)) = (self.child.take(), self.pidfd.take()) else {
             return;
         };
         match link {
-            Some(link) => link.reap(child, Rc::clone(&self.pidfd)),
-            None => kill_and_reap(self.pidfd.as_fd()),
+            Some(link) => link.reap(child, pidfd),
+            None => kill_and_reap(pidfd.as_fd()),
         }
     }
 }
@@ -583,7 +629,10 @@ impl Pty {
     fn signal_leader(&self) {
         hang_up(
             self.master.as_fd(),
-            self.child.is_some().then(|| self.pidfd.as_fd()),
+            self.pidfd
+                .as_deref()
+                .filter(|_| self.child.is_some())
+                .map(AsFd::as_fd),
         );
     }
 }
@@ -606,6 +655,19 @@ pub fn hang_up(master: BorrowedFd<'_>, child: Option<BorrowedFd<'_>>) {
             }
         }
     }
+}
+
+/// The size the kernel holds for the pty behind `master`, its cell found
+/// from the pixel size the kernel holds.
+fn held_size(master: &OwnedFd) -> io::Result<Size> {
+    let held = tcgetwinsize(master)?;
+    let cell = |px: u16, cells: u16| u32::from(px).checked_div(u32::from(cells)).unwrap_or(0);
+    Ok(Size {
+        cols: held.ws_col,
+        rows: held.ws_row,
+        cell_width: cell(held.ws_xpixel, held.ws_col),
+        cell_height: cell(held.ws_ypixel, held.ws_row),
+    })
 }
 
 /// A pidfd of the process that leads the session on the pty behind
@@ -900,7 +962,9 @@ fn fail_at(step: Step) -> io::Result<()> {
 struct LoopLink<D: 'static, C, A> {
     handle: LoopHandle<'static, D>,
     output: RegistrationToken,
-    exit: RegistrationToken,
+    /// The source that watches for the child's exit; `None` for a pty
+    /// [`Pty::passed`] made.
+    exit: Option<RegistrationToken>,
     access: A,
     consumer: PhantomData<fn(&mut C)>,
 }
@@ -953,7 +1017,9 @@ where
 impl<D: 'static, C, A> Drop for LoopLink<D, C, A> {
     fn drop(&mut self) {
         self.handle.remove(self.output);
-        self.handle.remove(self.exit);
+        if let Some(exit) = self.exit {
+            self.handle.remove(exit);
+        }
     }
 }
 
@@ -1298,5 +1364,79 @@ mod tests {
         let mut child = started.child;
         let _ = child.kill();
         let _ = child.wait();
+    }
+    /// What a passed pty's consumer saw: the output, and the exit status.
+    #[derive(Default)]
+    struct Seen {
+        output: Vec<u8>,
+        exits: Vec<ExitStatus>,
+    }
+
+    impl Consumer for Seen {
+        fn output(&mut self, output: &[u8], _: &mut Replies<'_>) -> usize {
+            self.output.extend_from_slice(output);
+            output.len()
+        }
+
+        fn exited(&mut self, status: ExitStatus) {
+            self.exits.push(status);
+        }
+    }
+
+    struct Host {
+        pty: Option<Pty>,
+        seen: Seen,
+    }
+
+    fn host(h: &mut Host) -> Option<(&mut Pty, &mut Seen)> {
+        let Host { pty, seen } = h;
+        pty.as_mut().map(|p| (p, seen))
+    }
+
+    #[test]
+    fn a_passed_pty_takes_its_sessions_end_from_its_starter() {
+        use std::os::unix::process::ExitStatusExt;
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "printf hi; exit 3"]);
+        let mut started = open_session(command, SIZE, Erase::Delete).unwrap();
+        // the session has ended before its master is passed on
+        started.child.wait().unwrap();
+        let asked: Rc<RefCell<Vec<&'static str>>> = Rc::default();
+        let pty = Pty::passed(started.master, Box::new(Asked(Rc::clone(&asked)))).unwrap();
+        let mut lp: EventLoop<'static, Host> = EventLoop::try_new().unwrap();
+        let mut h = Host {
+            pty: Some(pty),
+            seen: Seen::default(),
+        };
+        h.pty.as_mut().unwrap().insert(&lp.handle(), host).unwrap();
+        for _ in 0..20 {
+            lp.dispatch(Some(Duration::from_millis(10)), &mut h)
+                .unwrap();
+        }
+        assert_eq!(
+            h.seen.exits,
+            [],
+            "vtium cannot know the session's end itself"
+        );
+        let Host { pty, seen } = &mut h;
+        let pty = pty.as_mut().unwrap();
+        pty.ended(ExitStatus::from_raw(3 << 8), seen);
+        // the output the session left is fed before the end is told
+        for _ in 0..20 {
+            if !h.seen.exits.is_empty() {
+                break;
+            }
+            lp.dispatch(Some(Duration::from_millis(10)), &mut h)
+                .unwrap();
+        }
+        assert_eq!(h.seen.output, b"hi");
+        let codes: Vec<Option<i32>> = h.seen.exits.iter().map(|s| s.code()).collect();
+        assert_eq!(codes, [Some(3)], "the starter's status");
+        let Host { pty, seen } = &mut h;
+        pty.as_mut().unwrap().ended(ExitStatus::from_raw(0), seen);
+        lp.dispatch(Some(Duration::ZERO), &mut h).unwrap();
+        assert_eq!(h.seen.exits.len(), 1, "a second end is not told");
+        drop(h);
+        assert_eq!(*asked.borrow(), ["hang up"]);
     }
 }
