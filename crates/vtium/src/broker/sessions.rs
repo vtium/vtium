@@ -176,6 +176,16 @@ struct Running {
     pidfd: OwnedFd,
 }
 
+/// A session whose console closed, kept only until its process exits so
+/// the root process can reap it. Its master is gone: the root process
+/// drops its copy as it hangs the session up, so once the drawing process
+/// lets its copy go too, the kernel hangs the pty up, and a program that
+/// ignores `SIGHUP` still sees its terminal end.
+struct Closing {
+    child: Option<Child>,
+    pidfd: OwnedFd,
+}
+
 /// What wakes the root process's loop when a session's or a helper's
 /// process exits: it watches a copy of the process's pidfd.
 pub type Wake = Box<dyn FnMut(BorrowedFd<'_>)>;
@@ -209,7 +219,7 @@ pub struct Sessions {
     /// Sessions whose console closed, until their process exits. Their
     /// exits are not reported, since the drawing process has let the
     /// console go.
-    closing: Vec<Running>,
+    closing: Vec<Closing>,
 }
 
 impl Sessions {
@@ -318,18 +328,22 @@ impl Sessions {
         })
     }
 
-    /// Hangs `console`'s session up, when it is open. Its process is
-    /// reaped when it exits, and its exit is not reported.
+    /// Hangs `console`'s session up, when it is open, and drops the root
+    /// process's copy of its master. Its process is reaped when it exits,
+    /// and its exit is not reported.
     pub fn close(&mut self, console: &ConsoleRef) {
         let Some(running) = self.open.remove(console) else {
             return;
         };
         self.store.forget(console.head.as_str(), console.console);
-        pty::hang_up(
-            running.master.as_fd(),
-            running.child.is_some().then(|| running.pidfd.as_fd()),
-        );
-        self.closing.push(running);
+        let Running {
+            master,
+            child,
+            pidfd,
+        } = running;
+        pty::hang_up(master.as_fd(), child.is_some().then(|| pidfd.as_fd()));
+        drop(master);
+        self.closing.push(Closing { child, pidfd });
     }
 
     /// Sends `SIGWINCH` to the foreground process group of `console`'s
@@ -367,11 +381,14 @@ impl Sessions {
     /// those whose console is still open, in the consoles' order. The
     /// keeper drops each such session's master.
     pub fn reap(&mut self) -> Vec<(ConsoleRef, Status)> {
-        self.closing.retain(|r| ended(r).is_none());
+        self.closing
+            .retain(|c| ended(c.child.as_ref(), c.pidfd.as_fd()).is_none());
         let done: Vec<(ConsoleRef, Status)> = self
             .open
             .iter()
-            .filter_map(|(console, r)| ended(r).map(|status| (console.clone(), status)))
+            .filter_map(|(console, r)| {
+                ended(r.child.as_ref(), r.pidfd.as_fd()).map(|status| (console.clone(), status))
+            })
             .collect();
         for (console, _) in &done {
             self.open.remove(console);
@@ -401,17 +418,17 @@ fn adopt(master: OwnedFd, size: Size) -> io::Result<Running> {
     })
 }
 
-/// How `running`'s process ended, once it has, reaped for a child of the
-/// root process. A kept session's process is not the root process's
-/// child, so its pidfd only says that it ended, and its status is 0, as
-/// vtium in one process reports it.
-fn ended(running: &Running) -> Option<Status> {
-    if running.child.is_none() {
-        return exited(running.pidfd.as_fd()).then_some(Status::Code(0));
+/// How a session's process ended, once it has, reaped for a child of the
+/// root process. `child` is `None` for a kept session, whose process is
+/// not the root process's child, so its pidfd only says that it ended,
+/// and its status is 0, as vtium in one process reports it.
+fn ended(child: Option<&Child>, pidfd: BorrowedFd<'_>) -> Option<Status> {
+    if child.is_none() {
+        return exited(pidfd).then_some(Status::Code(0));
     }
     let options = WaitIdOptions::EXITED | WaitIdOptions::NOHANG;
     loop {
-        match rustix::process::waitid(WaitId::PidFd(running.pidfd.as_fd()), options) {
+        match rustix::process::waitid(WaitId::PidFd(pidfd), options) {
             Ok(Some(status)) => return Some(status_of(&status)),
             Ok(None) => return None,
             Err(rustix::io::Errno::INTR) => {}
@@ -791,6 +808,27 @@ pub(super) mod tests {
             "the closed session's process was not reaped"
         );
         assert_eq!(s.reap(), []);
+    }
+
+    #[test]
+    fn a_closed_session_that_ignores_sighup_ends_once_its_masters_close() {
+        // The program ignores SIGHUP, as a shell with `trap '' HUP` does,
+        // so only the pty's last master closing ends it: its `read` then
+        // sees the hang-up.
+        let (mut s, watched) = sessions(conf("trap '' HUP; echo ready; read x", "exit 0", WIDE));
+        let master = s
+            .open(&console("left", 1), &GRID, Display::Kms, true)
+            .unwrap();
+        read_until(&master, "ready");
+        // The drawing process lets its copy go as it closes the console.
+        drop(master);
+        s.close(&console("left", 1));
+        wait_for_exits(&watched);
+        assert_eq!(s.reap(), [], "a closed session's exit was reported");
+        assert!(
+            s.closing.is_empty(),
+            "the closed session's process was not reaped"
+        );
     }
 
     #[test]
