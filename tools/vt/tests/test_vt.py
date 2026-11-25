@@ -372,10 +372,10 @@ while True:
 DISPLAY_LINES = (
     ("crates/vtium-platform/src/display/drm2d.rs", "display {name} at {}x{}", ("HDMI-A-2", "800", "480"), "came"),
     ("crates/vtium-platform/src/display/drm2d.rs", "display {} is gone", ("HDMI-A-2",), "went"),
-    ("crates/vtium/src/app.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
+    ("crates/vtium/src/app/guard.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
      (" of head panel", "100", "30"), "came"),
     ("crates/vtium-platform/src/display/drm2d.rs", "display {}, left dark, is gone", ("DP-8",), "went"),
-    ("crates/vtium/src/app.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
+    ("crates/vtium/src/app/guard.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
      ("", "100", "30"), "came"),
     ("crates/vtium-platform/src/display/drm2d.rs", "display {}: the first flip after its modeset is done",
      ("HDMI-A-2",), "modeset"),
