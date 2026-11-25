@@ -8,19 +8,19 @@ running: one console shown	crates/vtium/src/head.rs	Head::show
 running: the others run unseen	crates/vtium/src/head.rs	Head::consoles
 transition Ctrl-Super-Right shows the next console	crates/vtium-settings/src/keys.rs	key key-console-next
 transition Ctrl-Super-Left shows the previous console	crates/vtium-settings/src/keys.rs	key key-console-previous
-transition a console's program exits and starts again in that console	crates/vtium/src/app.rs	App::child_exited
+transition a console's program exits and starts again in that console	crates/vtium/src/app/sessions.rs	App::child_exited
 transition the restart, from a hard reset	crates/vtium/src/respawn.rs	Next::Restart
-transition its last display is disconnected: the head has no view left	crates/vtium/src/app.rs	App::attachment
+transition its last display is disconnected: the head has no view left	crates/vtium/src/app/guard.rs	App::attachment
 the head's views of its displays	crates/vtium/src/head.rs	Head::views
 running and dark as the head's attachment	crates/vtium/src/head.rs	Attached::Gone
 a display that goes dark but stays connected keeps the head's sessions	crates/vtium-platform/src/display.rs	Event::Unlit
 dark: under keep, the default, the sessions run on unseen	crates/vtium-settings/src/config.rs	WhenDisplayLost::Keep
 dark: the keys that reach the head still type into it	crates/vtium/src/head/route.rs	head_of
-transition a display that the head's rules match is connected	crates/vtium/src/app.rs	App::attachment
+transition a display that the head's rules match is connected	crates/vtium/src/app/guard.rs	App::attachment
 transition hangup, at once	crates/vtium-settings/src/config.rs	WhenDisplayLost::Hangup
 transition hangup, when its time runs out	crates/vtium-settings/src/config.rs	WhenDisplayLost::HangupAfter
 transition hangup: the time runs out	crates/vtium/src/head.rs	Head::hangup_due
-transition hangup: every pty closes and each console starts again at its login	crates/vtium/src/app.rs	App::hang_up
+transition hangup: every pty closes and each console starts again at its login	crates/vtium/src/app/guard.rs	App::hang_up
 transition hangup: the head's sessions hang up	crates/vtium/src/head/session.rs	Head::hang_up
 transition hangup: no quick exit counted, and under oneshot the console ends	crates/vtium/src/respawn.rs	Respawn::hung_up
 transition oneshot: a console's program exits and the console ends	crates/vtium/src/respawn.rs	Next::Oneshot
@@ -32,7 +32,7 @@ transition on any head, a console's program exits within 2 s of its start	crates
 transition for the 6th time in a row	crates/vtium/src/respawn.rs	QUICK_RESTARTS
 transition the respawn count, one for each console	crates/vtium/src/respawn.rs	Respawn::exited
 vtium gives up	crates/vtium/src/head/session.rs	AfterExit::GaveUp
-vtium gives up: every head stops	crates/vtium/src/app.rs	App::gave_up
+vtium gives up: every head stops	crates/vtium/src/app/sessions.rs	App::gave_up
 vtium gives up, open policy: exit status 1	crates/vtium/src/app.rs	Exit::TooQuick
 vtium gives up, open policy: a getty takes the VT	crates/vtium/install/vtium@.service	OnFailure=vtium-getty@%i.service
 vtium gives up, closed policy: the getty stays off	crates/vtium/install/vtium-getty@.service	ConditionPathExists=!/run/vtium/%i.closed

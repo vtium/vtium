@@ -2,7 +2,7 @@
 element	file	symbol
 roaming keyboard: no head owns it, and it types into the active head	crates/vtium/src/head/route.rs	head_of
 a keyboard that a rule sends to a head types into that head	crates/vtium/src/head/route.rs	head_of
-it keeps typing into panel when the active head moves	crates/vtium/src/app.rs	App::move_focus
+it keeps typing into panel when the active head moves	crates/vtium/src/app/input.rs	App::move_focus
 Ctrl-Super-Up or Down moves the active head	crates/vtium/src/head/chord.rs	HeadChord::NextHead
 Ctrl-Super-Up	crates/vtium-settings/src/keys.rs	key key-focus-next
 Ctrl-Super-Down	crates/vtium-settings/src/keys.rs	key key-focus-previous

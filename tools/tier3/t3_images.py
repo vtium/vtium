@@ -23,7 +23,7 @@ CASE = "prelogin"
 # The check of the setting helper-sandbox=off (check_sandbox_off).
 SANDBOX_OFF = "sandbox-off"
 # The line vtium logs once a boot for each helper that runs with the setting
-# off: the font helper's (crates/vtium/src/helper.rs, sandbox_notice) and
+# off: the font helper's (crates/vtium/src/helper/sandbox.rs, sandbox_notice) and
 # the image helper's (crates/vtium-platform/src/image_helper.rs,
 # sandbox_line), each up to the end of its first sentence.
 SANDBOX_OFF_LINES = {

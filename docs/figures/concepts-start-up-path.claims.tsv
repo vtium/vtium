@@ -11,7 +11,7 @@ vtium opens its VT	crates/vtium/src/main.rs	run_kernel
 vtium takes over the VT's switches	crates/vtium-platform/src/vt/kernel.rs	KernelVt::open
 vtium tells systemd that it is ready, once its VT is open	crates/vtium/src/survive/notify.rs	opened
 systemd starts a display manager only after this	crates/vtium/install/vtium@.service	Before=display-manager.service
-vtium opens the keyboards and pointers that udev reports	crates/vtium/src/app.rs	App::add_input
+vtium opens the keyboards and pointers that udev reports	crates/vtium/src/app/input.rs	App::add_input
 under the closed policy, vtium opens only those a rule names	crates/vtium/src/head/route.rs	Routes::add
 vtium waits for its VT to be shown	crates/vtium-platform/src/vt.rs	Vt::wait
 vtium takes the display: it becomes the program that sets the display's mode	crates/vtium-platform/src/display/card.rs	set_master
@@ -21,7 +21,7 @@ vtium starts login in a pty	crates/vtium/src/child.rs	child
 when login exits, vtium starts it again	crates/vtium/src/respawn.rs	Next::Restart
 vtium exits with status 1	crates/vtium/src/app.rs	Exit::status
 no display appears in time	crates/vtium/src/app.rs	Exit::NoDisplay
-sessions end too fast, under the open policy	crates/vtium/src/app.rs	App::gave_up
+sessions end too fast, under the open policy	crates/vtium/src/app/sessions.rs	App::gave_up
 open policy: vtium-getty@ starts	crates/vtium/install/vtium@.service	OnFailure=vtium-getty@%i.service
 open policy: a getty on the VT	crates/vtium/install/vtium-getty@.service	ExecStart=/usr/bin/vtium console fallback %i
 closed policy: no getty starts	crates/vtium/install/vtium-getty@.service	ConditionPathExists=!/run/vtium/%i.closed

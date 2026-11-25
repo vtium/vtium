@@ -1,0 +1,58 @@
+path	lines	kind	test_lines	code_lines	plan
+crates/vtium/src/app.rs	10317	source	4337	5980	split; tests move out
+crates/vtium-config/src/serve.rs	10144	source	4793	5351	split; tests move out
+crates/vtium/tests/heads.rs	9970	test	9970	0	exempt: test file
+crates/vtium-platform/src/display/drm2d/tests.rs	8819	test	8819	0	exempt: test file
+crates/vtium/tests/boot.rs	8322	test	8322	0	exempt: test file
+crates/vtium/src/helper.rs	8099	source	4419	3680	split; tests move out
+crates/vtium-config/src/shaping/data.rs	5938	generated	0	0	exempt: generated table
+crates/vtium/src/check.rs	5686	source	4225	1461	tests move out; may split
+crates/vtium/src/deferred.rs	5049	source	2875	2174	split; tests move out
+crates/vtium/src/term.rs	4733	source	2933	1800	split; tests move out
+crates/vtium-font/src/letters/data.rs	4573	generated	0	0	exempt: generated table
+crates/vtium/src/font.rs	4229	source	2374	1855	split; tests move out
+crates/vtium-config/src/cover.rs	4219	generated	0	0	exempt: generated table
+crates/vtium-platform/src/display/drm2d.rs	4123	source	16	4107	split
+crates/vtium/src/console/tests.rs	3607	test	3607	0	exempt: test file
+crates/vtium-config/src/frit.rs	3424	source	1814	1610	split; tests move out
+crates/vtium/src/head.rs	3278	source	1118	2160	split; tests move out
+crates/vtium-term/src/line.rs	3273	source	1023	2250	split; tests move out
+crates/vtium-render/src/renderer.rs	3140	source	2	3138	split
+crates/vtium/src/deferred/data.rs	3089	generated	0	0	exempt: generated table
+crates/vtium-config/src/outline.rs	3071	source	252	2819	split; tests move out
+crates/vtium-settings/src/keys.rs	3010	table	370	2640	exempt: hand-written table
+crates/vtium-config/src/apply.rs	2885	source	871	2014	split; tests move out
+crates/vtium-image/src/protocol/kitty/tests.rs	2786	test	2786	0	exempt: test file
+crates/vtium-config/src/tui/paths.rs	2496	source	1114	1382	tests move out; may split
+crates/vtium-platform/src/input/tests.rs	2493	test	2493	0	exempt: test file
+crates/vtium-render/src/notice.rs	2451	source	1284	1167	tests move out; may split
+crates/vtium-config/src/specimen.rs	2356	source	632	1724	split; tests move out
+crates/vtium-config/tests/tui_looks.rs	2323	test	2323	0	exempt: test file
+crates/vtium-render/src/gpu/compose.rs	2268	source	108	2160	split; tests move out
+crates/vtium-platform/src/display/fake.rs	2231	test	2231	0	exempt: test file
+crates/vtium-config/src/sources.rs	2134	source	1099	1035	tests move out; may split
+crates/vtium-config/src/tui/flowdraw.rs	2098	source	651	1447	tests move out; may split
+crates/vtium-config/src/tui/tabs/flow.rs	2069	source	581	1488	tests move out; may split
+crates/vtium-config/src/tui/flowview.rs	2057	source	632	1425	tests move out; may split
+crates/vtium-image/src/store/tests.rs	2031	test	2031	0	exempt: test file
+crates/vtium/src/config/tests.rs	2031	test	2031	0	exempt: test file
+crates/vtium/src/console.rs	2012	source	2	2010	split
+crates/vtium-config/tests/scenarios/checks.rs	1972	test	1972	0	exempt: test file
+crates/vtium/src/painter.rs	1968	source	1169	799	tests move out
+crates/vtium-config/tests/tui.rs	1836	test	1836	0	exempt: test file
+crates/vtium-render/src/ring/tests.rs	1791	test	1791	0	exempt: test file
+crates/vtium/src/broker/protocol.rs	1770	source	710	1060	tests move out; may split
+crates/vtium-config/src/tui/model.rs	1765	source	218	1547	split; tests move out
+crates/vtium-image/src/store.rs	1740	source	2	1738	split
+crates/vtium-config/tests/engine.rs	1732	test	1732	0	exempt: test file
+crates/vtium-config/src/tui/contract_text.rs	1702	generated	0	0	exempt: generated table
+crates/vtium-term/src/terminal/images.rs	1691	source	902	789	tests move out
+crates/vtium-font/tests/legacy.rs	1655	test	1655	0	exempt: test file
+crates/vtium-render/src/gpu/glyphs.rs	1650	source	281	1369	tests move out; may split
+crates/vtium-term/src/scrollback.rs	1619	source	351	1268	tests move out; may split
+crates/vtium-render/src/cache.rs	1583	source	559	1024	tests move out; may split
+crates/vtium-settings/src/parse.rs	1570	source	57	1513	split; tests move out
+crates/vtium-image/src/login.rs	1523	source	695	828	tests move out
+crates/vtium/tests/images.rs	1523	test	1523	0	exempt: test file
+crates/vtium-config/tests/commands.rs	1514	test	1514	0	exempt: test file
+crates/vtium-config/src/names.rs	1508	source	846	662	tests move out

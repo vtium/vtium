@@ -368,7 +368,7 @@ A build with `libseat` alone is for seatd. It stages neither file, and opens no 
 
 ### Whether PID 1 takes the power-off signal
 
-**Where:** `crates/vtium/src/check.rs` (`semantics`).
+**Where:** `crates/vtium/src/check/notes.rs` (`semantics`).
 
 **With systemd:** systemd blocks `SIGRTMIN+4` and reads it from a signalfd. So the `SigBlk` mask in `/proc/1/status` has its bit, and vtium gives no warning. Tier 3's `power-off` tests this.
 

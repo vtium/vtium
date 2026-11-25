@@ -4,7 +4,7 @@ evdev: the kernel's input event	crates/vtium-platform/src/input/evdev.rs	RawEven
 vtium-platform reads the event	crates/vtium-platform/src/input/evdev.rs	EVENTS_PER_READ
 xkb makes a key	crates/vtium-platform/src/input.rs	Input
 vtium picks the head	crates/vtium/src/head/route.rs	Routes
-then the key order	crates/vtium/src/app.rs	App::key
+then the key order	crates/vtium/src/app/key_order.rs	App::key
 vtium-term encodes the key as bytes	crates/vtium-term/src/terminal/input.rs	Terminal::key
 the pty: the session's program reads it	crates/vtium-platform/src/pty.rs	Pty::write
 the pty: vtium's side has bytes to read	crates/vtium-platform/src/channel.rs	Channel

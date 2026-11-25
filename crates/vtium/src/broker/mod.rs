@@ -807,14 +807,26 @@ mod tests {
     /// message of the wrong size, not a closed socket: the broker refuses
     /// it and goes on serving, so the power key that follows stops the
     /// drawer with its own 7. A broker that took the empty message for a
-    /// close would put the VT back while the drawer still runs.
+    /// close would put the VT back before it read the power key, so before
+    /// anything asked it to stop.
+    ///
+    /// The test does not check whether the drawer still ran at the
+    /// restore. The stand-in's exit closes its socket before the kernel
+    /// reports the exit, and the broker puts the VT back at the close, so
+    /// the drawer can still be running then.
     #[test]
     fn an_empty_message_is_refused_and_not_a_close() {
         let bounds = Bounds {
             start: LONG.start,
             stop: Duration::from_secs(2),
         };
-        assert_eq!(broker_watching("empty:7", bounds), (7, 1, Some(false)));
+        let ran = broker_serving("empty:7", &[], bounds, |ping, _| {
+            Box::new(StopOnPower(ping))
+        });
+        assert_eq!(
+            (ran.status, ran.restored, ran.asked_to_stop),
+            (7, 1, Some(true))
+        );
     }
 
     /// A drawer that sends refused messages in a loop writes only a few

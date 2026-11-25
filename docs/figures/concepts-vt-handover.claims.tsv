@@ -9,6 +9,6 @@ test: a release waits for the frame being composed	crates/vtium/tests/boot.rs	a_
 test: a release waits for every device to sleep	crates/vtium/tests/boot.rs	a_release_waits_for_every_device_to_sleep
 the user switches back: the kernel gives the VT back with SIGUSR1	crates/vtium-platform/src/vt/kernel.rs	KernelVt::acquire_signal
 vtium takes the display and sets its modes	crates/vtium-platform/src/display/drm2d.rs	Drm2d::wake_up
-vtium redraws the whole screen of each display set up again	crates/vtium/src/app.rs	App::add_display
+vtium redraws the whole screen of each display set up again	crates/vtium/src/app/displays.rs	App::add_display
 keys and the pointer reach vtium again	crates/vtium-platform/src/input.rs	Input::wake_up
-the switch away and back, in one place	crates/vtium/src/app.rs	App::vt_event
+the switch away and back, in one place	crates/vtium/src/app/devices.rs	App::vt_event

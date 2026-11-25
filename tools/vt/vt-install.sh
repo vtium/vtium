@@ -458,7 +458,7 @@ program() {
 bin=$(program VTIUM_VT_BIN "vtium binary" "it would run as root")
 helper=$(program VTIUM_VT_CONFIG "glyph helper" "vtium, as root, would start it")
 # vtium starts the helper at the path it was built with (VTIUM_FONT_HELPER,
-# crates/vtium/src/helper.rs). One built for another path would start the
+# crates/vtium/src/helper/launcher.rs). One built for another path would start the
 # packaged helper, or none.
 grep -qaF -- "$helper_path" "$bin" ||
 	die "$bin does not look for its glyph helper at $helper_path, so it would start another build's helper or none; make vt-install builds one that looks there"
