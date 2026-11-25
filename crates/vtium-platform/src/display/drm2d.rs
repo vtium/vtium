@@ -54,6 +54,7 @@ use super::{
     Ages, Buffers, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Interrupt, Loan,
     Memory, Rect, SwapError, Swapped, Token, lock,
 };
+use crate::vt::MasterKeeper;
 use back::needed;
 use buffers::{Buffer, Dumbs, FORMAT, Source};
 use dark::Dark;
@@ -304,6 +305,9 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// Whether the kernel has asked for the VT, asked between the steps
     /// of a scan and before a modeset ([`Drm2d::set_interrupt`]).
     interrupt: Option<Interrupt>,
+    /// Who sets and drops DRM master on the card, where vtium may not make
+    /// those calls itself ([`Drm2d::set_master_keeper`]).
+    keeper: Option<Box<dyn MasterKeeper>>,
 }
 
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
@@ -374,6 +378,7 @@ impl<K: Kms> Drm2d<K> {
             timers: Timers::default(),
             link: None,
             interrupt: None,
+            keeper: None,
         })
     }
 }
@@ -384,6 +389,32 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// connector the scan finds from then on carries.
     pub fn set_card_path(&mut self, path: Option<String>) {
         self.card_path = path;
+    }
+
+    /// Gives the card a keeper of its DRM master, as the drawer's card has
+    /// under the privilege split. From then on the card never sets or
+    /// drops master itself: each wake-up, the slow retry included, asks the
+    /// keeper, and so does each let-go. The kernel refuses the drawer's own
+    /// `DRM_IOCTL_SET_MASTER` even while its open file holds master, so
+    /// before it asks, a wake-up asks the kernel whether the file still
+    /// holds master, as the broker drops it at each release. Commits, flips
+    /// and pans need only that the file holds master, so they run as with
+    /// a master vtium took itself.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker holds DRM master
+    ///   for the drawer, and the drawer asks at each try of its wake-up.
+    pub fn set_master_keeper(&mut self, keeper: Option<Box<dyn MasterKeeper>>) {
+        self.keeper = keeper;
+    }
+
+    /// Takes DRM master: through the keeper where there is one, and
+    /// otherwise with the card's own call.
+    fn take_master(&self) -> io::Result<()> {
+        match &self.keeper {
+            Some(keeper) => keeper.take(),
+            None => self.card.set_master(),
+        }
     }
 
     /// Gives the card the loop's check of whether the kernel has asked for
@@ -1223,6 +1254,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// displays; a failed retry keeps master and the displays online, as
     /// the atomic modeset left them, so the blank still powers them down.
     fn try_wake(&mut self, scan: Scan) -> io::Result<()> {
+        // A keeper drops master on its own copy at a release, which this
+        // file learns only from the kernel.
+        if self.keeper.is_some() {
+            self.recheck_master();
+        }
         if self.master != Master::Held {
             // After the fast retries ran out, each later try that fails
             // logs at debug level, so the slow retries do not fill the log.
@@ -1231,7 +1267,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             } else {
                 log::Level::Warn
             };
-            self.card.set_master().inspect_err(|e| {
+            self.take_master().inspect_err(|e| {
                 if !card_removed(e) {
                     log::log!(level, "cannot take DRM master: {e}");
                 }
@@ -1547,10 +1583,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             return;
         }
         self.recheck_master();
-        if self.master != Master::NotHeld
-            && let Err(e) = self.card.drop_master()
-        {
-            log::debug!("cannot drop DRM master: {e}");
+        if self.master != Master::NotHeld {
+            let dropped = match &self.keeper {
+                Some(keeper) => keeper.let_go(),
+                None => self.card.drop_master(),
+            };
+            if let Err(e) = dropped {
+                log::debug!("cannot drop DRM master: {e}");
+            }
         }
         self.master = Master::NotHeld;
     }
@@ -4117,6 +4157,8 @@ impl<K: Kms, S: Source<K>> Drop for Drm2d<K, S> {
         }
     }
 }
+#[cfg(test)]
+mod keeper_tests;
 #[cfg(test)]
 mod pan_tests;
 #[cfg(test)]

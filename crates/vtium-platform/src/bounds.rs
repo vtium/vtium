@@ -178,6 +178,14 @@ const SCOPE_JOB: Bound = Bound {
     cite: "The 2 s bound vtium already gives logind's answer; systemd finishes a transient scope's job at once, since the scope only adopts a running process (ADR-1400 D3). sd-bus's own defaults, 25 s a call and 90 s for authentication, would hold the loop far longer",
 };
 
+const RELEASE: Bound = Bound {
+    name: "RELEASE_BOUND_MS",
+    value: 10_000,
+    what: "Under the privilege split: milliseconds the broker waits for the drawer to let its devices go after it tells the drawer that the VT is asked for",
+    past: "The broker drops DRM master on each card, revokes each input device and lets the VT go, whether the drawer answered or not, so a hung drawer cannot keep the VT",
+    cite: "ADR-1400 D4, which sets the bound at 10 s, a constant in the code and not a key of vtium.conf. A hung drawer holds up a switch away from vtium's VT for at most this long",
+};
+
 const RESOURCE_READS: Bound = Bound {
     name: "RESOURCE_READS",
     value: 8,
@@ -260,7 +268,7 @@ const IMAGE_BASE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 30] = [
+pub(crate) const BOUNDS: [Bound; 31] = [
     READ,
     READS,
     BUDGET,
@@ -281,6 +289,7 @@ pub(crate) const BOUNDS: [Bound; 30] = [
     SEAT_OPENS,
     DEVICE_OPENS,
     SCOPE_JOB,
+    RELEASE,
     RESOURCE_READS,
     BLOB,
     MODES,
@@ -381,6 +390,10 @@ pub(crate) const DEVICE_OPENS_MAX: usize = DEVICE_OPENS.value;
 /// scope of its own.
 #[cfg(feature = "logind")]
 pub(crate) const SCOPE_JOB_MS: usize = SCOPE_JOB.value;
+
+/// Milliseconds the broker waits for the drawer to let its devices go at a
+/// release.
+pub const RELEASE_BOUND_MS: usize = RELEASE.value;
 
 /// Reads of a DRM card's CRTC and connector lists before one fails.
 pub const RESOURCE_READS_MAX: usize = RESOURCE_READS.value;

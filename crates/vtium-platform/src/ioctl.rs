@@ -752,6 +752,8 @@ const EVIOCGBIT_ABS: Opcode = opcode::read::<AbsBits>(b'E', 0x23);
 const EVIOCGABS_X: Opcode = opcode::read::<InputAbsinfo>(b'E', 0x40);
 /// `EVIOCGABS(ABS_Y)`.
 const EVIOCGABS_Y: Opcode = opcode::read::<InputAbsinfo>(b'E', 0x41);
+/// `EVIOCREVOKE`: `_IOW('E', 0x91, int)`.
+const EVIOCREVOKE: Opcode = opcode::write::<c_int>(b'E', 0x91);
 
 /// `struct input_absinfo`, `linux/input.h`.
 #[repr(C)]
@@ -845,6 +847,22 @@ pub(crate) fn evdev_abs_xy(fd: BorrowedFd<'_>) -> io::Result<(InputAbsinfo, Inpu
     // SAFETY: as above.
     let y = unsafe { ioctl(fd, Getter::<EVIOCGABS_Y, InputAbsinfo>::new())? };
     Ok((x, y))
+}
+
+/// Revokes the open file of an evdev device: every descriptor of it, in
+/// any process, reads `ENODEV` from then on and is never woken again. The
+/// broker revokes its own copy at a VT release, so a drawer's copy of the
+/// same open file stops delivering keys. The kernel takes no argument and
+/// refuses any but 0 with `EINVAL` (`evdev_do_ioctl` in
+/// `drivers/input/evdev.c`).
+pub(crate) fn evdev_revoke(fd: BorrowedFd<'_>) -> io::Result<()> {
+    #[expect(unsafe_code, reason = "an ioctl rustix does not wrap")]
+    // SAFETY: EVIOCREVOKE reads no memory: the kernel takes its argument as
+    // a number and requires it to be 0.
+    unsafe {
+        ioctl(fd, IntegerSetter::<EVIOCREVOKE>::new_usize(0))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1195,6 +1213,7 @@ mod tests {
                 "EVIOCGABS(abs)",
                 "_IOR('E', 0x40 + (abs), struct input_absinfo)",
             ),
+            ("EVIOCREVOKE", "_IOW('E', 0x91, int)"),
         ] {
             let line = input
                 .lines()
@@ -1213,6 +1232,7 @@ mod tests {
         assert_eq!(EVIOCGABS_X, ioc_read(b'E', 0x40, 24));
         assert_eq!(EVIOCGABS_Y, ioc_read(b'E', 0x41, 24));
         assert_eq!(size_of::<InputAbsinfo>(), 24);
+        assert_eq!(EVIOCREVOKE, (1 << 30) | (4 << 16) | (0x45 << 8) | 0x91);
 
         let codes = header("linux/input-event-codes.h");
         for (name, ours) in [

@@ -36,6 +36,7 @@
     clippy::todo
 )]
 
+pub mod devices;
 pub mod outbox;
 pub mod refusals;
 pub mod start;
@@ -149,11 +150,54 @@ pub fn plan(facts: &dyn Facts) -> Plan {
 pub trait Serve {
     fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()>;
 
+    /// Runs once a turn of the broker's loop, at `now`: acts on what the
+    /// loop saw outside the drawer's requests, such as the VT's switches,
+    /// and sends what follows through `out`. Returns whether the drawer
+    /// must stop, as when the VT hung up.
+    fn turn(&mut self, now: Instant, out: &mut Outbox<'_>) -> bool {
+        let _ = (now, out);
+        false
+    }
+
+    /// When the loop must run [`Serve::turn`] again, at the latest.
+    fn due(&self) -> Option<Instant> {
+        None
+    }
+
     /// Sends the orders that no request asked for, such as a session's
     /// exit, once each turn of the loop while the drawer's socket is open.
     /// It sends nothing while the queue of orders is full, and keeps what
     /// it holds for a later turn.
     fn tick(&mut self, _out: &mut Outbox<'_>) {}
+}
+
+/// The broker's requests as the broker serves them: the devices and the VT
+/// through [`devices::Devices`], and the rest through [`Jobs`].
+pub struct Served {
+    pub devices: devices::Devices,
+    pub jobs: Jobs,
+}
+
+impl Serve for Served {
+    fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()> {
+        // The devices and the VT.
+        if devices::Devices::serves(&request) {
+            return self.devices.serve(request, now(), out);
+        }
+        self.jobs.serve(request, out)
+    }
+
+    fn tick(&mut self, out: &mut Outbox<'_>) {
+        self.jobs.tick(out);
+    }
+
+    fn turn(&mut self, now: Instant, out: &mut Outbox<'_>) -> bool {
+        self.devices.turn(now, out)
+    }
+
+    fn due(&self) -> Option<Instant> {
+        self.devices.due()
+    }
 }
 
 /// The broker before it serves any request: each request that waits for
@@ -548,14 +592,20 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     let kernel = begun.kernel();
     let processes = begun.processes(&lp);
     processes.listen(&lp)?;
+    // The broker holds the VT before it says it is ready and before the
+    // drawer starts, and puts the VT back after any end of the drawer.
+    let mut served = Served {
+        devices: devices::Devices::open(&mut lp, &devices::vt_path(args)?)?,
+        jobs: Jobs { processes },
+    };
+    let mut restore = served.devices.give_back();
     let (link, theirs) = Link::pair()?;
     let arg0 = std::env::args_os()
         .next()
         .unwrap_or_else(|| OsString::from("vtium"));
     // systemd starts the display manager only once vtium holds its VT, so
     // the broker says it is ready once it holds the VT open, and before
-    // the drawer starts. The card that moves the VT into the broker opens
-    // the VT above this line.
+    // the drawer starts.
     if let Err(e) = vtium::survive::notify::ready(&env) {
         log::warn!(target: "broker", "vtium cannot tell systemd that it is ready: {e}");
     }
@@ -571,15 +621,11 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
         "vtium runs as two processes: this root process, and drawing process {}, which runs everything else as the account {ACCOUNT}",
         drawer.pid.as_raw_nonzero()
     );
-    // The broker does not hold the VT yet, so there is nothing to put
-    // back. The card that moves the VT into the broker passes its restore
-    // here.
-    let mut restore = || {};
     Ok(run(
         &mut lp,
         &link,
         &drawer,
-        &mut Jobs { processes },
+        &mut served,
         &mut restore,
         Bounds::default(),
         &now,
@@ -682,6 +728,10 @@ fn turns(
         }
     };
     loop {
+        // What the loop saw besides the drawer's requests, such as the VT's
+        // switches, before the loop waits again; and whether that asks the
+        // drawer to stop.
+        let stop_asked = serve.turn(clock(), &mut out);
         // While the queue of orders is full, the broker reads no requests
         // and waits for room; while any order waits, it watches for room.
         if let Some(watched) = socket.as_mut()
@@ -692,12 +742,20 @@ fn turns(
             back.run();
             return FAILURE;
         }
+        let mut seen = Seen {
+            stop: stop_asked,
+            ..Seen::default()
+        };
         let now = clock();
-        let deadline = [stop_by, (!ready).then_some(ready_by), refusals.due()]
-            .into_iter()
-            .flatten()
-            .min();
-        let mut seen = Seen::default();
+        let deadline = [
+            stop_by,
+            (!ready).then_some(ready_by),
+            refusals.due(),
+            serve.due(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         if let Err(e) = lp.dispatch(
             deadline.map(|d| d.saturating_duration_since(now)),
             &mut seen,
@@ -1115,6 +1173,42 @@ mod tests {
             stop: Duration::ZERO,
         };
         assert_eq!(broker("stubborn", short), (FAILURE, 1));
+    }
+
+    /// Serves as [`Unserved`] does, and stands in for the VT's holder: a
+    /// power key sets a time 20 ms on, and the first turn at or after that
+    /// time reports a hung-up VT. Nothing else wakes the loop then, so only
+    /// a loop that waits for [`Serve::due`] and runs [`Serve::turn`] stops
+    /// the drawer.
+    struct HangUpWhenDue(Option<Instant>);
+
+    impl Serve for HangUpWhenDue {
+        fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()> {
+            if matches!(request, Request::Power { .. }) {
+                self.0 = Some(now() + Duration::from_millis(20));
+                return Ok(());
+            }
+            Unserved.serve(request, out)
+        }
+
+        fn turn(&mut self, now: Instant, _: &mut Outbox<'_>) -> bool {
+            self.0.is_some_and(|due| now >= due)
+        }
+
+        fn due(&self) -> Option<Instant> {
+            self.0
+        }
+    }
+
+    /// The loop runs the devices' turn when it is due, with no event from
+    /// the drawer or the kernel, and a VT that hung up stops the drawer,
+    /// whose own status is then the broker's.
+    #[test]
+    fn the_loop_runs_the_devices_turn_when_due_and_a_hangup_stops_the_drawer() {
+        let ran = bounded(move || {
+            broker_serving("stop:7", &[], LONG, |_, _| Box::new(HangUpWhenDue(None)))
+        });
+        assert_eq!((ran.status, ran.restored), (7, 1));
     }
 
     /// A message that the protocol refuses is dropped, and the broker
