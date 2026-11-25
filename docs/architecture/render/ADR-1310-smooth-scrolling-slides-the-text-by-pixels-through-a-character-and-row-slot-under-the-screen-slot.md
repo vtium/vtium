@@ -135,6 +135,18 @@ considered:
     via: "question tool, 2026-11-25, the same gap-check's fifth question, on how many spare rows the ring keeps: one screen of spare rows drawn ahead and behind under scroll-pan, about 71 MiB for three tall buffers at 1920x1080, fewer when memory is short; the option's wording is the steering session's"
     paraphrase: true
     covers: [rows drawn ahead]
+  - operator: aaronsb
+    said: "What you see (Recommended)"
+    via: "question tool, 2026-11-25, after the reading page https://claude.ai/artifact/6oTfio76n9o9m18hzevCdn on sliding the text by pixels, on which cell the pointer names while the text slides: the pointer maps through the picture the display shows, a selection anchors to the line's id and follows it, a mouse report names that line's terminal row, and a press on a line already moved off the screen sends no report; the option's wording is the steering session's"
+    paraphrase: true
+  - operator: aaronsb
+    said: "ADR-1310 figures (Recommended)"
+    via: "question tool, 2026-11-25, the same reading page's second question, on where its drawings live: hand-written figures with claim files beside D3 and beside the pointer's decision, which this record holds as a decision of its own; the option's wording is the steering session's"
+    paraphrase: true
+  - operator: aaronsb
+    said: "Accept all five (Recommended)"
+    via: "question tool, 2026-11-25, after reading D11 and its two figures, on D11's five proposed details: the lag's sign, a line outside the shown rows that a hover or a selection can start on but no report names, the column found as today, the pointer mapped again at each frame so a hover follows the sliding line, and SGR-Pixels reports less the lag; the option's wording is the steering session's"
+    paraphrase: true
 status: accepted
 date: 2026-11-17
 deciders:
@@ -159,6 +171,11 @@ related:
   > Note 2026-11-25 (rows beyond the screen): the bullet's last three sentences are new, from the maintainer's answers to the gap-check of the work on rows beyond the screen and the grid at rest (`considered`, "One screen", "History rows", "Real neighbours" and "Defaults scroll-pan").
 
   > Note 2026-11-25: this bullet is new on this date.
+- **Decided by the maintainer (2026-11-25), on the pointer during a slide** (`considered`, "What you see"): while the text slides, vtium maps the pointer to the cell the display shows under it. A hover, a click, a link and a selection then name the line the person sees. A selection follows its line as it slides. A mouse report names that line's terminal row, and a press on a line already moved off the screen sends no report (D11). The maintainer also accepted D11's details: the lag's sign, a hover that follows the line sliding under the pointer, and reports in pixels (`considered`, "Accept all five").
+
+  > Note 2026-11-25 (later): the maintainer accepted D11's five details (`considered`, "Accept all five"). The bullet's last sentence read: "This record's agent proposes the details, for the maintainer to confirm: the lag's sign, a hover that follows the line sliding under the pointer, and reports in pixels (D11)."
+
+  > Note 2026-11-25 (the pointer during a slide): this bullet is new on this date.
 - **Trades away:** A console that slides redraws the grid's area every frame of a slide, where it now redraws only the rows that changed, and keeps a ring of drawn rows, about the grid's own size again, for each display. The picture can lag the program's output by up to the bounded delay. On the CPU path every frame of a slide copies the whole grid's area into the display's buffer through the color table, which small hardware may not afford. Where the CPU path pans a tall buffer instead (D6, proposed), each of the display's buffers takes up to three times a screen's memory, 23.7 MiB at 1920×1080. Tests of the slide's frames run on given times, so the slide adds a place where time decides what a display shows.
 
   > Note 2026-11-24: the sentence on the tall buffer is new on this date, with D6's proposal of a pan over a tall buffer (`considered`, the maintainer's words of 2026-11-24 on scrolling without a copy of the frame).
@@ -188,7 +205,9 @@ The C reference scrolled by whole rows and drew no rows beyond the screen, so sm
 
 ## Decision
 
-D1 says which scrolls slide. D2 sets out the overscan rows and the rows' ids, and D3 the pacing. D4 defines the character and row slot, and D5 and D6 what it needs on the GPU path and on the CPU path. D7 names the feature and the keys, D8 covers DECSCLM, D9 lists the work, and D10 places the grid on the screen. Where a section holds the maintainer's decisions, it opens with them; the rest is this record's agent's proposal.
+D1 says which scrolls slide. D2 sets out the overscan rows and the rows' ids, and D3 the pacing. D4 defines the character and row slot, and D5 and D6 what it needs on the GPU path and on the CPU path. D7 names the feature and the keys, D8 covers DECSCLM, D9 lists the work, D10 places the grid on the screen, and D11 maps the pointer to a cell while the text slides. Where a section holds the maintainer's decisions, it opens with them; the rest is this record's agent's proposal.
+
+> Note 2026-11-25 (the pointer during a slide): the paragraph's third sentence ended "D9 lists the work, and D10 places the grid on the screen." before D11 was added.
 
 ```mermaid
 flowchart LR
@@ -273,6 +292,12 @@ For example, take a 60 Hz display, rows 20 pixels high, c at 80 ms, v at 20 rows
 
 > Note 2026-11-22: rule 2, the first paragraph's last sentence, and the example's sentences about bursts and fast output change on this date, as the maintainer asked (`considered`, "Fix, then a reading page"). Rule 2 read: "**Whole rows past one row a frame.** When s is a row's height or more, vtium rounds s down to whole rows. A slide faster than a row a frame then moves the text by whole rows, one or several a frame, exactly as vtium scrolls today, and the fraction left over waits for the slower frames at the end." With the defaults at 60 Hz that rule never fired: rule 3 keeps d at most K rows, so rule 1's step is at most 4 × 16.7 / 80, 0.83 of a row. The example's sentence "Three hundred lines a second exceed a row a frame, so the text moves by 5 rows a frame, as it does today." described what rule 3 did. The maintainer's words of 2026-11-16 ask for whole rows "to keep up with characters drawn to screen", so rule 2 now starts from the pace of the output, which can reach a row a frame at any refresh rate. Rule 1's step is no longer rounded down when it reaches a row, which happens only below 50 frames a second. The first frame's t is new as well: with t as the time since the display's previous frame, a slide that starts after a pause took a step of the whole lag and did not slide at all.
 
+The figure follows the example's single new line on the CPU path under `scroll-pan`, where the window moves through the tall buffer (D6). vtium draws the new line once, into the slot below the window. The window then moves down over it by rule 1's steps until it rests on the newest line. The tall buffer and its window exist today, but the window moves only by whole rows. The pixel steps wait for the pacing and the row slot on the CPU path, slices 2 and 5 of D9. The figure's claim file therefore names only the buffer and the window.
+
+![Four frames of a tall buffer that holds lines 8 to 14 and the next line's slot, with rows 20 pixels high. Line 14 is new, drawn once below the window. An orange window five rows high shows lines 9 to 13 at SRC_Y 20, then moves to SRC_Y 27, 33 and 40, where it shows lines 10 to 14 at rest. Below, the step table at 60 Hz, with a catch-up time of 80 ms and a minimum speed of 20 rows a second: the minimum speed sets each step at 6.7 pixels, and the lag falls from 20 to 13.3, 6.7 and 0 pixels.](figures/ADR-1310-pan-steps.svg)
+
+> Note 2026-11-25 (the pointer during a slide): the figure and the paragraph before it are new on this date, from the maintainer's answer on where the reading page's drawings live (`considered`, "ADR-1310 figures").
+
 **Decided by the maintainer (2026-11-17):** a burst of more than a screen of output skips the slide (`considered`). **Proposed, how.** When more rows than the screen holds arrive between two frames of a display, vtium shows the newest frame at once with the lag at zero, before rule 1 runs, so a large `cat` never waits on the slide.
 
 **Proposed, the event timing.** A display slides only while its head draws the console that slides, the VT is vtium's and the displays are not blanked; a VT switch, a blank or a resize ends the slide with the lag at zero.
@@ -287,7 +312,9 @@ For example, take a 60 Hz display, rows 20 pixels high, c at 80 ms, v at 20 rows
 
 **Decided by the maintainer (2026-11-16):** the effects pipeline gains a slot that works on characters and rows, beside the slot that works on the whole screen's texture. An effect for characters or rows is written apart from a whole-screen effect, and the screen slot composes on top of the character and row slot's output. Each slot states its requirements on the GPU path and on the CPU path. Smooth scrolling's row offset is the first effect in the new slot. In the maintainer's direction of 2026-11-14, an effect need not work on both paths: it declares what it requires, and vtium offers it only where its requirements hold.
 
-**Decided by the maintainer (2026-11-24):** only the grid's area slides: its text, its cursor and the pictures on its rows. The mouse arrow, the border around the text and vtium's notices stay where they are (`considered`).
+**Decided by the maintainer (2026-11-24):** only the grid's area slides: its text, its cursor and the pictures on its rows. The mouse arrow, the border around the text and vtium's notices stay where they are (`considered`). D11 says which cell the still pointer names while the text moves under it.
+
+> Note 2026-11-25 (the pointer during a slide): the paragraph's last sentence is new on this date, with D11.
 
 > Note 2026-11-24: the paragraph above is new on this date, from the maintainer's answer to the Summary's probe on what moves (`considered`, "Yes, only text moves"). The paragraph below proposed it before, as where the slot sits.
 
@@ -399,11 +426,13 @@ When this record is accepted, `DEC-4` moves from ignored to planned, with the is
 **Proposed.** Each slice builds and tests on its own, in this order:
 
 1. **The overscan,** in vtium-term and the snapshot, behind `smooth-scroll`, with no visible change. The work on rows beyond the screen under `scroll-pan` already builds the internal feature of vtium-term that captures them, the capture with its counts on each side, the rows' interface in the frame, the line ids as the rows' ids, and D2's tests of the ids and the capture. Slice 1 keeps what smooth scrolling adds: `smooth-scroll` turns that internal feature on, and a display on the GPU path, which draws no spare rows, asks the snapshot for K rows on each side.
-2. **The pacing,** in the binary: the lag, D3's three rules, the flip pacing, the person's scroll, the hold, the keys of D7, and the tests of D3 on given times.
+2. **The pacing,** in the binary: the lag, D3's three rules, the flip pacing, the person's scroll, the hold, the keys of D7, the pointer's mapping through the lag (D11), and the tests of D3 and D11 on given times.
 3. **The row slot on the GPU path:** the ring, the slot's draw at the offset, the damage rule and the ring's life (D5), with tier 2's frames of a slide.
 4. **The measurement of the CPU path** (D6): the faster-scroll work measures the copy, the move within the display's buffer and the pan, and reports to the maintainer before slice 5.
 5. **The row slot on the CPU path,** once the maintainer finds slice 4's measured cost acceptable, in the way the maintainer picks from those numbers, with the rows drawn ahead.
 6. **DECSCLM** (D8): the mode's handling, its DECRQM answer and ADR-1000's row.
+
+> Note 2026-11-25 (the pointer during a slide): slice 2 gains the pointer's mapping and its tests, with D11. It read: "2. **The pacing,** in the binary: the lag, D3's three rules, the flip pacing, the person's scroll, the hold, the keys of D7, and the tests of D3 on given times."
 
 > Note 2026-11-25 (rows beyond the screen): slice 1 changes because the work on rows beyond the screen builds the capture first, for `scroll-pan`, through one internal feature of vtium-term (D2, D7). It read: "1. **The rows' ids and the overscan,** in vtium-term and the snapshot, behind `smooth-scroll`, with no visible change: the ids, their end, the capture of K rows on each side with its counts, and the tests of D2. The slice starts once the faster-scroll work has built D2's scroll record, and builds the ids on it."
 
@@ -425,6 +454,22 @@ When this record is accepted, `DEC-4` moves from ignored to planned, with the is
 > Note 2026-11-25 (rows beyond the screen): the bullets "A strip taller than a row" and "Ink at the top edge" are new, from the maintainer's answers to the gap-check of the work on rows beyond the screen and the grid at rest (`considered`, "History rows" and "Real neighbours"). That gap-check found that the section did not say what fills spare lines taller than a row, or whether the screen's top row takes ink from the row above it.
 
 > Note 2026-11-25: this section is new on this date, from the maintainer's answer on where the spare pixel lines lie at rest (`considered`, "Text flush to bottom"). No record decided where the grid sits. The CPU path centred it in the display's own pixels, and ADR-1303 D3 stated that placement as the CPU path's, for the GPU path to match. This record holds the decision because the spare lines show rows that this record's scroll record and ring keep, and the answer came from the pan's design. ADR-1303 D3's sentence changes to fit, as the list below says. A build without `scroll-pan` shows the border's color in the spare lines, as the steering session read the maintainer's answer for every build.
+
+### D11: the pointer during a slide
+
+**Decided by the maintainer (2026-11-25):** while a display slides, vtium maps the pointer to a cell through the picture the display shows (`considered`, "What you see"). The pointer is over the terminal row t = ⌊(y − grid_top − D) / h⌋. Here y is the pointer's pixel line on the display, and grid_top is where the grid's first row starts at rest (D10). h is a row's height, and D is the display's lag left, in pixels. On a display turned on its side, the formula runs along the axis the rows run down. A hover, a click, a link under the pointer and a selection all use that cell. A selection anchors to the line's id (D2) and follows the line as it slides. A mouse report to a program names that line's terminal row. A press on a line that the terminal has already moved off the screen sends no report. With no slide D is 0, which is how vtium maps the pointer today.
+
+**Why.** D4 keeps the pointer still while the text slides. For up to the maximum delay, the line drawn under the pointer is then not the line the terminal holds at that place. Mapping through the picture names the line the person sees and aims at. Ending the slide at a press would be simpler. But the line under the pointer would then move by up to a row as the person clicks, and the click would land on a line they did not aim at.
+
+**Decided by the maintainer (2026-11-25), the details** (`considered`, "Accept all five"). D counts down the screen. It is positive while new output slides the text up, and negative while the view slides back through the scrollback, when the picture shows the text higher than the terminal puts it. A t below 0 or past the grid's last row names a line outside the rows the terminal shows. Such a line still exists with its id, so a hover or a selection can start on it, but a mouse report cannot name it. The slide moves no column, so vtium finds the column as it does today. D changes at each frame of a slide while the pointer stays still. vtium therefore maps the pointer again at each frame, and a hover moves to the line that slides under the pointer. A report in pixels, under SGR-Pixels mouse mode (DEC mode 1016), gives the pointer's place less D, so the pixel lies inside the cell the report names.
+
+The figure shows one pointer in the middle of the slide of D3's figure, at frame 1 with 13 pixels of lag left, and again at rest. The lag is not built yet, so the figure's claim file names only today's mapping at rest, the mouse report, and the selection's anchor on the line's id.
+
+![Two views of a screen five rows high, with rows 20 pixels high and the pointer at the same place, 50 pixels below the grid's top. In the middle of a slide, with 13 pixels of lag left, every line shows 13 pixels lower than the terminal puts it. The bottom of line 9, already in the scrollback, shows at the top in slate, and the pointer is over line 11, terminal row 1, since the floor of 37 over 20 is 1. At rest, with no lag, the same pointer is over line 12, terminal row 2. Below, the formula t equals the floor of y minus grid_top minus D, over h.](figures/ADR-1310-pointer-slide.svg)
+
+> Note 2026-11-25 (later): the maintainer accepted the five details of the paragraph that now opens "Decided by the maintainer (2026-11-25), the details" (`considered`, "Accept all five"). That paragraph opened "**Proposed, the details.**", as this record's agent's proposal.
+
+> Note 2026-11-25: this section is new on this date, from the maintainer's answer on the pointer during a slide (`considered`, "What you see"). No record said which cell the pointer names while the text slides. The pan moves by whole rows within one frame, so the picture and the terminal agree whenever vtium reads the pointer.
 
 ## What the other records change to fit
 
@@ -459,6 +504,9 @@ Outside the records, the slices change docs/architecture.md's table of where tim
 > Note 2026-11-22: this bullet changes with D3's rule 2. It read, from "one new line": "one new line at 60 Hz with the defaults finishes its slide in 3 frames; at 20 lines a second the picture settles about the catch-up time behind and never passes the maximum delay; at 300 lines a second every step is a whole number of rows; …" and had no check of rule 2 or of a slide's first frame. Under the old rule 2, the check at 300 lines a second passed through rule 3, because each frame added 5 rows of lag, more than K. No test reads the wall clock.
 - **Jumps end slides.** A screen clear, a resize, a switch to the alternate screen and a RIS during a slide each leave the lag at zero in the next frame.
 - **The hold.** Under DEC mode 2026, an output slide in progress reaches the held frame and stops; output during the hold starts no slide until the hold ends; a person's scroll through the scrollback during the hold slides.
+- **The pointer during a slide.** The binary's tests drive a slide on given times and press at a still pointer in the middle of it, at all four turns. Take rows 20 pixels high, 13 pixels of lag left, and the pointer 50 pixels past the grid's top along the axis the rows run down. The press then names the line drawn there, terminal row 1. The same press at rest names row 2. A selection started in the middle of a slide stays on its line as the slide ends. A press over a line already moved off the screen sends the program no report. A planted mapping that ignores the lag names row 2 in the middle of the slide, and fails.
+
+  > Note 2026-11-25 (the pointer during a slide): this bullet is new on this date, with D11.
 - **What moves and what stays.** On the stand-in GL and in tier 2 under llvmpipe, a frame in the middle of a slide shows the grid moved by the offset and cut to its rectangle, while the border, the pointer and a notice are where a frame without the slide puts them. A planted slot that moves the whole upright frame fails.
 - **The ring draws each row once.** On the stand-in GL, which counts draws, a slide of ten lines draws each new row into the ring once and redraws no other row. A planted ring that redraws every row each frame fails the count.
 - **Pictures and sized lines slide as one.** In tier 2, a picture anchored to a line and a double-height pair keep their place relative to the text in every frame of a slide.
