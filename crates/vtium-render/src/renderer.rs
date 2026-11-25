@@ -135,7 +135,8 @@ pub struct Config {
     /// white (`src/mono.rs`).
     pub depth: Depth,
     /// `font-ligatures`: whether a run of ASCII symbols draws as the font's
-    /// ligature across its cells ([`crate::syllable`]).
+    /// ligature across its cells, which the renderer finds in a build with
+    /// `bidi`.
     pub ligatures: bool,
 }
 
@@ -1733,7 +1734,7 @@ impl<F: Face> Renderer<F> {
                     o.row() == row && o.chars().any(|c| self.shows_changed(&Glyph::Char(c)))
                 })
                 || blink_toggled
-                || frame.row_changed(row)
+                || self.row_changed(frame, row)
                 || [at, last_cursor, held, last_held]
                     .into_iter()
                     .chain(pairs)
@@ -1777,6 +1778,35 @@ impl<F: Face> Renderer<F> {
         // every row is scanned after this, so the stamps alone draw the
         // cells the forgotten reaches covered
         self.reached.clear();
+    }
+
+    /// Whether a cell of `row` changed for the buffer being drawn. A frame
+    /// drawn through the ring, whose lines keep their pixels as they move,
+    /// asks whether the row changed in place; every other frame asks
+    /// whether it changed at its place on the screen.
+    fn row_changed(&self, frame: &Frame<'_>, row: usize) -> bool {
+        #[cfg(feature = "scroll-pan")]
+        if self.ring.in_place() {
+            return frame.row_changed_in_place(row);
+        }
+        frame.row_changed(row)
+    }
+
+    /// Whether the cell `fc` drawn at `col`, `row` changed for the buffer
+    /// being drawn, read in place or at its place on the screen as
+    /// [`Renderer::row_changed`] reads a row.
+    fn cell_changed(
+        &self,
+        frame: &Frame<'_>,
+        (col, row): (usize, usize),
+        fc: &FrameCell<'_>,
+    ) -> bool {
+        #[cfg(feature = "scroll-pan")]
+        if self.ring.in_place() {
+            return frame.changed_in_place(row, col);
+        }
+        let _ = (frame, col, row);
+        fc.changed
     }
 
     /// Whether `row` shows a glyph that changed since the last frame
@@ -1825,7 +1855,7 @@ impl<F: Face> Renderer<F> {
             true => p.run_piece(row, col).map(|(_, first)| first),
             false => None,
         };
-        let mut changed = fc.changed
+        let mut changed = self.cell_changed(p.frame, (col, row), fc)
             || self.shows_changed(&fc.glyph)
             || run.is_some_and(|first| self.shows_changed(&first.glyph));
         if let Some(s) = self.cells.get_mut(col, row) {
@@ -1847,8 +1877,18 @@ impl<F: Face> Renderer<F> {
         let is_cursor = p.shows_cursor(col, row);
         let off = blink_off(fc, is_cursor, p.state, self.config.blink);
         if ncells == 2 {
+            // the pair draws from its leading half alone: its glyph, its
+            // colors, its selection and the cursor on it. So a change to
+            // the trailing half's own colors or attributes draws the same
+            // pixels, and a change that splits the pair changes the span
+            // that `replace_span` reads. No frame can show what this read
+            // adds; it keeps the pair's two cells drawn together whichever
+            // of them the frame marks, in place or at its place on the
+            // screen
             let tail = col.saturating_add(1);
-            changed |= p.cell(row, tail).is_some_and(|t| t.changed);
+            changed |= p
+                .cell(row, tail)
+                .is_some_and(|t| self.cell_changed(p.frame, (tail, row), &t));
             if let Some(t) = self.cells.get_mut(tail, row) {
                 changed |= t.replace_span(0) != 0;
             }
@@ -1864,9 +1904,11 @@ impl<F: Face> Renderer<F> {
             let piece = joined.as_ref().map(|(_, piece)| *piece);
             changed |= self.cells.replace_piece(col, row, piece) != piece;
             if let Some((s, _)) = joined {
-                changed |= s
-                    .cols()
-                    .any(|c| c != col && p.cell(row, c).is_some_and(|m| m.changed));
+                changed |= s.cols().any(|c| {
+                    c != col
+                        && p.cell(row, c)
+                            .is_some_and(|m| self.cell_changed(p.frame, (c, row), &m))
+                });
             }
         }
         // the cursor's look and the blink phase change this cell alone
