@@ -956,30 +956,42 @@ impl Big {
     }
 
     /// The view moves a line down the output, as a line feed on the
-    /// bottom row moves it.
-    fn scroll(&mut self, d: &mut Damage) {
-        self.top += 1;
-        self.fill();
-        d.scroll_up(1);
+    /// bottom row moves it, or with `up` false a line back up the output,
+    /// as a reverse index on the top row moves it.
+    fn scroll(&mut self, d: &mut Damage, up: bool) {
+        if up {
+            self.top += 1;
+            self.fill();
+            d.scroll_up(1);
+        } else {
+            self.top -= 1;
+            d.scroll_down(1);
+        }
     }
 
     /// Writes every cell of the screen again in place with letters that
     /// differ from the ones there, as a program that redraws its screen
     /// does, all but the last `keep` rows.
     fn rewrite(&mut self, d: &mut Damage, step: usize, keep: usize) {
+        for row in 0..self.rows.saturating_sub(keep) {
+            self.rewrite_row(d, step, row);
+        }
+    }
+
+    /// Writes every cell of `row` again in place, as [`Big::rewrite`]
+    /// does.
+    fn rewrite_row(&mut self, d: &mut Damage, step: usize, row: usize) {
         let style = Style {
             fg: Color::Rgb(Rgb::new(0xff, 0xff, (step * 50) as u8)),
             bg: Color::Rgb(Rgb::new(0x40, (step * 30) as u8, 0)),
             ..Style::DEFAULT
         };
-        for row in 0..self.rows.saturating_sub(keep) {
-            let l = &mut self.lines[self.top + row];
-            for col in 0..self.cols {
-                let c = (b'A' + ((row + col + step) % 26) as u8) as char;
-                l.write(col, Glyph::Char(c), Width::Narrow, &style, None);
-            }
-            d.mark_cells(row, 0..self.cols);
+        let l = &mut self.lines[self.top + row];
+        for col in 0..self.cols {
+            let c = (b'A' + ((row + col + step) % 26) as u8) as char;
+            l.write(col, Glyph::Char(c), Width::Narrow, &style, None);
         }
+        d.mark_cells(row, 0..self.cols);
     }
 
     fn frame<'a>(&'a self, d: &'a Damage, since: Age) -> Frame<'a> {
@@ -1056,6 +1068,12 @@ fn draw_way(
 struct Load {
     /// The view moves a line down the output.
     scroll: bool,
+    /// The view moves a line back up the output instead, from a view that
+    /// starts 400 lines down it.
+    back: bool,
+    /// The bottom row is written again in place, as a pager writes its
+    /// prompt line.
+    status: bool,
     /// Every row but the last `keep` is written again in place.
     rewrite: Option<usize>,
     /// Lines the view moves before the frames measured, so that the pan's
@@ -1066,8 +1084,16 @@ struct Load {
 /// A one-line scroll each frame.
 const SCROLL: Load = Load {
     scroll: true,
+    back: false,
+    status: false,
     rewrite: None,
     moved: 0,
+};
+
+/// A one-line scroll back up the output each frame.
+const SCROLL_BACK: Load = Load {
+    back: true,
+    ..SCROLL
 };
 
 /// What `frames` frames of a console of `cols` by `rows` cells write on a
@@ -1089,6 +1115,10 @@ fn measure(
     load: Load,
 ) -> (u64, std::time::Duration, u64, u64) {
     let mut big = Big::new(cols, rows);
+    if load.back {
+        big.top = 400;
+        big.fill();
+    }
     let mut r = big_renderer(w, h);
     let size = match way {
         Way::Pan => r.pan_buffer_size(),
@@ -1115,10 +1145,13 @@ fn measure(
         let since = d.checkpoint();
         let scroll = load.scroll || n < load.moved;
         if scroll {
-            big.scroll(&mut d);
+            big.scroll(&mut d, !load.back);
         }
         if let Some(keep) = load.rewrite.filter(|_| n >= load.moved) {
             big.rewrite(&mut d, n, keep);
+        }
+        if load.status {
+            big.rewrite_row(&mut d, n, rows - 1);
         }
         let frame = big.frame(&d, since);
         let start = std::time::Instant::now();
@@ -1130,7 +1163,11 @@ fn measure(
             2,
             &frame,
             &state,
-            i64::from(scroll),
+            match (scroll, load.back) {
+                (false, _) => 0,
+                (true, false) => 1,
+                (true, true) => -1,
+            },
         );
         time += start.elapsed();
         pixels += px;
@@ -1176,6 +1213,42 @@ fn a_one_line_scroll_draws_the_rows_that_came_in() {
         pan_small,
         2 * 2 * 2 * line + 2 * 640 * 16,
         "the 80×25 grid through the pan"
+    );
+}
+
+// a one-line scroll down moves the window toward the ring's start, past
+// which it shows every twin at once, so the rows that come in at the top
+// are written into both copies, and a row written in place where the
+// window shows its twin is written into the twin alone
+#[test]
+fn a_one_line_scroll_down_writes_the_copies_the_window_heads_for() {
+    let line = 1366 * 16;
+    // the window shows twins below its first rows, and the two rows the
+    // buffer lacks come in at the top, each with its margins, into both
+    // copies
+    let pan = measure(Way::Pan, (1366, 768), (170, 48), 4, SCROLL_BACK).0;
+    assert_eq!(pan, 2 * 2 * line, "a scroll down through the pan");
+    // and so it stays across the ring's start: no frame draws the screen
+    // again
+    let (_, _, peak, _) = measure(Way::Pan, (1366, 768), (170, 48), 120, SCROLL_BACK);
+    assert_eq!(
+        peak,
+        2 * 2 * line,
+        "the most one frame writes, past the ring's start"
+    );
+    // a prompt line on the bottom row, written again in place on each
+    // frame, lies where the window shows twins, so only the twin is
+    // written: the window shows its first copy only once the row has left
+    // the screen
+    let load = Load {
+        status: true,
+        ..SCROLL_BACK
+    };
+    let pan = measure(Way::Pan, (1366, 768), (170, 48), 4, load).0;
+    assert_eq!(
+        pan,
+        2 * 2 * line + 1360 * 16,
+        "a scroll down with a prompt line through the pan"
     );
 }
 
@@ -1445,6 +1518,8 @@ fn a_screen_rewritten_in_place_writes_no_more_through_the_pan() {
     for moved in [0, 24] {
         let load = Load {
             scroll: false,
+            back: false,
+            status: false,
             rewrite: Some(1),
             moved,
         };
@@ -1473,6 +1548,8 @@ fn scroll_figures() {
             "in place, window at rest",
             Load {
                 scroll: false,
+                back: false,
+                status: false,
                 rewrite: Some(1),
                 moved: 0,
             },
@@ -1481,6 +1558,8 @@ fn scroll_figures() {
             "in place, window moved",
             Load {
                 scroll: false,
+                back: false,
+                status: false,
                 rewrite: Some(1),
                 moved: 30,
             },

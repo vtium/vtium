@@ -17,11 +17,15 @@
 //! order. vtium writes the copy that the window being shown holds, and
 //! records, for that buffer, that the slot's other copy is stale. It draws
 //! the slot's row again just before it shows a window that holds the
-//! stale copy. While the window shows a twin and the frame moves the
-//! lines, vtium writes the first copy too: the window is heading for the
-//! ring's end, past which it shows every first copy again at once. The
-//! border is drawn into both copies at once, since it is a thin strip and
-//! its copies then never go stale.
+//! stale copy. A frame that scrolls writes one copy more. A scroll up
+//! moves the window toward the ring's end, past which it shows every
+//! first copy again at once, so vtium writes the first copy with each
+//! twin it writes. A scroll down moves the window toward the ring's start,
+//! past which it shows every twin at once, so vtium writes the twin with
+//! each first copy it writes. Without that, the frame that passes the end
+//! or the start would draw the whole screen. The border is drawn into both
+//! copies at once, since it is a thin strip and its copies then never go
+//! stale.
 //!
 //! The copy keeps the ring in system memory, with no twins, and copies the
 //! window into a display buffer the screen's size. Both write through the
@@ -274,6 +278,9 @@ pub(crate) struct Ring {
     twins: Vec<(u64, Vec<u64>)>,
     /// The frame's damage in the pan's buffer.
     damage: Vec<Rect>,
+    /// The rows the frame being drawn moved the lines up, or down when
+    /// negative.
+    moved: i64,
     /// The serial of the frame that the buffer the pan drew last holds,
     /// when that frame drew nothing and so did not count. A display that
     /// presents the frame anyway, for an overlay, makes it count
@@ -369,9 +376,10 @@ pub(crate) struct Pan<'a, T: Target + ?Sized> {
     /// Set while the renderer draws the border, whose twins are written
     /// with it.
     border: &'a Cell<bool>,
-    /// Whether the frame moved the lines, so that the window heads for the
-    /// ring's end.
-    moving: bool,
+    /// The way the frame moved the lines: up when positive, which moves
+    /// the window toward the ring's end, and down when negative, which
+    /// moves it toward the ring's start.
+    moved: i64,
     /// A bit for each slot whose twin is stale in this buffer, then a bit
     /// for each slot whose first copy is.
     stale: &'a mut [u64],
@@ -394,16 +402,17 @@ impl<T: Target + ?Sized> Pan<'_, T> {
         self.put(b0, at, pixels);
         if self.g.in_twins(b0) {
             let first = self.g.first_of(b0);
-            if self.border.get() || self.moving {
-                // while the lines move, the window heads for the ring's
-                // end, past which it shows every first copy again at once,
-                // so the first copy is written with the twin rather than
-                // all in the one frame that passes the end
+            if self.border.get() || self.moved > 0 {
+                // a scroll up moves the window toward the ring's end, past
+                // which it shows every first copy again at once, so the
+                // first copy is written with the twin rather than all in
+                // the one frame that passes the end
                 self.put(first, at, pixels);
             } else {
-                // a screen that stays where it is may rewrite its cells in
-                // every frame: the first copy is stale until the slot's
-                // row is drawn again for a window that shows it
+                // the first copy is stale until the slot's row is drawn
+                // again for a window that shows it: a screen at rest may
+                // rewrite its cells in every frame, and a scroll down shows
+                // the first copies of the twins it leaves one row at a time
                 let last = self.g.first_of(b1.saturating_sub(1));
                 self.mark((first, last.saturating_add(1)), self.g.slots);
             }
@@ -412,7 +421,11 @@ impl<T: Target + ?Sized> Pan<'_, T> {
         let Some(twin) = self.g.twin_of(b0) else {
             return;
         };
-        if self.border.get() {
+        if self.border.get() || self.moved < 0 {
+            // a scroll down moves the window toward the ring's start, past
+            // which it shows every twin at once, so the twin is written
+            // with the first copy rather than all in the one frame that
+            // passes the start
             self.put(twin, at, pixels);
             return;
         }
@@ -489,7 +502,7 @@ impl<T: Target + ?Sized> Target for Over<'_, T> {
             g: self.g,
             src: self.src,
             border: &both,
-            moving: false,
+            moved: 0,
             stale: &mut [],
         };
         pan.write(x, y, pixels);
@@ -645,7 +658,6 @@ impl<F: Face> Renderer<F> {
         self.gpu.drew_on_cpu();
         self.ring.pending = Some((scrolled, whole));
         self.ring.uncounted = None;
-        let before = self.ring.base;
         let plan = self.plan(frame, age, state);
         let g = Geometry::new(&self.layout, &plan.grid);
         let base = self.ring.base;
@@ -659,7 +671,7 @@ impl<F: Face> Renderer<F> {
                 g,
                 src: g.src(base),
                 border: &flag,
-                moving: base != before,
+                moved: self.ring.moved,
                 stale: &mut stale,
             };
             self.paint_through(&plan, frame, state, &mut pan, Some(&flag))
@@ -877,6 +889,7 @@ impl<F: Face> Renderer<F> {
     /// - ADR-1310 D2: the scroll record, and the changes it states in place.
     pub(super) fn ring_scroll(&mut self, frame: &Frame<'_>, grid: &Grid) -> (bool, i64) {
         self.ring.in_place = false;
+        self.ring.moved = 0;
         let Some((n, whole)) = self.ring.pending.take() else {
             return (false, 0);
         };
@@ -944,6 +957,7 @@ impl<F: Face> Renderer<F> {
             .saturating_add(n.rem_euclid(slots))
             .rem_euclid(slots);
         self.ring.base = u32::try_from(base).unwrap_or(0);
+        self.ring.moved = n;
     }
 
     /// The border after the grid's lines moved `n` rows up, or down when
