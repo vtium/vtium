@@ -144,10 +144,12 @@ pub struct Program {
 impl Program {
     /// vtium's own binary, through `/proc/self/exe`, so the drawer is the
     /// same build as the broker even when a newer vtium has replaced the
-    /// file since. It runs with [`DRAWER`] and then the broker's own
-    /// arguments.
-    pub fn vtium(arg0: OsString, args: &[OsString]) -> Program {
-        let mut all = vec![OsString::from(DRAWER)];
+    /// file since. It runs with [`DRAWER`], the number of the VT the
+    /// broker holds, and then the broker's own arguments. The drawer
+    /// takes the VT's number from there and finds no VT of its own, so
+    /// both processes always work on the same VT.
+    pub fn vtium(arg0: OsString, vt: u16, args: &[OsString]) -> Program {
+        let mut all = vec![OsString::from(DRAWER), OsString::from(vt.to_string())];
         all.extend(args.iter().cloned());
         Program {
             path: PathBuf::from("/proc/self/exe"),
@@ -554,13 +556,16 @@ mod tests {
         assert_eq!(calls.steps.last(), Some(&"getppid"));
     }
 
-    /// The drawer's command line is [`DRAWER`] and then the broker's own
-    /// arguments, run from `/proc/self/exe`.
+    /// The drawer's command line is [`DRAWER`], the VT's number and then
+    /// the broker's own arguments, run from `/proc/self/exe`.
     #[test]
     fn the_drawer_runs_vtiums_own_binary_with_the_brokers_arguments() {
-        let program = Program::vtium("vtium".into(), &["--vt=tty3".into()]);
+        let program = Program::vtium("vtium".into(), 3, &["--vt=tty3".into()]);
         assert_eq!(program.path, PathBuf::from("/proc/self/exe"));
-        assert_eq!(program.args, [OsString::from("drawer"), "--vt=tty3".into()]);
+        assert_eq!(
+            program.args,
+            [OsString::from("drawer"), "3".into(), "--vt=tty3".into()]
+        );
     }
 
     /// The lookup finds an account every system has, with its own group

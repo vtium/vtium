@@ -408,6 +408,14 @@ impl App {
             .launcher
             .clone()
             .map(|l| l.with_active(0, &crate::font::gate().batch));
+        // A console's image host is made without the console's name, which
+        // the root process needs to choose the helper's account, so under
+        // the split no console starts an image helper until the hosts are
+        // made for a named console. Until then every terminal is told that
+        // no helper runs, and this process never starts one as its own
+        // account.
+        #[cfg(feature = "images")]
+        self.set_image_helpers(None);
         self.broker = Some(courier);
         Ok(())
     }
@@ -455,11 +463,12 @@ impl App {
     }
 
     /// Reads the kernel's messages from `system` through the loop, for the
-    /// app to show, as vtium in one process reads them.
+    /// app to show: from the descriptor the root process passes under the
+    /// privilege split, or from the one vtium opens itself in one process.
     ///
     /// References:
     /// - ADR-1401 D15: the kernel's messages on the console.
-    fn watch_kernel(&mut self, system: crate::kernel::System) {
+    pub fn watch_kernel(&mut self, system: crate::kernel::System) {
         let watched = system.watched().and_then(|fd| {
             self.handle
                 .insert_source(

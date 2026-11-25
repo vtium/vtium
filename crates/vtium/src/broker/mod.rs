@@ -546,15 +546,33 @@ fn kernel_font(tty: &std::path::Path) -> Option<(Order, std::os::fd::OwnedFd)> {
 }
 
 /// When the drawer is running as the drawer, its first step: it takes
-/// [`DRAWER`] off the front of `args`, so the rest of vtium reads the
-/// broker's own arguments, and returns its link to the broker. Any other
-/// run returns `None` and leaves `args` as they are.
-pub fn drawer(args: &mut Vec<OsString>) -> io::Result<Option<Link>> {
-    if args.first().is_none_or(|a| a != DRAWER) {
+/// [`DRAWER`] and the VT's number off the front of `args`, so the rest of
+/// vtium reads the broker's own arguments, and returns its link to the
+/// broker and the number of the VT the broker holds. Any other run
+/// returns `None` and leaves `args` as they are.
+pub fn drawer(args: &mut Vec<OsString>) -> io::Result<Option<(Link, u16)>> {
+    let Some(vt) = drawers_vt(args) else {
         return Ok(None);
+    };
+    let vt = vt?;
+    start::begin().map(|link| Some((link, vt)))
+}
+
+/// Takes [`DRAWER`] and the VT's number off the front of `args`: `None`
+/// when the run is not the drawer's, and an error when the number is
+/// missing or is not a VT's.
+fn drawers_vt(args: &mut Vec<OsString>) -> Option<io::Result<u16>> {
+    if args.first().is_none_or(|a| a != DRAWER) {
+        return None;
     }
     args.remove(0);
-    start::begin().map(Some)
+    let vt = (!args.is_empty())
+        .then(|| args.remove(0))
+        .and_then(|n| n.to_str().and_then(|n| n.parse::<u16>().ok()))
+        .filter(|&n| (1..=u16::from(protocol::VT_MAX)).contains(&n));
+    Some(vt.ok_or_else(|| {
+        io::Error::other("vtium's root process gave its drawing process no VT number")
+    }))
 }
 
 /// Splits vtium when [`plan`] says so: starts the drawer, runs the broker
@@ -604,8 +622,11 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     processes.listen(&lp)?;
     // The broker holds the VT before it says it is ready and before the
     // drawer starts, and puts the VT back after any end of the drawer.
+    let path = devices::vt_path(args)?;
+    let vt = vtium::getty::vt_number(&path)
+        .ok_or_else(|| io::Error::other(format!("{} is not a VT", path.display())))?;
     let mut served = Served {
-        devices: devices::Devices::open(&mut lp, &devices::vt_path(args)?)?,
+        devices: devices::Devices::open(&mut lp, &path)?,
         jobs: Jobs { processes },
     };
     let mut restore = served.devices.give_back();
@@ -619,7 +640,7 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     if let Err(e) = vtium::survive::notify::ready(&env) {
         log::warn!(target: "broker", "vtium cannot tell systemd that it is ready: {e}");
     }
-    let drawer = start::spawn(&Program::vtium(arg0, args), account, theirs, true)?;
+    let drawer = start::spawn(&Program::vtium(arg0, vt, args), account, theirs, true)?;
     // The socket is empty, so these first orders fit in it.
     for (order, fd) in &kernel {
         if let Err(e) = link.order(order, Some(fd.as_fd())) {
@@ -1658,5 +1679,25 @@ mod tests {
         let mut args: Vec<OsString> = vec!["--vt=tty3".into()];
         assert!(drawer(&mut args).unwrap().is_none());
         assert_eq!(args, [OsString::from("--vt=tty3")]);
+    }
+
+    /// The drawer takes the VT's number that follows its word, and the
+    /// broker's own arguments stay; a number that is missing or is no
+    /// VT's is an error.
+    #[test]
+    fn the_drawer_takes_the_vts_number_after_its_word() {
+        let words = |w: &[&str]| -> Vec<OsString> { w.iter().map(OsString::from).collect() };
+        let mut args = words(&["drawer", "3", "--vt=tty3"]);
+        assert_eq!(drawers_vt(&mut args).unwrap().unwrap(), 3);
+        assert_eq!(args, words(&["--vt=tty3"]));
+        for bad in [
+            &["drawer"][..],
+            &["drawer", "x"],
+            &["drawer", "0"],
+            &["drawer", "64"],
+        ] {
+            let mut args = words(bad);
+            assert!(drawers_vt(&mut args).unwrap().is_err(), "{bad:?}");
+        }
     }
 }
