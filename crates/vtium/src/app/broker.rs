@@ -30,6 +30,7 @@ use vtium_platform::calloop::generic::Generic;
 use vtium_platform::calloop::ping::make_ping;
 use vtium_platform::calloop::{Interest, Mode, PostAction};
 use vtium_platform::pty::{Pty, Remote, Size};
+use vtium_platform::vt::BrokerVt;
 
 use super::{App, Exit};
 use crate::blank;
@@ -109,12 +110,23 @@ fn console_ref(head: &str, id: u64) -> io::Result<ConsoleRef> {
     Ok(ConsoleRef { head, console: id })
 }
 
+/// The drawing process's courier to the root process at the other end
+/// of `link`, and the VT numbered `vt` through that root process, which
+/// the drawing process opens no tty for. The VT goes to [`App::new`] and
+/// the courier to [`App::set_broker`].
+pub fn through_broker(link: Link, vt: u16) -> (Rc<Courier>, BrokerVt) {
+    let courier = Rc::new(Courier::new(link));
+    let vt = BrokerVt::new(Rc::clone(&courier), vt);
+    (courier, vt)
+}
+
 impl App {
-    /// Makes the root process at the other end of `link` start this
-    /// vtium's sessions and run its power keys, and takes the root
-    /// process's orders through the loop.
-    pub fn set_broker(&mut self, link: Link) -> io::Result<()> {
-        let courier = Rc::new(Courier::new(link));
+    /// Makes the root process that `courier` reaches start this vtium's
+    /// sessions and run its power keys, and takes the root process's
+    /// orders through the loop: the VT's to the VT through the root
+    /// process, the rest here. The courier pings the loop for the orders a
+    /// call left in its queue.
+    pub fn set_broker(&mut self, courier: Rc<Courier>) -> io::Result<()> {
         let watched = courier.as_fd().try_clone_to_owned()?;
         self.handle
             .insert_source(
@@ -214,6 +226,15 @@ impl App {
         };
         loop {
             match courier.next() {
+                Ok(Got::Message(Ok((order, fd)))) if BrokerVt::takes(&order) => {
+                    match self.vt.get::<BrokerVt>() {
+                        Some(vt) => vt.take(order, fd),
+                        None => log::debug!(
+                            target: "broker",
+                            "vtium's drawing process has no VT through its root process for {order:?}"
+                        ),
+                    }
+                }
                 Ok(Got::Message(Ok((order, fd)))) => self.broker_order(order, fd),
                 Ok(Got::Message(Err(why))) => log::warn!(
                     target: "broker",
@@ -221,8 +242,15 @@ impl App {
                 ),
                 Ok(Got::Nothing) => return,
                 Ok(Got::Closed) | Err(_) => {
-                    log::error!(target: "broker", "vtium's drawing process lost its root process, so it stops");
-                    self.request_exit(Exit::Signal);
+                    // The VT through the root process reports the hangup,
+                    // and vtium ends as at a hangup of its own VT.
+                    match self.vt.get::<BrokerVt>() {
+                        Some(vt) => vt.closed(),
+                        None => {
+                            log::error!(target: "broker", "vtium's drawing process lost its root process, so it stops");
+                            self.request_exit(Exit::Signal);
+                        }
+                    }
                     return;
                 }
             }
@@ -276,7 +304,7 @@ impl App {
             ),
             other => log::debug!(
                 target: "broker",
-                "vtium's drawing process takes no devices from its root process yet: {other:?}"
+                "vtium's drawing process ignores the order {other:?}"
             ),
         }
     }
@@ -385,6 +413,34 @@ mod tests {
         })
     }
 
+    /// Waits, for at most 30 s, until the other end of `fd` has closed.
+    /// A child another test forks holds a copy of every descriptor of this
+    /// process until it execs, so the close of the stand-in's end reaches
+    /// the drawer's end only once no such copy is left.
+    fn hung_up(fd: std::os::fd::BorrowedFd<'_>) {
+        // With no message waiting, the socket polls ready only once it
+        // has hung up.
+        let mut fds = [rustix::event::PollFd::new(
+            &fd,
+            rustix::event::PollFlags::IN,
+        )];
+        let bound = rustix::event::Timespec {
+            tv_sec: 30,
+            tv_nsec: 0,
+        };
+        loop {
+            match rustix::event::poll(&mut fds, Some(&bound)) {
+                Ok(0) => panic!("the stand-in's end of the socket stays open"),
+                Ok(_) => {
+                    assert!(fds[0].revents().contains(rustix::event::PollFlags::HUP));
+                    return;
+                }
+                Err(rustix::io::Errno::INTR) => {}
+                Err(e) => panic!("{e}"),
+            }
+        }
+    }
+
     #[test]
     fn a_session_s_call_keeps_the_other_orders_for_the_loop() {
         let (broker, theirs) = Link::pair().unwrap();
@@ -429,7 +485,8 @@ mod tests {
         // session's call leaves it queued.
         let seen = stand_in(broker, vec![Order::Blank]);
         let (mut lp, mut app) = seat_with(&[], None, no_fonts());
-        app.set_broker(Link::passed(theirs).unwrap()).unwrap();
+        app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
+            .unwrap();
         app.add_video(
             PathBuf::from("/dev/mem0"),
             Box::new(Still::new(&[(1, "A")])),
@@ -471,7 +528,8 @@ mod tests {
     fn the_kernels_log_and_font_come_from_the_root_process() {
         let (broker, theirs) = Link::pair().unwrap();
         let (lp, mut app) = seat_with(&[], None, no_fonts());
-        app.set_broker(Link::passed(theirs).unwrap()).unwrap();
+        app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
+            .unwrap();
         let glyphs = vec![0x5a; 16 * 256];
         let (font, file) = vtium_broker_protocol::KernelFont::file(8, 16, &glyphs, &[(0x41, 65)])
             .unwrap()
@@ -499,11 +557,56 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test's seat reads the host's clock, as the seat tests' do"
+    )]
+    fn the_vts_orders_and_the_close_go_to_the_vt_through_the_root_process() {
+        use vtium_platform::vt::VtEvent;
+        let (broker, theirs) = Link::pair().unwrap();
+        let (courier, vt) = through_broker(Link::passed(theirs).unwrap(), 7);
+        let lp: vtium_platform::event_loop::Loop<App> =
+            vtium_platform::event_loop::Loop::new().unwrap();
+        let args: Vec<std::ffi::OsString> = ["--login", "--", "/bin/true"]
+            .iter()
+            .map(std::ffi::OsString::from)
+            .collect();
+        let config = crate::config::load(&args, &mut |_: &std::path::Path| Ok(None)).config;
+        let mut app = App::new(
+            config,
+            Box::new(vt),
+            lp.handle(),
+            Rc::new(std::time::Instant::now),
+            Vec::new(),
+        );
+        app.set_broker(courier).unwrap();
+        // A release while the VT is not shown: the VT lets go at once and
+        // says so to the root process.
+        broker.order(&Order::Release, None).unwrap();
+        app.take_orders();
+        assert!(matches!(
+            broker.next_request().unwrap(),
+            Got::Message(Ok(Request::Released))
+        ));
+        assert_eq!(app.exit, None);
+        drop(broker);
+        let courier = Rc::clone(app.broker.as_ref().unwrap());
+        hung_up(courier.as_fd());
+        app.take_orders();
+        let events: Vec<VtEvent> = app.vt.events().collect();
+        assert!(events.contains(&VtEvent::Hangup), "{events:?}");
+        drop((app, lp));
+    }
+
+    #[test]
     fn the_root_processs_orders_blank_wake_and_stop() {
         let (broker, theirs) = Link::pair().unwrap();
-        let seen = stand_in(broker, vec![Order::Blank, Order::Wake]);
+        // Both orders are in the socket before the drawer reads it.
+        broker.order(&Order::Blank, None).unwrap();
+        broker.order(&Order::Wake, None).unwrap();
         let (lp, mut app) = seat_with(&[], None, no_fonts());
-        app.set_broker(Link::passed(theirs).unwrap()).unwrap();
+        app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
+            .unwrap();
         app.take_orders();
         assert_eq!(
             app.order,
@@ -511,9 +614,13 @@ mod tests {
             "of two in one turn the last holds"
         );
         assert_eq!(app.exit, None);
+        app.take_orders();
         app.broker_order(Order::Stop, None);
         assert_eq!(app.exit, Some(Exit::Signal));
+        assert!(
+            matches!(broker.next_request().unwrap(), Got::Nothing),
+            "the drawer asked something"
+        );
         drop((app, lp));
-        assert!(seen.join().unwrap().is_empty());
     }
 }

@@ -448,6 +448,13 @@ fn wrap_video(
             };
             let mut drm = Drm2d::new(Drm::new(fd)?, policy, app.display_buffers)?;
             drm.set_card_path(card.id_path.clone());
+            // Under the privilege split, vtium's root process sets and
+            // drops DRM master on its own copy of the card.
+            //
+            // References:
+            // - ADR-1400 D4, "What the broker does": the broker holds DRM
+            //   master for the drawer.
+            drm.set_master_keeper(app.vt.master_keeper(node));
             // A display the rules leave dark is set off before it is
             // announced, a frame another master left included (D3).
             let (rules, at, lit) = (app.rules.clone(), card.clone(), Rc::clone(&app.any_lit));

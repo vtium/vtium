@@ -929,6 +929,11 @@ impl App {
         if let Some(seat) = self.vt.get::<vtium_platform::seat::LibseatVt>() {
             input.open_through(seat.input());
         }
+        // under the privilege split, through vtium's root process
+        // (ADR-1400 D4)
+        if let Some(vt) = self.vt.get::<vtium_platform::vt::BrokerVt>() {
+            input.open_through_broker(vt.input());
+        }
         if self.vt.get::<FakeVt>().is_some() {
             input.wake_up();
         }
