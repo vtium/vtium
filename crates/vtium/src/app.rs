@@ -131,7 +131,7 @@ use crate::painter::{Note, Painter};
 use crate::power::{self, Power};
 use crate::respawn;
 use crate::sync::Action;
-use crate::term::{Clock, Prepared, Term, View};
+use crate::term::{Clock, Prepared, ScrollDraw, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
@@ -5775,6 +5775,16 @@ fn draw_head(
     let holding = term.sync.holding(&term.terminal);
     let base = head.cell;
     let mut snapshot = None;
+    // A head that holds a GPU path draws every scroll again, into buffers
+    // the screen's size, even while a display holds it on the CPU path for
+    // now: the GPU path then sees each frame, and takes the head back once
+    // it can set the display up. Until its render thread says which path
+    // draws it, each view keeps the way it has.
+    let scroll = match &head.painter {
+        Some(p) if !p.known() => None,
+        Some(p) if p.may_hold_gpu() => Some(ScrollDraw::Redraw),
+        _ => Some(head.scroll_draw),
+    };
     for ((key, view), overlay) in head.views.iter_mut().zip(&overlays) {
         let Some(video) = videos.get_mut(&key.0) else {
             continue;
@@ -5812,6 +5822,9 @@ fn draw_head(
         };
         let hook = head.draw_hook.as_ref();
         view.overlay.clone_from(overlay);
+        if let Some(way) = scroll {
+            view.scroll = way;
+        }
         let Prepared::Job(job) = view.prepare(
             key,
             term,

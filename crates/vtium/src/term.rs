@@ -466,6 +466,10 @@ impl Snapshot {
 /// composes one.
 pub struct Drawing {
     pub renderer: Renderer<DisplayFace>,
+    /// The way the renderer drew its last frame: a frame drawn another way
+    /// first makes the renderer forget what it drew, since each way keeps
+    /// its own record of what each buffer holds.
+    way: Option<Way>,
 }
 
 impl Drawing {
@@ -638,6 +642,24 @@ impl Overlay {
         self.draw_in(font, depth, grid, orientation, size, &mut colored)
     }
 
+    /// Draws the overlay into `target`, a display of `size`, as a frame of
+    /// `renderer` draws it: through the renderer's color slot in a build
+    /// with frame filters, as [`Overlay::draw_colored`] does, and else as
+    /// [`Overlay::draw_into`] does.
+    fn draw_over<F: Face>(
+        &self,
+        renderer: &mut Renderer<F>,
+        grid: (usize, usize),
+        orientation: Orientation,
+        size: (u32, u32),
+        target: &mut impl Target,
+    ) -> Vec<DisplayRect> {
+        #[cfg(feature = "filters")]
+        return self.draw_colored(renderer, grid, orientation, size, target);
+        #[cfg(not(feature = "filters"))]
+        self.draw_into(renderer, grid, orientation, size, target)
+    }
+
     /// Draws the overlay into `target` with vtium's built-in font in the
     /// cell of `own`, the renderer's font, under `own`'s sprite policy.
     fn draw_in<F: Face>(
@@ -704,6 +726,27 @@ impl Overlay {
     }
 }
 
+/// The renderer's rectangle of the display's rectangle `r`.
+fn render_rect(r: &DisplayRect) -> RenderRect {
+    RenderRect {
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+    }
+}
+
+/// The display's rectangle of the renderer's rectangle `r`.
+#[cfg(feature = "scroll-pan")]
+fn display_rect(r: &RenderRect) -> DisplayRect {
+    DisplayRect {
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+    }
+}
+
 /// The display rectangle of the top-right cell of a `grid` of `cell`s,
 /// centred on `surface` and turned with it as the renderer places it.
 fn top_right(surface: Surface, grid: (usize, usize), cell: vtium_font::Cell) -> Option<RenderRect> {
@@ -739,6 +782,132 @@ fn top_right(surface: Surface, grid: (usize, usize), cell: vtium_font::Cell) -> 
     })
 }
 
+/// How a display draws a scroll, as vtium.conf's `scroll-draw` asks for
+/// it, at its top level or in the head's section.
+///
+/// References:
+/// - ADR-1310 D6, "Where the driver allows it": the key's four ways.
+/// - ADR-1401 D3: the key is set for each head, since the buffer belongs to
+///   the display.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ScrollDraw {
+    /// Pan where the display allows it, and copy where it does not.
+    Auto,
+    /// Pan where the display allows it, as `Auto` does, and log a warning
+    /// where the display refuses the pan and copies.
+    Pan,
+    /// Copy the window from a ring of drawn rows in system memory.
+    Copy,
+    /// Draw again every row that changed, the rows a scroll moved among
+    /// them. A view draws this way until its head says otherwise, and a
+    /// head that draws with the GPU, or can move to it, always does.
+    #[default]
+    Redraw,
+}
+
+impl ScrollDraw {
+    /// The way `config`, a head's configuration, asks for. A build without
+    /// `scroll-pan` draws every scroll the `redraw` way, and the first time
+    /// a head asks for `pan` or `copy` it logs that once for the run.
+    pub fn configured(config: &Config) -> ScrollDraw {
+        let asked = match config.text(&crate::config::keys::SCROLL_DRAW) {
+            Some("pan") => ScrollDraw::Pan,
+            Some("copy") => ScrollDraw::Copy,
+            Some("redraw") => ScrollDraw::Redraw,
+            _ => ScrollDraw::Auto,
+        };
+        if cfg!(feature = "scroll-pan") {
+            return asked;
+        }
+        static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if matches!(asked, ScrollDraw::Pan | ScrollDraw::Copy)
+            && !TOLD.swap(true, Ordering::Relaxed)
+        {
+            log::warn!(
+                "This build of vtium has no faster scrolling, so it ignores scroll-draw and redraws every line a scroll moves."
+            );
+        }
+        ScrollDraw::Redraw
+    }
+}
+
+/// The way one frame is drawn into the display's buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Way {
+    /// Over a buffer taller than the screen, by moving the window shown.
+    #[cfg(feature = "scroll-pan")]
+    Pan,
+    /// From the copy's ring in system memory, into a buffer the screen's
+    /// size.
+    #[cfg(feature = "scroll-pan")]
+    Copy,
+    /// Each changed cell again, at its place on the screen.
+    Redraw,
+}
+
+impl Way {
+    /// The way a frame asked to draw `scroll` is drawn into `token`'s
+    /// buffer by `renderer`, turned to `orientation`, and whether the
+    /// buffer is taller than the screen without fitting the renderer's
+    /// ring. A display shows a window of a tall buffer only where the
+    /// buffer is the size the ring needs and runs along the rows: the
+    /// height on an upright display, the width on one turned on its side.
+    /// A display that holds screen-sized buffers, because the driver
+    /// refused the tall buffer or the pan, copies under `auto` and `pan`.
+    /// A tall buffer that does not fit, as for the moment between a new
+    /// font and the buffers made for its ring, is drawn whole in its first
+    /// screen, the `redraw` way, with the window at its start.
+    #[cfg(feature = "scroll-pan")]
+    fn of<F: Face>(
+        scroll: ScrollDraw,
+        token: &Token,
+        renderer: &Renderer<F>,
+        orientation: Orientation,
+    ) -> (Way, bool) {
+        let tall = token.size() != token.screen();
+        let turned = matches!(orientation, Orientation::Right | Orientation::Left);
+        let fits = tall && token.size() == renderer.pan_buffer_size() && token.turned() == turned;
+        match scroll {
+            ScrollDraw::Auto | ScrollDraw::Pan if fits => (Way::Pan, false),
+            ScrollDraw::Auto | ScrollDraw::Pan | ScrollDraw::Copy if !tall => (Way::Copy, false),
+            ScrollDraw::Redraw if !tall => (Way::Redraw, false),
+            _ => (Way::Redraw, true),
+        }
+    }
+
+    /// A build without `scroll-pan` draws every frame the `redraw` way.
+    #[cfg(not(feature = "scroll-pan"))]
+    fn of<F: Face>(_: ScrollDraw, _: &Token, _: &Renderer<F>, _: Orientation) -> (Way, bool) {
+        (Way::Redraw, false)
+    }
+}
+
+/// The buffer `view` asks its display for: under `auto` and `pan` on the
+/// CPU path, one longer than the screen by the ring that `renderer` draws
+/// the pan over, along the rows; else one the screen's size.
+///
+/// References:
+/// - ADR-1310 D6, "The ring inside the buffer": the buffer is the ring and
+///   one screen more.
+#[cfg(feature = "scroll-pan")]
+fn tall_for<F: Face>(
+    scroll: ScrollDraw,
+    renderer: &Renderer<F>,
+    screen: (u32, u32),
+    orientation: Orientation,
+) -> Option<vtium_platform::display::Tall> {
+    if !matches!(scroll, ScrollDraw::Auto | ScrollDraw::Pan) {
+        return None;
+    }
+    let turned = matches!(orientation, Orientation::Right | Orientation::Left);
+    let (width, height) = renderer.pan_buffer_size();
+    let ring = match turned {
+        true => width.saturating_sub(screen.0),
+        false => height.saturating_sub(screen.1),
+    };
+    Some(vtium_platform::display::Tall { ring, turned })
+}
+
 /// A frame for a head's render thread to compose: a display's drawing,
 /// the token of the display's buffer it is drawn into, the screen and what
 /// the frame shows beyond it.
@@ -763,6 +932,8 @@ pub struct Job {
     whole: bool,
     /// When the oldest key whose echo this frame carries was sent.
     echo: Option<Instant>,
+    /// How the frame draws a scroll.
+    scroll: ScrollDraw,
 }
 
 impl Job {
@@ -781,23 +952,42 @@ impl Job {
         let mut drawing = self.drawing;
         let mut token = self.token;
         for r in &self.gone {
-            drawing.renderer.redraw_area(RenderRect {
-                x: r.x,
-                y: r.y,
-                width: r.width,
-                height: r.height,
-            });
+            drawing.renderer.redraw_area(render_rect(r));
         }
         let frame = self.snapshot.frame(self.since);
         let grid = (frame.cols(), frame.rows());
-        let size = token.size();
+        let (size, screen) = (token.size(), token.screen());
+        let (way, unfit) = Way::of(self.scroll, &token, &drawing.renderer, self.orientation);
+        // each way keeps its own record of what a buffer holds
+        if drawing.way.is_some_and(|w| w != way) {
+            drawing.renderer.forget_history();
+        }
+        drawing.way = Some(way);
+        // the GPU path draws only into a buffer the screen's size, the
+        // `redraw` way
+        #[cfg(feature = "gpu")]
+        let gpu = gpu.filter(|_| way == Way::Redraw && !unfit);
+        // the count of rows the screen moved, as the frame's scroll record
+        // states it; a frame drawn whole puts the pan's window at rest
+        #[cfg(feature = "scroll-pan")]
+        let (scrolled, rest) = {
+            let scrolled = frame.scrolled();
+            let rest = self.whole || scrolled.is_none();
+            (
+                scrolled.and_then(|n| i64::try_from(n).ok()).unwrap_or(0),
+                rest,
+            )
+        };
         let mut failed_gpu = None;
         let mut refused_gpu = None;
         let drawn = token
             .draw(|canvas| {
                 let stride = usize::try_from(canvas.stride).ok()?;
-                let mut target = Mapped::new(canvas.pixels, size.0, size.1, stride)?;
-                let age = if self.whole { 0 } else { canvas.age };
+                // the pan draws over the whole buffer, and every other way
+                // into the window at the buffer's start
+                let mapped = if way == Way::Redraw { screen } else { size };
+                let mut target = Mapped::new(canvas.pixels, mapped.0, mapped.1, stride)?;
+                let age = if self.whole || unfit { 0 } else { canvas.age };
                 #[cfg(feature = "gpu")]
                 let on_gpu = gpu.and_then(|g| {
                     g.draw(
@@ -812,9 +1002,36 @@ impl Job {
                 });
                 #[cfg(not(feature = "gpu"))]
                 let on_gpu: Option<OnGpuFrame> = None;
-                let (rects, stats) = match on_gpu {
-                    Some(OnGpuFrame::Drawn(damage, stats)) => (damage, stats),
-                    other => {
+                #[cfg_attr(not(feature = "scroll-pan"), expect(unused_mut, reason = "no pan"))]
+                let mut window: Option<u32> = None;
+                let (rects, stats) = match (way, on_gpu) {
+                    #[cfg(feature = "scroll-pan")]
+                    (Way::Pan, _) => {
+                        let (drawn, src) = drawing.renderer.draw_pan(
+                            &frame,
+                            &mut target,
+                            age,
+                            &self.state,
+                            scrolled,
+                            rest,
+                        );
+                        window = Some(src);
+                        (drawn.damage.to_vec(), drawn.stats)
+                    }
+                    #[cfg(feature = "scroll-pan")]
+                    (Way::Copy, _) => {
+                        let drawn = drawing.renderer.draw_copy(
+                            &frame,
+                            &mut target,
+                            age,
+                            &self.state,
+                            scrolled,
+                            rest,
+                        );
+                        (drawn.damage.to_vec(), drawn.stats)
+                    }
+                    (Way::Redraw, Some(OnGpuFrame::Drawn(damage, stats))) => (damage, stats),
+                    (Way::Redraw, other) => {
                         match other {
                             // after a failed GPU frame the buffer may hold
                             // part of it, and the renderer may have recorded
@@ -842,27 +1059,64 @@ impl Job {
                     .collect();
                 let (most_cols, most_rows) = drawing.renderer.grid_size();
                 let grid = (grid.0.min(most_cols), grid.1.min(most_rows));
-                #[cfg(feature = "filters")]
-                let overlaid = self.overlay.draw_colored(
-                    &mut drawing.renderer,
-                    grid,
-                    self.orientation,
-                    size,
-                    &mut target,
-                );
-                #[cfg(not(feature = "filters"))]
-                let overlaid = self.overlay.draw_into(
-                    &drawing.renderer,
-                    grid,
-                    self.orientation,
-                    size,
-                    &mut target,
-                );
-                damage.extend_from_slice(&overlaid);
-                Some((damage, overlaid, stats))
+                let overlaid = match window {
+                    // over the pan, the overlay lands where the window shows
+                    // each place of the screen, on both copies of a line;
+                    // its damage in the buffer comes at the swap
+                    #[cfg(feature = "scroll-pan")]
+                    Some(_) => {
+                        let mut over = drawing.renderer.pan_overlay(&mut target);
+                        let overlaid = self.overlay.draw_over(
+                            &mut drawing.renderer,
+                            grid,
+                            self.orientation,
+                            screen,
+                            &mut over,
+                        );
+                        // the overlay's pixels lie on lines that a scroll
+                        // moves, so the cells under it are drawn again at
+                        // the next frame, wherever their lines went
+                        for r in &overlaid {
+                            drawing.renderer.redraw_area(render_rect(r));
+                        }
+                        overlaid
+                    }
+                    _ => {
+                        let overlaid = self.overlay.draw_over(
+                            &mut drawing.renderer,
+                            grid,
+                            self.orientation,
+                            screen,
+                            &mut target,
+                        );
+                        damage.extend_from_slice(&overlaid);
+                        overlaid
+                    }
+                };
+                Some((damage, overlaid, stats, window))
             })
             .flatten();
-        let (damage, overlaid, stats) = drawn.unwrap_or_default();
+        let (damage, overlaid, stats, window) = drawn.unwrap_or_default();
+        #[cfg(feature = "scroll-pan")]
+        let panned = match window {
+            // the window the frame's rows are drawn for; a buffer the ring
+            // fits always holds it, so a refusal never happens, and would
+            // only make the next frame draw whole
+            Some(src) => {
+                if !token.set_window(src) {
+                    drawing.renderer.forget_history();
+                }
+                true
+            }
+            // a tall buffer drawn the `redraw` way shows its first screen
+            None if unfit => {
+                token.set_window(0);
+                false
+            }
+            None => false,
+        };
+        #[cfg(not(feature = "scroll-pan"))]
+        let panned = window.is_some();
         let at = self.tip.and_then(|t| drawing.renderer.pointer_at(t));
         Composed {
             key: self.key,
@@ -871,6 +1125,7 @@ impl Job {
             token,
             damage,
             overlaid,
+            panned,
             stats,
             at,
             tip: self.tip,
@@ -912,6 +1167,9 @@ pub struct Composed {
     damage: Vec<DisplayRect>,
     /// The areas the overlay drew over.
     overlaid: Vec<DisplayRect>,
+    /// The frame was drawn over the pan, so the overlay's damage in the
+    /// buffer comes from the renderer at the swap.
+    panned: bool,
     pub stats: Stats,
     /// Why the GPU path failed this frame, which the CPU path drew
     /// instead (ADR-1303 D9).
@@ -1037,6 +1295,17 @@ pub struct View {
     pub unshown: bool,
     /// The display lost its picture and draws whole, through a hold.
     pub lost: bool,
+    /// How the view draws a scroll, which its head sets.
+    pub scroll: ScrollDraw,
+    /// The buffers the view last asked its display for: `None` before the
+    /// first ask, and then a buffer taller than the screen or, as `None`
+    /// within, one the screen's size.
+    #[cfg(feature = "scroll-pan")]
+    asked: Option<Option<vtium_platform::display::Tall>>,
+    /// The way of drawing a scroll the log last said this view takes, and
+    /// the way `scroll-draw` asked for then.
+    #[cfg(feature = "scroll-pan")]
+    told: Option<(ScrollDraw, ScrollDraw)>,
     /// The log said once that the GPU path failed one of the display's
     /// frames.
     pub gpu_failure_logged: bool,
@@ -1122,6 +1391,11 @@ impl View {
             owed: false,
             unshown: false,
             lost: true,
+            scroll: ScrollDraw::default(),
+            #[cfg(feature = "scroll-pan")]
+            asked: None,
+            #[cfg(feature = "scroll-pan")]
+            told: None,
             gpu_failure_logged: false,
             timer: measure.then(RenderTimer::new),
             timer_line: None,
@@ -1153,7 +1427,10 @@ impl View {
         self.arrow = renderer.arrow().clone();
         self.depth = renderer.depth();
         self.policy = (renderer.font().policy(), renderer.font().missing());
-        self.drawing = Some(Box::new(Drawing { renderer }));
+        self.drawing = Some(Box::new(Drawing {
+            renderer,
+            way: None,
+        }));
         self.generation = NEXT_DRAWING.fetch_add(1, Ordering::Relaxed);
         self.forgotten.clear();
         self.arrived.clear();
@@ -1506,12 +1783,18 @@ impl View {
             self.pending = true;
             return Prepared::Later;
         }
+        #[cfg(feature = "scroll-pan")]
+        self.ask_buffers(video);
         // The display lends a token only while it is ready for a frame.
         let Some(token) = video.lend(self.id) else {
             self.pending = true;
             return Prepared::Later;
         };
-        if token.size() != self.size {
+        #[cfg(feature = "scroll-pan")]
+        self.tell_way(&token, video);
+        // A buffer can be taller than the screen; the window shown is the
+        // screen's size.
+        if token.screen() != self.size {
             // The view is made again at the display's new size.
             video.give_back(token);
             self.lost = true;
@@ -1581,7 +1864,73 @@ impl View {
             gone,
             whole,
             echo,
+            scroll: self.scroll,
         }))
+    }
+
+    /// Logs, once for each change, how the display shows a scroll under
+    /// `auto`, `pan` or `copy`, as the buffer `token` lends says: by moving
+    /// its window over a buffer taller than the screen, or by copying. A
+    /// display that copies under `pan`, because its driver refused the pan,
+    /// logs a warning, since the key asked for the pan; under `auto` the
+    /// copy is one of the two ways the key allows, and the line is
+    /// information.
+    ///
+    /// References:
+    /// - ADR-1310 D6, "Where the driver allows it": vtium logs once when
+    ///   the driver refuses an asked-for pan, and copies.
+    #[cfg(feature = "scroll-pan")]
+    fn tell_way(&mut self, token: &Token, video: &dyn Video) {
+        let way = match self.scroll {
+            ScrollDraw::Redraw => return,
+            ScrollDraw::Copy => ScrollDraw::Copy,
+            ScrollDraw::Auto | ScrollDraw::Pan if token.size() != token.screen() => ScrollDraw::Pan,
+            ScrollDraw::Auto | ScrollDraw::Pan => ScrollDraw::Copy,
+        };
+        let told = (way, self.scroll);
+        if self.told.replace(told) == Some(told) {
+            return;
+        }
+        let name = video.name(self.id);
+        match told {
+            (ScrollDraw::Pan, _) => log::info!(
+                "Display {name} scrolls by panning: its buffers are taller than the screen, and a scroll moves the part that the screen shows."
+            ),
+            (_, ScrollDraw::Pan) => log::warn!(
+                "Display {name} cannot pan, because its driver does not allow it. The display scrolls by copying instead."
+            ),
+            _ => log::info!(
+                "Display {name} scrolls by copying: vtium keeps the drawn lines in memory and copies the part that the screen shows."
+            ),
+        }
+    }
+
+    /// Asks the display for the buffers the view's way of drawing a scroll
+    /// needs, once for each change of what it needs: a new renderer, as
+    /// for a new font, needs a ring of another size, and a head that moves
+    /// to the GPU path needs buffers the screen's size again. The display
+    /// that cannot pan keeps buffers the screen's size, and the view then
+    /// copies.
+    ///
+    /// References:
+    /// - ADR-1310 D6, "Where the driver allows it": the pan, and the copy
+    ///   where the driver refuses it.
+    #[cfg(feature = "scroll-pan")]
+    fn ask_buffers(&mut self, video: &mut dyn Video) {
+        let Some(drawing) = &self.drawing else {
+            return;
+        };
+        let wanted = tall_for(self.scroll, &drawing.renderer, self.size, self.orientation);
+        if self.asked == Some(wanted) {
+            return;
+        }
+        self.asked = Some(wanted);
+        if let Err(e) = video.set_tall(self.id, wanted) {
+            log::warn!(
+                "cannot set up the buffers of display {} for scrolling: {e}",
+                video.name(self.id)
+            );
+        }
     }
 
     /// When the oldest key was sent whose echo the frame taken now carries:
@@ -1629,8 +1978,10 @@ impl View {
             generation,
             mut drawing,
             token,
-            damage,
+            #[cfg_attr(not(feature = "scroll-pan"), expect(unused_mut, reason = "no pan"))]
+            mut damage,
             overlaid,
+            panned,
             stats,
             at,
             tip,
@@ -1663,6 +2014,22 @@ impl View {
             let _ = video.swap(token, &damage);
             return Presented::default();
         }
+        // Over the pan, the overlay's pixels lie where the window shows its
+        // places, and the renderer counts a frame the display presents for
+        // the overlay alone.
+        #[cfg(feature = "scroll-pan")]
+        if panned && let Some(d) = self.drawing.as_mut() {
+            for r in &self.overlaid {
+                damage.extend(
+                    d.renderer
+                        .pan_damage(render_rect(r))
+                        .iter()
+                        .map(display_rect),
+                );
+            }
+        }
+        #[cfg(not(feature = "scroll-pan"))]
+        let _ = panned;
         self.pointer.after_draw(video, self.id, tip, at);
         // The frame is drawn over any frame the display kept, and goes out
         // in its place.
@@ -1797,6 +2164,9 @@ impl View {
         }
     }
 }
+
+#[cfg(all(test, feature = "scroll-pan"))]
+mod pan_tests;
 
 #[cfg(test)]
 #[expect(
@@ -2542,6 +2912,87 @@ mod tests {
             shown.push(video.pixels.lock().unwrap().clone());
         }
         assert_eq!(shown[0], shown[1]);
+    }
+
+    // A build with `scroll-pan` reads each value of `scroll-draw` at the
+    // top level as its own way, and a head's section wins over the top
+    // level: a head set to `copy` copies under a top level set to `pan`,
+    // and a head that sets nothing takes the top level's way.
+    //
+    // References:
+    // - ADR-1310 D7: the key's four values.
+    // - ADR-1401 D3: the key is set for each head.
+    #[cfg(feature = "scroll-pan")]
+    #[test]
+    #[expect(clippy::expect_used, reason = "a test's set-up fails loudly")]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn scroll_draw_reads_each_value_and_a_head_s_section_wins() {
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let load = |text: &str| {
+            crate::config::load(&[], &mut |p: &std::path::Path| {
+                Ok((p == path).then(|| text.as_bytes().to_vec()))
+            })
+            .config
+        };
+        for (value, way) in [
+            ("auto", ScrollDraw::Auto),
+            ("pan", ScrollDraw::Pan),
+            ("copy", ScrollDraw::Copy),
+            ("redraw", ScrollDraw::Redraw),
+        ] {
+            let config = load(&format!("version = 1\nscroll-draw = {value}\n"));
+            assert_eq!(ScrollDraw::configured(&config), way, "{value}");
+        }
+        let text = "scroll-draw = pan\nversion = 1\n[head a]\nscroll-draw = copy\n[head b]\n";
+        let top = load(text);
+        let rules = vtium_settings::sections(text.as_bytes())
+            .expect("a flow")
+            .parsed
+            .config;
+        let clock: Clock = Rc::new(Instant::now);
+        let caps = crate::head::session::Caps { head: 4, total: 8 };
+        let heads = crate::head::session::heads(&rules, &top, ((100, 100), 1 << 20), caps, &clock);
+        let ways: Vec<(&str, ScrollDraw)> =
+            heads.iter().map(|h| (h.name(), h.scroll_draw)).collect();
+        assert_eq!(ways, [("a", ScrollDraw::Copy), ("b", ScrollDraw::Pan)]);
+    }
+
+    // A build without `scroll-pan` reads `scroll-draw` and draws every
+    // scroll the `redraw` way, whatever the key asks: a head asked to pan
+    // or copy redraws, and a view of each way draws each buffer as a view
+    // that redraws does.
+    //
+    // References:
+    // - ADR-1310 D7: a build without `scroll-pan` accepts the key.
+    #[cfg(not(feature = "scroll-pan"))]
+    #[test]
+    fn a_build_without_scroll_pan_draws_every_scroll_again() {
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        for way in ["auto", "pan", "copy", "redraw"] {
+            let text = format!("version = 1\nscroll-draw = {way}\n");
+            let config = crate::config::load(&[], &mut |p: &std::path::Path| {
+                Ok((p == path).then(|| text.as_bytes().to_vec()))
+            })
+            .config;
+            assert_eq!(ScrollDraw::configured(&config), ScrollDraw::Redraw, "{way}");
+        }
+        let mut pictures = Vec::new();
+        for scroll in [
+            ScrollDraw::Auto,
+            ScrollDraw::Pan,
+            ScrollDraw::Copy,
+            ScrollDraw::Redraw,
+        ] {
+            let (mut term, mut view) = view();
+            view.scroll = scroll;
+            let mut video = Flip::new();
+            for step in [b"ab\r\ncd" as &[u8], b"\r\nef", b"\r\ngh"] {
+                term.parse(step, &mut |_| {});
+                draw(&mut term, &mut view, &mut video, None);
+            }
+            pictures.push((video.pixels(0), video.pixels(1), video.sent));
+        }
+        assert!(pictures.windows(2).all(|w| w[0] == w[1]));
     }
 
     // ADR-1401 D2: no view keeps a copy of its display's frame. At
