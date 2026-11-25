@@ -228,8 +228,9 @@ def probe_box(char, cell):
 def region(char, cell):
     """(x, y, width, height) of the part of the screen judged for the probe
     `char`: its cells and a blank cell on each side, from the row above to
-    the row below. vtium centres its grid on the display, so the grid starts
-    up to a cell's width right of the display's left edge and up to a cell's
+    the row below. vtium splits the spare columns between the display's
+    sides and puts the spare lines above the grid, so the grid starts up to
+    a cell's width right of the display's left edge and up to a cell's
     height below its top. The probe's glyph lies inside this region wherever
     the grid starts, and font-probe.sh leaves every other cell of it blank."""
     x, y, w, h = probe_box(char, cell)
