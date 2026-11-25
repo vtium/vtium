@@ -347,18 +347,31 @@ fn a_narrowing_past_sb_size_drops_the_oldest_rows() {
 }
 
 // "Cost": the scrollback past the screen and its margin waits, and
-// rewraps when the view reaches it, as it would have at the resize.
+// rewraps when the view reaches it, as it would have at the resize. A
+// build with the rows beyond the screen also rewraps at once the
+// ROWS_MAX + 1 rows a frame can capture above the screen, so there the
+// text is that many rows longer.
 #[test]
 fn the_scrollback_rewraps_when_the_view_reaches_it() {
-    let text: Vec<u8> = (0..20)
-        .flat_map(|i| format!("line{i:02}-abcdef\r\n").into_bytes())
+    let captured = if cfg!(feature = "rows-beyond") {
+        vtium_term::ROWS_MAX + 1
+    } else {
+        0
+    };
+    let lines = 20 + captured.div_ceil(2);
+    let text: Vec<u8> = (0..lines)
+        .flat_map(|i| format!("line{:02}-abcdef\r\n", i % 100).into_bytes())
         .collect();
-    let mut t = with_scrollback(13, 2, 100, &text);
+    let mut t = with_scrollback(13, 2, 100 + 2 * captured, &text);
     t.resize(7, 2);
     let rewrapped = t.screen().scrollback().len();
-    assert!(rewrapped < 10, "{rewrapped} rows rewrapped at once");
-    t.screen_mut().scroll_view_up(39);
-    assert_eq!(t.screen().scrollback().len(), 39);
+    assert!(
+        rewrapped < 10 + captured,
+        "{rewrapped} rows rewrapped at once"
+    );
+    let back = 2 * lines - 1;
+    t.screen_mut().scroll_view_up(back);
+    assert_eq!(t.screen().scrollback().len(), back);
     let palette = Palette::new([Rgb::default(); 256], Rgb::default(), Rgb::default());
     let frame = t.screen().frame(&palette, Age::NEVER);
     let top: String = (0..7)

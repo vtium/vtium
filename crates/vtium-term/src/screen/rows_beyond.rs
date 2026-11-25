@@ -559,6 +559,45 @@ mod capture {
         assert!(frame.row_changed_at(-1), "row -1 lost its picture");
     }
 
+    // ADR-1310 D2: rows of the scrollback that wait to be rewrapped after a
+    // change of width are content, so the capture holds them. After the
+    // screen widens, the capture at rest holds K rows above and one more,
+    // each the line that lies there once every row is rewrapped.
+    #[test]
+    fn the_rows_above_after_a_change_of_width_are_captured() {
+        let mut t = Terminal::new(4, 3, 1000);
+        t.screen_mut().set_scrollback_max(100);
+        for i in 0..20 {
+            t.input(format!("{i:02}xx\r\n").as_bytes());
+        }
+        t.screen_mut().resize(8, 3);
+        let palette = Palette::default();
+        let frame = t.screen().frame_reaching(&palette, Age::NEVER, OVERSCAN);
+        assert_eq!(frame.rows_above(), K + 1);
+        // lines 00xx to 19xx and the cursor's empty line: the screen shows
+        // 18xx, 19xx and the empty line, and the rows above 13xx to 17xx
+        let want: Vec<String> = (13..20).map(|i| format!("{i:02}xx")).collect();
+        let shown: Vec<String> = texts(&frame).into_iter().take(7).collect();
+        assert_eq!(shown, want);
+        // each width in turn: the captured rows are the newest rows of the
+        // scrollback rewrapped whole, and the screen's
+        for cols in [8, 3, 5, 2] {
+            t.screen_mut().resize(cols, 3);
+            let frame = t.screen().frame_reaching(&palette, Age::NEVER, OVERSCAN);
+            assert_eq!(frame.rows_above(), K + 1, "{cols} columns");
+            let mut eager = t.clone();
+            eager.screen_mut().rewrap_scrollback();
+            let s = eager.screen();
+            let all: Vec<LineId> = s.scrollback().chain(s.lines()).map(|l| l.id()).collect();
+            let captured: Vec<LineId> = frame
+                .captured()
+                .map(|r| frame.line_at(r).unwrap().id())
+                .collect();
+            let newest = all.get(all.len() - captured.len()..).unwrap();
+            assert_eq!(captured, newest, "{cols} columns");
+        }
+    }
+
     // ADR-1310 D2 and D6: while the view is scrolled back, the bottom side
     // holds the rows asked for and one more for the ink of the rows next to
     // them, each the line that follows the view in reading order.

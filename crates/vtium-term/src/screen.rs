@@ -701,10 +701,11 @@ impl Screen {
     /// renderer composes each row with the ink of the rows next to it. A
     /// side holds only rows that exist. Nothing lies above the oldest line
     /// of the scrollback or above the alternate screen, and nothing lies
-    /// below the screen while the view shows the newest output. Rows of
-    /// the scrollback that still wait to be rewrapped after a change of
-    /// width are not captured: they exist at the old width only. A side
-    /// asks for at most [`ROWS_MAX`] rows.
+    /// below the screen while the view shows the newest output. A change
+    /// of width rewraps at once the newest ROWS_MAX + 1 rows of the
+    /// scrollback above the rows the screen needs, so every row a side can
+    /// hold exists at the screen's width; older rows may still wait to be
+    /// rewrapped. A side asks for at most [`ROWS_MAX`] rows.
     ///
     /// References:
     /// - ADR-1310 D2, "The snapshot asks for them": which rows exist, and
