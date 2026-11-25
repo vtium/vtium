@@ -70,6 +70,12 @@ def device(size):
     return "virtio-vga,xres=%d,yres=%d,edid=on,max_hostmem=1G" % size
 
 
+def qemu_version():
+    """The first line of `qemu-system-x86_64 --version`."""
+    out = subprocess.run(["qemu-system-x86_64", "--version"], capture_output=True, text=True)
+    return (out.stdout.splitlines() or ["unknown"])[0]
+
+
 def rows(events, prefix):
     """The lines of the event log after `prefix`."""
     with open(events, errors="replace") as f:
@@ -100,7 +106,9 @@ def run_size(tool, size, args, log):
     finally:
         vm.stop()
     lines = rows(vm.events, "SCROLLTIMING-ROW ")
-    head = ["# guest\tQEMU q35 with KVM, %d vCPU, %d MB, -cpu host, -device %s"
+    head = ["# run by\tmake scroll-timing (tools/tier3/t3_scrolltiming.py)",
+            "# qemu\t" + qemu_version(),
+            "# guest\tQEMU q35 with KVM, %d vCPU, %d MB, -cpu host, -device %s"
             % (CPUS, MEMORY_MB, device(size))]
     for line in rows(vm.events, "SCROLLTIMING-CARD "):
         head.append("# guest card\t" + line)
