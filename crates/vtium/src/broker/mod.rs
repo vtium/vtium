@@ -230,9 +230,9 @@ pub struct Processes {
     pub helpers: helpers::Helpers,
     pub power: power::PowerKeys,
     /// The orders no request asked for, in the order they came: the exits
-    /// of sessions and helpers, and blank and wake. They are as many as
-    /// the sessions and helpers that can end, and the signals that came
-    /// in one turn.
+    /// of sessions and helpers, and blank and wake. They are at most as
+    /// many as the sessions and helpers that can end, and one blank or
+    /// wake.
     unasked: std::collections::VecDeque<Order>,
     /// The blanks and wakes that signals asked for since the last turn.
     signalled: std::rc::Rc<std::cell::RefCell<Vec<vtium::blank::Order>>>,
@@ -333,7 +333,12 @@ impl Processes {
         for (helper, status) in self.helpers.reap() {
             self.unasked.push_back(Order::HelperExit { helper, status });
         }
-        for order in self.signalled.borrow_mut().drain(..) {
+        // Of several blanks and wakes still unsent, the last holds, as it
+        // does for vtium in one process, so a flood of signals while the
+        // drawer reads nothing keeps one order waiting.
+        if let Some(order) = self.signalled.borrow_mut().drain(..).last() {
+            self.unasked
+                .retain(|o| !matches!(o, Order::Blank | Order::Wake));
             self.unasked.push_back(match order {
                 vtium::blank::Order::Blank => Order::Blank,
                 vtium::blank::Order::Wake => Order::Wake,

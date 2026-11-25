@@ -364,4 +364,44 @@ mod tests {
         ended.sort_unstable();
         assert_eq!(ended, [1, 2]);
     }
+
+    #[test]
+    fn of_the_blanks_and_wakes_unsent_the_last_holds() {
+        let (_, session_wake) = watching();
+        let (_, helper_wake) = watching();
+        let mut jobs = Jobs {
+            processes: Processes::new(
+                Sessions::new(
+                    conf("exit 0", "exit 0", WIDE),
+                    Box::new(Nowhere),
+                    session_wake,
+                ),
+                Helpers::new(None, helper_wake),
+                PowerKeys::new(&config(&[]), Box::new(vtium::power::System), None),
+            ),
+        };
+        let (link, theirs) = Link::pair().unwrap();
+        let drawer = Link::passed(theirs).unwrap();
+        let mut out = Outbox::new(&link);
+        let signalled = std::rc::Rc::clone(&jobs.processes.signalled);
+        signalled
+            .borrow_mut()
+            .extend([vtium::blank::Order::Wake, vtium::blank::Order::Blank]);
+        jobs.tick(&mut out);
+        signalled.borrow_mut().push(vtium::blank::Order::Wake);
+        jobs.tick(&mut out);
+        assert_eq!(next(&drawer).0, Order::Blank);
+        assert_eq!(next(&drawer).0, Order::Wake);
+        assert!(matches!(drawer.next_order().unwrap(), Got::Nothing));
+        // With the drawer's socket and the queue full, one order waits.
+        while link.order(&Order::Back, None).is_ok() {}
+        while !out.full() {
+            out.order(Order::Back, None).unwrap();
+        }
+        for _ in 0..100 {
+            signalled.borrow_mut().push(vtium::blank::Order::Blank);
+            jobs.tick(&mut out);
+        }
+        assert_eq!(jobs.processes.unasked, [Order::Blank]);
+    }
 }
