@@ -4,10 +4,13 @@
 //! Each line of the grid keeps a fixed place, a slot, in a ring of drawn
 //! rows. Grid row `y` lies in slot `(base + y) mod slots`, so a scroll by
 //! `n` rows moves `base` by `n` and leaves every line in its slot. The
-//! display shows a window over the ring that starts at `base`. The ring
-//! has one slot more than the screen has rows: that slot holds the border
-//! above and below the grid, which vtium draws again at its place on the
-//! screen over each new window.
+//! display shows a window over the ring that starts at `base`. The grid's
+//! last row touches the screen's far edge, so the spare pixel lines, left
+//! when the screen's length is not a whole number of rows, lie above the
+//! grid's first row. The ring has one slot more than the screen has rows,
+//! and that slot lies directly above the grid's first row, so the spare
+//! lines are the bottom of that slot. They show the border's color, which
+//! vtium draws again there over each new window.
 //!
 //! The pan keeps the ring in the display's own buffer, which is one
 //! screen longer than the ring along the axis the rows run down. Each
@@ -44,6 +47,7 @@
 //!
 //! References:
 //! - ADR-1310 D6: the pan over a tall buffer, the twins drawn only where a window reaches them, the copy, and the window at rest.
+//! - ADR-1310 D10: the grid flush to the screen's bottom edge, with the spare lines above it.
 //! - ADR-1401 D2: the copy's ring in system memory, in a build with `scroll-pan`.
 //! - ADR-1310 D2: the scroll record the ring reads its changes from.
 
@@ -81,7 +85,8 @@ pub(crate) struct Geometry {
     /// The display's length across the axis.
     across: u32,
     /// How far the grid's first row lies from the screen's edge where row
-    /// numbers start.
+    /// numbers start: the spare lines, since the grid's last row touches
+    /// the other edge.
     off: u32,
 }
 
@@ -977,13 +982,20 @@ impl<F: Face> Renderer<F> {
     /// The border after the grid's lines moved `n` rows up, or down when
     /// `n` is negative. The border's areas that the history keeps move
     /// with the lines, as the cells' history does. Two bands across the
-    /// screen then change. The leaving rows' lines now lie outside the
-    /// grid, so they show the border where a row's cells were. The lines
-    /// at the screen's far end, which the window did not show before, hold
-    /// whatever the ring held there. Every other line keeps its border
-    /// pixels as it moves, since the border is one color. The border
-    /// skips the grid, so a band that crosses the grid draws only its side
-    /// margins. The arrow drawn in software is stamped on its own.
+    /// screen then change. On a scroll up, the rows that leave the grid
+    /// move into the spare lines above its first row, which show the
+    /// border's color, so the leaving rows' lines there are drawn as
+    /// border. On a scroll down, the leaving rows move past the screen's
+    /// bottom edge, which the grid's last row touches, and nothing of them
+    /// stays in view. The lines that the window did not show before, at
+    /// the screen's end the lines moved away from, hold whatever the ring
+    /// held there. Every other line keeps its border pixels as it moves,
+    /// since the border is one color. The border skips the grid, so a band
+    /// that crosses the grid draws only its side margins. The arrow drawn
+    /// in software is stamped on its own.
+    ///
+    /// References:
+    /// - ADR-1310 D10: the spare lines above the grid, which show the border's color where no row is drawn there.
     fn scroll_border(&mut self, g: &Grid, n: i64) {
         let l = self.layout;
         let (w, h) = (l.width, l.height);
@@ -1003,27 +1015,27 @@ impl<F: Face> Renderer<F> {
             return;
         }
         let screen = i64::from(if turned { w } else { h });
-        // the leaving rows, where they were along the axis before the move
-        let (first, last) = match n > 0 {
-            true => (0, k.saturating_sub(1)),
-            false => (rows.saturating_sub(k), rows.saturating_sub(1)),
-        };
-        let (a, b) = (l.cell_rect(g, 0, first), l.cell_rect(g, 0, last));
-        let (r0, r1) = match turned {
-            true => (
-                a.x.min(b.x),
-                a.x.saturating_add(a.width).max(b.x.saturating_add(b.width)),
-            ),
-            false => (
-                a.y.min(b.y),
-                a.y.saturating_add(a.height)
-                    .max(b.y.saturating_add(b.height)),
-            ),
-        };
-        let leaving = (
-            i64::from(r0).saturating_add(by),
-            i64::from(r1).saturating_add(by),
-        );
+        // the lines of a scroll up's leaving rows, its first rows, after the
+        // move: in the spare lines above the grid. A scroll down's leaving
+        // rows, its last, move past the screen's bottom edge.
+        let leaving = (n > 0).then(|| {
+            let (a, b) = (l.cell_rect(g, 0, 0), l.cell_rect(g, 0, k.saturating_sub(1)));
+            let (r0, r1) = match turned {
+                true => (
+                    a.x.min(b.x),
+                    a.x.saturating_add(a.width).max(b.x.saturating_add(b.width)),
+                ),
+                false => (
+                    a.y.min(b.y),
+                    a.y.saturating_add(a.height)
+                        .max(b.y.saturating_add(b.height)),
+                ),
+            };
+            (
+                i64::from(r0).saturating_add(by),
+                i64::from(r1).saturating_add(by),
+            )
+        });
         // the lines the window shows anew: those whose place before the
         // move lay past the screen's end
         let fresh = match by < 0 {
@@ -1048,7 +1060,7 @@ impl<F: Face> Renderer<F> {
                 },
             }
         };
-        for r in [band(leaving), band(fresh)] {
+        for r in leaving.map(band).into_iter().chain([band(fresh)]) {
             if r.area() > 0 {
                 self.cells.stamp_border_area(r);
             }
@@ -1075,7 +1087,8 @@ impl<F: Face> Renderer<F> {
                 g.slots,
             );
             let Some(row) = usize::try_from(row).ok().filter(|&r| r < rows) else {
-                // the border's slot, whose twin is drawn with the border
+                // a slot no grid row lies in, which holds the spare lines
+                // above the grid and whose twin is drawn with the border
                 continue;
             };
             let copies = [
