@@ -13,8 +13,9 @@ after its last move, the plane shows nothing.
 
 The position is worked out as vtium works it out (vtium-platform's absolute
 axis, vtium's grid and the renderer's arrow): the mouse's axis scaled to the
-grid's pixels, the grid centred on the display, and the arrow's corner its
-hotspot up and left of the pointer.
+grid's pixels, the grid centred across the display with its last row on the
+display's bottom edge, and the arrow's corner its hotspot up and left of the
+pointer.
 
 The showcase draws the pointer into a scene's picture the same way the
 display shows it. A scene asks for the pointer on a cell (`pointed`), and the
@@ -76,17 +77,30 @@ def hotspot(cell_h):
     return h // 32 + 1
 
 
+def origin(display, cell):
+    """The display pixel where the grid's top left lies on an unturned
+    `display` (w, h) of `cell` (w, h) cells: the grid centred across the
+    display, an odd spare column on the right, and its last row touching
+    the display's bottom edge, so the spare lines lie above it.
+
+    References:
+    - ADR-1310 D10: the grid flush to the display's bottom edge, and
+      centred across it."""
+    (w, h), (cw, ch) = display, cell
+    return ((w - w // cw * cw) // 2, h - h // ch * ch)
+
+
 def corner(at, display, cell):
     """Where the cursor plane's top left goes for the pointer moved to `at`
     (x, y in QMP's units) on a `display` (w, h) of `cell` (w, h) cells: the
-    mouse's axis scaled to the grid's pixels and kept on its last one, the
-    grid centred on the display, less the hotspot."""
+    mouse's axis scaled to the grid's pixels and kept on its last one, from
+    the grid's origin on the display, less the hotspot."""
     out = []
     hot = hotspot(cell[1])
-    for v, side, c in zip(at, display, cell):
+    for v, side, c, o in zip(at, display, cell, origin(display, cell)):
         grid = side // c * c
         p = min(2 * v * grid // DEVICE_MAX, grid - 1)
-        out.append((side - grid) // 2 + p - hot)
+        out.append(o + p - hot)
     return tuple(out)
 
 

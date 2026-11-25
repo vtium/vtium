@@ -207,8 +207,9 @@ fn area(damage: &[Rect]) -> u64 {
 }
 
 fn cell(col: u32, row: u32, w: u32, h: u32, cols: u32, rows: u32) -> Rect {
-    // the grid is centred on the display
-    let (ox, oy) = ((w - cols * 8) / 2, (h - rows * 16) / 2);
+    // the grid is centred across the display, and its last row touches
+    // the display's bottom edge
+    let (ox, oy) = ((w - cols * 8) / 2, h - rows * 16);
     Rect {
         x: ox + col * 8,
         y: oy + row * 16,
@@ -451,9 +452,10 @@ fn the_pointer_damages_its_cells_only_when_it_changes() {
 }
 
 // The arrow past the grid's edge, as at a prompt in the bottom row,
-// redraws only the border it covered and covers, clipped to the display,
-// never the whole border: the arrow at 60,60 in the grid, its corner at
-// 62,61 on the display, reaches 7 pixels into the bottom border.
+// redraws only what it covered and covers, clipped to the display, never
+// the whole border: the arrow at 60,60 in the grid, its corner at 62,63
+// on the display, keeps 5 of its lines, since the grid's last row
+// touches the display's bottom edge.
 #[test]
 fn a_move_in_the_bottom_row_damages_only_its_cells_and_the_arrow() {
     let mut s = prompt();
@@ -472,11 +474,43 @@ fn a_move_in_the_bottom_row_damages_only_its_cells_and_the_arrow() {
     };
     let arrow = |x: u32| Rect {
         x,
-        y: 61,
+        y: 63,
         width: 11,
-        height: 7,
+        height: 5,
     };
     let want = [pair(7), pair(12), arrow(62), arrow(102)];
+    for buffer in ["moved", "the other buffer"] {
+        assert_eq!(d.draw(&mut s, &moved), want, "{buffer}");
+    }
+    assert!(d.draw(&mut s, &moved).is_empty(), "idle after the move");
+}
+
+// The arrow past the grid's last column redraws only the cells it
+// covered and covers and its own area clipped to the display, never the
+// whole border: at 156,20 and then 156,40 in the grid, its corner at
+// 158,23 and then 158,43 on the display, each arrow keeps 8 of its 11
+// columns, reaching through the 3-pixel right border to the display's
+// right edge.
+#[test]
+fn a_move_in_the_last_column_damages_only_its_cells_and_the_arrow() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let base = state(&s);
+    let at = |p: Option<(u32, u32)>| DrawState { pointer: p, ..base };
+    let (shown, moved) = (at(Some((156, 20))), at(Some((156, 40))));
+    for st in [&shown, &shown] {
+        assert_eq!(d.draw(&mut s, st), whole(w, h));
+    }
+    assert!(d.draw(&mut s, &shown).is_empty(), "idle at the edge");
+    let last = |row: u32| cell(19, row, w, h, 20, 4);
+    let arrow = |y: u32| Rect {
+        x: 158,
+        y,
+        width: 8,
+        height: 16,
+    };
+    let want = [last(1), last(2), last(3), arrow(23), arrow(43)];
     for buffer in ["moved", "the other buffer"] {
         assert_eq!(d.draw(&mut s, &moved), want, "{buffer}");
     }
