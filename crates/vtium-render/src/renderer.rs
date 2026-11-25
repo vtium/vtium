@@ -2022,9 +2022,10 @@ impl<F: Face> Renderer<F> {
     #[cfg(feature = "images")]
     fn plan_pictures(&mut self, frame: &Frame<'_>, g: &Grid) {
         #[cfg(feature = "scroll-pan")]
-        let shifted = Self::placements_above(frame, g);
-        #[cfg(feature = "scroll-pan")]
-        let placements = shifted.as_deref().unwrap_or(frame.placements());
+        let placements = match self.placements_above(frame, g) {
+            true => self.ring.placements(),
+            false => frame.placements(),
+        };
         #[cfg(not(feature = "scroll-pan"))]
         let placements = frame.placements();
         let cells = &mut self.cells;
