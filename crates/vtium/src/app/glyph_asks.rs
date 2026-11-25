@@ -125,19 +125,29 @@ impl App {
             let record = Rc::clone(self.failures.entry(name.to_owned()).or_default());
             let launcher = self.launcher.clone();
             let started = match launcher.and_then(|l| self.helper_wake().map(|w| (l, w))) {
-                Ok((launcher, wake)) => Ok(Helper::new(
-                    launcher,
-                    wake,
-                    self.epoch,
-                    frit.frit.clone(),
-                    self.console_font.clone(),
-                    std::sync::Arc::clone(&frit.generated),
-                    crate::head::frit_store(
-                        crate::deferred::store_limit(physical_memory()),
-                        self.heads.len(),
-                    ),
-                )
-                .remembering(record)),
+                Ok((launcher, wake)) => {
+                    let helper = Helper::new(
+                        launcher,
+                        wake,
+                        self.epoch,
+                        frit.frit.clone(),
+                        self.console_font.clone(),
+                        std::sync::Arc::clone(&frit.generated),
+                        crate::head::frit_store(
+                            crate::deferred::store_limit(physical_memory()),
+                            self.heads.len(),
+                        ),
+                    )
+                    .remembering(record);
+                    // Under the privilege split, vtium's root process
+                    // starts and stops the helper's processes.
+                    #[cfg(feature = "split")]
+                    let helper = match &self.font_root {
+                        Some(root) => helper.through_root(Rc::clone(root)),
+                        None => helper,
+                    };
+                    Ok(helper)
+                }
                 Err(why) => {
                     log::warn!(
                         "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"

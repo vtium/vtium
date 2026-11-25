@@ -600,6 +600,8 @@ The minspec build is vtium's smallest console, the one tier 3 judges. It draws n
 
 > Note 2026-11-25: the maintainer decided that the main package builds `scroll-pan` too (`considered`, 2026-11-25). With `scroll-pan`, vtium moves the picture of a scrolled screen instead of redrawing every line, and each display buffer is taller than the screen, so the console uses more display memory (ADR-1310 D6). The bullet on the main package reads "builds the console with the features `images logind gpu libseat`", and the note above adds `filters`. The `vtium` and `vtium-git` recipes in vtium-arch add `scroll-pan` to their default features with the release that first has the feature, as they did for `filters`. `make vt-accept` builds the console with it too, so the acceptance pass judges the packaged console's scrolling. The minspec builds still leave it out.
 
+> Note 2026-11-25: the maintainer decided that the main package builds `split` too, as ADR-1400 D4's note on the build of the same day records (`considered`, 2026-11-25). `split` builds the privilege split: a root process that holds the VT, opens the devices and starts the sessions, and a drawing process that runs everything else as the account `vtium`. The bullet on the main package and the notes above name the features without `split`. The `vtium` and `vtium-git` recipes in vtium-arch add `split` to their default features with the release that first has the feature, as they did for `filters` and `scroll-pan`. The minspec builds leave it out, so they run as one process.
+
 ### The maintainer's answers
 
 The record asked the maintainer three questions, and each answer is written into the decision above (`considered`, 2026-11-01).

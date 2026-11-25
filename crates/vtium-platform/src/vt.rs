@@ -29,6 +29,8 @@
 //! A [`Restore`] does the same from a panic hook, where `panic = "abort"`
 //! runs no `Drop`.
 
+#[cfg(feature = "split")]
+pub mod broker;
 mod fake_vt;
 pub mod font;
 mod kernel;
@@ -40,6 +42,8 @@ pub(crate) mod fake;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "split")]
+pub use broker::{BrokerInput, BrokerVt};
 pub use fake_vt::FakeVt;
 pub(crate) use kernel::switch_target;
 pub use kernel::{KernelVt, Restore};
@@ -52,6 +56,23 @@ use std::path::{Path, PathBuf};
 use rustix::fs::{Mode, OFlags};
 
 use crate::input::KeyEvent;
+
+/// Sets and drops DRM master on a card for a process that may not make
+/// those calls itself. The drawer asks the broker, which makes them on its
+/// own copy of the card; master belongs to the open file, so the drawer's
+/// copy gains and loses master with it.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the broker holds DRM master for
+///   the drawer.
+#[cfg(feature = "split")]
+pub trait MasterKeeper {
+    /// Takes master, or fails as the kernel's `DRM_IOCTL_SET_MASTER`
+    /// would.
+    fn take(&self) -> io::Result<()>;
+    /// Lets master go.
+    fn let_go(&self) -> io::Result<()>;
+}
 
 /// What a VT backend tells its owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,6 +216,15 @@ pub trait Vt {
     /// descriptor closed.
     fn close_device(&mut self, path: &Path) {
         let _ = path;
+    }
+
+    /// Who sets and drops DRM master on the card opened from `path`, for
+    /// a backend whose process may not make those calls itself, as the
+    /// broker's. `None` where vtium makes the calls on its own copy.
+    #[cfg(feature = "split")]
+    fn master_keeper(&self, path: &Path) -> Option<Box<dyn MasterKeeper>> {
+        let _ = path;
+        None
     }
 
     /// The devices whose pending open has its answer since the last call:

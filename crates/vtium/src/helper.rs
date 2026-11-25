@@ -125,6 +125,8 @@ pub use cells::Answer;
 use cells::{Ask, Bits, CellState, Fill};
 pub use launcher::{Command, Launcher, PROGRAM, font_dirs, nobody, open_program, program};
 use process::Running;
+#[cfg(feature = "split")]
+pub use process::{Launched, Root};
 use sandbox::failure;
 pub use sandbox::{sandbox_args, sandbox_on};
 use search::{Search, Suspect, bit, source_lines};
@@ -315,6 +317,15 @@ pub struct Helper {
     /// once one has been ([`sandbox_notice`]).
     sandbox_noted: Option<String>,
     failed: Option<String>,
+    /// vtium's root process, which starts and stops each of this helper's
+    /// processes under the privilege split; `None` when this process
+    /// starts them itself.
+    #[cfg(feature = "split")]
+    root: Option<Rc<dyn Root>>,
+    /// How many of the helper's frames [`Helper::poll`] has taken, for a
+    /// test that moves its clock only once the helper's frames are in.
+    #[cfg(test)]
+    taken: u64,
     /// The pointer ask the helper has not answered whole, its frames so
     /// far, and when it was sent.
     pointer: Option<(crate::pointer_file::Reply, Instant)>,
@@ -377,6 +388,10 @@ impl Helper {
             warnings_dropped: false,
             sandbox_noted: None,
             failed: None,
+            #[cfg(feature = "split")]
+            root: None,
+            #[cfg(test)]
+            taken: 0,
             pointer: None,
             pointer_done: None,
             pointers_only: false,
@@ -393,6 +408,21 @@ impl Helper {
     #[must_use]
     pub fn remembering(mut self, record: FailureRecord) -> Helper {
         self.failures = record;
+        self
+    }
+
+    /// Makes `root` start and stop each of the helper's processes, in
+    /// place of this process. Under the privilege split the font helper
+    /// runs as another account than the drawing process, so only vtium's
+    /// root process can start it or signal it.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker starts and stops
+    ///   the helpers and passes each helper's socket.
+    #[cfg(feature = "split")]
+    #[must_use]
+    pub fn through_root(mut self, root: Rc<dyn Root>) -> Helper {
+        self.root = Some(root);
         self
     }
 

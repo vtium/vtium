@@ -13,6 +13,12 @@
 //! because the marker needs the file's policy before the VT opens, so
 //! that a failure opening the loop or the VT under a closed policy still
 //! leaves the marker.
+//!
+//! Under the privilege split, the same binary runs as two processes. The
+//! root process holds the VT, writes the marker, keeps the sessions and
+//! tells systemd that vtium is ready. The drawing process skips those
+//! jobs. It reaches its VT, devices, sessions and helpers through the
+//! root process, and takes the kernel's messages and font from it.
 
 use std::ffi::OsString;
 use std::io;
@@ -33,6 +39,7 @@ use vtium_platform::udev::Udev;
 use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
+#[cfg(feature = "split")]
 mod broker;
 
 fn help() -> String {
@@ -87,10 +94,14 @@ fn clock() -> Clock {
 
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
-    let mut args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    // The privilege split, behind its switch `broker::SPLIT`, which is off
-    // until the split's later cards land: a drawer takes its word off the
-    // arguments and holds its link to the broker for the rest of the run.
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    // The privilege split, in a build with the `split` feature and behind
+    // its switch `broker::SPLIT`, which is off until the split's later
+    // cards land: a drawer takes its word and its VT's number off the
+    // arguments, and holds its link to the broker for the rest of the run.
+    #[cfg(feature = "split")]
+    let mut args = args;
+    #[cfg(feature = "split")]
     let drawer = if broker::SPLIT {
         match broker::drawer(&mut args) {
             Ok(link) => link,
@@ -150,6 +161,7 @@ fn main() -> ExitCode {
     log::info!(target: "log", "{}", vtium::logger::revision());
     // As root with the account `vtium`, this process becomes the broker
     // and runs the rest of vtium as the drawer, behind `broker::SPLIT`.
+    #[cfg(feature = "split")]
     if broker::SPLIT
         && drawer.is_none()
         && let Some(status) = broker::split(&args)
@@ -158,7 +170,11 @@ fn main() -> ExitCode {
     }
     let start = Start::new(&config, locale());
     log::set_max_level(start.log.to_level_filter());
+    // The drawing process opens no tty, and takes its VT's number from
+    // its root process.
     let path = match start.vt.clone() {
+        #[cfg(feature = "split")]
+        _ if drawer.is_some() => None,
         Some(vt) => Some(vt),
         None => match Tty::find() {
             Ok(path) => path,
@@ -168,12 +184,19 @@ fn main() -> ExitCode {
             }
         },
     };
+    // Each vtium builds the heads of its own VT (ADR-1401 D2). Without a
+    // kernel VT every head runs. The drawing process works on the VT its
+    // root process holds, which it opens no tty for.
+    let vt = path.as_deref().and_then(vtium::getty::vt_number);
+    #[cfg(feature = "split")]
+    let vt = drawer.as_ref().map_or(vt, |(_, vt)| Some(*vt));
+    let heads = vtium::head::rules(&loaded.path, &loaded.file).on_vt(vt);
+    #[cfg(feature = "split")]
+    if let Some((link, vt)) = drawer {
+        return leave(run_drawer(config, reread, start, heads, link, vt));
+    }
     // Before the loop and the VT, so a failure opening either under a
     // closed policy still leaves the marker that keeps the getty off.
-    // Each vtium builds the heads of its own VT (ADR-1401 D2). Without a
-    // kernel VT every head runs.
-    let vt = path.as_deref().and_then(vtium::getty::vt_number);
-    let heads = vtium::head::rules(&loaded.path, &loaded.file).on_vt(vt);
     vtium::getty::mark(
         Path::new(vtium::getty::DIR),
         path.as_deref(),
@@ -195,36 +218,62 @@ fn main() -> ExitCode {
         Path::new("/proc/self/exe"),
         vtium_platform::take_passed,
     );
-    let survival = (keeper, kept, env);
     let status = match path {
-        Some(path) => run_kernel(config, reread, start, heads, survival, &path),
+        Some(path) => run_kernel(config, reread, start, heads, (keeper, kept), env, &path),
         None => run(
             config,
             reread,
             start,
             heads,
-            survival,
-            None,
-            Box::new(|lp| {
-                #[cfg(feature = "libseat")]
-                if let Ok(vt) = seat(lp, None)? {
-                    return Ok(vt);
-                }
-                #[cfg(not(feature = "libseat"))]
-                let _ = lp;
-                log::info!(target: "vt", "no VTs: using a fake VT");
-                Ok(Box::new(FakeVt::new()))
-            }),
+            env,
+            Role::One {
+                keeper,
+                kept,
+                console: None,
+                open: Box::new(|lp| {
+                    #[cfg(feature = "libseat")]
+                    if let Ok(vt) = seat(lp, None)? {
+                        return Ok(vt);
+                    }
+                    #[cfg(not(feature = "libseat"))]
+                    let _ = lp;
+                    log::info!(target: "vt", "no VTs: using a fake VT");
+                    Ok(Box::new(FakeVt::new()))
+                }),
+            },
         ),
     };
-    let code = match status {
+    leave(status_of(status))
+}
+
+/// Runs the drawing process under the privilege split, on VT `vt`, which
+/// its root process at the other end of `link` holds, and returns its
+/// exit status. The root process writes the getty marker before it opens
+/// the VT, keeps the sessions through a restart and tells systemd that
+/// vtium is ready, so the drawing process does none of those jobs.
+#[cfg(feature = "split")]
+fn run_drawer(
+    config: config::Config,
+    reread: vtium::app::Reread,
+    start: Start,
+    heads: vtium::head::Start,
+    link: vtium_broker_protocol::Link,
+    vt: u16,
+) -> u8 {
+    let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    let role = Role::Drawer { link, vt };
+    status_of(run(config, reread, start, heads, env, role))
+}
+
+/// The exit status of a run that returned `status`, its error logged.
+fn status_of(status: io::Result<i32>) -> u8 {
+    match status {
         Ok(code) => u8::try_from(code).unwrap_or(1),
         Err(e) => {
             log::error!("{e}");
             1
         }
-    };
-    leave(code)
+    }
 }
 
 /// Ends vtium with `code` once the seat has dropped. A render thread that
@@ -264,36 +313,36 @@ fn run_kernel(
     reread: vtium::app::Reread,
     start: Start,
     heads: vtium::head::Start,
-    survival: Survival,
+    (keeper, kept): Kept,
+    env: Vec<(OsString, OsString)>,
     path: &Path,
 ) -> io::Result<i32> {
     let console = kernel_font(path);
     let path = path.to_owned();
-    run(
-        config,
-        reread,
-        start,
-        heads,
-        survival,
+    // The VT opens once the loop blocks its signals: `vtium blank` finds a
+    // vtium by its open VT, and its signal at the default disposition
+    // would end vtium.
+    let open: Open = Box::new(move |lp| {
+        let (tty, num) = Tty::open(&path)?;
+        #[cfg(feature = "libseat")]
+        let Some((tty, num)) = (match seat(lp, Some((tty, num)))? {
+            Ok(vt) => return Ok(vt),
+            Err(tty) => tty,
+        }) else {
+            return Err(io::Error::other("the seat kept the VT it did not choose"));
+        };
+        let vt = KernelVt::new(lp, tty, num, |app: &mut App| app.vt.get::<KernelVt<Tty>>())?;
+        let restore = vt.restorer()?;
+        vtium::hook::restore_first(move || restore.run());
+        Ok(Box::new(vt))
+    });
+    let role = Role::One {
+        keeper,
+        kept,
         console,
-        // The VT opens once the loop blocks its signals: `vtium blank`
-        // finds a vtium by its open VT, and its signal at the default
-        // disposition would end vtium.
-        Box::new(move |lp| {
-            let (tty, num) = Tty::open(&path)?;
-            #[cfg(feature = "libseat")]
-            let Some((tty, num)) = (match seat(lp, Some((tty, num)))? {
-                Ok(vt) => return Ok(vt),
-                Err(tty) => tty,
-            }) else {
-                return Err(io::Error::other("the seat kept the VT it did not choose"));
-            };
-            let vt = KernelVt::new(lp, tty, num, |app: &mut App| app.vt.get::<KernelVt<Tty>>())?;
-            let restore = vt.restorer()?;
-            vtium::hook::restore_first(move || restore.run());
-            Ok(Box::new(vt))
-        }),
-    )
+        open,
+    };
+    run(config, reread, start, heads, env, role)
 }
 
 /// A VT and its number, or none on a system without VTs.
@@ -334,46 +383,105 @@ fn kernel_font(path: &Path) -> Option<ConsoleFont> {
 /// How the seat's VT is opened, in the loop it runs in.
 type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
 
-/// Where each session's pty is kept through a restart, the ptys an earlier
-/// vtium left (ADR-1401 D13), and vtium's environment.
-type Survival = (
-    vtium::survive::Keeper,
-    Vec<(String, OwnedFd)>,
-    Vec<(OsString, OsString)>,
-);
+/// Where each session's pty is kept through a restart, and the ptys an
+/// earlier vtium left (ADR-1401 D13).
+type Kept = (vtium::survive::Keeper, Vec<(String, OwnedFd)>);
 
-/// Runs the seat on the VT `open` gives, with the head file `heads`
-/// resolved to, until it ends; returns the exit status. It is compiled
-/// once, whichever VT it runs on.
+/// Which process `run` runs.
+#[cfg_attr(
+    feature = "split",
+    expect(
+        clippy::large_enum_variant,
+        reason = "main makes one role, once, for the run"
+    )
+)]
+enum Role {
+    /// vtium in one process, on the VT `open` gives, with the kernel's
+    /// font read at start and the keeper of its sessions.
+    One {
+        keeper: vtium::survive::Keeper,
+        kept: Vec<(String, OwnedFd)>,
+        console: Option<ConsoleFont>,
+        open: Open,
+    },
+    /// The drawing process under the privilege split, on VT `vt`, which
+    /// its root process at the other end of `link` holds.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker holds the VT,
+    ///   opens the devices, starts every process vtium runs, keeps the
+    ///   pty masters and passes `vtium blank` on.
+    #[cfg(feature = "split")]
+    Drawer {
+        link: vtium_broker_protocol::Link,
+        vt: u16,
+    },
+}
+
+/// Runs the seat as `role` says, with the head file `heads` resolved to,
+/// until it ends; returns the exit status. It is compiled once, whichever
+/// VT it runs on.
 fn run(
     config: config::Config,
     reread: vtium::app::Reread,
     start: Start,
     heads: vtium::head::Start,
-    survival: Survival,
-    console: Option<ConsoleFont>,
-    open: Open,
+    env: Vec<(OsString, OsString)>,
+    role: Role,
 ) -> io::Result<i32> {
-    let (keeper, kept, env) = survival;
     let mut lp: Loop<App> = Loop::new()?;
     for signal in [Signal::SIGTERM, Signal::SIGINT] {
         lp.on_signal(signal, |app: &mut App| app.request_exit(Exit::Signal))?;
     }
     // A write to a child gone returns an error in place of ending vtium.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
-    vtium::blank::listen(&lp.handle())?;
-    // systemd starts the display manager only once vtium holds its VT
-    // (ADR-1500 D7, "Ready before the display manager").
-    let vt = vtium::survive::notify::opened(&env, || open(&mut lp))?;
+    // Under the privilege split, the drawing process's courier to its root
+    // process.
+    #[cfg(feature = "split")]
+    let mut courier = None;
+    let (vt, kept, console) = match role {
+        Role::One {
+            keeper,
+            kept,
+            console,
+            open,
+        } => {
+            vtium::blank::listen(&lp.handle())?;
+            // systemd starts the display manager only once vtium holds its
+            // VT (ADR-1500 D7, "Ready before the display manager").
+            let vt = vtium::survive::notify::opened(&env, || open(&mut lp))?;
+            (vt, (keeper, kept), console)
+        }
+        // The root process sends `vtium blank`, the kernel's messages and
+        // its font as orders, so the drawing process listens for none of
+        // them itself.
+        #[cfg(feature = "split")]
+        Role::Drawer { link, vt } => {
+            let (to_root, vt) = vtium::app::broker::through_broker(link, vt);
+            courier = Some(to_root);
+            let vt: Box<dyn SeatVt> = Box::new(vt);
+            (vt, Kept::default(), None)
+        }
+    };
+    #[cfg(feature = "split")]
+    let split = courier.is_some();
+    #[cfg(not(feature = "split"))]
+    let split = false;
     let clock = clock();
     let mut app = App::new(config, vt, lp.handle(), clock.clone(), env);
+    #[cfg(feature = "split")]
+    if let Some(courier) = courier {
+        app.set_broker(courier)?;
+    }
     if let Some(font) = console {
         app.set_console_font(font);
     }
     app.set_config_reader(reread);
     app.set_heads(heads);
-    app.set_survival(keeper, kept);
-    kernel_messages(&lp, &mut app);
+    app.set_survival(kept.0, kept.1);
+    if !split {
+        kernel_messages(&mut app);
+    }
 
     let system = vtium_platform::input::system_layout();
     match start.input(&system) {
@@ -388,7 +496,12 @@ fn run(
         let applied = input.keymap().compiled().clone();
         vtium::app::keyboard_layout::follow(&lp.handle(), start.keymap_settings(), applied);
     }
-    match Udev::new(app.vt.seat()) {
+    // The drawing process cannot open a device node to probe it, so it
+    // reads each device's driver and name from sysfs.
+    let udev = Udev::new(app.vt.seat());
+    #[cfg(feature = "split")]
+    let udev = udev.map(|udev| if split { udev.probing_sysfs() } else { udev });
+    match udev {
         Ok(mut udev) => {
             if let Err(e) = udev.scan() {
                 log::warn!("cannot list the devices: {e}");
@@ -433,27 +546,9 @@ fn run(
 /// Reads the kernel's messages from `/dev/kmsg` through the loop, for the
 /// app to show (ADR-1401 D15). Where vtium cannot open the device, it
 /// logs why and shows none.
-fn kernel_messages(lp: &Loop<App>, app: &mut App) {
-    use vtium_platform::calloop::generic::Generic;
-    use vtium_platform::calloop::{Interest, Mode, PostAction};
-    let opened = vtium::kernel::System::open().and_then(|system| {
-        let fd = system.watched()?;
-        lp.handle()
-            .insert_source(
-                Generic::new(fd, Interest::READ, Mode::Level),
-                |_, _, app: &mut App| {
-                    Ok(if app.kernel_ready() {
-                        PostAction::Continue
-                    } else {
-                        PostAction::Remove
-                    })
-                },
-            )
-            .map_err(|e| e.error)?;
-        Ok(system)
-    });
-    match opened {
-        Ok(system) => app.set_kernel(Box::new(system)),
+fn kernel_messages(app: &mut App) {
+    match vtium::kernel::System::open() {
+        Ok(system) => app.watch_kernel(system),
         Err(e) => log::info!(
             "vtium cannot read the kernel's messages from {}: {e}. It does not show them on screen.",
             vtium::kernel::KMSG
@@ -503,6 +598,91 @@ mod tests {
         assert!(opened < app, "READY=1 comes before the app opens the cards");
     }
 
+    /// The drawing process runs the seat on the VT its root process holds:
+    /// it asks the root process for every device it uses, opens none
+    /// itself, and ends with the signal's status at the root process's
+    /// stop. A stand-in root process refuses each request on a thread of
+    /// its own.
+    #[cfg(feature = "split")]
+    #[test]
+    fn the_drawing_process_runs_through_its_root_process_until_it_stops() {
+        use vtium_broker_protocol::{Errno, Got, Link, Order, Request};
+        let (root, theirs) = Link::pair().unwrap();
+        root.order(&Order::Stop, None).unwrap();
+        let seen = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            loop {
+                let mut fds = [rustix::event::PollFd::new(
+                    &root,
+                    rustix::event::PollFlags::IN,
+                )];
+                let bound = rustix::event::Timespec {
+                    tv_sec: 30,
+                    tv_nsec: 0,
+                };
+                assert_eq!(rustix::event::poll(&mut fds, Some(&bound)).unwrap(), 1);
+                match root.next_request().unwrap() {
+                    Got::Message(Ok(request)) => {
+                        let refused = Err(Errno(libc::ENOENT as u16));
+                        let answer = match &request {
+                            Request::OpenDevice { device, .. } => Some(Order::Device {
+                                device: *device,
+                                opened: refused,
+                            }),
+                            Request::TakeMaster { device } => Some(Order::Master {
+                                device: *device,
+                                taken: false,
+                            }),
+                            Request::OpenSession { console, .. } => Some(Order::Pty {
+                                console: console.clone(),
+                                opened: refused,
+                            }),
+                            Request::StartHelper { helper, .. } => Some(Order::Helper {
+                                helper: *helper,
+                                started: refused,
+                            }),
+                            _ => None,
+                        };
+                        if let Some(answer) = answer {
+                            root.order(&answer, None).unwrap();
+                        }
+                        seen.push(request);
+                    }
+                    Got::Message(Err(refused)) => panic!("{refused:?}"),
+                    Got::Nothing => {}
+                    Got::Closed => return seen,
+                }
+            }
+        });
+        let args: Vec<std::ffi::OsString> = ["--login", "--", "/bin/true"]
+            .iter()
+            .map(std::ffi::OsString::from)
+            .collect();
+        let loaded = super::config::load(&args, &mut |_: &std::path::Path| Ok(None));
+        let start = super::Start::new(&loaded.config, String::new());
+        let heads = vtium::head::rules(&loaded.path, &loaded.file).on_vt(Some(7));
+        let reread: vtium::app::Reread =
+            Box::new(move || super::config::load(&args, &mut |_: &std::path::Path| Ok(None)));
+        let role = super::Role::Drawer {
+            link: Link::passed(theirs).unwrap(),
+            vt: 7,
+        };
+        let status = super::run(loaded.config, reread, start, heads, Vec::new(), role).unwrap();
+        assert_eq!(
+            status,
+            vtium::app::Exit::Signal.status(),
+            "stopped by its root process"
+        );
+        let seen = seen.join().unwrap();
+        // the switch to its VT goes through the root process too
+        assert!(seen.contains(&Request::SwitchVt { vt: 7 }), "{seen:?}");
+        for request in &seen {
+            if let Request::OpenDevice { path, .. } = request {
+                assert!(path.as_str().starts_with("/dev/"), "{seen:?}");
+            }
+        }
+    }
+
     /// `--version` keeps its first line as it was, so a reader of that line
     /// alone sees no change, and adds the revision and the features, each
     /// read here from the build itself.
@@ -518,6 +698,7 @@ mod tests {
             ("libseat", cfg!(feature = "libseat")),
             ("logind", cfg!(feature = "logind")),
             ("scroll-pan", cfg!(feature = "scroll-pan")),
+            ("split", cfg!(feature = "split")),
         ]
         .iter()
         .filter(|(_, on)| *on)

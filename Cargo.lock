@@ -1833,6 +1833,7 @@ dependencies = [
  "pkg-config",
  "rustix",
  "udev",
+ "vtium-broker-protocol",
  "vtium-image",
  "vtium-testscript",
  "xkbcommon",

@@ -3699,11 +3699,20 @@ fn the_pty_channel_shows_each_frame_of_back_to_back_updates() {
         .collect();
     let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
     let mut lp: Loop<App> = Loop::new().unwrap();
+    // The seat's clock moves only by the short waits the loop asks for, the
+    // refresh's pacing among them, and stands still while the loop waits
+    // for the pty or a render thread. So an update's hold, whose bound is
+    // SYNC_WAIT, never runs out while a loaded machine is slow to compose.
+    let at = Rc::new(std::cell::Cell::new(Instant::now()));
+    let clock = {
+        let at = Rc::clone(&at);
+        move || at.get()
+    };
     let mut app = App::new(
         loaded.config,
         Box::new(FakeVt::new()),
         lp.handle(),
-        Rc::new(Instant::now),
+        Rc::new(clock.clone()),
         vec![("PATH".into(), "/usr/bin:/bin".into())],
     );
     app.set_font_sources(no_fonts());
@@ -3712,25 +3721,27 @@ fn the_pty_channel_shows_each_frame_of_back_to_back_updates() {
     shown(&mut app);
     app.start();
     // Turns the loop as `main` does, waiting at most 50 ms, until
-    // `done` holds, for at most 5 s.
-    fn turn_until(lp: &mut Loop<App>, app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
+    // `done` holds, for at most 5 s of the host's time. A wait of at most
+    // 50 ms that the loop asks for moves the seat's clock by that wait.
+    let turn_until = |lp: &mut Loop<App>, app: &mut App, done: &dyn Fn(&mut App) -> bool| {
         let end = Instant::now() + Duration::from_secs(5);
         while Instant::now() < end {
             if done(app) {
                 return true;
             }
-            let wait = app
-                .next_wake(Instant::now())
-                .map_or(Duration::from_millis(50), |w| {
-                    w.min(Duration::from_millis(50))
-                });
+            let short = Duration::from_millis(50);
+            let asked = app.next_wake(at.get());
+            let wait = asked.map_or(short, |w| w.min(short));
             lp.dispatch(Some(wait), app).unwrap();
-            app.turn(Instant::now());
+            if let Some(w) = asked.filter(|&w| w <= short) {
+                at.set(at.get() + w);
+            }
+            app.turn(at.get());
         }
         done(app)
-    }
+    };
     assert!(
-        turn_until(&mut lp, &mut app, |app| app.pty().is_some()),
+        turn_until(&mut lp, &mut app, &|app| app.pty().is_some()),
         "the session starts"
     );
     assert!(
@@ -3750,11 +3761,11 @@ fn the_pty_channel_shows_each_frame_of_back_to_back_updates() {
     slave.write_all(start).unwrap();
     let mut written = start.len() as u64;
     assert!(
-        turn_until(&mut lp, &mut app, |app| app.term_mut().unwrap().parsed
+        turn_until(&mut lp, &mut app, &|app| app.term_mut().unwrap().parsed
             >= written),
         "the first update begins"
     );
-    assert!(turn_until(&mut lp, &mut app, |app| app
+    assert!(turn_until(&mut lp, &mut app, &|app| app
         .heads
         .iter()
         .all(|h| h.frames_out() == 0)));
@@ -3767,7 +3778,7 @@ fn the_pty_channel_shows_each_frame_of_back_to_back_updates() {
         // The turns until the display takes the finished frame: the
         // read is parsed up to the frame's end, and the rest waits.
         assert!(
-            turn_until(&mut lp, &mut app, |app| {
+            turn_until(&mut lp, &mut app, &|app| {
                 let term = app.term_mut().unwrap();
                 term.parsed >= frame && !term.unshown
             }),
@@ -3785,12 +3796,12 @@ fn the_pty_channel_shows_each_frame_of_back_to_back_updates() {
             "frame {k} is the one taken"
         );
         assert_eq!(
-            app.next_wake(Instant::now()),
+            app.next_wake(at.get()),
             Some(Duration::ZERO),
             "frame {k}: the loop wakes at once for the rest of the read"
         );
         lp.dispatch(Some(Duration::ZERO), &mut app).unwrap();
-        app.turn(Instant::now());
+        app.turn(at.get());
         let term = app.term_mut().unwrap();
         assert_eq!(term.parsed, written, "frame {k}: the next update begins");
         assert!(
@@ -3798,11 +3809,11 @@ fn the_pty_channel_shows_each_frame_of_back_to_back_updates() {
             "frame {k}: its hold is in force"
         );
         assert!(
-            turn_until(&mut lp, &mut app, |app| swaps(app) == first + k + 1),
+            turn_until(&mut lp, &mut app, &|app| swaps(app) == first + k + 1),
             "frame {k} composes"
         );
     }
-    assert!(turn_until(&mut lp, &mut app, |app| app
+    assert!(turn_until(&mut lp, &mut app, &|app| app
         .heads
         .iter()
         .all(|h| h.frames_out() == 0)));

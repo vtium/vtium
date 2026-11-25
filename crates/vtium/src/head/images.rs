@@ -129,6 +129,8 @@ pub use built::*;
 #[cfg(feature = "images")]
 mod login;
 #[cfg(feature = "images")]
+pub use login::LOGIN_IMAGE_PIXELS_MAX;
+#[cfg(feature = "images")]
 pub(crate) use login::{DENIED as LOGIN_IMAGE_DENIED, Login, unusable as login_image_unusable};
 
 /// Logs, in a build without image support, that it ignores the login
@@ -228,15 +230,56 @@ mod built {
         }
     }
 
-    /// What makes a console's host, once for each console.
-    pub type Helpers = Rc<dyn Fn() -> Box<dyn Helper>>;
+    /// What a host is made for: the pictures of the console with this id,
+    /// or the head's login picture, which is decoded before any of the
+    /// head's sessions opens.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Host {
+        Console(u64),
+        LoginPicture,
+    }
+
+    /// What makes a host, once for each console and once for the login
+    /// picture, given the name of the head and what the host is for. Under
+    /// the privilege split vtium's root process starts the helpers, and it
+    /// needs the console to choose their account. It starts the login
+    /// picture's helper as the pre-login account, since no session of the
+    /// head has opened yet.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker starts each image
+    ///   helper for a console and chooses its user.
+    /// - ADR-1400 D4, the note of 2026-11-25 on the login picture: the
+    ///   broker starts the login picture's helper itself.
+    pub type Helpers = Rc<dyn Fn(&str, Host) -> Box<dyn Helper>>;
+
+    /// What makes the host of one console: [`Helpers`] given that console.
+    pub(crate) type Make<'a> = &'a dyn Fn() -> Box<dyn Helper>;
+
+    /// What makes the host of console `id` of head `head`, from `helpers`.
+    fn console_host<'a>(
+        helpers: Option<&'a Helpers>,
+        head: &'a str,
+        id: u64,
+    ) -> Option<impl Fn() -> Box<dyn Helper> + 'a> {
+        helpers.map(move |make| move || make(head, Host::Console(id)))
+    }
+
+    /// What makes the host of head `head`'s login picture, from `helpers`.
+    fn login_host<'a>(
+        helpers: Option<&'a Helpers>,
+        head: &'a str,
+    ) -> Option<impl Fn() -> Box<dyn Helper> + 'a> {
+        helpers.map(move |make| move || make(head, Host::LoginPicture))
+    }
 
     /// What makes each console's [`ImageHost`]: from the program that
     /// `config`'s `image-helper` names, opened and checked here, once, so
     /// every helper starts from the file vtium opened at start, and with
     /// vtium's own `TMPDIR` in `env`, where a temporary file may also lie.
     /// A program vtium refuses is logged here, once, and every host then
-    /// answers as with no helper.
+    /// answers as with no helper. Each host is made alike for every
+    /// console, so the head's name and the console's id go unread.
     ///
     /// References:
     /// - ADR-1101 D1: the program opened once at start.
@@ -252,7 +295,7 @@ mod built {
             }
         };
         let tmpdir = tmpdir(env);
-        Rc::new(move || Box::new(ImageHost::new(program.clone(), tmpdir.clone())))
+        Rc::new(move |_, _| Box::new(ImageHost::new(program.clone(), tmpdir.clone())))
     }
 
     /// The program `config`'s `image-helper` names, opened, its helpers
@@ -409,8 +452,8 @@ mod built {
             }
         }
 
-        /// The image turn for one console: its host made by `helpers` at
-        /// the first turn, `term` given `limit`, `switches`, `cell` and
+        /// The image turn for one console: its host made by `make` at the
+        /// first turn, `term` given `limit`, `switches`, `cell` and
         /// whether its host can start a helper, then its request routed.
         /// Returns whether a reply was handed back.
         fn turn(
@@ -419,11 +462,11 @@ mod built {
             pty: Option<&mut Pty>,
             (limit, switches, cell): (u64, Switches, (u32, u32)),
             now: Instant,
-            helpers: Option<&Helpers>,
+            make: Option<Make<'_>>,
             handle: &LoopHandle<'static, App>,
         ) -> bool {
             if self.host.is_none() {
-                self.host = helpers.map(|make| make());
+                self.host = make.map(|make| make());
             }
             let helper = self.host.as_ref().is_some_and(|h| h.available());
             self.give(
@@ -590,24 +633,27 @@ mod built {
             let draw = self.views.values().all(crate::term::View::draws_placements);
             let sizes = self.views.values().map(|v| v.size);
             let (limit, switches) = offer(&self.image_settings, sizes, draw);
+            let name = self.name.as_str();
             let shown = &mut self.console;
+            let make = console_host(helpers, name, shown.id);
             if shown.pictures.turn(
                 &mut shown.term,
                 shown.pty.as_mut(),
                 (limit, switches, self.cell),
                 now,
-                helpers,
+                make.as_ref().map(|make| make as Make<'_>),
                 handle,
             ) {
                 self.draw_now = true;
             }
             for console in &mut self.hidden {
+                let make = console_host(helpers, name, console.id);
                 console.pictures.turn(
                     &mut console.term,
                     console.pty.as_mut(),
                     (limit, switches, console.fit.cell),
                     now,
-                    helpers,
+                    make.as_ref().map(|make| make as Make<'_>),
                     handle,
                 );
             }
@@ -617,7 +663,15 @@ mod built {
                 log_notes(&self.name, console.id, &mut console.term);
             }
             let geometry = self.login_geometry();
-            self.login_image.turn(geometry, now, helpers, handle);
+            // The login picture has a host of its own, since the picture is
+            // decoded before any of the head's sessions opens.
+            let make = login_host(helpers, &self.name);
+            self.login_image.turn(
+                geometry,
+                now,
+                make.as_ref().map(|make| make as Make<'_>),
+                handle,
+            );
         }
 
         /// When each request out of the head's consoles fails unanswered,

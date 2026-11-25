@@ -54,7 +54,7 @@ use vtium_image::login::{Fit, Fitting, Form, Geometry, Made, Position, SCALE_FUL
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::image_helper::Session;
 
-use super::{Helper, Helpers, REPLY_TIMEOUT, Watch};
+use super::{Helper, Make, REPLY_TIMEOUT, Watch};
 use crate::app::App;
 use crate::config::{Config, keys};
 use crate::term::Term;
@@ -186,17 +186,17 @@ impl Login {
 
     /// The login picture's turn at `now`, for a head whose first display
     /// gives `geometry`, or `None` while it has no display: the request
-    /// sent to a host `helpers` makes once, its reply read, or the request
+    /// sent to a host `make` makes once, its reply read, or the request
     /// dropped once the timer has run out. A head asks again when its
     /// display's geometry changed since the picture was made or failed.
     pub(crate) fn turn(
         &mut self,
         geometry: Option<Geometry>,
         now: Instant,
-        helpers: Option<&Helpers>,
+        make: Option<Make<'_>>,
         handle: &LoopHandle<'static, App>,
     ) {
-        if let Some(fd) = self.step(geometry, now, helpers) {
+        if let Some(fd) = self.step(geometry, now, make) {
             self.watch = Watch::new(fd, handle);
         }
     }
@@ -207,7 +207,7 @@ impl Login {
         &mut self,
         geometry: Option<Geometry>,
         now: Instant,
-        helpers: Option<&Helpers>,
+        make: Option<Make<'_>>,
     ) -> Option<OwnedFd> {
         self.settled = None;
         let geometry = geometry?;
@@ -215,9 +215,9 @@ impl Login {
         let mut wake = None;
         match &self.state {
             State::Off => {}
-            State::Idle => wake = self.ask(geometry, now, helpers),
+            State::Idle => wake = self.ask(geometry, now, make),
             State::Ready { geometry: g, .. } | State::Failed { geometry: g } if *g != geometry => {
-                wake = self.ask(geometry, now, helpers);
+                wake = self.ask(geometry, now, make);
             }
             State::Ready { .. } | State::Failed { .. } => {}
             State::Asking {
@@ -245,12 +245,7 @@ impl Login {
     /// Reads the file and sends its bytes to the image helper, for a
     /// picture made for `geometry`; the descriptor to watch while the
     /// request is out.
-    fn ask(
-        &mut self,
-        geometry: Geometry,
-        now: Instant,
-        helpers: Option<&Helpers>,
-    ) -> Option<OwnedFd> {
+    fn ask(&mut self, geometry: Geometry, now: Instant, make: Option<Make<'_>>) -> Option<OwnedFd> {
         let fitting = Fitting {
             form: self.form,
             geometry,
@@ -271,7 +266,7 @@ impl Login {
             }
         };
         if self.host.is_none() {
-            self.host = helpers.map(|make| make());
+            self.host = make.map(|make| make());
         }
         let Some(host) = self.host.as_mut().filter(|h| h.available()) else {
             self.fail(geometry, "the image helper cannot start");
@@ -609,10 +604,13 @@ mod tests {
         }
     }
 
-    fn helpers(answer: Option<Reply>) -> (Helpers, Rc<RefCell<Vec<Request>>>) {
+    /// What makes a stand-in host, as [`super::Make`] takes it.
+    type Maker = Rc<dyn Fn() -> Box<dyn Helper>>;
+
+    fn helpers(answer: Option<Reply>) -> (Maker, Rc<RefCell<Vec<Request>>>) {
         let sent = Rc::new(RefCell::new(Vec::new()));
         let kept = Rc::clone(&sent);
-        let make: Helpers = Rc::new(move || {
+        let make: Maker = Rc::new(move || {
             Box::new(StandIn {
                 answer: answer.clone(),
                 sent: Rc::clone(&kept),
@@ -815,11 +813,11 @@ mod tests {
             said();
             let mut login = login(path.clone(), Fit::Cover);
             assert!(login.waits());
-            login.step(Some(SCREEN), now(), Some(&make));
+            login.step(Some(SCREEN), now(), Some(&*make));
             assert!(!login.waits(), "{why}: the first login prompt starts");
             assert!(login.made().is_none());
             // a later turn logs nothing more
-            login.step(Some(SCREEN), now(), Some(&make));
+            login.step(Some(SCREEN), now(), Some(&*make));
             let lines = said();
             assert_eq!(lines.len(), 1, "{lines:?}");
             assert_eq!(
@@ -846,7 +844,7 @@ mod tests {
         let (make, sent) = helpers(Some(decoded(4, 4)));
         said();
         let mut login = login(path, Fit::Cover);
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         assert!(sent.borrow().is_empty());
         assert!(said()[0].contains("the file is larger than 64 MiB"));
     }
@@ -862,7 +860,7 @@ mod tests {
         said();
         let mut login = login(path, Fit::Cover);
         let start = now();
-        login.step(Some(SCREEN), start, Some(&make));
+        login.step(Some(SCREEN), start, Some(&*make));
         assert_eq!(sent.borrow().len(), 1);
         let request = sent.borrow()[0].clone();
         assert!(request.any_image && request.medium.letter() == 'd');
@@ -874,14 +872,14 @@ mod tests {
         login.step(
             Some(SCREEN),
             start + Duration::from_millis(1999),
-            Some(&make),
+            Some(&*make),
         );
         assert!(login.waits());
-        login.step(Some(SCREEN), start + REPLY_TIMEOUT, Some(&make));
+        login.step(Some(SCREEN), start + REPLY_TIMEOUT, Some(&*make));
         assert!(!login.waits());
         // the loop turns once more, at once, to start the login prompt
         assert_eq!(login.due(), Some(start + REPLY_TIMEOUT));
-        login.step(Some(SCREEN), start + REPLY_TIMEOUT, Some(&make));
+        login.step(Some(SCREEN), start + REPLY_TIMEOUT, Some(&*make));
         assert_eq!(login.due(), None);
         assert_eq!(said().len(), 1);
     }
@@ -899,7 +897,7 @@ mod tests {
         let path = file("good", PNG);
         let (make, _) = helpers(Some(decoded(80, 48)));
         let mut login = login(path, Fit::Cover);
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         assert!(login.made().is_some());
         let mut term = console(1 << 20);
         login.place(&mut term, true);
@@ -941,7 +939,7 @@ mod tests {
         let path = file("respawn", PNG);
         let (make, sent) = helpers(Some(decoded(80, 48)));
         let mut login = login(path, Fit::Cover);
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         let mut term = console(1 << 20);
         login.place(&mut term, true);
         term.terminal.reset();
@@ -949,7 +947,7 @@ mod tests {
         login.place(&mut term, true);
         assert_eq!(placements(&term), 1);
         // the decoded picture is reused while the display keeps its size
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         assert_eq!(sent.borrow().len(), 1);
         // and asked for again once it changes
         let wider = Geometry {
@@ -957,7 +955,7 @@ mod tests {
             grid: (20, 3),
             ..SCREEN
         };
-        login.step(Some(wider), now(), Some(&make));
+        login.step(Some(wider), now(), Some(&*make));
         assert_eq!(sent.borrow().len(), 2);
     }
 
@@ -966,7 +964,7 @@ mod tests {
         let path = file("banner", PNG);
         let (make, _) = helpers(Some(decoded(20, 20)));
         let mut login = login(path, Fit::Banner);
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         let mut term = console(1 << 20);
         login.place(&mut term, true);
         // on 3 rows the banner may take 1, so it is scaled down to 16×16
@@ -976,7 +974,7 @@ mod tests {
             grid: (10, 5),
             ..SCREEN
         };
-        login.step(Some(tall), now(), Some(&make));
+        login.step(Some(tall), now(), Some(&*make));
         let mut term = console(1 << 20);
         term.terminal.resize(10, 5);
         login.place(&mut term, true);
@@ -1006,7 +1004,7 @@ mod tests {
             grid: (10, 5),
             ..SCREEN
         };
-        login.step(Some(tall), now(), Some(&make));
+        login.step(Some(tall), now(), Some(&*make));
         let mut term = console(1 << 20);
         term.terminal.resize(10, 5);
         // the session's program would start with the cursor anywhere
@@ -1059,7 +1057,7 @@ mod tests {
         let path = file("clear", PNG);
         let (make, _) = helpers(Some(decoded(80, 48)));
         let mut login = login(path, Fit::Cover);
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         let mut term = console(1 << 20);
         login.place(&mut term, true);
         let images = |term: &Term| term.terminal.screen().images().image_count();
@@ -1162,7 +1160,7 @@ mod tests {
         let path = file("budget", PNG);
         let (make, _) = helpers(Some(decoded(80, 48)));
         let mut login = login(path, Fit::Cover);
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         let mut term = console(1 << 20);
         login.place(&mut term, false);
         assert_eq!(placements(&term), 0);
@@ -1192,7 +1190,7 @@ mod tests {
             cell: (8, 16),
             grid: (240, 67),
         };
-        login.step(Some(hd), now(), Some(&make));
+        login.step(Some(hd), now(), Some(&*make));
         let made = login.made().expect("made").clone();
         // 1920×1072 pixels, 8,232,960 bytes: the only copy the console holds
         assert_eq!((made.width, made.height), (1920, 1072));
@@ -1225,13 +1223,13 @@ mod tests {
         let mut login = login(path.clone(), Fit::Cover);
         login.largest = (64, 64);
         said();
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         let made = login.made().expect("the fitted picture is made");
         assert_eq!((made.width, made.height), (80, 48));
         assert_eq!(said(), [] as [String; 0]);
         let (make, _) = helpers(Some(decoded(100, 100)));
         let mut login = login_with(path.clone(), Fit::Cover, (64, 64));
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         assert!(login.made().is_none());
         assert_eq!(
             said(),
@@ -1263,7 +1261,7 @@ mod tests {
             ..SCREEN
         };
         said();
-        login.step(Some(short), now(), Some(&make));
+        login.step(Some(short), now(), Some(&*make));
         assert!(!login.waits());
         assert!(login.made().is_none());
         assert!(sent.borrow().is_empty());
@@ -1274,12 +1272,12 @@ mod tests {
                 path.display()
             )]
         );
-        login.step(Some(short), now(), Some(&make));
+        login.step(Some(short), now(), Some(&*make));
         assert!(
             sent.borrow().is_empty(),
             "the same screen is not asked again"
         );
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         assert_eq!(sent.borrow().len(), 1);
         assert!(login.made().is_some());
         assert_eq!(said(), [] as [String; 0]);
@@ -1294,20 +1292,20 @@ mod tests {
         let mut login = login(path, Fit::Cover);
         let start = now();
         said();
-        login.step(Some(SCREEN), start, Some(&make));
-        login.step(Some(SCREEN), start + REPLY_TIMEOUT, Some(&make));
+        login.step(Some(SCREEN), start, Some(&*make));
+        login.step(Some(SCREEN), start + REPLY_TIMEOUT, Some(&*make));
         assert!(!login.waits());
         assert_eq!(said().len(), 1);
-        login.step(Some(SCREEN), start + REPLY_TIMEOUT, Some(&make));
+        login.step(Some(SCREEN), start + REPLY_TIMEOUT, Some(&*make));
         assert_eq!(sent.borrow().len(), 1, "the same screen is not asked again");
         let wider = Geometry {
             display: (160, 48),
             grid: (20, 3),
             ..SCREEN
         };
-        login.step(Some(wider), start + REPLY_TIMEOUT, Some(&make));
+        login.step(Some(wider), start + REPLY_TIMEOUT, Some(&*make));
         assert_eq!(sent.borrow().len(), 2);
-        login.step(Some(wider), start + REPLY_TIMEOUT * 2, Some(&make));
+        login.step(Some(wider), start + REPLY_TIMEOUT * 2, Some(&*make));
         assert_eq!(said(), [] as [String; 0], "the log line is said once");
     }
 
@@ -1318,7 +1316,7 @@ mod tests {
         let path = file("bytes", PNG);
         let (make, sent) = helpers(None);
         let mut login = login(path, Fit::Cover);
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         assert_eq!(sent.borrow()[0].medium, Medium::Direct(PNG.to_vec()));
         assert!(matches!(
             &login.state,
@@ -1374,14 +1372,14 @@ mod tests {
         let path = file("unfitted", PNG);
         // a helper that answers the decoded picture at its own size
         let sent = Rc::new(RefCell::new(Vec::new()));
-        let make: Helpers = Rc::new(move || {
+        let make: Maker = Rc::new(move || {
             Box::new(Unfitted {
                 sent: Rc::clone(&sent),
             })
         });
         said();
         let mut login = login(path, Fit::Cover);
-        login.step(Some(SCREEN), now(), Some(&make));
+        login.step(Some(SCREEN), now(), Some(&*make));
         assert!(login.made().is_none());
         assert!(said()[0].contains("the image helper's picture does not fit the screen"));
     }

@@ -392,6 +392,10 @@ considered:
   - operator: aaronsb
     said: "Yes, widen it (Recommended)"
     via: "the maintainer, through the question tool, 2026-11-25, on widening the fill's first batch; the option read: Punctuation, arrows and geometric shapes join the first batch, so the TUI's symbols are ready with the text. The option's wording is the steering session's."
+  - operator: aaronsb
+    said: "A: split behind a feature (Recommended)"
+    via: "the steering session's question tool, 2026-11-25, on the privilege split and the minspec size budget; the option read: \"the root/drawer split builds only behind a cargo feature that minspec leaves out, so minspec stays one process and drops the split's ~32 KB (it sat 56 B under tier 3's 4,390,912 B budget); packaged builds and make vt-accept's defaults keep the split\"; the option wording is the steering session's"
+    paraphrase: true
 observable:
   - "OSC 50 with the path of an active font in /usr/share/fonts switches the console to that font, and the query then reports the path; OSC 50 with the path of a font in a user's own folder, or of a font the batch does not list, leaves the font as it was with one log line"
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
@@ -808,6 +812,8 @@ The console already opens its VT as root, and it reads the kernel's font once at
 > Added 2026-11-19: the maintainer raised the budget to 4,325,376 bytes (4 MiB + 128 KiB). The console now judges every resource file it reads against the trust rule and the batch of ADR-1205 D4, and that code took the minspec binary from 4,259,504 to 4,311,760 bytes. A measurement found where the bytes go: the folder walk and its checks about 10.5 KB, the mount table and removable-disk check about 9.5 KB, the batch reader and the fresh-install list about 6.3 KB, unwind tables about 7.1 KB and messages about 6.3 KB. Plain loops in place of iterator chains cut 5,744 bytes, to 4,306,016 bytes. The maintainer keeps the budget low on purpose: "we are just keeping a low footprint because it keeps us honest about size changes".
 
 > Added 2026-11-21: the maintainer raised the budget to 4,390,912 bytes (4 MiB + 192 KiB), so that no feature is cut to fit (`considered`). `make tier3-minimal` on the wave 5 candidate branch at e304e2dab measured the minspec binary at 4,356,352 bytes, 30,976 bytes over 4 MiB + 128 KiB. Five pieces of work grew it: a look's own pointer theme, the Ink color scheme for e-ink displays, one frame for each echoed key, underlines that skip the ink of descenders, and the font helper's recovery that drops only the font that failed. Each one's share of the growth was not measured. The new budget leaves 34,560 bytes of headroom. The figure is tier 3's `BINARY_BUDGET` (tools/tier3/README.md).
+
+> Note 2026-11-25: the budget stays at 4,390,912 bytes, because the privilege split builds only behind the cargo feature `split`, which the minspec build leaves out (ADR-1400 D4, `considered`, 2026-11-25). The split's code had taken the minspec binary to 4,390,696 bytes once integration's later work merged in, 216 bytes under the budget, although the split was still switched off. With the split behind its feature, `make minspec` builds a 4,357,456-byte binary on the split's branch, against 4,358,360 bytes on integration at c91823143 before the split's cards. The budget therefore keeps its 33,456 bytes of headroom. The figure is tier 3's `BINARY_BUDGET` (tools/tier3/README.md).
 
 ### D20: keys
 

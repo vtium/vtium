@@ -140,6 +140,10 @@ impl Helper {
             else {
                 break;
             };
+            #[cfg(test)]
+            {
+                self.taken = self.taken.saturating_add(1);
+            }
             if self.search.is_some() {
                 if self.search_event(event, now) {
                     break;

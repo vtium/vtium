@@ -20,9 +20,13 @@ test-support = []
 # The socket, its SCM_RIGHTS descriptors and the poll that tells a closed
 # socket from an empty message; vtium-platform already builds the same
 # version.
-rustix = { version = "=1.1.6", default-features = false, features = ["std", "event", "net"] }
+# The kernel font's sealed memory file.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "event", "fs", "net"] }
 
 [dev-dependencies]
 # One test checks that the protocol's EINVAL is the kernel's; vtium-platform
 # already builds the same version.
 libc = "=0.2.191"
+# The courier's tests pass a pipe as an order's descriptor and name the
+# file it opens.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "event", "net", "fs", "pipe"] }
