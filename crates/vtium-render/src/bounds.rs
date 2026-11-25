@@ -144,9 +144,25 @@ const COLOR_TABLE: Bound = Bound {
     cite: "ADR-1304 D2: 33 is the size `.cube` files most often hold, it keeps the table under half a megabyte, and a gamma of 1.2 stays within one level of the exact curve",
 };
 
+const TWINS: Bound = Bound {
+    name: "TWIN_BUFFERS",
+    value: 4,
+    what: "Display buffers the pan remembers the stale copies of rows for, in a build with `scroll-pan`; a display flips between two or three buffers",
+    past: "The buffer drawn longest ago is forgotten, and a buffer the pan does not remember has both copies of every row stale, so each row is drawn again before a window shows it",
+    cite: "ADR-1310 D6: the pan draws a row's second copy only where a window reaches it; `display-buffers` allows at most 3 buffers a display (ADR-1401 D2)",
+};
+
+const COPY_LOG: Bound = Bound {
+    name: "COPY_FRAMES",
+    value: 4,
+    what: "Frames whose changed areas the copy keeps, so that it copies into a display buffer that many frames old only those areas, in a build with `scroll-pan`",
+    past: "A buffer older than that gets the whole screen copied into it",
+    cite: "ADR-1310 D6 and ADR-1401 D2: the copy keeps its ring in system memory; `display-buffers` allows at most 3 buffers a display",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 16] = [
+pub(crate) const BOUNDS: [Bound; 18] = [
     POOL_BYTES,
     ROW_SCRATCH,
     TIMER_SAMPLES,
@@ -163,6 +179,8 @@ pub(crate) const BOUNDS: [Bound; 16] = [
     GLYPH_CEILING,
     IDLE,
     COLOR_TABLE,
+    TWINS,
+    COPY_LOG,
 ];
 
 /// Nodes on each side of a look's color table.
@@ -208,6 +226,14 @@ pub(crate) const GLYPH_TEXTURE_CEILING: u64 = GLYPH_CEILING.value as u64;
 /// Frames an unused GPU texture is kept before it is given back.
 #[cfg(feature = "gpu")]
 pub const GPU_IDLE_FRAMES: u64 = IDLE.value as u64;
+
+/// Display buffers the pan remembers stale second copies of rows for.
+#[cfg(feature = "scroll-pan")]
+pub(crate) const TWIN_BUFFERS: usize = TWINS.value;
+
+/// Frames of changed areas the copy keeps.
+#[cfg(feature = "scroll-pan")]
+pub(crate) const COPY_FRAMES: usize = COPY_LOG.value;
 
 /// The pointer's longest side in pixels.
 #[expect(clippy::cast_possible_truncation, reason = "the bound is 64")]

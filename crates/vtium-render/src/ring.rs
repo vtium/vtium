@@ -14,16 +14,24 @@
 //! pixel line that lies in the ring's first screen-length has a second
 //! copy, its twin, one ring's length further on, so a window that starts
 //! anywhere in the ring ends inside the buffer and shows its lines in
-//! order. vtium draws a twin only when the window being shown holds it.
-//! Otherwise it records, for that buffer, that the twin of the line's slot
-//! is stale, and draws the slot's row again just before it shows a window
-//! that holds the twin. The border is drawn into both copies at once,
-//! since it is a thin strip and its twin then never goes stale.
+//! order. vtium writes the copy that the window being shown holds, and
+//! records, for that buffer, that the slot's other copy is stale. It draws
+//! the slot's row again just before it shows a window that holds the
+//! stale copy. While the window shows a twin and the frame moves the
+//! lines, vtium writes the first copy too: the window is heading for the
+//! ring's end, past which it shows every first copy again at once. The
+//! border is drawn into both copies at once, since it is a thin strip and
+//! its copies then never go stale.
 //!
 //! The copy keeps the ring in system memory, with no twins, and copies the
 //! window into a display buffer the screen's size. Both write through the
 //! same filters as every other pixel the CPU path writes, and neither
 //! reads the display's buffer.
+//!
+//! The pan and the copy move the renderer's history of drawn cells with
+//! the lines, so they read which cells changed in place from the frame's
+//! scroll record, and a scroll draws only the rows that came in and the
+//! cells written in place.
 //!
 //! The renderer keeps one history of drawn cells for all of a display's
 //! buffers. Since a line's slot is the same in every buffer, a buffer `n`
@@ -33,6 +41,7 @@
 //! References:
 //! - ADR-1310 D6: the pan over a tall buffer, the twins drawn only where a window reaches them, the copy, and the window at rest.
 //! - ADR-1401 D2: the copy's ring in system memory, in a build with `scroll-pan`.
+//! - ADR-1310 D2: the scroll record the ring reads its changes from.
 
 use core::cell::Cell;
 use std::time::Instant;
@@ -41,22 +50,13 @@ use vtium_font::Face;
 use vtium_term::{Frame, LineSize};
 
 use super::{DrawState, Drawn, Grid, Layout, Renderer};
+use crate::bounds::{COPY_FRAMES, TWIN_BUFFERS};
 use crate::link_row::LinkRow;
 use crate::target::{Orientation, Rect, Target};
 
 #[path = "ring/tests.rs"]
 #[cfg(test)]
 mod tests;
-
-/// How many of a display's buffers the pan remembers stale twins for. A
-/// display flips between two or three buffers. A buffer the pan does not
-/// remember is taken to have every twin stale.
-pub(crate) const TWIN_BUFFERS: usize = 4;
-
-/// How many frames of damage the copy keeps, so that it copies into a
-/// display buffer this many frames old only the areas that changed. A
-/// buffer older than that gets the whole window.
-pub(crate) const COPY_FRAMES: usize = 4;
 
 /// Where the ring lies along the axis the text's rows run down: the
 /// display's y axis, or its x axis on a display turned on its side.
@@ -262,11 +262,15 @@ pub(crate) struct Ring {
     base: u32,
     /// The scroll the next frame shows, and whether it is drawn whole.
     pending: Option<(i64, bool)>,
+    /// Whether the frame being drawn reads which cells changed in place,
+    /// after its lines moved, rather than at their places on the screen.
+    in_place: bool,
     /// Whether the last frame drew the hovered link's row or the link
     /// labels over the screen's cells.
     decorated: bool,
     /// For each buffer the pan remembers, the serial of the frame it holds
-    /// and a bit for each slot whose twin is stale in it.
+    /// and a bit for each slot whose twin is stale in it, then a bit for
+    /// each slot whose first copy is stale in it.
     twins: Vec<(u64, Vec<u64>)>,
     /// The frame's damage in the pan's buffer.
     damage: Vec<Rect>,
@@ -280,17 +284,25 @@ pub(crate) struct Ring {
 
 impl Ring {
     /// Moves the window to the ring's start, where it holds no twin, and
-    /// forgets every buffer's twins: the frame draws every row anyway.
+    /// forgets every buffer's twins: the frame draws every row anyway, so
+    /// it reads no change in place.
     fn rest(&mut self) {
         self.base = 0;
+        self.in_place = false;
         self.twins.clear();
     }
 
-    /// Takes the stale twins of the buffer being drawn, which holds the
-    /// frame with serial `held`. A new buffer has none, and a buffer the
-    /// ring does not remember has every twin stale.
+    /// Whether the frame being drawn reads which cells changed in place.
+    pub(crate) fn in_place(&self) -> bool {
+        self.in_place
+    }
+
+    /// Takes the stale copies of the buffer being drawn, which holds the
+    /// frame with serial `held`: a bit for each slot's twin, then one for
+    /// each slot's first copy. A new buffer has none, and a buffer the
+    /// ring does not remember has every copy stale.
     fn take_twins(&mut self, held: Option<u64>, slots: u32) -> Vec<u64> {
-        let words = usize::try_from(slots.div_ceil(64)).unwrap_or(0);
+        let words = usize::try_from(slots.saturating_mul(2).div_ceil(64)).unwrap_or(0);
         let mut bits = match held {
             None => Vec::new(),
             Some(h) => match self.twins.iter().position(|&(k, _)| k == h) {
@@ -352,7 +364,11 @@ pub(crate) struct Pan<'a, T: Target + ?Sized> {
     /// Set while the renderer draws the border, whose twins are written
     /// with it.
     border: &'a Cell<bool>,
-    /// A bit for each slot whose twin is stale in this buffer.
+    /// Whether the frame moved the lines, so that the window heads for the
+    /// ring's end.
+    moving: bool,
+    /// A bit for each slot whose twin is stale in this buffer, then a bit
+    /// for each slot whose first copy is.
     stale: &'a mut [u64],
 }
 
@@ -372,10 +388,20 @@ impl<T: Target + ?Sized> Pan<'_, T> {
     fn piece(&mut self, (b0, b1): (u32, u32), at: u32, pixels: &[u32]) {
         self.put(b0, at, pixels);
         if self.g.in_twins(b0) {
-            // the window shows the twin; the first copy is the one every
-            // other window shows
             let first = self.g.first_of(b0);
-            self.put(first, at, pixels);
+            if self.border.get() || self.moving {
+                // while the lines move, the window heads for the ring's
+                // end, past which it shows every first copy again at once,
+                // so the first copy is written with the twin rather than
+                // all in the one frame that passes the end
+                self.put(first, at, pixels);
+            } else {
+                // a screen that stays where it is may rewrite its cells in
+                // every frame: the first copy is stale until the slot's
+                // row is drawn again for a window that shows it
+                let last = self.g.first_of(b1.saturating_sub(1));
+                self.mark((first, last.saturating_add(1)), self.g.slots);
+            }
             return;
         }
         let Some(twin) = self.g.twin_of(b0) else {
@@ -387,6 +413,13 @@ impl<T: Target + ?Sized> Pan<'_, T> {
         }
         // the window does not show the twin: it is stale until the slot's
         // row is drawn again for a window that does
+        self.mark((b0, b1), 0);
+    }
+
+    /// Marks stale in this buffer a copy of each slot that holds a line of
+    /// the first copies from buffer coordinate `b0` up to `b1`: the twin
+    /// with `of` at 0, the first copy with `of` at the ring's slots.
+    fn mark(&mut self, (b0, b1): (u32, u32), of: u32) {
         let (l0, l1) = match self.g.forward {
             true => (b0, b1),
             false => (
@@ -397,7 +430,7 @@ impl<T: Target + ?Sized> Pan<'_, T> {
         let mut l = l0;
         while l < l1 {
             let s = self.g.slot_of(l);
-            set_bit(self.stale, s, true);
+            set_bit(self.stale, of.saturating_add(s), true);
             let into = self.g.depth_in_slot(l);
             l = l.saturating_add(self.g.ch.saturating_sub(into).max(1));
         }
@@ -429,6 +462,32 @@ impl<T: Target + ?Sized> Target for Pan<'_, T> {
             };
             self.piece((p0, p1), at, run);
         }
+    }
+}
+
+/// What draws over the pan's window in the display's coordinates, as
+/// vtium's notices do: each write lands at its place in the window, and in
+/// the line's other copy where it has one, as the border's writes do. A
+/// line's twin that is not stale then always holds what its first copy
+/// holds, whichever copy a later window shows.
+struct Over<'a, T: Target + ?Sized> {
+    inner: &'a mut T,
+    g: Geometry,
+    src: u32,
+}
+
+impl<T: Target + ?Sized> Target for Over<'_, T> {
+    fn write(&mut self, x: u32, y: u32, pixels: &[u32]) {
+        let both = Cell::new(true);
+        let mut pan = Pan {
+            inner: &mut *self.inner,
+            g: self.g,
+            src: self.src,
+            border: &both,
+            moving: false,
+            stale: &mut [],
+        };
+        pan.write(x, y, pixels);
     }
 }
 
@@ -580,6 +639,7 @@ impl<F: Face> Renderer<F> {
         #[cfg(feature = "gpu")]
         self.gpu.drew_on_cpu();
         self.ring.pending = Some((scrolled, whole));
+        let before = self.ring.base;
         let plan = self.plan(frame, age, state);
         let g = Geometry::new(&self.layout, &plan.grid);
         let base = self.ring.base;
@@ -593,6 +653,7 @@ impl<F: Face> Renderer<F> {
                 g,
                 src: g.src(base),
                 border: &flag,
+                moving: base != before,
                 stale: &mut stale,
             };
             self.paint_through(&plan, frame, state, &mut pan, Some(&flag))
@@ -618,6 +679,59 @@ impl<F: Face> Renderer<F> {
             },
             src,
         )
+    }
+
+    /// A target over `target`, the buffer [`Renderer::draw_pan`] drew the
+    /// last frame into, that draws in the display's coordinates, as
+    /// vtium's notices and the on-screen display do. Each pixel lands
+    /// where the window shows that place of the display, and in the line's
+    /// other copy too, so whichever copy a later window shows holds it.
+    ///
+    /// The pixels stay on their lines in the ring, and a scroll moves them
+    /// with the lines. So pass each area drawn through this target to
+    /// [`Renderer::redraw_area`] after every frame it is drawn over, not
+    /// only when the overlay changes or goes: the renderer then stamps the
+    /// cells under it, moves those stamps with the lines on a scroll, and
+    /// the next frame draws them again wherever the lines went. The area's
+    /// damage in the buffer is what [`Renderer::pan_damage`] gives.
+    ///
+    /// Over the copy, draw straight into the display's buffer instead: the
+    /// copy writes the whole window again when it moves.
+    ///
+    /// References:
+    /// - ADR-1310 D6: the pan's two copies of a line, and the window over them.
+    pub fn pan_overlay<'a, T: Target + ?Sized>(
+        &self,
+        target: &'a mut T,
+    ) -> impl Target + use<'a, T, F> {
+        let g = Geometry::new(&self.layout, &self.grid.unwrap_or_default());
+        Over {
+            inner: target,
+            g,
+            src: g.src(self.ring.base),
+        }
+    }
+
+    /// The areas of the pan's buffer that drawing over the display area
+    /// `area` through [`Renderer::pan_overlay`] writes: where the window
+    /// shows it, and its other copy where it has one. A display presents
+    /// them as damage beside the frame's own.
+    pub fn pan_damage(&self, area: Rect) -> Vec<Rect> {
+        let g = Geometry::new(&self.layout, &self.grid.unwrap_or_default());
+        let (w, h) = (self.layout.width, self.layout.height);
+        // only the part of the area on the display is written
+        let (x, y) = (area.x.min(w), area.y.min(h));
+        let area = Rect {
+            x,
+            y,
+            width: area.width.min(w.saturating_sub(x)),
+            height: area.height.min(h.saturating_sub(y)),
+        };
+        let mut out = Vec::new();
+        if area.area() > 0 {
+            buffer_rects(&g, g.src(self.ring.base), area, &mut out);
+        }
+        out
     }
 
     /// Draws `frame` into the copy's ring in system memory, then copies
@@ -721,10 +835,27 @@ impl<F: Face> Renderer<F> {
     /// The scroll that the frame being planned shows: whether it rests the
     /// window and draws the frame whole, and how many rows its lines
     /// moved. A frame not drawn through the ring moves nothing.
+    ///
+    /// A frame drawn through the ring moves the history of what was drawn
+    /// by those rows, so it reads which cells changed in place, as the
+    /// frame's scroll record states them once the lines moved: the rows
+    /// that came in and the cells written in place. A one-line scroll then
+    /// draws one row, not every row that moved. It reads them so only
+    /// while the record states the same scroll the ring moves by. Every
+    /// other frame reads the changes at their places on the screen, which
+    /// mark every row a scroll moved, and a frame drawn whole draws every
+    /// cell anyway.
+    ///
+    /// References:
+    /// - ADR-1310 D2: the scroll record, and the changes it states in place.
     pub(super) fn ring_scroll(&mut self, frame: &Frame<'_>, grid: &Grid) -> (bool, i64) {
+        self.ring.in_place = false;
         let Some((n, whole)) = self.ring.pending.take() else {
             return (false, 0);
         };
+        self.ring.in_place = frame
+            .scrolled()
+            .is_some_and(|s| i64::try_from(s).is_ok_and(|s| s == n));
         // the hovered link's row and the link labels stand at places on
         // the screen, not on lines, so a scroll under them draws whole
         let decorated = LinkRow::new(frame, grid.cols, grid.rows).is_some();
@@ -869,19 +1000,21 @@ impl<F: Face> Renderer<F> {
         }
     }
 
-    /// Readies the twins of the buffer being drawn, whose stale slots
+    /// Readies the copies of the buffer being drawn, whose stale copies
     /// `stale` marks, for the window this frame shows. A row this frame
-    /// draws whole anyway writes its twin afresh, so its mark is cleared.
-    /// A row whose twin the window shows and whose twin is stale is drawn
-    /// whole into this buffer, and only this buffer: the other buffers
-    /// keep their history.
+    /// draws whole anyway writes the copy the window shows afresh, and
+    /// marks the other copy stale as it does, so its marks are cleared. A
+    /// row whose stale copy the window shows, its twin or its first copy,
+    /// is drawn whole into this buffer, and only this buffer: the other
+    /// buffers keep their history.
     fn draw_stale_twins(&mut self, g: &Geometry, rows: usize, stale: &mut [u64]) {
         let base = self.ring.base;
         let shown = g.twins_shown(base);
+        // the first copies the window shows, counted in the rows'
+        // direction from the ring's start
+        let w = g.window(base);
+        let firsts = (w, w.saturating_add(g.screen).min(g.period()));
         for s in 0..g.slots {
-            if !bit(stale, s) {
-                continue;
-            }
             let row = rem(
                 s.saturating_add(g.slots).saturating_sub(rem(base, g.slots)),
                 g.slots,
@@ -890,11 +1023,23 @@ impl<F: Face> Renderer<F> {
                 // the border's slot, whose twin is drawn with the border
                 continue;
             };
-            if self.cells.row_whole_stale(row) {
-                set_bit(stale, s, false);
-            } else if shown > 0 && g.slot_meets(s, 0, shown) {
-                self.cells.force_row(row);
-                set_bit(stale, s, false);
+            let copies = [
+                (s, shown > 0 && g.slot_meets(s, 0, shown)),
+                (
+                    g.slots.saturating_add(s),
+                    g.slot_meets(s, firsts.0, firsts.1),
+                ),
+            ];
+            for (b, shows) in copies {
+                if !bit(stale, b) {
+                    continue;
+                }
+                if self.cells.row_whole_stale(row) {
+                    set_bit(stale, b, false);
+                } else if shows {
+                    self.cells.force_row(row);
+                    set_bit(stale, b, false);
+                }
             }
         }
     }
