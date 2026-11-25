@@ -7643,8 +7643,14 @@ fn fills_asked(kinds: &Path) -> Vec<(u32, u32)> {
 /// cell, and the helper still draws the font, so no line says that vtium
 /// gave the font up. The console asked for a fill at 16×32 alone, and none
 /// at the display's 8×8 cell while it waited, because the font gives no
-/// glyph at 8×8 and the helper refuses a fill that brings none.
-fn takes_the_late_console_font_cell(h: &mut Harness, go: &Path, kinds: &Path, font: &str) {
+/// glyph at 8×8 and the helper refuses a fill that brings none. The
+/// result is the lines logged since the go FIFO opened.
+fn takes_the_late_console_font_cell(
+    h: &mut Harness,
+    go: &Path,
+    kinds: &Path,
+    font: &str,
+) -> Vec<String> {
     let _go = std::fs::OpenOptions::new()
         .write(true)
         .open(go)
@@ -7675,6 +7681,7 @@ fn takes_the_late_console_font_cell(h: &mut Harness, go: &Path, kinds: &Path, fo
         "{lines:?}"
     );
     assert_eq!(fills_asked(kinds), [(16, 32)], "{lines:?}");
+    lines
 }
 
 // A program switches to a PSF console font by its path, and the font
@@ -7746,6 +7753,54 @@ fn a_console_font_named_at_the_start_whose_cell_comes_late_draws_in_that_cell() 
         "{lines:?}"
     );
     takes_the_late_console_font_cell(&mut h, &go, &kinds, path);
+}
+
+// A font set of a PSF console font with its own 16×32 cell, then a font
+// that makes the font helper crash. The helper's answer about the set's
+// cell comes after vtium's wait, so vtium draws in the display's 8×8 cell
+// and holds its fill there. Then the helper crashes, and vtium looks for
+// the font that made it fail and leaves that font out. vtium forgets the
+// cell and asks for it again, and the answer comes late again. Until it
+// comes, the fill stays held, because the console font gives no glyph at
+// 8×8 and the helper refuses a fill that brings none. Once the answer
+// comes, vtium draws in the font's own cell and fills that cell, and the
+// font set goes on drawing.
+//
+// References:
+// - ADR-1200 D14: a font that makes the helper fail is left out, and the
+//   font set's other fonts go on drawing.
+// - ADR-1200 D17: an answer that comes after the wait is kept and used
+//   from the next frame.
+#[test]
+fn a_font_left_out_while_the_cell_comes_late_holds_the_fill_until_the_cell_comes() {
+    let dir = Scratch::new("boot-late-left-out");
+    let kinds = dir.join("kinds");
+    let go = go_fifo(&dir);
+    std::fs::create_dir_all(dir.join("frits")).expect("the frits folder");
+    std::fs::write(
+        dir.join("frits/t.vtfrit"),
+        format!(
+            "source=file:{}\nsource=builtin:unifont {}\n",
+            terminus_psf().display(),
+            stand_in::CRASHES
+        ),
+    )
+    .expect("the frit");
+    let fonts = Sources {
+        frits: dir.join("frits"),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    logged();
+    let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts);
+    assert_eq!(h.app.cells(), vec![(8, 8)], "the display's cell");
+    let lines = takes_the_late_console_font_cell(&mut h, &go, &kinds, "t");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("the font set t leaves out source=builtin:unifont")),
+        "{lines:?}"
+    );
 }
 
 // A font set of two bitmap fonts whose second font, Terminus at 16×32,

@@ -251,12 +251,24 @@ impl Helper {
         }
     }
 
+    /// Whether a cell query waits for its answer: one at `height`, or at
+    /// any height when `height` is `None`. The query was sent and its
+    /// answer comes late ([`Helper::late_cells`]), or it waits for a helper
+    /// to be sent to, as during a search for a font that made the helper
+    /// fail.
+    pub fn asks_cell(&self, height: Option<u32>) -> bool {
+        self.late
+            .iter()
+            .chain(&self.deferred)
+            .any(|&asked| height.is_none_or(|at| at == asked))
+    }
+
     /// Whether a fill waits for [`Helper::start_held_fills`].
     pub fn holds_fills(&self) -> bool {
         self.cells.iter().any(|c| c.fill == Fill::Held)
     }
 
-    /// Starts each fill [`Helper::hold_fill`] kept, but at the cells of
+    /// Starts each fill [`Helper::hold_fill`] kept, except at the cells of
     /// `waiting`, where the console still waits for the frit's own cell.
     /// A cell no display draws at any more was dropped with its fill
     /// ([`Helper::retain`]), so a fill held at the cell drawn while the

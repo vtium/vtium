@@ -19,11 +19,15 @@ impl App {
     /// While head `h`'s font is a frit, fills each cell a display of a
     /// head drawing that frit draws at and that was not filled yet, the
     /// screen's characters first, and asks for the screen's characters
-    /// there; drops the glyphs of cells no display draws at any more
-    /// (ADR-1301 D2, the operator's fill model). At a cell drawn while the
-    /// head waits for the frit's own cell, the asks go and the fill waits
-    /// until the wait ends ([`App::start_held_fills`]), since the frit may
-    /// give no glyph at that cell.
+    /// there; drops the glyphs of cells no display draws at any more. At a
+    /// cell drawn while the head waits for the frit's own cell, the asks go
+    /// and the fill waits until the wait ends ([`App::start_held_fills`]),
+    /// since the frit may give no glyph at that cell.
+    ///
+    /// References:
+    /// - ADR-1301 D2, the operator's fill model: the helper draws the
+    ///   characters the screen shows first, then the rest of the frit's
+    ///   coverage, for each cell the displays draw at.
     pub(super) fn ask_glyphs(&mut self, h: usize) {
         let Some(name) = self.heads.get(h).and_then(Head::frit).map(str::to_owned) else {
             return;
@@ -292,7 +296,10 @@ impl App {
     /// Whether head `h` draws a font set whose cell at the head's height
     /// the font helper has yet to give: the helper gave no answer in time,
     /// it still runs or starts again, and no later answer has come. The
-    /// head draws in the cell it kept until the answer comes.
+    /// head draws in the cell it kept until the answer comes. A cell that
+    /// vtium forgot and asked for again, after it left out a font that
+    /// made the helper fail ([`App::ask_cells_again`]), is waited for in
+    /// the same way until its answer comes.
     pub(super) fn waits_for_cell(&self, h: usize) -> bool {
         let Some(head) = self.heads.get(h) else {
             return false;
@@ -305,15 +312,24 @@ impl App {
         let Some(frit) = head.frit().and_then(|name| self.frits.get(name)) else {
             return false;
         };
-        if !wants || frit.helper.as_ref().is_none_or(|h| h.failed().is_some()) {
+        let Some(helper) = frit.helper.as_ref().filter(|h| h.failed().is_none()) else {
+            return false;
+        };
+        if !wants {
             return false;
         }
-        let known = if head.chosen().struck() {
+        let (struck, outline) = (head.chosen().struck(), head.chosen().outline());
+        let known = if struck {
             frit.own.get(&at).cloned()
         } else {
-            frit.answer_at(at, head.chosen().outline())
+            frit.answer_at(at, outline)
         };
-        known.is_some_and(|k| k.is_err_and(|no| no.late))
+        match known {
+            Some(known) => known.is_err_and(|no| no.late),
+            // A bitmap font set's cell holds at every height, so a query at
+            // any height may bring it.
+            None => helper.asks_cell((struck || outline).then_some(at)),
+        }
     }
 
     /// Sends the shown console of each head the replies it held since its

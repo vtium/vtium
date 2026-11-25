@@ -6,6 +6,7 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// The environment variable that makes [`the_helper_stand_in`] serve, as
@@ -119,8 +120,13 @@ fn a_stand_in_ended_by_a_signal_leaves_no_core_dump() {
 /// write, and the kind of each frame it sends is appended to `kinds`, one
 /// line each. The bytes of each request it reads are appended to
 /// [`requests_of`]`(kinds)`, so a test can read back what the console
-/// asked. The module is included as `stand_in`, the name the test
-/// harness is asked to run. The test harness writes
+/// asked. A frit `source=` line that ends with [`CRASHES`] names a font
+/// the stand-in crashes on: a stand-in that reads that source, because no
+/// leave-out request left it out, ends itself by SIGABRT, with no core
+/// dump, as it is about to send its first answer. So a test can make vtium look for the font that
+/// makes its helper fail, and leave that font out, with every answer still
+/// the real helper's. The module is included as `stand_in`, the name the
+/// test harness is asked to run. The test harness writes
 /// to standard output, so the frames go out through descriptor 3, which
 /// the shell points at the console's pipe.
 pub fn real_helper(kinds: &Path, go: Option<&Path>) -> vtium::helper::Command {
@@ -146,6 +152,11 @@ pub fn real_helper(kinds: &Path, go: Option<&Path>) -> vtium::helper::Command {
     }
 }
 
+/// The comment at the end of a frit's `source=` line that makes the
+/// stand-in crash while it reads that source ([`real_helper`]). The real
+/// helper ignores the comment.
+pub const CRASHES: &str = "# the stand-in crashes on this font";
+
 /// The file to which the stand-in that [`real_helper`] starts with
 /// `kinds` appends the bytes of each request it reads.
 pub fn requests_of(kinds: &Path) -> PathBuf {
@@ -155,16 +166,21 @@ pub fn requests_of(kinds: &Path) -> PathBuf {
 }
 
 /// What the stand-in reads from the console: its standard input, each
-/// byte also appended to a file.
+/// byte also appended to a file and kept in `read`.
 struct Teed {
     input: std::io::Stdin,
     copy: std::fs::File,
+    read: Arc<Mutex<Vec<u8>>>,
 }
 
 impl std::io::Read for Teed {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let n = self.input.read(buf)?;
-        std::io::Write::write_all(&mut self.copy, buf.get(..n).unwrap_or_default())?;
+        let bytes = buf.get(..n).unwrap_or_default();
+        std::io::Write::write_all(&mut self.copy, bytes)?;
+        if let Ok(mut read) = self.read.lock() {
+            read.extend_from_slice(bytes);
+        }
         Ok(n)
     }
 }
@@ -176,6 +192,8 @@ struct Logged {
     kinds: PathBuf,
     go: Option<PathBuf>,
     pending: Vec<u8>,
+    /// What the stand-in has read so far, until its first answer.
+    read: Option<Arc<Mutex<Vec<u8>>>>,
 }
 
 impl std::io::Write for Logged {
@@ -185,6 +203,18 @@ impl std::io::Write for Logged {
             // the test opens it to write, once the console has stopped
             // waiting for the answer
             std::fs::File::open(&go)?;
+        }
+        if let Some(read) = self.read.take() {
+            let read = read.lock().map(|r| r.clone()).unwrap_or_default();
+            if reads_a_crashing_font(&read) {
+                // with no core dump, which systemd-coredump would write
+                // slowly enough to hold up the test, and keep
+                rustix::process::set_dumpable_behavior(
+                    rustix::process::DumpableBehavior::NotDumpable,
+                )
+                .map_err(std::io::Error::from)?;
+                std::process::abort();
+            }
         }
         self.pending.extend_from_slice(bytes);
         while let [k0, k1, k2, k3, l0, l1, l2, l3, ..] = *self.pending.as_slice() {
@@ -226,15 +256,19 @@ fn the_helper_stand_in() {
         kinds: PathBuf::from(kinds),
         go: (!go.is_empty()).then(|| PathBuf::from(go)),
         pending: Vec::new(),
+        read: None,
     };
     let copy = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(requests_of(Path::new(kinds)))
         .expect("the copy of the requests");
+    let read = Arc::new(Mutex::new(Vec::new()));
+    out.read = Some(Arc::clone(&read));
     let input = Teed {
         input: std::io::stdin(),
         copy,
+        read,
     };
     let status = vtium_config::serve::serve(
         input,
@@ -243,4 +277,29 @@ fn the_helper_stand_in() {
         Duration::from_secs(5),
     );
     std::process::exit(i32::from(status));
+}
+
+/// Whether the requests in `read` make the stand-in read a source that
+/// ends with [`CRASHES`]: the frit of the first request names such a
+/// source, and no leave-out request leaves it out.
+fn reads_a_crashing_font(mut read: &[u8]) -> bool {
+    use vtium_config::serve::{Request, read_request};
+    let mut left_out = 0u32;
+    let mut frit = None;
+    while let Ok(Some(request)) = read_request(&mut read) {
+        match request {
+            Request::LeaveOut(mask) => left_out = mask,
+            Request::Serve(r) => {
+                frit.get_or_insert(r.frit.text);
+            }
+            _ => {}
+        }
+    }
+    let Some(frit) = frit else {
+        return false;
+    };
+    frit.lines()
+        .filter(|line| line.trim_start().starts_with("source="))
+        .zip(0u32..)
+        .any(|(line, i)| line.trim_end().ends_with(CRASHES) && left_out & (1 << i) == 0)
 }
