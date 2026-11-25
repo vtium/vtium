@@ -585,6 +585,23 @@ fn the_scrolls_the_record_cannot_state_mark_every_row_they_touch() {
     assert_eq!(record(&t, seen), (None, rows_of(0..4, 6)), "view move");
 }
 
+// While the labels of link hints are shown, a line feed on the bottom row
+// moves the rows, and the screen then places each label again where its
+// link now first appears. The record cannot state that as one move, so it
+// counts none, and every row is marked changed in place.
+#[test]
+fn a_line_feed_under_link_hints_marks_every_row() {
+    let mut t = Terminal::new(6, 4, 10);
+    t.input(b"\x1b]8;;x:a\x1b\\one\x1b]8;;\x1b\\\r\ntwo\r\nsix\r\nten");
+    let links = t.screen().view_links();
+    assert_eq!(links.len(), 1);
+    let hints = links.into_iter().map(|l| (l, "a".to_owned())).collect();
+    t.screen_mut().set_link_hints(hints);
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\n");
+    assert_eq!(record(&t, seen), (Some(0), rows_of(0..4, 6)));
+}
+
 // A display older than the scroll log's oldest entry reads no count, and
 // its frame's changes in place are its changes by position, which cover
 // every row that moved.
@@ -626,7 +643,11 @@ fn a_scroll_that_drops_a_paragraphs_first_line_marks_the_rest() {
 
 // Seed 4783 found IL cutting a right-to-left paragraph at the cursor's row
 // and leaving the paragraph's row above it, drawn in another order without
-// its tail, unmarked by position (ADR-1004 D8).
+// its tail, unmarked by position.
+//
+// References:
+// - ADR-1004 D8: a row of a reordered paragraph changes whenever its
+//   paragraph does.
 #[cfg(feature = "bidi")]
 #[test]
 fn an_insert_that_cuts_a_paragraph_marks_its_rows_above() {
@@ -640,4 +661,81 @@ fn an_insert_that_cuts_a_paragraph_marks_its_rows_above() {
 #[test]
 fn a_scroll_down_that_drops_a_paragraphs_tail_marks_the_rest() {
     covers_every_change(3856, BIDI_TEXT);
+}
+
+// Seed 13658 found SU with full margins cutting a right-to-left paragraph
+// that runs into the region's top row, and leaving the paragraph's row
+// above the region, drawn in another order without its tail, unmarked.
+#[cfg(feature = "bidi")]
+#[test]
+fn a_scroll_up_that_cuts_a_paragraph_marks_its_rows_above() {
+    covers_every_change(13658, BIDI_TEXT);
+}
+
+/// Applies `edit` and checks that every cell drawn differently than before
+/// is marked changed, by position and in place, for a display that drew
+/// just before it. Fails as well when row `row` is drawn the same, since
+/// the case then checks nothing.
+#[cfg(feature = "bidi")]
+fn marks_the_reordered_row(t: &mut Terminal, edit: &[u8], row: usize, at: &str) {
+    let seen = t.screen_mut().checkpoint();
+    let before = draw(t.screen(), seen);
+    t.input(edit);
+    let after = draw(t.screen(), seen);
+    let glyphs = |d: &Drawing| {
+        d.get(row)
+            .map(|r| r.iter().map(|(d, _)| d.glyph.clone()).collect::<Vec<_>>())
+    };
+    assert_ne!(
+        glyphs(&before),
+        glyphs(&after),
+        "{at}: row {row} is drawn the same"
+    );
+    for (r, (b, a)) in before.iter().zip(&after).enumerate() {
+        for (c, ((was, _), (now, changed))) in b.iter().zip(a).enumerate() {
+            assert!(
+                was == now || *changed,
+                "{at}: cell {r},{c} went from {was:?} to {now:?} unmarked"
+            );
+        }
+    }
+    moved_picture_matches(t.screen(), seen, &before, &after, at);
+}
+
+// DL at a row that a right-to-left paragraph runs into from the row above
+// takes the paragraph's tail away, and the row above then draws in the
+// order it was written: "3 12" becomes "12 3". DL at the bottom margin,
+// where a paragraph runs on below the margin, takes the paragraph's head
+// away, and the row below the margin changes the same way.
+#[cfg(feature = "bidi")]
+#[test]
+fn a_delete_that_cuts_a_paragraph_marks_its_rows_outside_the_region() {
+    let hebrew = "\u{05D0}\u{05D1}\u{05D2}\u{05D3}";
+
+    let mut t = Terminal::new(4, 3, 10);
+    t.input(format!("\x1b[?2501h12 3{hebrew}").as_bytes());
+    marks_the_reordered_row(&mut t, b"\x1b[2;1H\x1b[M", 0, "the row above");
+
+    let mut t = Terminal::new(4, 3, 10);
+    t.input(format!("\x1b[?2501h\x1b[2;1H{hebrew}12 3\x1b[1;2r\x1b[2;1H").as_bytes());
+    marks_the_reordered_row(&mut t, b"\x1b[M", 2, "the row below the margin");
+}
+
+// SD in a region that a right-to-left paragraph runs into from the row
+// above the top margin takes the paragraph's tail away, and the row above
+// then draws in the order it was written. SD in a region whose bottom row
+// runs on below the margin drops the paragraph's head, and the row below
+// the margin changes the same way.
+#[cfg(feature = "bidi")]
+#[test]
+fn a_scroll_down_that_cuts_a_paragraph_marks_its_rows_outside_the_region() {
+    let hebrew = "\u{05D0}\u{05D1}\u{05D2}\u{05D3}";
+
+    let mut t = Terminal::new(4, 3, 10);
+    t.input(format!("\x1b[?2501h12 3{hebrew}\x1b[2;3r").as_bytes());
+    marks_the_reordered_row(&mut t, b"\x1b[T", 0, "the row above the margin");
+
+    let mut t = Terminal::new(4, 3, 10);
+    t.input(format!("\x1b[?2501h\x1b[2;1H{hebrew}12 3\x1b[1;2r").as_bytes());
+    marks_the_reordered_row(&mut t, b"\x1b[T", 2, "the row below the margin");
 }
