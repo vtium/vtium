@@ -16,7 +16,8 @@
 //! cluster no source shapes as [`crate::shaping::kind`] requires is left
 //! out, and the console draws it its own way. A fill fills a
 //! cell's coverage in order: the codepoints it names (the screen's), then
-//! printable Latin and box drawing ([`LATIN_AND_BOX`]), then the rest of
+//! printable Latin, punctuation, arrows, box drawing and geometric shapes
+//! ([`LATIN_AND_BOX`]), then the rest of
 //! the frit's coverage, skipping what the console holds, one [`BATCH`] at
 //! a time; between batches the helper takes any waiting request, so a
 //! request waits at most one batch. A stop ends a cell's fill, as when the
@@ -419,10 +420,25 @@ pub const OWN_CELL: u32 = 4;
 /// refuses. It carries a cell of 0 by 0 and no codepoints, and the console
 /// never sends it.
 pub const SOURCES: u32 = 5;
-/// What a fill draws after the screen's codepoints: printable Latin
-/// (Basic Latin, Latin-1 and Latin Extended-A), then box drawing, block
-/// elements and shades.
-pub const LATIN_AND_BOX: [Cover; 3] = [(0x21, 0x7e), (0xa1, 0x17f), (0x2500, 0x259f)];
+/// What a fill draws after the screen's codepoints, in codepoint order:
+/// printable Latin (Basic Latin, Latin-1 and Latin Extended-A), General
+/// Punctuation, Arrows, box drawing, block elements and shades, and
+/// Geometric Shapes. A program's interface draws its dashes, ellipses,
+/// arrows, bullets and triangles from these, so they arrive with its text.
+///
+/// References:
+/// - ADR-1200 D18: the fill's order, and its second tier, which the note
+///   of 2026-11-25 widens with General Punctuation, Arrows and Geometric
+///   Shapes.
+pub const LATIN_AND_BOX: [Cover; 7] = [
+    (0x21, 0x7e),
+    (0xa1, 0x17f),
+    (0x2010, 0x2027),
+    (0x2030, 0x205e),
+    (0x2190, 0x21ff),
+    (0x2500, 0x259f),
+    (0x25a0, 0x25ff),
+];
 /// The most ranges a fill's held codepoints take.
 pub const HELD_RANGES_MAX: usize = 65_536;
 /// The most bytes a frame's payload holds; a batch past it is cut in two
@@ -8637,6 +8653,46 @@ mod tests {
             assert_eq!(faces.iter().filter(|f| f.1.has_glyph(c)).count(), 1, "{c}");
         }
         assert!(faces.iter().all(|f| !f.1.has_glyph('B')));
+    }
+
+    // The fill's first batch holds General Punctuation, Arrows and
+    // Geometric Shapes beside printable Latin and box drawing, so a
+    // program's symbols arrive with its text
+    //
+    // References:
+    // - ADR-1200 D18, note of 2026-11-25: the ranges the fill's second
+    //   tier gains.
+    #[test]
+    fn a_fills_first_batch_holds_punctuation_arrows_and_geometric_shapes() {
+        let frit = frit("source=builtin:unscii-8\n");
+        let frames = run(&[request(FILL, frit, &[])]);
+        assert_eq!(frames.last().map(|f| f.0), Some(FRAME_FILLED));
+        let faces = faces(&frames);
+        assert!(faces.len() > 1, "{}", faces.len());
+        let first = &faces[0].1;
+        let wider = [
+            (0x2010, 0x2027),
+            (0x2030, 0x205e),
+            (0x2190, 0x21ff),
+            (0x25a0, 0x25ff),
+        ];
+        let covered: Vec<char> = wider
+            .iter()
+            .flat_map(|&(a, b)| a..=b)
+            .filter_map(char::from_u32)
+            .filter(|&c| faces.iter().any(|f| f.1.has_glyph(c)))
+            .collect();
+        // Unscii-8 draws many characters of each range
+        for c in ['—', '…', '‰', '←', '■', '▶', '●'] {
+            assert!(covered.contains(&c), "{c}");
+        }
+        for c in covered {
+            assert!(
+                first.has_glyph(c),
+                "U+{:04X} in the first batch",
+                u32::from(c)
+            );
+        }
     }
 
     #[test]
