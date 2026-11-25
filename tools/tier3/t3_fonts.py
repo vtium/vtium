@@ -28,9 +28,14 @@ the pixels instead.
   set can give, so a probe from Noto Color Emoji passes when its cells hold
   color.
 
-vtium is judged in cells of the size its log names (the "cell size WxH"
-line), from the display's top left corner, on row PROBE_ROW of the screen
-that guest/screens/font-probe.sh prints.
+vtium is judged in the cell the console draws in when each screen is
+captured, from the display's top left corner, on row PROBE_ROW of the
+screen that guest/screens/font-probe.sh prints. The case reads that cell
+from vtium's log up to the capture (see `console_cell`). When the font
+helper answers a set's cell query too late, vtium first draws in a
+fallback cell and moves to the set's own cell later, so the last line that
+names a cell before the capture is the one that counts. A capture drawn
+while the set's cell was still not known fails the case.
 
 References:
 - ADR-1204 D2: the two sets, what draws each cell height, and the tier 3
@@ -391,22 +396,91 @@ def judge_cullet(img, reference, cell, size, glyphs):
     return found, faults
 
 
-def console_cells(serial):
-    """Each "cell size WxH" the console logged, in order, as (W, H)."""
-    with open(serial, "rb") as f:
-        return [(int(w), int(h)) for w, h in re.findall(rb"cell size (\d+)x(\d+)", f.read())]
+# The lines vtium logs about the cell a console draws in, quoted from
+# crates/vtium/src/app/drawing.rs, fonts.rs and glyph_asks.rs. A display
+# line names the cell of a display vtium opens. An outline font set names
+# its cell when the font helper's answer comes in time, and again when a
+# late answer moves the console to it. A bitmap set's lines name its fonts'
+# own cell or its strike, which is not the display's cell: a 16x32 strike
+# draws in a 16x40 cell at 40 pixels.
+DISPLAY_CELL = re.compile(r"Display \S+ with backend \[[^]]*\] text renderer \[[^]]*\], "
+                          r"cell size (\d+)x(\d+)")
+OUTLINE_CELL = re.compile(r"the frit (\S+) draws in its outline font's (\d+)x(\d+) cell "
+                          r"at \d+ pixels")
+LATE_OUTLINE_CELL = re.compile(r"the frit ([^\s']+)'s (\d+)x(\d+) cell at \d+ pixels came "
+                               r"after the wait: it draws in it from the next frame")
+# Lines that say a set's cell is now known without naming the display's
+# cell. vtium logs no display line when a late answer moves the console to
+# a new cell, so after a bitmap set's late answer no line names the cell
+# the console draws in until a display line comes.
+BITMAP_CELL = (
+    re.compile(r"the font set (\S+) draws its \d+x\d+ strike at \d+ pixels"),
+    re.compile(r"the frit (\S+) draws in its fonts' own \d+x\d+ cell"),
+    re.compile(r"the frit ([^\s']+)'s own \d+x\d+ cell came after the wait: it draws in it "
+               r"from the next frame"),
+)
+# vtium's warning that a set's cell is not known in time: the console then
+# draws in a fallback cell until a late answer comes.
+NOT_KNOWN = re.compile(r"the frit ([^\s']+)'s (?:own cell|cell at \d+ pixels) is not known "
+                       r"\(.*\): it draws (?:in the display's cell|as wide as the built-in font)")
+
+
+def console_cell(log_text, font_set, screen):
+    """The cell, as (W, H), that the console drawing `font_set` draws in at
+    the end of `log_text`, the serial log up to the capture of `screen`.
+
+    The cell is the one the last display line or the last of the set's
+    outline cell lines names. Raises RuntimeError, quoting vtium's line,
+    when the set's cell is still not known at the end of the log, since
+    the capture then shows a fallback cell. It also raises when vtium's
+    last line about the set's cell names a strike or a bitmap font's cell
+    with no display line after it, since then no line names the cell the
+    console draws in."""
+    cell = warning = unnamed = None
+    for line in log_text.splitlines():
+        line = line.strip()
+        m = DISPLAY_CELL.search(line)
+        if m:
+            cell, unnamed = (int(m.group(1)), int(m.group(2))), None
+            continue
+        m = OUTLINE_CELL.search(line) or LATE_OUTLINE_CELL.search(line)
+        if m and m.group(1) == font_set:
+            cell, warning, unnamed = (int(m.group(2)), int(m.group(3))), None, None
+            continue
+        m = next((m for m in (r.search(line) for r in BITMAP_CELL) if m), None)
+        if m and m.group(1) == font_set:
+            warning, unnamed = None, line
+            continue
+        m = NOT_KNOWN.search(line)
+        if m and m.group(1) == font_set:
+            warning = line
+    if warning:
+        raise RuntimeError("the console drew %s before vtium knew the font set %s's cell, so "
+                           "the capture shows a fallback cell. vtium logged: %s"
+                           % (screen, font_set, warning))
+    if unnamed:
+        raise RuntimeError("the console drew %s after the font set %s's cell changed, and no "
+                           "line names the cell it draws in now. vtium logged: %s"
+                           % (screen, font_set, unnamed))
+    if cell is None:
+        raise RuntimeError("the console logged no cell size")
+    return cell
 
 
 def draw(vm, work, screen, last, log):
     """Types `t3 SCREEN`, waits for the script to finish and returns the
-    screen once it has settled and differs from `last`, saved in WORK."""
+    screen once it has settled and differs from `last`, saved in WORK,
+    with the console's serial log up to the capture. The log ends at its
+    last whole line, so a line vtium was still writing is left out."""
     vm.type("t3 %s\n" % screen)
     vm.wait_event("T3-DONE %s" % screen, timeout=60)
     path = os.path.join(work, screen + ".ppm")
     img = wait_stable(vm, path, settle=2.0, timeout=90,
                       want=lambda shot: shot.data != last.data)
+    with open(vm.serial, "rb") as f:
+        text = f.read()
     log("%s: captured %s" % (screen, path))
-    return path, img
+    return path, img, text[:text.rfind(b"\n") + 1].decode(errors="replace")
 
 
 def run(v, vm, work, caps, errors, log):
@@ -417,24 +491,28 @@ def run(v, vm, work, caps, errors, log):
     it fails, `errors` says why, and the capture stays in WORK."""
     try:
         last = wait_stable(vm, os.path.join(work, "wait.ppm"))
-        path, img = draw(vm, work, "font-probe", last, log)
-        cells = console_cells(vm.serial)
-        if not cells:
-            raise RuntimeError("the console logged no cell size")
-        cell = cells[0]
+        font_set = v["font_set"]
+        path, img, serial = draw(vm, work, "font-probe", last, log)
+        cell = console_cell(serial, font_set, "font-probe")
         if cell[1] != v["size"]:
             raise RuntimeError("the console's cell is %dx%d, not %d pixels high"
                                % (cell[0], cell[1], v["size"]))
         glyphs = source_glyphs(os.path.join(work, "disc", "tree.tar"), COLUMNS)
-        if v["font_set"] == "terminus":
+        if font_set == "terminus":
             found, faults = judge_terminus(img, cell, v["size"], glyphs)
         else:
-            _, reference = draw(vm, work, "font-probe-alone", img, log)
+            _, reference, serial = draw(vm, work, "font-probe-alone", img, log)
             with open(vm.events, errors="replace") as f:
                 events = [e for e in f.read().splitlines() if e.startswith("T3-USE-FRIT ")]
             if not events or events[-1].split()[1:] != ["set", REFERENCE]:
                 raise RuntimeError("vtium-config use-frit %s did not switch the console: %s"
                                    % (REFERENCE, events[-1] if events else "no answer"))
+            # Both captures are compared cell by cell, so they must be
+            # drawn in one cell.
+            alone = console_cell(serial, REFERENCE, "font-probe-alone")
+            if alone != cell:
+                raise RuntimeError("the console drew font-probe in a %dx%d cell and "
+                                   "font-probe-alone in a %dx%d cell" % (cell + alone))
             found, faults = judge_cullet(img, reference, cell, v["size"], glyphs)
     except Exception as e:  # any failure fails the case
         log("%s: %s: %s" % (CASE, type(e).__name__, e))
