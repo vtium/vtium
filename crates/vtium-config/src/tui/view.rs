@@ -148,9 +148,12 @@ fn status(app: &App) -> String {
             // t tries a font set on a look or a font set of the Looks tab
             // and in a look's card, and on a font set only the draft adds
             // the line says t can try it after the install; elsewhere in
-            // the Looks tab t does nothing, and the other tabs say where
-            // the trial is
+            // the Looks tab t does nothing. t tries a font in the Fonts
+            // tab's list, and does nothing in its filters or a font's
+            // detail. The other tabs say where the trial is
             match (*live == Live::On, app.nav.view) {
+                (true, View::Fonts) if trial_node == "fonts" => words::TRIAL_KEY,
+                (true, View::Fonts) => words::TRIAL_ON_FONTS,
                 (true, View::Looks) if matches!(trial_node, "looks" | "looks.look") => {
                     if app.looks.in_draft(&app.shared).is_some() {
                         words::TRIAL_AFTER_INSTALL

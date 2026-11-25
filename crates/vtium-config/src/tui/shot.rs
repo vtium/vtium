@@ -189,7 +189,24 @@ fn countdown(shared: &Shared, font: &str, left: u32) -> String {
     if super::tabs::looks::fontsets::replaced(shared, font) {
         words::trial_countdown_installed(font, left)
     } else {
-        words::trial_countdown(font, left)
+        words::trial_countdown(font_shown(font), left)
+    }
+}
+
+/// Whether `name`, the text of a font switch, is a font file's path. The
+/// Fonts tab's `t` sends a path, and the Looks tab's `t` sends the name of
+/// a font set or a built-in font, which never holds a `/`.
+pub fn is_file(name: &str) -> bool {
+    name.contains('/')
+}
+
+/// The font `name` as the message line names it: a font file by its
+/// file's name, since its whole path would fill much of the message
+/// line, and a font set or a built-in font by its own name.
+pub fn font_shown(name: &str) -> String {
+    match std::path::Path::new(name).file_name() {
+        Some(file) if is_file(name) => crate::onscreen::text(&file.to_string_lossy()),
+        _ => name.to_owned(),
     }
 }
 
@@ -1045,14 +1062,24 @@ impl App {
 
     /// `t`: switches the live console to `name` and starts the countdown
     /// that puts the font it drew back (D4), where the console can be
-    /// switched.
+    /// switched. `name` is a font set's or a built-in font's name from the
+    /// Looks tab, or a font file's path from the Fonts tab, and both run
+    /// the same trial. A font the console refused before is not sent again.
+    ///
+    /// References:
+    /// - ADR-1200 D5, "Trying one font from vtium-config's Fonts tab": a
+    ///   font file's trial runs as a font set's does.
     pub(crate) fn try_live(&mut self, name: String) -> Vec<Effect> {
-        if self.shared.live != Live::On {
-            self.shared.message = Some(words::TRIAL_OFF.to_owned());
+        if let Some(off) = self.shared.trial_off() {
+            self.shared.message = Some(off.to_owned());
             return Vec::new();
         }
         if self.shared.refused.contains(&name) {
-            self.shared.message = Some(words::KEPT.to_owned());
+            self.shared.message = Some(if is_file(&name) {
+                words::font_file_refused(font_shown(&name))
+            } else {
+                words::KEPT.to_owned()
+            });
             return Vec::new();
         }
         let back = self
@@ -1062,7 +1089,7 @@ impl App {
             .or_else(|| self.shared.shown_font.clone())
             .unwrap_or_default();
         if back == name {
-            self.shared.message = Some(words::trial_same(&name));
+            self.shared.message = Some(words::trial_same(font_shown(&name)));
             return Vec::new();
         }
         self.nav.trial = Some(Trial {
@@ -1086,6 +1113,7 @@ impl App {
                 if let Some(t) = self.nav.trial.take() {
                     self.shared.message = Some(match t.grid {
                         Some(g) => words::size_kept(g.points),
+                        None if is_file(&t.font) => words::font_file_kept(font_shown(&t.font)),
                         None => words::trial_kept(&t.font),
                     });
                 }
@@ -1109,7 +1137,7 @@ impl App {
             self.shared.message = Some(words::size_back(g.back));
             return vec![Effect::Write(grid_request(g.back))];
         }
-        self.shared.message = Some(words::trial_back(&t.back));
+        self.shared.message = Some(words::trial_back(font_shown(&t.back)));
         self.shared.want = Some(t.back);
         self.follow()
     }

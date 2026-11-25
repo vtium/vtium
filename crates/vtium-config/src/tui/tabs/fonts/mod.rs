@@ -20,6 +20,13 @@
 //! preview is a written description of the font, and `p` says why it
 //! cannot show the picture.
 //!
+//! In a vtium console that lets vtium-config switch its font, `t` tries
+//! the highlighted font on the console for 10 seconds. It sends the font
+//! file's path in place of a font set's name, and the trial then runs as
+//! the Looks tab's does. The console takes only a font that root has
+//! installed and trusts, so `t` sends nothing for another font and says
+//! why ([`trial`]).
+//!
 //! References:
 //! - ADR-1205 D1: the Fonts tab, and the controls it shares with the
 //!   Effects tab.
@@ -28,11 +35,14 @@
 //! - ADR-1205 D5: installing a font of the person's as a system font.
 //! - ADR-1205 D8: a font's detail, and the warning before a font a look
 //!   uses is deactivated.
+//! - ADR-1200 D5, "Trying one font from vtium-config's Fonts tab": `t`
+//!   and its trial.
 //! - ADR-1206 D2: a tab's state and its update live in the tab's module.
 //! - ADR-1403 D10: the tab's filter line, its list, its detail and its
 //!   keys.
 
 pub mod detail;
+pub mod trial;
 
 use std::path::PathBuf;
 
@@ -359,7 +369,18 @@ impl Fonts {
                 self.picture = !self.picture;
                 Vec::new()
             }
-            Key::Char('t') => say(words::TRY_A_FONT_SET.to_owned()),
+            Key::Char('t') => {
+                if let Some(off) = shared.trial_off() {
+                    return say(off.to_owned());
+                }
+                match self.highlighted(shared) {
+                    Some(f) => match trial::path_to_try(shared.inputs.conf.as_deref(), f) {
+                        Ok(path) => vec![Command::Change(Change::Try(path))],
+                        Err(why) => say(why),
+                    },
+                    None => say(words::TRY_ON_FILTER_LINE.to_owned()),
+                }
+            }
             _ => {
                 let n = self.items(shared).len().saturating_add(1);
                 self.list.at = step(self.list.at, n, key);

@@ -64,6 +64,10 @@ pub const TRIAL_IN_LOOKS: &str = "live trial in Looks";
 /// among the color schemes and the pointer themes, and in a detail.
 pub const TRIAL_ON_FONT_SETS: &str = "live trial on font sets";
 
+/// The status line's trial words in the Fonts tab where `t` does nothing:
+/// in the list of filters and in a font's detail.
+pub const TRIAL_ON_FONTS: &str = "live trial on fonts";
+
 /// Why the live trial does not work, on the message line.
 pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, change allow-font-ops in the Settings tab, then install.";
 

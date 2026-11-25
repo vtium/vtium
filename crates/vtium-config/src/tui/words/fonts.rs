@@ -271,8 +271,67 @@ pub fn own_font(path: &str) -> String {
     )
 }
 
-/// What `t` says in the Fonts tab.
-pub const TRY_A_FONT_SET: &str = "vtium can try a font set on this console, but not a single font file. Make a font set from this font in the Looks tab, then press t there.";
+/// What `t` says on the Fonts tab's filter line, which holds no font.
+pub const TRY_ON_FILTER_LINE: &str =
+    "The filter line holds no font to try. Move down to a font, then press t.";
+
+/// What `t` says on a font in the person's own folder, which the console
+/// does not take.
+pub fn try_own_font(file: impl Display) -> String {
+    format!(
+        "{file} cannot be tried on the console, because the console takes only fonts that root has installed and trusts, and this font is in your own folder. Press Enter to open its detail, then Enter again to install it as a system font."
+    )
+}
+
+/// What `t` says on a font whose path the console does not take as the
+/// text of a font switch.
+pub fn try_unplain(file: impl Display) -> String {
+    format!(
+        "{file} cannot be tried on the console, because the console does not take its path. A font's path must be UTF-8 text with no control character, no #, and no space at either end."
+    )
+}
+
+/// What `t` says on a font outside the folders where the console looks
+/// for fonts.
+pub fn try_outside_folders(file: impl Display) -> String {
+    format!(
+        "{file} cannot be tried on the console, because the console looks for fonts only in the folders that font-paths names, and this font is in none of them."
+    )
+}
+
+/// What `t` says on a font that is not active.
+pub fn try_inactive(file: impl Display) -> String {
+    format!(
+        "{file} cannot be tried on the console, because the font is not active. Press Space to activate it and i to install the draft. The console can try it after you log in again."
+    )
+}
+
+/// What `t` says on a font that only the draft activates.
+pub fn try_activates(file: impl Display) -> String {
+    format!(
+        "{file} cannot be tried on the console yet, because only the draft activates it. Press i to install the draft. The console can try it after you log in again."
+    )
+}
+
+/// What `t` says on a font that fails the trust rule, and why it fails.
+pub fn try_untrusted(file: impl Display, why: impl Display) -> String {
+    format!("{file} cannot be tried on the console, because it fails the trust rule: {why}")
+}
+
+/// What the message line says when the console did not switch to the
+/// font file `file` that `t` sent.
+pub fn font_file_refused(file: impl Display) -> String {
+    format!(
+        "The console refused {file}, because it takes only fonts that root has installed and trusts. The console's log says which check the font failed."
+    )
+}
+
+/// What `k` says once the console keeps the font file `file`.
+pub fn font_file_kept(file: impl Display) -> String {
+    format!(
+        "The console keeps {file} until you quit vtium-config. To keep this font after that, make a font set from it in the Looks tab, choose the font set on a look's card, then press s to save and i to install."
+    )
+}
 
 /// The lines of a font's detail.
 pub fn font_title(name: &str) -> String {
