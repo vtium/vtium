@@ -33,6 +33,10 @@ use vtium_font::syllable::Piece;
 pub(crate) mod double;
 #[cfg(feature = "gpu")]
 mod gpu;
+// the ring lives beside the renderer, whose record of drawn cells it moves
+#[cfg(feature = "scroll-pan")]
+#[path = "ring.rs"]
+pub(crate) mod ring;
 pub(crate) mod sized;
 mod testing;
 #[cfg(test)]
@@ -614,7 +618,13 @@ pub(crate) trait Back {
 }
 
 /// The CPU path's [`Back`]: the row scratch, written into a target.
-struct Cpu<'a, T: Target>(&'a mut T);
+struct Cpu<'a, T: Target> {
+    target: &'a mut T,
+    /// Set while the border is drawn, for a ring that writes the border's
+    /// second copies with it.
+    #[cfg(feature = "scroll-pan")]
+    border: Option<&'a core::cell::Cell<bool>>,
+}
 
 impl<T: Target> Back for Cpu<'_, T> {
     fn border(
@@ -624,6 +634,10 @@ impl<T: Target> Back for Cpu<'_, T> {
         bg: Rgb,
         r: Rect,
     ) {
+        #[cfg(feature = "scroll-pan")]
+        if let Some(flag) = self.border {
+            flag.set(true);
+        }
         let (width, height) = (display.width, display.height);
         let (x0, x1) = (r.x.min(width), r.x.saturating_add(r.width).min(width));
         let y1 = r.y.saturating_add(r.height).min(height);
@@ -638,16 +652,20 @@ impl<T: Target> Back for Cpu<'_, T> {
         for y in r.y..y1 {
             let yi = int(y);
             if grid.is_none() || yi < g.y || yi >= g.bottom() {
-                self.0.write(x0, y, line);
+                self.target.write(x0, y, line);
                 continue;
             }
             if let Some(left) = line.get(..gl).filter(|l| !l.is_empty()) {
-                self.0.write(x0, y, left);
+                self.target.write(x0, y, left);
             }
             if let Some(right) = line.get(gr..).filter(|l| !l.is_empty()) {
                 let x = x0.saturating_add(u32::try_from(gr).unwrap_or(u32::MAX));
-                self.0.write(x, y, right);
+                self.target.write(x, y, right);
             }
+        }
+        #[cfg(feature = "scroll-pan")]
+        if let Some(flag) = self.border {
+            flag.set(false);
         }
     }
 
@@ -658,7 +676,7 @@ impl<T: Target> Back for Cpu<'_, T> {
         strip: (usize, usize),
         _: usize,
     ) {
-        compose.draw(font, strip, &mut *self.0);
+        compose.draw(font, strip, &mut *self.target);
     }
 
     fn reaching(&self, compose: &Composer) -> bool {
@@ -777,6 +795,10 @@ pub struct Renderer<F> {
     /// What the GPU path keeps of this renderer's.
     #[cfg(feature = "gpu")]
     gpu: gpu::State,
+    /// The ring of drawn rows that the pan and the copy show a scroll
+    /// with.
+    #[cfg(feature = "scroll-pan")]
+    ring: ring::Ring,
 }
 
 /// The pointer's image for cells `cell_height` tall, upright. A shape a
@@ -1050,6 +1072,8 @@ impl<F: Face> Renderer<F> {
             touched: Vec::new(),
             #[cfg(feature = "gpu")]
             gpu,
+            #[cfg(feature = "scroll-pan")]
+            ring: ring::Ring::default(),
         }
     }
 
@@ -1415,6 +1439,26 @@ impl<F: Face> Renderer<F> {
         #[cfg(feature = "gpu")]
         self.gpu.drew_on_cpu();
         let plan = self.plan(frame, age, state);
+        #[cfg(feature = "scroll-pan")]
+        let (counts, missing) = self.paint_through(&plan, frame, state, target, None);
+        #[cfg(not(feature = "scroll-pan"))]
+        let (counts, missing) = self.paint_through(&plan, frame, state, target);
+        self.finish(&plan, counts, missing, start)
+    }
+
+    /// Paints the planned frame into `target` through the pointer's
+    /// blend, the color slot and the 1-bit cut. Returns how many cells it
+    /// drew and how many rows it scanned, and the characters of each text
+    /// it drew as the font's missing glyph. `border`, when given, is set
+    /// while the border is drawn.
+    fn paint_through(
+        &mut self,
+        plan: &Plan,
+        frame: &Frame<'_>,
+        state: &DrawState,
+        target: &mut impl Target,
+        #[cfg(feature = "scroll-pan")] border: Option<&core::cell::Cell<bool>>,
+    ) -> ((u32, u32), Vec<char>) {
         let arrow = core::mem::take(&mut self.arrow);
         let mut line = core::mem::take(&mut self.pointer_line);
         let mut mono_line = core::mem::take(&mut self.mono_line);
@@ -1430,15 +1474,19 @@ impl<F: Face> Renderer<F> {
         if reaching && !self.reaches_kept {
             self.relearn_reaches();
         }
-        let mut drawn = self.paint(&plan, frame, state, &mut Cpu(&mut out));
+        let mut back = Cpu {
+            target: &mut out,
+            #[cfg(feature = "scroll-pan")]
+            border,
+        };
+        let mut drawn = self.paint(plan, frame, state, &mut back);
         if !reaching && self.compose.cache.reaching() {
             // the font drew its first glyph whose ink passes its cells, and
             // the cells scanned before it read no reach: the frame is drawn
             // again, whole, with every reach read
             self.relearn_reaches();
-            drawn = self.paint(&plan, frame, state, &mut Cpu(&mut out));
+            drawn = self.paint(plan, frame, state, &mut back);
         }
-        let (cells, rows) = drawn;
         #[cfg(feature = "filters")]
         {
             self.color = color;
@@ -1447,8 +1495,7 @@ impl<F: Face> Renderer<F> {
         self.arrow = arrow;
         self.pointer_line = line;
         self.mono_line = mono_line;
-        let missing = self.compose.cache.take_missing();
-        self.finish(&plan, (cells, rows), missing, start)
+        (drawn, self.compose.cache.take_missing())
     }
 
     /// The first half of a frame: where the grid sits, what the pointer
@@ -1460,7 +1507,14 @@ impl<F: Face> Renderer<F> {
         let palette = frame.palette();
         self.deco = (d.underline.resolve(palette), d.strike.resolve(palette));
         let grid = self.layout.grid_for(frame);
-        if self.grid != Some(grid) || self.background != Some(state.background) {
+        // a frame drawn through the ring may move the grid's lines, or rest
+        // the window and draw whole
+        #[cfg(feature = "scroll-pan")]
+        let (rest, scrolled) = self.ring_scroll(frame, &grid);
+        #[cfg(not(feature = "scroll-pan"))]
+        let rest = false;
+        let reset = rest || self.grid != Some(grid) || self.background != Some(state.background);
+        if reset {
             self.cells.reset(grid.cols, grid.rows);
             self.sizes.clear();
             self.grid = Some(grid);
@@ -1468,6 +1522,12 @@ impl<F: Face> Renderer<F> {
             self.cursor_at = None;
             self.held_at = None;
             self.pointer = None;
+            #[cfg(feature = "scroll-pan")]
+            self.ring_rest();
+        }
+        #[cfg(feature = "scroll-pan")]
+        if !reset && scrolled != 0 {
+            self.scroll_rows(&grid, scrolled);
         }
         let pointer = state.pointer.and_then(|p| self.place_pointer(&grid, p));
         if pointer != self.pointer {

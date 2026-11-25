@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 
 use super::held::{Facts, Holder};
 use super::{DEV, GETTY, VTIUM, instance, vt_digits};
+use crate::ordered;
 
 /// The logical lines of a unit file, as systemd reads them: a line that
 /// ends in a backslash goes on with the next one, a comment line (`#` or
@@ -156,10 +157,7 @@ struct Session<'s> {
 /// no other program and is nobody's login.
 fn sessions(show: &str) -> impl Iterator<Item = Session<'_>> {
     show.split("\n\n").filter_map(|block| {
-        let fields: BTreeMap<&str, &str> = block
-            .lines()
-            .filter_map(|line| line.split_once('='))
-            .collect();
+        let fields = ordered::map(block.lines().filter_map(|line| line.split_once('=')));
         let get = |key: &str| fields.get(key).copied().unwrap_or_default();
         let vt = get("VTNr").parse::<u16>().ok().filter(|vt| *vt != 0)?;
         if get("Service") == VTIUM || get("Service") == DEV {
@@ -222,10 +220,11 @@ pub fn logins(show: &str) -> Vec<(u16, Holder)> {
 /// `session-ID.scope` (sd-login(3)), so that a process in it is known as
 /// that session's.
 pub fn scopes(show: &str) -> BTreeMap<String, u16> {
-    sessions(show)
-        .filter(|s| !s.id.is_empty())
-        .map(|s| (format!("session-{}.scope", s.id), s.vt))
-        .collect()
+    ordered::map(
+        sessions(show)
+            .filter(|s| !s.id.is_empty())
+            .map(|s| (format!("session-{}.scope", s.id), s.vt)),
+    )
 }
 
 #[cfg(test)]

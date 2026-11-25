@@ -9,6 +9,8 @@ use drm_ffi::{
     drm_mode_modeinfo,
 };
 
+#[cfg(feature = "scroll-pan")]
+use super::super::Tall;
 use super::super::kms::{Dumb, Property, Request};
 use super::super::mode::{Choice, Mode};
 use super::super::{Ages, Damage, DisplayId, Dpms, Loan, Rect, try_lock};
@@ -272,6 +274,33 @@ pub(super) struct Moved {
     pub(super) lit: bool,
 }
 
+/// A display's buffers taller than the screen, in a build with
+/// `scroll-pan`: what the owner asked for, whether the card took it, and
+/// the window of the buffer the display shows.
+///
+/// References:
+/// - ADR-1401 D2, "A buffer taller than the screen": the ask, the test of
+///   the pan at setup, the fallback and the window's reset.
+#[cfg(feature = "scroll-pan")]
+#[derive(Debug, Default)]
+pub(super) struct Pan {
+    /// The tall buffers the owner asked for, `None` for buffers the
+    /// screen's size.
+    pub(super) asked: Option<Tall>,
+    /// The card refused the tall buffers or the pan for this ask, which was
+    /// logged once. The display keeps buffers the screen's size, and its
+    /// frames are copied, until the owner asks for other tall buffers.
+    pub(super) refused: bool,
+    /// The size of tall buffers whose pan a test-only commit proved.
+    pub(super) proven: Option<(u32, u32)>,
+    /// Where the window starts that the next commit of a frame shows: the
+    /// window the last frame swapped carried.
+    pub(super) window: u32,
+    /// Where the window starts that the last commit of a frame that took
+    /// showed.
+    pub(super) shown: u32,
+}
+
 /// A connector driven through a CRTC.
 pub(super) struct Output<M> {
     pub(super) id: DisplayId,
@@ -380,11 +409,76 @@ pub(super) struct Output<M> {
     /// Bound after the card's first scan, as a display plugged in or
     /// back: until a modeset sets it, its first sets it from off.
     pub(super) returning: bool,
+    #[cfg(feature = "scroll-pan")]
+    pub(super) pan: Pan,
 }
 
 impl<M: AsMut<[u8]>> Output<M> {
     pub(super) fn size(&self) -> (u32, u32) {
         self.mode.size()
+    }
+
+    /// The tall buffers the display makes: those the owner asked for,
+    /// unless the card refused them.
+    #[cfg(feature = "scroll-pan")]
+    pub(super) fn tall(&self) -> Option<Tall> {
+        self.pan.asked.filter(|t| t.ring > 0 && !self.pan.refused)
+    }
+
+    /// The size its buffers are made at: taller than the mode where the
+    /// display makes tall buffers, and else the mode's.
+    pub(super) fn buffer_size(&self) -> (u32, u32) {
+        #[cfg(feature = "scroll-pan")]
+        if let Some(t) = self.tall() {
+            return t.buffer(self.size());
+        }
+        self.size()
+    }
+
+    /// Whether the buffers it holds are the tall buffers it makes at its
+    /// mode, so that it shows a window of them.
+    #[cfg(feature = "scroll-pan")]
+    pub(super) fn holds_tall(&self) -> bool {
+        self.tall().is_some_and(|t| {
+            self.buffers
+                .first()
+                .is_some_and(|b| b.size == t.buffer(self.size()))
+        })
+    }
+
+    /// Where the plane's source rectangle starts for a window at `window`,
+    /// as (`SRC_X`, `SRC_Y`) in pixels: across on a display turned on its
+    /// side, and else down.
+    #[cfg(feature = "scroll-pan")]
+    pub(super) fn origin(&self, window: u32) -> (u32, u32) {
+        match self.tall() {
+            Some(t) if t.turned => (window, 0),
+            _ => (0, window),
+        }
+    }
+
+    /// Where the plane's source rectangle starts for the next frame
+    /// committed: at the window the last swap carried, or at the buffer's
+    /// corner on a display whose buffers are the screen's size.
+    pub(super) fn frame_origin(&self) -> (u32, u32) {
+        #[cfg(feature = "scroll-pan")]
+        if self.holds_tall() {
+            return self.origin(self.pan.window);
+        }
+        (0, 0)
+    }
+
+    /// Puts the window back at the buffer's start, as every modeset does. A window that was elsewhere leaves every buffer at age 0
+    /// and asks the owner to redraw, since the owner lays its rows out in
+    /// the buffer from where the window starts.
+    #[cfg(feature = "scroll-pan")]
+    pub(super) fn reset_window(&mut self) {
+        if self.pan.window != 0 || self.pan.shown != 0 {
+            self.pan.window = 0;
+            self.pan.shown = 0;
+            self.ages = Ages::default();
+            self.redraw = true;
+        }
     }
 
     /// After a modeset that failed for another reason than the card
@@ -543,11 +637,15 @@ impl<M: AsMut<[u8]>> Output<M> {
     }
 
     /// Adds this display's state to `req`: its mode, the framebuffer
-    /// `fb` on the primary plane, the damage blob and the cursor plane.
+    /// `fb` on the primary plane with its source rectangle starting at
+    /// `origin`, the damage blob and the cursor plane. The source rectangle
+    /// is the screen's size, so a framebuffer taller than the screen shows
+    /// a window of it.
     pub(super) fn prepare(
         &self,
         req: &mut Request,
         fb: u32,
+        origin: (u32, u32),
         mode_blob: u32,
         clips: Option<u32>,
         hotspot: bool,
@@ -570,8 +668,7 @@ impl<M: AsMut<[u8]>> Output<M> {
         let pp = &p.primary_props;
         pp.set(req, plane, "FB_ID", u64::from(fb))?;
         pp.set(req, plane, "CRTC_ID", crtc)?;
-        pp.set(req, plane, "SRC_X", 0)?;
-        pp.set(req, plane, "SRC_Y", 0)?;
+        self.prepare_origin(req, origin)?;
         pp.set(req, plane, "SRC_W", u64::from(w) << 16)?;
         pp.set(req, plane, "SRC_H", u64::from(h) << 16)?;
         pp.set(req, plane, "CRTC_X", 0)?;
@@ -582,6 +679,19 @@ impl<M: AsMut<[u8]>> Output<M> {
             pp.set(req, plane, "FB_DAMAGE_CLIPS", u64::from(clips))?;
         }
         self.prepare_cursor(req, hotspot)
+    }
+
+    /// Adds to `req` where the primary plane's source rectangle starts, as
+    /// (`SRC_X`, `SRC_Y`) in pixels, which the kernel reads in 16.16 fixed
+    /// point.
+    pub(super) fn prepare_origin(&self, req: &mut Request, (x, y): (u32, u32)) -> io::Result<()> {
+        let p = self
+            .planes
+            .as_ref()
+            .ok_or_else(|| invalid("no atomic planes"))?;
+        let pp = &p.primary_props;
+        pp.set(req, p.primary, "SRC_X", u64::from(x) << 16)?;
+        pp.set(req, p.primary, "SRC_Y", u64::from(y) << 16)
     }
 
     /// Adds the cursor plane's state to `req`, where the display has one.
