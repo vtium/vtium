@@ -5,8 +5,9 @@
 //! every pixel it writes; a twin is drawn only when a window shows it; a
 //! scroll draws only the border it shows anew; a frame drawn whole puts
 //! the window at rest; an overlay drawn over the window goes with its
-//! lines, also over a frame that changes nothing and in random runs; and,
-//! at 1366×768, a one-line scroll draws only the rows that
+//! lines, also over a frame that changes nothing and in random runs; a
+//! joined syllable changed in one cell during a scroll draws every piece;
+//! and, at 1366×768, a one-line scroll draws only the rows that
 //! came in while a screen rewritten in place writes no more than the
 //! redraw way.
 #![expect(
@@ -1606,5 +1607,123 @@ fn scroll_figures() {
                 );
             }
         }
+    }
+}
+
+/// Unifont, holding each piece of a syllable and drawing it as a band of
+/// ink whose height comes from the syllable's text, so that a piece of
+/// another syllable draws other pixels.
+#[cfg(feature = "bidi")]
+struct TextPieces(Unifont);
+
+#[cfg(feature = "bidi")]
+impl vtium_font::Face for TextPieces {
+    fn cell(&self) -> vtium_font::Cell {
+        self.0.cell()
+    }
+
+    fn size_step(&self) -> u32 {
+        self.0.size_step()
+    }
+
+    fn has_glyph(&self, c: char) -> bool {
+        self.0.has_glyph(c)
+    }
+
+    fn draw(&self, cluster: &[char], style: vtium_font::Style) -> Option<vtium_font::Glyph> {
+        let Some((text, piece)) = vtium_font::syllable::piece_of_chars(cluster) else {
+            return self.0.draw(&cluster[..1], style);
+        };
+        let inked = 1 + text.iter().map(|&c| c as u32).sum::<u32>() % 15;
+        let w = 8 * u32::from(piece.cells);
+        let pixels = (0..16)
+            .flat_map(|y| (0..w).map(move |_| if y < inked { 255 } else { 0 }))
+            .collect();
+        let cells = match piece.cells {
+            2 => vtium_font::Width::Wide,
+            _ => vtium_font::Width::Narrow,
+        };
+        Some(
+            vtium_font::Glyph::from_pixels(w, 16, vtium_font::Format::Mask, pixels)?
+                .with_cells(cells),
+        )
+    }
+
+    fn holds(&self, cluster: &[char], _variant: vtium_font::Variant) -> bool {
+        vtium_font::syllable::piece_of_chars(cluster).is_some()
+    }
+}
+
+/// A line of [`plain_line`]'s letters whose first two cells hold the
+/// Kannada syllable ka, virama and ra, two clusters that draw joined.
+#[cfg(feature = "bidi")]
+fn syllable_line(n: usize) -> Line {
+    let mut l = plain_line(n);
+    let style = Style {
+        fg: Color::Rgb(Rgb::new(0xc0, 0xc0, 0x40)),
+        bg: Color::Rgb(Rgb::new(0x10, 0x20, 0x30)),
+        ..Style::DEFAULT
+    };
+    l.write(
+        0,
+        Glyph::Cluster("\u{c95}\u{ccd}"),
+        Width::Narrow,
+        &style,
+        None,
+    );
+    l.write(1, Glyph::Char('\u{cb0}'), Width::Narrow, &style, None);
+    l
+}
+
+// a joined syllable whose second cell alone changes in place while the
+// lines scroll draws its first cell again too, since every piece of a
+// syllable is keyed by the whole syllable's text
+#[cfg(feature = "bidi")]
+#[test]
+fn a_syllable_changed_in_one_cell_during_a_scroll_draws_every_piece() {
+    let font = || Font::new(TextPieces(Unifont::new(16)));
+    for o in TURNS {
+        let (w, h) = display(o, WIDE);
+        let config = Config {
+            orientation: o,
+            ..Config::default()
+        };
+        let mut term = Term::with(syllable_line);
+        term.cursor.visible = false;
+        term.pointer = None;
+        let state = term.state();
+        let mut pan = Renderer::new(font(), w, h, config);
+        let (bw, bh) = pan.pan_buffer_size();
+        let mut buf = Canvas::new(bw, bh, UNDRAWN);
+        let d = Damage::new(COLS, ROWS);
+        let frame = term.frame(&d, Age::NEVER);
+        pan.draw_pan(&frame, &mut buf, 0, &state, 0, true);
+        // the lines move a row up, and ra becomes ka on the second row:
+        // ka, virama and ka are a syllable still, of other text
+        let mut d = Damage::new(COLS, ROWS);
+        let since = d.checkpoint();
+        let (scrolled, _) = term.apply(Step::Scroll(1), &mut d);
+        let top = term.top;
+        let style = Style {
+            fg: Color::Rgb(Rgb::new(0xc0, 0xc0, 0x40)),
+            bg: Color::Rgb(Rgb::new(0x10, 0x20, 0x30)),
+            ..Style::DEFAULT
+        };
+        term.lines[top + 1].write(1, Glyph::Char('\u{c95}'), Width::Narrow, &style, None);
+        d.mark_cell(1, 1);
+        let frame = term.frame(&d, since);
+        assert!(
+            frame.changed_in_place(1, 1) && !frame.changed_in_place(1, 0),
+            "only the second cell changed in place"
+        );
+        let (_, src) = pan.draw_pan(&frame, &mut buf, 1, &state, scrolled, false);
+        let shown = window(&buf, o, WIDE, src);
+        let mut want = Canvas::new(w, h, UNDRAWN);
+        Renderer::new(font(), w, h, config).draw(&frame, &mut want, 0, &state);
+        assert!(
+            shown == want,
+            "{o:?}: the window at {src} differs: {:?}",
+            first_difference(&shown, &want)
+        );
     }
 }

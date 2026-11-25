@@ -1877,6 +1877,14 @@ impl<F: Face> Renderer<F> {
         let is_cursor = p.shows_cursor(col, row);
         let off = blink_off(fc, is_cursor, p.state, self.config.blink);
         if ncells == 2 {
+            // the pair draws from its leading half alone: its glyph, its
+            // colors, its selection and the cursor on it. So a change to
+            // the trailing half's own colors or attributes draws the same
+            // pixels, and a change that splits the pair changes the span
+            // that `replace_span` reads. No frame can show what this read
+            // adds; it keeps the pair's two cells drawn together whichever
+            // of them the frame marks, in place or at its place on the
+            // screen
             let tail = col.saturating_add(1);
             changed |= p
                 .cell(row, tail)
