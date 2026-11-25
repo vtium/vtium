@@ -111,9 +111,7 @@ impl App {
 
     /// The heads wholly paused now.
     pub(super) fn paused_heads(&self) -> BTreeSet<usize> {
-        (0..self.heads.len())
-            .filter(|&h| self.wholly_paused(h))
-            .collect()
+        crate::ordered::set((0..self.heads.len()).filter(|&h| self.wholly_paused(h)))
     }
 
     /// Whether head `h` shows its console `id`: it is the head's shown

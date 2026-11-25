@@ -463,10 +463,10 @@ impl Eq for Config {}
 impl std::default::Default for Config {
     /// Every key at its default.
     fn default() -> Config {
-        let values = KEYS
-            .iter()
-            .map(|k| (k.name, (value::default(k), Origin::Default)))
-            .collect();
+        let values = crate::ordered::map(
+            KEYS.iter()
+                .map(|k| (k.name, (value::default(k), Origin::Default))),
+        );
         Config {
             values,
             read: std::sync::Arc::default(),
