@@ -1,0 +1,9 @@
+# Claims of ADR-1310-pan-steps.svg in ADR-1310, beside D3.
+# The pixel steps rest on D3's pacing and D6's row slot on the CPU path, which are not built yet: today the window moves by whole rows. The rows below claim only the parts that exist.
+element	file	symbol
+the tall buffer: the ring and a screen more along the axis the rows run down	crates/vtium-render/src/ring.rs	Geometry::extent
+each line keeps its slot in the ring as the window moves	crates/vtium-render/src/ring.rs	Geometry::slot_of
+where the window starts in the ring, counted in the rows' direction	crates/vtium-render/src/ring.rs	Geometry::window
+SRC_Y, the window's start in the buffer, or SRC_X on a display turned on its side	crates/vtium-render/src/ring.rs	Geometry::src
+the display shows the window that starts at SRC_Y	crates/vtium-platform/src/display/token.rs	Token::set_window
+the new line is drawn once, when it arrives, and the window moves over it	crates/vtium-render/src/ring.rs	Renderer::scroll_rows

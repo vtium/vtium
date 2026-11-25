@@ -1,0 +1,8 @@
+# Claims of ADR-1310-pointer-slide.svg in ADR-1310, beside D11.
+# The lag D is not built yet, so the middle of a slide rests on no code. The rows below claim the view at rest, with D at 0, and the parts the decision keeps.
+element	file	symbol
+at rest, the cell under the pointer is its pixel line divided by a row's height	crates/vtium/src/head.rs	Head::pointer_over
+a press is reported to the program at the cell under the pointer	crates/vtium/src/head.rs	Head::report_pointer
+a mouse report names a terminal row	crates/vtium-term/src/terminal/input.rs	Terminal::mouse
+a selection holds its end by the line's id, so it follows the line	crates/vtium-term/src/screen/selection.rs	Anchor::line
+the line's id, which stays with the line as it scrolls into the scrollback	crates/vtium-term/src/line.rs	LineId
