@@ -238,20 +238,35 @@ impl Pty {
             return Err(ended());
         }
         let leader = u32::try_from(sid.as_raw_nonzero().get()).map_err(|_| ended())?;
+        Pty::kept(master, Some((leader, pidfd)), None)
+    }
+
+    /// A pty of `master`, a master vtium did not open itself, at the size
+    /// the kernel holds for it: watching `leader`, the process id and
+    /// pidfd of its session's leader, for [`Pty::adopt`], or with
+    /// `remote`, the process that started its session, for
+    /// [`Pty::passed`].
+    fn kept(
+        master: OwnedFd,
+        leader: Option<(u32, OwnedFd)>,
+        remote: Option<Box<dyn Remote>>,
+    ) -> io::Result<Pty> {
         let size = held_size(&master)?;
         fcntl_setfl(&master, fcntl_getfl(&master)? | OFlags::NONBLOCK)?;
         let master = Rc::new(master);
+        let (adopted, pidfd) =
+            leader.map_or((None, None), |(id, fd)| (Some(id), Some(Rc::new(fd))));
         Ok(Pty {
             channel: Channel::new(Master(Rc::clone(&master))),
             master,
             child: None,
-            adopted: Some(leader),
+            adopted,
             exit: None,
-            pidfd: Some(Rc::new(pidfd)),
+            pidfd,
             size,
             link: None,
             hang_up: true,
-            remote: None,
+            remote,
             reported: false,
         })
     }
@@ -270,22 +285,7 @@ impl Pty {
     /// - ADR-1400 D4, "What the broker does": the broker reaps every
     ///   process it starts and reports each exit to the drawer.
     pub fn passed(master: OwnedFd, remote: Box<dyn Remote>) -> io::Result<Pty> {
-        let size = held_size(&master)?;
-        fcntl_setfl(&master, fcntl_getfl(&master)? | OFlags::NONBLOCK)?;
-        let master = Rc::new(master);
-        Ok(Pty {
-            channel: Channel::new(Master(Rc::clone(&master))),
-            master,
-            child: None,
-            adopted: None,
-            exit: None,
-            pidfd: None,
-            size,
-            link: None,
-            hang_up: true,
-            remote: Some(remote),
-            reported: false,
-        })
+        Pty::kept(master, None, Some(remote))
     }
 
     /// The session on a pty [`Pty::passed`] made has ended with `status`,

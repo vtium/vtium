@@ -380,6 +380,13 @@ type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
 /// earlier vtium left (ADR-1401 D13).
 type Kept = (vtium::survive::Keeper, Vec<(String, OwnedFd)>);
 
+/// Whether this build carries the drawing process's path: under the split,
+/// and in the tests, which drive that path while the split is off. The
+/// minspec binary leaves the path out, since nothing it runs reaches it.
+const fn split_built() -> bool {
+    broker::SPLIT || cfg!(test)
+}
+
 /// Which process `run` runs.
 #[expect(
     clippy::large_enum_variant,
@@ -440,16 +447,22 @@ fn run(
         // The root process sends `vtium blank`, the kernel's messages and
         // its font as orders, so the drawing process listens for none of
         // them itself.
-        Role::Drawer { link, vt } => {
+        Role::Drawer { link, vt } if split_built() => {
             let (courier, vt) = vtium::app::broker::through_broker(link, vt);
             let vt: Box<dyn SeatVt> = Box::new(vt);
             (vt, Some(courier), Kept::default(), None)
         }
+        Role::Drawer { .. } => {
+            // main makes no drawing process in a build without the split
+            return Err(io::ErrorKind::Unsupported.into());
+        }
     };
-    let split = courier.is_some();
+    let split = split_built() && courier.is_some();
     let clock = clock();
     let mut app = App::new(config, vt, lp.handle(), clock.clone(), env);
-    if let Some(courier) = courier {
+    if split_built()
+        && let Some(courier) = courier
+    {
         app.set_broker(courier)?;
     }
     if let Some(font) = console {

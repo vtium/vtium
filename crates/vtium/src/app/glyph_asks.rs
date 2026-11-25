@@ -138,10 +138,8 @@ impl App {
                     ),
                 )
                 .remembering(record))
-                .map(|helper| match &self.root_helpers {
-                    Some(root) => {
-                        helper.through_root(Rc::clone(root) as Rc<dyn crate::helper::Root>)
-                    }
+                .map(|helper| match &self.font_root {
+                    Some(root) => helper.through_root(Rc::clone(root)),
                     None => helper,
                 }),
                 Err(why) => {

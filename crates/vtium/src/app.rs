@@ -437,6 +437,8 @@ pub struct App {
     /// Under the privilege split, the helpers vtium's root process starts
     /// for this process, and their exits.
     root_helpers: Option<Rc<broker::RootHelpers>>,
+    /// The same, as what starts and stops each font helper's process.
+    font_root: Option<Rc<dyn helper::Root>>,
     /// Device events a test hands the next turn, as udev would.
     #[cfg(test)]
     queued_devices: Vec<DeviceEvent>,
@@ -706,6 +708,7 @@ impl App {
             releasing: None,
             broker: None,
             root_helpers: None,
+            font_root: None,
             #[cfg(test)]
             queued_devices: Vec::new(),
             wait,

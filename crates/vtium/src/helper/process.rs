@@ -237,14 +237,17 @@ impl Helper {
     ///   helper and passes the drawer its socket.
     /// - ADR-1200 D15: the font helper runs as `nobody`.
     fn start_by_root(&self, root: &Rc<dyn Root>) -> Result<Started, String> {
-        let launched = root
+        // the helper's input is a second copy of its socket
+        let (Launched { id, socket, exit }, input) = root
             .start_font()
+            .and_then(|launched| {
+                let input = launched.socket.try_clone();
+                if input.is_err() {
+                    root.stop(launched.id);
+                }
+                Ok((launched, input?))
+            })
             .map_err(|e| format!("vtium's root process cannot start the font helper: {e}"))?;
-        let Launched { id, socket, exit } = launched;
-        let input = socket.try_clone().map_err(|e| {
-            root.stop(id);
-            format!("vtium cannot use the font helper's socket: {e}")
-        })?;
         Ok(Started {
             input: Some(File::from(input)),
             output: Some(File::from(socket)),

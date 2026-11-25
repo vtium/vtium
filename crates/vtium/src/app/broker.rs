@@ -400,7 +400,9 @@ impl App {
             .insert_source(queued, |(), &mut (), app: &mut App| app.take_orders())
             .map_err(|e| io::Error::other(e.error))?;
         courier.on_queued(Box::new(move || ping.ping()));
-        self.root_helpers = Some(Rc::new(RootHelpers::new(Rc::clone(&courier))));
+        let root = Rc::new(RootHelpers::new(Rc::clone(&courier)));
+        self.font_root = Some(Rc::clone(&root) as Rc<dyn crate::helper::Root>);
+        self.root_helpers = Some(root);
         // The font helper runs as `nobody` for the root process, so the
         // files of root, which vtium runs as, pass its trust rule beside
         // the system's, and not those of the drawing process's account.
