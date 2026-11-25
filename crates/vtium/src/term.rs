@@ -1301,6 +1301,9 @@ pub struct View {
     /// within, one the screen's size.
     #[cfg(feature = "scroll-pan")]
     asked: Option<Option<vtium_platform::display::Tall>>,
+    /// The way of drawing a scroll the log last said this view takes.
+    #[cfg(feature = "scroll-pan")]
+    told: Option<ScrollDraw>,
     /// The log said once that the GPU path failed one of the display's
     /// frames.
     pub gpu_failure_logged: bool,
@@ -1389,6 +1392,8 @@ impl View {
             scroll: ScrollDraw::default(),
             #[cfg(feature = "scroll-pan")]
             asked: None,
+            #[cfg(feature = "scroll-pan")]
+            told: None,
             gpu_failure_logged: false,
             timer: measure.then(RenderTimer::new),
             timer_line: None,
@@ -1783,6 +1788,8 @@ impl View {
             self.pending = true;
             return Prepared::Later;
         };
+        #[cfg(feature = "scroll-pan")]
+        self.tell_way(&token, video);
         // A buffer can be taller than the screen; the window shown is the
         // screen's size.
         if token.screen() != self.size {
@@ -1857,6 +1864,31 @@ impl View {
             echo,
             scroll: self.scroll,
         }))
+    }
+
+    /// Logs, once for each change, how the display shows a scroll under
+    /// `auto`, `pan` or `copy`, as the buffer `token` lends says: by moving
+    /// its window over a buffer taller than the screen, or by copying.
+    #[cfg(feature = "scroll-pan")]
+    fn tell_way(&mut self, token: &Token, video: &dyn Video) {
+        let way = match self.scroll {
+            ScrollDraw::Redraw => return,
+            ScrollDraw::Copy => ScrollDraw::Copy,
+            ScrollDraw::Auto | ScrollDraw::Pan if token.size() != token.screen() => ScrollDraw::Pan,
+            ScrollDraw::Auto | ScrollDraw::Pan => ScrollDraw::Copy,
+        };
+        if self.told.replace(way) == Some(way) {
+            return;
+        }
+        let name = video.name(self.id);
+        match way {
+            ScrollDraw::Pan => log::info!(
+                "Display {name} scrolls by panning: its buffers are taller than the screen, and a scroll moves the part that the screen shows."
+            ),
+            _ => log::info!(
+                "Display {name} scrolls by copying: vtium keeps the drawn lines in memory and copies the part that the screen shows."
+            ),
+        }
     }
 
     /// Asks the display for the buffers the view's way of drawing a scroll
