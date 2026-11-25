@@ -9,9 +9,10 @@
 //! for a key. A set keeps the first of the items that compare equal, where
 //! `collect()` keeps the last, so `set` suits only a type whose equal items
 //! are identical, such as a number or a `String`, but not a `PathBuf`. The
-//! vtium crate builds its sets and maps with these two functions instead of
-//! `collect()`, which keeps the minspec binary within the size budget that
-//! tier 3 holds it to.
+//! vtium crate builds its sets and maps of such types with these two
+//! functions instead of `collect()`, which keeps the minspec binary within
+//! the size budget that tier 3 holds it to. Its sets of paths stay on
+//! `collect()`.
 //!
 //! References:
 //! - ADR-1200 D19: the minspec binary's size budget.
@@ -39,10 +40,10 @@ mod tests {
 
     #[test]
     fn a_set_holds_what_collect_holds() {
-        let items = [5_u16, 1, 3, 1, 2, 3];
+        let items = [5_u16, 1, 3, 1, 2, 3, 9];
         let collected: BTreeSet<u16> = items.into_iter().collect();
         assert_eq!(set(items), collected);
-        assert_eq!(set(items).into_iter().collect::<Vec<_>>(), [1, 2, 3, 5]);
+        assert_eq!(set(items).into_iter().collect::<Vec<_>>(), [1, 2, 3, 5, 9]);
     }
 
     #[test]

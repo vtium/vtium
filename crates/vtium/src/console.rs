@@ -601,11 +601,12 @@ pub fn enabled_vts(root: &Path) -> Option<Enabled> {
 /// say.
 pub fn running_vts(systemd: &mut dyn Systemd) -> Result<BTreeSet<u16>, String> {
     let running = running(systemd).map_err(|Stop(why)| why)?;
-    Ok(running
-        .into_iter()
-        .filter(|(_, prefixes)| VTIUMS.iter().any(|p| prefixes.contains(*p)))
-        .map(|(n, _)| n)
-        .collect())
+    Ok(ordered::set(
+        running
+            .into_iter()
+            .filter(|(_, prefixes)| VTIUMS.iter().any(|p| prefixes.contains(*p)))
+            .map(|(n, _)| n),
+    ))
 }
 
 /// The consoles running on each VT, from the running manager: every
@@ -745,10 +746,11 @@ impl State {
     /// development install's unit name neither. Gives the prefix of each
     /// unit of vtium's they name, none where vtium is not enabled.
     fn vtium_enabled(&self, n: u16) -> BTreeSet<&'static str> {
-        [self.boot_cell(n), self.switched_cell(n)]
-            .iter()
-            .flat_map(|cell| vtium_parts(cell, n).collect::<Vec<_>>())
-            .collect()
+        ordered::set(
+            [self.boot_cell(n), self.switched_cell(n)]
+                .iter()
+                .flat_map(|cell| vtium_parts(cell, n).collect::<Vec<_>>()),
+        )
     }
 
     fn template(&self) -> &Link {
