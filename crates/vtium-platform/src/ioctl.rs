@@ -753,6 +753,7 @@ const EVIOCGABS_X: Opcode = opcode::read::<InputAbsinfo>(b'E', 0x40);
 /// `EVIOCGABS(ABS_Y)`.
 const EVIOCGABS_Y: Opcode = opcode::read::<InputAbsinfo>(b'E', 0x41);
 /// `EVIOCREVOKE`: `_IOW('E', 0x91, int)`.
+#[cfg(any(test, feature = "split"))]
 const EVIOCREVOKE: Opcode = opcode::write::<c_int>(b'E', 0x91);
 
 /// `struct input_absinfo`, `linux/input.h`.
@@ -855,6 +856,7 @@ pub(crate) fn evdev_abs_xy(fd: BorrowedFd<'_>) -> io::Result<(InputAbsinfo, Inpu
 /// same open file stops delivering keys. The kernel takes no argument and
 /// refuses any but 0 with `EINVAL` (`evdev_do_ioctl` in
 /// `drivers/input/evdev.c`).
+#[cfg(feature = "split")]
 pub(crate) fn evdev_revoke(fd: BorrowedFd<'_>) -> io::Result<()> {
     #[expect(unsafe_code, reason = "an ioctl rustix does not wrap")]
     // SAFETY: EVIOCREVOKE reads no memory: the kernel takes its argument as

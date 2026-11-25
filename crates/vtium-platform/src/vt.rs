@@ -29,6 +29,7 @@
 //! A [`Restore`] does the same from a panic hook, where `panic = "abort"`
 //! runs no `Drop`.
 
+#[cfg(feature = "split")]
 pub mod broker;
 mod fake_vt;
 pub mod font;
@@ -41,6 +42,7 @@ pub(crate) mod fake;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "split")]
 pub use broker::{BrokerInput, BrokerVt};
 pub use fake_vt::FakeVt;
 pub(crate) use kernel::switch_target;
@@ -63,6 +65,7 @@ use crate::input::KeyEvent;
 /// References:
 /// - ADR-1400 D4, "What the broker does": the broker holds DRM master for
 ///   the drawer.
+#[cfg(feature = "split")]
 pub trait MasterKeeper {
     /// Takes master, or fails as the kernel's `DRM_IOCTL_SET_MASTER`
     /// would.
@@ -218,6 +221,7 @@ pub trait Vt {
     /// Who sets and drops DRM master on the card opened from `path`, for
     /// a backend whose process may not make those calls itself, as the
     /// broker's. `None` where vtium makes the calls on its own copy.
+    #[cfg(feature = "split")]
     fn master_keeper(&self, path: &Path) -> Option<Box<dyn MasterKeeper>> {
         let _ = path;
         None

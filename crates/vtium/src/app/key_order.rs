@@ -55,6 +55,7 @@ impl App {
                 return;
             }
             // Under the privilege split, vtium's root process runs the key.
+            #[cfg(feature = "split")]
             if self.broker_power(power_key) {
                 return;
             }

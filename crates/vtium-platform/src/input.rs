@@ -127,6 +127,10 @@ pub(crate) enum Opening<D> {
     Retry,
     /// The device is refused until the seat is vtium's again. [`Input`]
     /// keeps it and tries it again at its next wake-up.
+    #[cfg_attr(
+        not(any(feature = "libseat", feature = "split")),
+        expect(dead_code, reason = "only the seat manager and the broker answer it")
+    )]
     Wake,
 }
 
@@ -916,6 +920,13 @@ impl<O: Open + 'static> Input<O> {
     /// or vtium's broker, in place of the opener (ADR-1400's L2 layer). A
     /// device open already is closed through the opener and opened again
     /// through the seat while the input is awake.
+    #[cfg_attr(
+        not(any(feature = "libseat", feature = "split")),
+        expect(
+            dead_code,
+            reason = "only a build with libseat or the split opens through another process"
+        )
+    )]
     pub(crate) fn open_with(&mut self, seat: impl Open<Device = O::Device> + 'static) {
         let open: Vec<DeviceId> = self
             .devices
@@ -935,6 +946,7 @@ impl<O: Open + 'static> Input<O> {
     }
 }
 
+#[cfg(feature = "split")]
 impl Input<Direct> {
     /// From here on, every keyboard and pointer opens through vtium's
     /// broker, in place of a direct open, as the drawer must under the

@@ -4365,6 +4365,7 @@ fn nobody_is_read_from_passwd() {
 /// `script` on one end of a stream socket, records each start and stop,
 /// and reports the exit status the test gives in place of the helper's
 /// own.
+#[cfg(feature = "split")]
 struct StandInRoot {
     script: String,
     fixture: PathBuf,
@@ -4373,6 +4374,7 @@ struct StandInRoot {
     children: RefCell<Vec<std::process::Child>>,
 }
 
+#[cfg(feature = "split")]
 impl Root for StandInRoot {
     fn start_font(&self) -> std::io::Result<Launched> {
         use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
@@ -4408,6 +4410,7 @@ impl Root for StandInRoot {
     }
 }
 
+#[cfg(feature = "split")]
 impl Drop for StandInRoot {
     fn drop(&mut self) {
         for child in self.children.get_mut() {
@@ -4421,6 +4424,7 @@ impl Drop for StandInRoot {
 // and reaps it. The helper's end then counts by the status the root
 // process reports: here the helper itself exits 3 at its idle time, and
 // the root process reports 0, so no chance is used.
+#[cfg(feature = "split")]
 #[test]
 fn the_root_process_starts_the_font_helper_and_reports_its_end() {
     use std::os::unix::process::ExitStatusExt;

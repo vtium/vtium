@@ -39,6 +39,7 @@ use vtium_platform::udev::Udev;
 use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
+#[cfg(feature = "split")]
 mod broker;
 
 fn help() -> String {
@@ -93,11 +94,14 @@ fn clock() -> Clock {
 
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
-    let mut args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    // The privilege split, behind its switch `broker::SPLIT`, which is off
-    // until the split's later cards land: a drawer takes its word and its
-    // VT's number off the arguments, and holds its link to the broker for
-    // the rest of the run.
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    // The privilege split, in a build with the `split` feature and behind
+    // its switch `broker::SPLIT`, which is off until the split's later
+    // cards land: a drawer takes its word and its VT's number off the
+    // arguments, and holds its link to the broker for the rest of the run.
+    #[cfg(feature = "split")]
+    let mut args = args;
+    #[cfg(feature = "split")]
     let drawer = if broker::SPLIT {
         match broker::drawer(&mut args) {
             Ok(link) => link,
@@ -157,6 +161,7 @@ fn main() -> ExitCode {
     log::info!(target: "log", "{}", vtium::logger::revision());
     // As root with the account `vtium`, this process becomes the broker
     // and runs the rest of vtium as the drawer, behind `broker::SPLIT`.
+    #[cfg(feature = "split")]
     if broker::SPLIT
         && drawer.is_none()
         && let Some(status) = broker::split(&args)
@@ -168,6 +173,7 @@ fn main() -> ExitCode {
     // The drawing process opens no tty, and takes its VT's number from
     // its root process.
     let path = match start.vt.clone() {
+        #[cfg(feature = "split")]
         _ if drawer.is_some() => None,
         Some(vt) => Some(vt),
         None => match Tty::find() {
@@ -181,11 +187,11 @@ fn main() -> ExitCode {
     // Each vtium builds the heads of its own VT (ADR-1401 D2). Without a
     // kernel VT every head runs. The drawing process works on the VT its
     // root process holds, which it opens no tty for.
-    let vt = match &drawer {
-        Some((_, vt)) => Some(*vt),
-        None => path.as_deref().and_then(vtium::getty::vt_number),
-    };
+    let vt = path.as_deref().and_then(vtium::getty::vt_number);
+    #[cfg(feature = "split")]
+    let vt = drawer.as_ref().map_or(vt, |(_, vt)| Some(*vt));
     let heads = vtium::head::rules(&loaded.path, &loaded.file).on_vt(vt);
+    #[cfg(feature = "split")]
     if let Some((link, vt)) = drawer {
         return leave(run_drawer(config, reread, start, heads, link, vt));
     }
@@ -245,6 +251,7 @@ fn main() -> ExitCode {
 /// exit status. The root process writes the getty marker before it opens
 /// the VT, keeps the sessions through a restart and tells systemd that
 /// vtium is ready, so the drawing process does none of those jobs.
+#[cfg(feature = "split")]
 fn run_drawer(
     config: config::Config,
     reread: vtium::app::Reread,
@@ -380,17 +387,13 @@ type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
 /// earlier vtium left (ADR-1401 D13).
 type Kept = (vtium::survive::Keeper, Vec<(String, OwnedFd)>);
 
-/// Whether this build carries the drawing process's path: under the split,
-/// and in the tests, which drive that path while the split is off. The
-/// minspec binary leaves the path out, since nothing it runs reaches it.
-const fn split_built() -> bool {
-    broker::SPLIT || cfg!(test)
-}
-
 /// Which process `run` runs.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "main makes one role, once, for the run"
+#[cfg_attr(
+    feature = "split",
+    expect(
+        clippy::large_enum_variant,
+        reason = "main makes one role, once, for the run"
+    )
 )]
 enum Role {
     /// vtium in one process, on the VT `open` gives, with the kernel's
@@ -408,6 +411,7 @@ enum Role {
     /// - ADR-1400 D4, "What the broker does": the broker holds the VT,
     ///   opens the devices, starts every process vtium runs, keeps the
     ///   pty masters and passes `vtium blank` on.
+    #[cfg(feature = "split")]
     Drawer {
         link: vtium_broker_protocol::Link,
         vt: u16,
@@ -431,7 +435,11 @@ fn run(
     }
     // A write to a child gone returns an error in place of ending vtium.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
-    let (vt, courier, kept, console) = match role {
+    // Under the privilege split, the drawing process's courier to its root
+    // process.
+    #[cfg(feature = "split")]
+    let mut courier = None;
+    let (vt, kept, console) = match role {
         Role::One {
             keeper,
             kept,
@@ -442,27 +450,27 @@ fn run(
             // systemd starts the display manager only once vtium holds its
             // VT (ADR-1500 D7, "Ready before the display manager").
             let vt = vtium::survive::notify::opened(&env, || open(&mut lp))?;
-            (vt, None, (keeper, kept), console)
+            (vt, (keeper, kept), console)
         }
         // The root process sends `vtium blank`, the kernel's messages and
         // its font as orders, so the drawing process listens for none of
         // them itself.
-        Role::Drawer { link, vt } if split_built() => {
-            let (courier, vt) = vtium::app::broker::through_broker(link, vt);
+        #[cfg(feature = "split")]
+        Role::Drawer { link, vt } => {
+            let (to_root, vt) = vtium::app::broker::through_broker(link, vt);
+            courier = Some(to_root);
             let vt: Box<dyn SeatVt> = Box::new(vt);
-            (vt, Some(courier), Kept::default(), None)
-        }
-        Role::Drawer { .. } => {
-            // main makes no drawing process in a build without the split
-            return Err(io::ErrorKind::Unsupported.into());
+            (vt, Kept::default(), None)
         }
     };
-    let split = split_built() && courier.is_some();
+    #[cfg(feature = "split")]
+    let split = courier.is_some();
+    #[cfg(not(feature = "split"))]
+    let split = false;
     let clock = clock();
     let mut app = App::new(config, vt, lp.handle(), clock.clone(), env);
-    if split_built()
-        && let Some(courier) = courier
-    {
+    #[cfg(feature = "split")]
+    if let Some(courier) = courier {
         app.set_broker(courier)?;
     }
     if let Some(font) = console {
@@ -490,7 +498,9 @@ fn run(
     }
     // The drawing process cannot open a device node to probe it, so it
     // reads each device's driver and name from sysfs.
-    let udev = Udev::new(app.vt.seat()).map(|udev| if split { udev.probing_sysfs() } else { udev });
+    let udev = Udev::new(app.vt.seat());
+    #[cfg(feature = "split")]
+    let udev = udev.map(|udev| if split { udev.probing_sysfs() } else { udev });
     match udev {
         Ok(mut udev) => {
             if let Err(e) = udev.scan() {
@@ -593,6 +603,7 @@ mod tests {
     /// itself, and ends with the signal's status at the root process's
     /// stop. A stand-in root process refuses each request on a thread of
     /// its own.
+    #[cfg(feature = "split")]
     #[test]
     fn the_drawing_process_runs_through_its_root_process_until_it_stops() {
         use vtium_broker_protocol::{Errno, Got, Link, Order, Request};
@@ -687,6 +698,7 @@ mod tests {
             ("libseat", cfg!(feature = "libseat")),
             ("logind", cfg!(feature = "logind")),
             ("scroll-pan", cfg!(feature = "scroll-pan")),
+            ("split", cfg!(feature = "split")),
         ]
         .iter()
         .filter(|(_, on)| *on)

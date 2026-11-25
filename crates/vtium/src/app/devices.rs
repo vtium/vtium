@@ -454,6 +454,7 @@ fn wrap_video(
             // References:
             // - ADR-1400 D4, "What the broker does": the broker holds DRM
             //   master for the drawer.
+            #[cfg(feature = "split")]
             drm.set_master_keeper(app.vt.master_keeper(node));
             // A display the rules leave dark is set off before it is
             // announced, a frame another master left included (D3).

@@ -54,6 +54,7 @@ use super::{
     Ages, Buffers, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Interrupt, Loan,
     Memory, Rect, SwapError, Swapped, Token, lock,
 };
+#[cfg(feature = "split")]
 use crate::vt::MasterKeeper;
 use back::needed;
 use buffers::{Buffer, Dumbs, FORMAT, Source};
@@ -307,6 +308,7 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     interrupt: Option<Interrupt>,
     /// Who sets and drops DRM master on the card, where vtium may not make
     /// those calls itself ([`Drm2d::set_master_keeper`]).
+    #[cfg(feature = "split")]
     keeper: Option<Box<dyn MasterKeeper>>,
 }
 
@@ -378,6 +380,7 @@ impl<K: Kms> Drm2d<K> {
             timers: Timers::default(),
             link: None,
             interrupt: None,
+            #[cfg(feature = "split")]
             keeper: None,
         })
     }
@@ -404,6 +407,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// References:
     /// - ADR-1400 D4, "What the broker does": the broker holds DRM master
     ///   for the drawer, and the drawer asks at each try of its wake-up.
+    #[cfg(feature = "split")]
     pub fn set_master_keeper(&mut self, keeper: Option<Box<dyn MasterKeeper>>) {
         self.keeper = keeper;
     }
@@ -411,10 +415,21 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Takes DRM master: through the keeper where there is one, and
     /// otherwise with the card's own call.
     fn take_master(&self) -> io::Result<()> {
-        match &self.keeper {
-            Some(keeper) => keeper.take(),
-            None => self.card.set_master(),
+        #[cfg(feature = "split")]
+        if let Some(keeper) = &self.keeper {
+            return keeper.take();
         }
+        self.card.set_master()
+    }
+
+    /// Lets DRM master go: through the keeper where there is one, and
+    /// otherwise with the card's own call.
+    fn drop_master(&self) -> io::Result<()> {
+        #[cfg(feature = "split")]
+        if let Some(keeper) = &self.keeper {
+            return keeper.let_go();
+        }
+        self.card.drop_master()
     }
 
     /// Gives the card the loop's check of whether the kernel has asked for
@@ -1256,6 +1271,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     fn try_wake(&mut self, scan: Scan) -> io::Result<()> {
         // A keeper drops master on its own copy at a release, which this
         // file learns only from the kernel.
+        #[cfg(feature = "split")]
         if self.keeper.is_some() {
             self.recheck_master();
         }
@@ -1583,14 +1599,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             return;
         }
         self.recheck_master();
-        if self.master != Master::NotHeld {
-            let dropped = match &self.keeper {
-                Some(keeper) => keeper.let_go(),
-                None => self.card.drop_master(),
-            };
-            if let Err(e) = dropped {
-                log::debug!("cannot drop DRM master: {e}");
-            }
+        if self.master != Master::NotHeld
+            && let Err(e) = self.drop_master()
+        {
+            log::debug!("cannot drop DRM master: {e}");
         }
         self.master = Master::NotHeld;
     }
@@ -4157,7 +4169,7 @@ impl<K: Kms, S: Source<K>> Drop for Drm2d<K, S> {
         }
     }
 }
-#[cfg(test)]
+#[cfg(all(test, feature = "split"))]
 mod keeper_tests;
 #[cfg(test)]
 mod pan_tests;

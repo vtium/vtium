@@ -48,6 +48,17 @@ libseat = ["vtium-platform/libseat"]
 # - ADR-1310 D6: the pan, the copy, and the feature that builds them.
 # - ADR-1401 D2: the tall buffer and the copy's ring.
 scroll-pan = ["vtium-term/rows-beyond", "vtium-render/scroll-pan", "vtium-platform/scroll-pan"]
+# The privilege split: run as root with the account `vtium`, vtium becomes a
+# root process that holds the VT, opens the devices and starts every
+# process, and runs the rest of vtium as a drawing process under that
+# account (`src/broker/`, `src/app/broker.rs`, and vtium-platform's
+# `split`). The minspec build leaves it out and runs as one process.
+#
+# References:
+# - ADR-1400 D4: the split, and its note that builds it behind a feature.
+# - ADR-1200 D19: the minspec build's size budget, which the split's code
+#   would not fit.
+split = ["dep:vtium-broker-protocol", "vtium-platform/split"]
 
 [dependencies]
 vtium-term.workspace = true
@@ -64,8 +75,8 @@ vtium-settings.workspace = true
 # places and `check-config` lists (ADR-1403 D9).
 vtium-devices.workspace = true
 # The messages between the broker and the drawer, and the socket that
-# carries them (ADR-1513 D4).
-vtium-broker-protocol.workspace = true
+# carries them (ADR-1513 D4); only with `split`.
+vtium-broker-protocol = { workspace = true, optional = true }
 # The messages vtium-platform writes through it, and the binary's own,
 # which the binary routes to stderr.
 log = "0.4"

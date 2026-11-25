@@ -483,6 +483,7 @@ impl<C: Console> KernelVt<C> {
     /// References:
     /// - ADR-1400 D4, "When the drawer dies": what the broker puts back,
     ///   and in which order.
+    #[cfg(feature = "split")]
     pub(crate) fn give_back(&mut self) {
         let num = self.num;
         let quiet = self.hup;
@@ -527,6 +528,7 @@ impl<C: Console> KernelVt<C> {
     /// References:
     /// - ADR-1400 D4, "What the broker does": `VT_ACTIVATE` when the
     ///   drawer asks.
+    #[cfg(feature = "split")]
     pub(crate) fn switch_to(&mut self, target: u16) -> io::Result<Switch> {
         if target == self.num {
             return self.activate();

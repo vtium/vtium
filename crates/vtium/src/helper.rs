@@ -125,6 +125,7 @@ pub use cells::Answer;
 use cells::{Ask, Bits, CellState, Fill};
 pub use launcher::{Command, Launcher, PROGRAM, font_dirs, nobody, open_program, program};
 use process::Running;
+#[cfg(feature = "split")]
 pub use process::{Launched, Root};
 use sandbox::failure;
 pub use sandbox::{sandbox_args, sandbox_on};
@@ -319,6 +320,7 @@ pub struct Helper {
     /// vtium's root process, which starts and stops each of this helper's
     /// processes under the privilege split; `None` when this process
     /// starts them itself.
+    #[cfg(feature = "split")]
     root: Option<Rc<dyn Root>>,
     /// How many of the helper's frames [`Helper::poll`] has taken, for a
     /// test that moves its clock only once the helper's frames are in.
@@ -386,6 +388,7 @@ impl Helper {
             warnings_dropped: false,
             sandbox_noted: None,
             failed: None,
+            #[cfg(feature = "split")]
             root: None,
             #[cfg(test)]
             taken: 0,
@@ -416,6 +419,7 @@ impl Helper {
     /// References:
     /// - ADR-1400 D4, "What the broker does": the broker starts and stops
     ///   the helpers and passes each helper's socket.
+    #[cfg(feature = "split")]
     #[must_use]
     pub fn through_root(mut self, root: Rc<dyn Root>) -> Helper {
         self.root = Some(root);

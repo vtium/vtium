@@ -71,7 +71,13 @@ pub use identity::{
     Account, Facts, LOGIN_CLASSES, LoginSession, Me, PRELOGIN_ACCOUNTS, Prelogin, Refusal, Session,
     System, holds_group_zero, resolve,
 };
-pub use start::{PROGRAM, Program, Started, memory_cap, open_program, start};
+#[cfg(not(feature = "split"))]
+use start::Started;
+pub use start::{PROGRAM, Program, memory_cap, open_program};
+// vtium's root process starts each image helper itself under the privilege
+// split.
+#[cfg(feature = "split")]
+pub use start::{Started, start};
 
 use crate::bounds::IMAGE_CRASHES_MAX;
 
@@ -278,7 +284,7 @@ impl ImageHost {
         tmpdir: Option<PathBuf>,
         facts: Box<dyn Facts>,
     ) -> Self {
-        Self::launched(Box::new(Here {
+        Self::starting_with(Box::new(Here {
             program,
             tmpdir,
             facts,
@@ -286,9 +292,19 @@ impl ImageHost {
         }))
     }
 
-    /// A host whose helpers `launch` starts, such as vtium's root process
+    /// A host whose helpers vtium's root process starts, through `launch`,
     /// under the privilege split.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker starts each image
+    ///   helper at the drawer's request and chooses its user.
+    #[cfg(feature = "split")]
     pub fn launched(launch: Box<dyn Launch>) -> Self {
+        Self::starting_with(launch)
+    }
+
+    /// A host whose helpers `launch` starts.
+    fn starting_with(launch: Box<dyn Launch>) -> Self {
         Self {
             launch,
             running: None,

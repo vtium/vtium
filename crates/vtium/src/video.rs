@@ -43,7 +43,7 @@ pub const FEATURE_BUFFERS: Buffers = if any_on(&FEATURES_ON_TOP) {
 /// adds on top of minspec, and whether this build has it on. A test holds
 /// the names equal to Cargo.toml's, so a feature added there fails it
 /// until it is named here too.
-pub const FEATURES_ON_TOP: [(&str, bool); 7] = [
+pub const FEATURES_ON_TOP: [(&str, bool); 8] = [
     ("bidi", cfg!(feature = "bidi")),
     ("filters", cfg!(feature = "filters")),
     ("gpu", cfg!(feature = "gpu")),
@@ -51,6 +51,7 @@ pub const FEATURES_ON_TOP: [(&str, bool); 7] = [
     ("libseat", cfg!(feature = "libseat")),
     ("logind", cfg!(feature = "logind")),
     ("scroll-pan", cfg!(feature = "scroll-pan")),
+    ("split", cfg!(feature = "split")),
 ];
 
 /// Whether any of `features` is on.
@@ -636,7 +637,8 @@ mod tests {
         feature = "images",
         feature = "libseat",
         feature = "logind",
-        feature = "scroll-pan"
+        feature = "scroll-pan",
+        feature = "split"
     )))]
     #[test]
     fn the_minspec_build_keeps_two_buffers() {
@@ -709,6 +711,7 @@ mod tests {
         assert_eq!(on("images"), Some(cfg!(feature = "images")));
         assert_eq!(on("logind"), Some(cfg!(feature = "logind")));
         assert_eq!(on("scroll-pan"), Some(cfg!(feature = "scroll-pan")));
+        assert_eq!(on("split"), Some(cfg!(feature = "split")));
     }
 
     // ADR-1401 D2: a build that adds features on top of minspec keeps

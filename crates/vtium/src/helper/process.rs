@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::os::fd::OwnedFd;
 use std::process::{Child, ExitStatus, Stdio};
+#[cfg(feature = "split")]
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -22,6 +23,7 @@ use super::{Helper, after, frame};
 
 /// vtium's root process, which starts and stops the font helper's
 /// processes for the drawing process under the privilege split.
+#[cfg(feature = "split")]
 pub trait Root {
     /// Starts a font helper, and gives this process's end of the stream
     /// socket that is the helper's standard input and output.
@@ -31,6 +33,7 @@ pub trait Root {
 }
 
 /// A font helper that vtium's root process started.
+#[cfg(feature = "split")]
 pub struct Launched {
     /// The id the root process knows the helper by.
     pub id: u32,
@@ -46,6 +49,7 @@ pub struct Launched {
 /// started it, the root process ends it by its id.
 pub(super) struct Running {
     pidfd: Option<OwnedFd>,
+    #[cfg(feature = "split")]
     started_by_root: Option<(Rc<dyn Root>, u32)>,
     pub(super) requests: mpsc::Sender<Vec<u8>>,
     pub(super) events: mpsc::Receiver<Event>,
@@ -94,15 +98,19 @@ impl Helper {
     }
 
     fn start(&self) -> Result<Running, String> {
+        #[cfg(feature = "split")]
         let started = match &self.root {
             Some(root) => self.start_by_root(root)?,
             None => self.start_here()?,
         };
+        #[cfg(not(feature = "split"))]
+        let started = self.start_here()?;
         let Started {
             input,
             output,
             status,
             pidfd,
+            #[cfg(feature = "split")]
             started_by_root,
         } = started;
         // a thread that cannot start ends the child, which its reaper, or
@@ -111,6 +119,7 @@ impl Helper {
             if let Some(fd) = &pidfd {
                 let _ = pidfd_send_signal(fd, Signal::KILL);
             }
+            #[cfg(feature = "split")]
             if let Some((root, id)) = &started_by_root {
                 root.stop(*id);
             }
@@ -165,6 +174,7 @@ impl Helper {
         .map_err(|e| end("reader", e))?;
         Ok(Running {
             pidfd,
+            #[cfg(feature = "split")]
             started_by_root,
             requests,
             events,
@@ -223,6 +233,7 @@ impl Helper {
             output,
             status,
             pidfd,
+            #[cfg(feature = "split")]
             started_by_root: None,
         })
     }
@@ -236,6 +247,7 @@ impl Helper {
     /// - ADR-1400 D4, "What the broker does": the broker starts the font
     ///   helper and passes the drawer its socket.
     /// - ADR-1200 D15: the font helper runs as `nobody`.
+    #[cfg(feature = "split")]
     fn start_by_root(&self, root: &Rc<dyn Root>) -> Result<Started, String> {
         // the helper's input is a second copy of its socket
         let (Launched { id, socket, exit }, input) = root
@@ -294,6 +306,7 @@ impl Helper {
         if let Some(fd) = &running.pidfd {
             let _ = pidfd_send_signal(fd, Signal::KILL);
         }
+        #[cfg(feature = "split")]
         if let Some((root, id)) = &running.started_by_root {
             root.stop(*id);
         }
@@ -313,6 +326,7 @@ struct Started {
     output: Option<File>,
     status: mpsc::Receiver<ExitStatus>,
     pidfd: Option<OwnedFd>,
+    #[cfg(feature = "split")]
     started_by_root: Option<(Rc<dyn Root>, u32)>,
 }
 

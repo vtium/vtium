@@ -670,7 +670,7 @@ impl super::Process for Reported {
 #[test]
 fn a_helpers_crash_counts_once_its_end_is_reported() {
     let started = std::rc::Rc::default();
-    let mut host = super::ImageHost::launched(Box::new(LateReport {
+    let mut host = super::ImageHost::starting_with(Box::new(LateReport {
         started: std::rc::Rc::clone(&started),
     }));
     let session = super::Session {

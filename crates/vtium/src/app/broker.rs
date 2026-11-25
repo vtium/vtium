@@ -464,36 +464,6 @@ impl App {
         true
     }
 
-    /// Reads the kernel's messages from `system` through the loop, for the
-    /// app to show: from the descriptor the root process passes under the
-    /// privilege split, or from the one vtium opens itself in one process.
-    ///
-    /// References:
-    /// - ADR-1401 D15: the kernel's messages on the console.
-    pub fn watch_kernel(&mut self, system: crate::kernel::System) {
-        let watched = system.watched().and_then(|fd| {
-            self.handle
-                .insert_source(
-                    Generic::new(fd, Interest::READ, Mode::Level),
-                    |_, _, app: &mut App| {
-                        Ok(if app.kernel_ready() {
-                            PostAction::Continue
-                        } else {
-                            PostAction::Remove
-                        })
-                    },
-                )
-                .map_err(|e| io::Error::other(e.error))
-        });
-        match watched {
-            Ok(_) => self.set_kernel(Box::new(system)),
-            Err(e) => log::info!(
-                "vtium cannot read the kernel's messages from {}: {e}. It does not show them on screen.",
-                crate::kernel::KMSG
-            ),
-        }
-    }
-
     /// Takes each order the root process has sent.
     fn take_orders(&mut self) {
         let Some(courier) = self.broker.clone() else {

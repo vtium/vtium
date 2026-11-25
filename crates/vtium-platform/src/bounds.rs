@@ -393,6 +393,7 @@ pub(crate) const SCOPE_JOB_MS: usize = SCOPE_JOB.value;
 
 /// Milliseconds the broker waits for the drawer to let its devices go at a
 /// release.
+#[cfg(feature = "split")]
 pub const RELEASE_BOUND_MS: usize = RELEASE.value;
 
 /// Reads of a DRM card's CRTC and connector lists before one fails.
