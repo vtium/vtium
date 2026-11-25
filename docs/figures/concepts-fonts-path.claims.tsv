@@ -35,6 +35,6 @@ your session: vtium config use-frit NAME	crates/vtium-config/src/switch.rs	comma
 use-frit switches to another font set or to a built-in font	crates/vtium-config/src/switch.rs	known
 transition OSC 50, through the pty	crates/vtium-config/src/switch.rs	switch
 vtium takes the font that OSC 50 names	crates/vtium-term/src/terminal.rs	Terminal::take_font_request
-vtium switches the console to that font	crates/vtium/src/app.rs	App::switch_font
+vtium switches the console to that font	crates/vtium/src/app/fonts.rs	App::switch_font
 while allow-font-ops is on, as it is by default	crates/vtium-settings/src/keys.rs	key allow-font-ops
-until this session ends: vtium returns the console to the configured font	crates/vtium/src/app.rs	App::return_font
+until this session ends: vtium returns the console to the configured font	crates/vtium/src/app/fonts.rs	App::return_font
