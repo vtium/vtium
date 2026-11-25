@@ -195,14 +195,17 @@ impl Token {
     /// where `turned`, and the window at the buffer's start. A `screen`
     /// larger than the buffer on either side, or one that leaves the
     /// buffer longer than it on the other axis too, leaves the token as
-    /// it was.
+    /// it was. So does a token whose screen is already smaller than its
+    /// buffer, as one a display with tall buffers lends: the display made
+    /// that buffer for that screen.
     #[cfg(feature = "scroll-pan")]
     pub fn tall(mut self, screen: (u32, u32), turned: bool) -> Token {
-        let fits = if turned {
-            screen.0 <= self.width && screen.1 == self.height
-        } else {
-            screen.0 == self.width && screen.1 <= self.height
-        };
+        let fits = self.screen == (self.width, self.height)
+            && if turned {
+                screen.0 <= self.width && screen.1 == self.height
+            } else {
+                screen.0 == self.width && screen.1 <= self.height
+            };
         if fits {
             self.screen = screen;
             self.turned = turned;
@@ -602,6 +605,10 @@ mod tests {
         assert_eq!(canvas, Some((10, (6, 4), 4)));
         let wrong = Token::new(DisplayId(1), (4, 10), 16, 0, memory(160)).tall((3, 6), false);
         assert_eq!((wrong.screen(), wrong.last_window()), ((4, 10), 0));
+        // A token already tall keeps its screen: a smaller one would let the
+        // window run past the buffer that the display made for the first.
+        let again = down.tall((4, 2), false);
+        assert_eq!((again.screen(), again.last_window()), ((4, 6), 4));
     }
 
     #[test]

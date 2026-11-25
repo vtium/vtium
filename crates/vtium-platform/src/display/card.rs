@@ -178,8 +178,13 @@ impl Kms for Card {
             let mut res = read_resources(|crtcs, connectors| {
                 crate::ioctl::drm_get_resources(self.raw(), crtcs, connectors)
             })?;
-            // The largest framebuffer comes from a GETRESOURCES that asks
-            // for no lists, so the kernel writes no ids and only counts.
+            // The largest framebuffer comes from drm-ffi's `get_resources`
+            // asked for no lists. That call makes two GETRESOURCES ioctls
+            // of its own: one that reads the counts, and one with null list
+            // pointers and counts of 0, so the kernel writes no ids. A scan
+            // with `scroll-pan` thus makes two GETRESOURCES calls more than
+            // one without it: three or four in all, where the lists do not
+            // change between the reads.
             #[cfg(feature = "scroll-pan")]
             {
                 let card = drm_ffi::mode::get_resources(self.raw(), None, None, None, None)?;

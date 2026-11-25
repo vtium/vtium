@@ -195,14 +195,14 @@ enum Scan {
     WakeUp,
 }
 
-/// A DRM card's displays, drawn into the buffers `S` makes, dumb buffers
-/// by default. Outside the crate the card is a [`Card`](crate::display::Card); the tests stand
-/// one in.
 /// What a modeset staged for one display: its new buffers, where its mode
 /// needs them, and its mode's blob.
 #[cfg(feature = "scroll-pan")]
 type Staged<M> = (Option<Vec<Buffer<M>>>, u32);
 
+/// A DRM card's displays, drawn into the buffers `S` makes, dumb buffers
+/// by default. Outside the crate the card is a [`Card`](crate::display::Card); the tests stand
+/// one in.
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     card: K,
@@ -704,6 +704,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// down meanwhile, is dropped with [`SwapError::Dropped`]: its frame is
     /// not shown, and every buffer of the display is age 0, so its next
     /// frame is drawn whole.
+    ///
+    /// On a display with tall buffers, the swap shows the window the token
+    /// carries. A window that starts past the display's ring is clamped to
+    /// the ring's end, the furthest window that lies inside the buffer.
     pub fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
         let id = token.id();
         let Some(o) = self.outputs.iter_mut().find(|o| o.id == id && o.announced) else {
@@ -729,14 +733,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             return Err(SwapError::Dropped);
         }
         // A frame that moves the window is presented even where nothing
-        // was drawn, since the screen shows another part of the buffer.
+        // was drawn, since the screen shows another part of the buffer. The
+        // display bounds the window by its own ring, whatever the token
+        // says, so the plane never reads past the buffer's end.
         #[cfg(feature = "scroll-pan")]
-        let moved = {
-            let moved = o.holds_tall() && token.window() != o.pan.shown;
-            if o.holds_tall() {
-                o.pan.window = token.window();
+        let moved = match o.tall().filter(|_| o.holds_tall()) {
+            Some(t) => {
+                let window = token.window().min(t.ring);
+                o.pan.window = window;
+                window != o.pan.shown
             }
-            moved
+            None => false,
         };
         #[cfg(not(feature = "scroll-pan"))]
         let moved = false;
@@ -2565,7 +2572,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Moves display `o` to `crtc`, at `pipe` in the card's list of CRTCs,
     /// with that CRTC's planes, or says why it cannot. Where the new CRTC
     /// has no cursor plane, the display gives its pointer image up, and the
-    /// owner draws the pointer itself.
+    /// owner draws the pointer itself. Where the display asked for tall
+    /// buffers, the next modeset tests the pan on the new primary plane.
+    ///
+    /// References:
+    /// - ADR-1401 D2, "A buffer taller than the screen": the pan is tested
+    ///   where the display is set up.
     fn move_to(&self, o: &mut Output<S::Memory>, crtc: u32, pipe: usize) -> Result<(), String> {
         if !self.legacy {
             let mut planes = self
@@ -2580,6 +2592,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 drop_cursor(&self.card, o);
             }
             o.planes = Some(planes);
+            // The new primary plane has not shown a window of tall buffers
+            // yet, so the next modeset tests the pan on it afresh, whether
+            // the old plane took the pan or refused it.
+            #[cfg(feature = "scroll-pan")]
+            {
+                o.pan.proven = None;
+                o.pan.refused = false;
+            }
         }
         log::info!(
             "display {} moves from CRTC {} to CRTC {crtc}",
@@ -3099,6 +3119,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     fn refuse_pan(o: &mut Output<S::Memory>, why: &str) {
         o.pan.refused = true;
         o.pan.proven = None;
+        Self::log_pan_refused(o, why);
+    }
+
+    /// Logs why `o` gives up its tall buffers.
+    #[cfg(feature = "scroll-pan")]
+    fn log_pan_refused(o: &Output<S::Memory>, why: &str) {
         log::warn!(
             "Display {} cannot scroll by moving its window over a tall buffer: {why}. Its buffers stay the size of its screen.",
             o.name
@@ -3111,7 +3137,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// display tested, with why the card refused its pan or `None` where
     /// the card took it. Where the card refuses `req` without the pan too,
     /// the pan is not to blame, so that display is left out, and the
-    /// modeset fails or takes by itself.
+    /// modeset fails or takes by itself; where it fails, the modeset runs
+    /// again with buffers the screen's size ([`Self::without_tall`]).
     #[cfg(feature = "scroll-pan")]
     fn test_pans(
         &self,
@@ -3150,6 +3177,19 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
         }
         tested
+    }
+
+    /// Whether the modeset is about to show `o` in tall buffers whose pan no
+    /// test-only commit has proved: `made`, its new buffers, or else those
+    /// it holds.
+    #[cfg(feature = "scroll-pan")]
+    fn untested_tall(o: &Output<S::Memory>, made: Option<&Vec<Buffer<S::Memory>>>) -> bool {
+        let Some(t) = o.tall() else {
+            return false;
+        };
+        let size = t.buffer(o.size());
+        let shown = made.map_or(o.buffers.as_slice(), Vec::as_slice);
+        shown.first().is_some_and(|b| b.size == size) && o.pan.proven != Some(size)
     }
 
     /// The framebuffer a modeset puts on the primary plane: the first of
@@ -3594,6 +3634,21 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let pan_refused = pans.iter().any(|(_, why)| why.is_some());
         #[cfg(feature = "scroll-pan")]
         let set = commit && outcome.is_ok() && !pan_refused;
+        // The displays whose tall buffers the card has not taken yet, where
+        // the modeset failed: the card may refuse a framebuffer taller than
+        // the screen whatever the window, so these try the modeset again
+        // with buffers the screen's size.
+        #[cfg(feature = "scroll-pan")]
+        let untested: Vec<DisplayId> = if outcome.is_err() && !pan_refused && !self.card.removed() {
+            outputs
+                .iter()
+                .zip(&staged)
+                .filter(|(o, (made, _))| Self::untested_tall(o, made.as_ref()))
+                .map(|(o, _)| o.id)
+                .collect()
+        } else {
+            Vec::new()
+        };
         #[cfg(not(feature = "scroll-pan"))]
         let set = commit && outcome.is_ok();
         for (o, (made, blob)) in outputs.iter_mut().zip(staged) {
@@ -3648,8 +3703,51 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.outputs = outputs;
             return self.atomic_modeset(dark, commit);
         }
+        #[cfg(feature = "scroll-pan")]
+        if !untested.is_empty()
+            && let Err(failed) = outcome
+        {
+            return self.without_tall(outputs, &untested, failed, dark, commit);
+        }
         self.outputs = outputs;
         outcome
+    }
+
+    /// After a modeset that `failed` and would have shown the displays
+    /// `untested` in tall buffers no commit has taken yet, runs it again
+    /// with those displays in buffers the screen's size. Where that takes,
+    /// the tall buffers were to blame: each of those displays keeps
+    /// buffers the screen's size from now on, logged once. Where it fails
+    /// too, the tall buffers were not to blame: the displays keep their
+    /// ask, and the modeset fails as it did.
+    ///
+    /// References:
+    /// - ADR-1401 D2, "A buffer taller than the screen": where the card
+    ///   refuses the test, the display makes buffers the screen's size.
+    #[cfg(feature = "scroll-pan")]
+    fn without_tall(
+        &mut self,
+        mut outputs: Vec<Output<S::Memory>>,
+        untested: &[DisplayId],
+        failed: Failure,
+        dark: bool,
+        commit: bool,
+    ) -> Result<(), Failure> {
+        for o in outputs.iter_mut().filter(|o| untested.contains(&o.id)) {
+            o.pan.refused = true;
+        }
+        self.outputs = outputs;
+        let retried = self.atomic_modeset(dark, commit);
+        let (Failure::Test(e) | Failure::Other(e)) = &failed;
+        let why = format!("the card refused a modeset with its tall buffers: {e}");
+        for o in self.outputs.iter_mut().filter(|o| untested.contains(&o.id)) {
+            if retried.is_ok() {
+                Self::log_pan_refused(o, &why);
+            } else {
+                o.pan.refused = false;
+            }
+        }
+        retried.map_err(|_| failed)
     }
 
     /// A test-only commit of `req`, the card's refusal logged unless

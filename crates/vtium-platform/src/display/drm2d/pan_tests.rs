@@ -142,6 +142,36 @@ mod pan {
         v.give_back(token);
     }
 
+    // A token lent by a display with tall buffers cannot be told it is tall
+    // again with a smaller screen, which would let its window run past the
+    // buffer's end.
+    #[test]
+    fn a_lent_tall_token_cannot_be_made_taller() {
+        let mut v = awake_one();
+        v.set_tall(DisplayId(A), Some(DOWN)).unwrap();
+        flip(&mut v);
+        let token = v.lend(DisplayId(A)).unwrap();
+        let mut token = token.tall((640, 0), false);
+        assert_eq!((token.screen(), token.last_window()), ((640, 480), 480));
+        assert!(!token.set_window(960));
+        v.give_back(token);
+    }
+
+    // The swap bounds the window by the display's own ring, whatever the
+    // token says: a window past the ring's end is shown at the ring's end, so
+    // the source rectangle never reads past the buffer.
+    #[test]
+    fn the_swap_keeps_the_window_inside_the_buffer() {
+        let mut v = awake_one();
+        v.set_tall(DisplayId(A), Some(DOWN)).unwrap();
+        flip(&mut v);
+        let token = v.lend(DisplayId(A)).unwrap();
+        let token = token.showing((640, 0), 960, false);
+        assert_eq!(token.window(), 960);
+        assert!(matches!(v.swap(token, &[DOT]), Ok(Swapped::Frame)));
+        assert_eq!(source(&v), [0, 480, 640, 480]);
+    }
+
     // On a display turned on its side the buffer is wider than the screen, and
     // the window moves across it through SRC_X.
     #[test]
@@ -207,6 +237,155 @@ mod pan {
         assert_eq!(pan_tests_since(&v, from).len(), 0, "no pan tested again");
         assert_eq!(pan_warnings().len(), 1);
         assert_eq!(buffer_size(&v), (640, 480));
+    }
+
+    /// The framebuffer the screen of `v`'s display shows now.
+    fn shown_fb(v: &Drm2d<FakeCard>) -> u32 {
+        let o = &v.outputs[0];
+        o.buffers[o.front()].fb
+    }
+
+    // A card whose planes show no framebuffer taller than the screen refuses
+    // the modeset with the tall buffers whatever the window, so the test of
+    // the pan cannot blame the window. The display gives the tall buffers up,
+    // logs that once, and sets its mode with buffers the screen's size. A
+    // later wake-up neither tries them again nor logs again.
+    #[test]
+    fn a_card_that_refuses_tall_framebuffers_falls_back_and_logs_once() {
+        let mut v = awake_one();
+        v.card().state().scanout_most = (16_384, 480);
+        crate::display::fake::logs::capture();
+        v.set_tall(DisplayId(A), Some(DOWN)).unwrap();
+        flip(&mut v);
+        assert_eq!(buffer_size(&v), (640, 480));
+        assert!(!v.pans(DisplayId(A)));
+        assert_eq!(pan_warnings().len(), 1, "{:?}", pan_warnings());
+        v.sleep();
+        flip(&mut v);
+        v.wake_up().unwrap();
+        flip(&mut v);
+        assert_eq!(buffer_size(&v), (640, 480));
+        assert!(v.card().shows(v.outputs[0].crtc, shown_fb(&v)));
+        assert_eq!(pan_warnings().len(), 1, "{:?}", pan_warnings());
+    }
+
+    // Tall buffers asked for during a sleep are made at the wake-up. On a card
+    // whose planes show no framebuffer taller than the screen, the wake-up
+    // still lights the display, with buffers the screen's size, and logs once.
+    #[test]
+    fn a_wake_up_on_a_card_that_refuses_tall_framebuffers_lights_the_screen() {
+        let mut v = awake_one();
+        v.card().state().scanout_most = (16_384, 480);
+        v.sleep();
+        flip(&mut v);
+        crate::display::fake::logs::capture();
+        v.set_tall(DisplayId(A), Some(DOWN)).unwrap();
+        v.wake_up().unwrap();
+        flip(&mut v);
+        assert_eq!(buffer_size(&v), (640, 480));
+        assert!(!v.pans(DisplayId(A)));
+        assert!(v.card().shows(v.outputs[0].crtc, shown_fb(&v)));
+        assert_eq!(pan_warnings().len(), 1, "{:?}", pan_warnings());
+    }
+
+    // Where the modeset fails with buffers the screen's size too, the tall
+    // buffers are not to blame: the wake-up fails as it would without them,
+    // nothing is logged about the pan, and once the card takes the modeset the
+    // display makes its tall buffers and pans.
+    #[test]
+    fn a_modeset_that_fails_without_tall_buffers_too_keeps_the_ask() {
+        let mut v = awake_one();
+        v.sleep();
+        flip(&mut v);
+        v.card().state().scanout_most = (16_384, 479);
+        crate::display::fake::logs::capture();
+        v.set_tall(DisplayId(A), Some(DOWN)).unwrap();
+        assert!(v.wake_up().is_err());
+        assert_eq!(pan_warnings(), Vec::<String>::new());
+        v.card().state().scanout_most = (0, 0);
+        v.sleep();
+        v.wake_up().unwrap();
+        flip(&mut v);
+        assert_eq!(buffer_size(&v), (640, 960));
+        assert!(v.pans(DisplayId(A)));
+    }
+
+    // A display moved to another CRTC shows its buffers through another
+    // primary plane, so the next modeset tests the pan again there, and a
+    // refusal on the old plane does not hold on the new one. Here A, lit on
+    // CRTC 100 with its pan refused, moves to 101 when B is plugged in, and
+    // the hotplug's modeset tests the pan on 101's primary plane, which takes
+    // it.
+    #[test]
+    fn a_display_moved_to_another_crtc_tests_its_pan_again() {
+        const B: u32 = 42;
+        let card = FakeCard::new(&[
+            (A, vec![mode(640, 480, 60, true)]),
+            (B, vec![mode(640, 480, 60, true)]),
+        ]);
+        {
+            let mut s = card.state();
+            s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
+            s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b01;
+            s.listed.retain(|&c| c == A);
+            s.src_offset_refused = true;
+        }
+        let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+        v.wake_up().unwrap();
+        flip(&mut v);
+        v.set_tall(DisplayId(A), Some(DOWN)).unwrap();
+        flip(&mut v);
+        assert!(!v.pans(DisplayId(A)), "the pan is refused on CRTC 100");
+        let before = primary(&v);
+        {
+            let mut s = v.card().state();
+            s.src_offset_refused = false;
+            s.listed.push(B);
+        }
+        let from = v.card().state().commits.len();
+        v.poll().unwrap();
+        flip(&mut v);
+        assert_eq!(v.outputs[0].crtc, 101);
+        assert_ne!(primary(&v), before);
+        let tested = pan_tests_since(&v, from);
+        assert_eq!(tested.len(), 1, "one test of the pan on the new plane");
+        assert!(v.pans(DisplayId(A)));
+        assert_eq!(buffer_size(&v), (640, 960));
+    }
+
+    // A display moved to another CRTC tests a pan proven on its old plane
+    // again on the new one.
+    #[test]
+    fn a_display_moved_to_another_crtc_tests_a_proven_pan_again() {
+        const B: u32 = 42;
+        let card = FakeCard::new(&[
+            (A, vec![mode(640, 480, 60, true)]),
+            (B, vec![mode(640, 480, 60, true)]),
+        ]);
+        {
+            let mut s = card.state();
+            s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
+            s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b01;
+            s.listed.retain(|&c| c == A);
+        }
+        let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+        v.wake_up().unwrap();
+        flip(&mut v);
+        v.set_tall(DisplayId(A), Some(DOWN)).unwrap();
+        flip(&mut v);
+        assert!(v.pans(DisplayId(A)));
+        v.card().state().listed.push(B);
+        let from = v.card().state().commits.len();
+        v.poll().unwrap();
+        flip(&mut v);
+        assert_eq!(v.outputs[0].crtc, 101);
+        let plane = primary(&v);
+        let tested: Vec<u64> = pan_tests_since(&v, from)
+            .iter()
+            .filter_map(|c| c.get(plane, "SRC_Y"))
+            .collect();
+        assert_eq!(tested, [480 << 16], "the pan is tested on the new plane");
+        assert!(v.pans(DisplayId(A)));
     }
 
     // Tall buffers past the card's largest framebuffer are refused before any
