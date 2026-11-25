@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use vtium_broker_protocol::{Courier, DevicePath, Errno, Got, Order, Request};
 
+use super::holder::DEVICES_MAX;
 use super::stand_in::{CARD, FB, KEYBOARD, MOUSE, NodeCall, Remote, StandIn, seat_node};
 use super::{BrokerVt, RELEASE_BOUND};
 use crate::input::fake::{self, FakeDevice, Nodes as FakeInputs};
@@ -481,6 +482,57 @@ fn a_closed_device_is_let_go_first() {
     );
     // The ids are free again.
     assert!(plain(s.holder.serve(open(1, FB), now))[0].1);
+}
+
+/// A second id for a node the broker already holds is refused `EEXIST`, and
+/// once the broker holds [`DEVICES_MAX`] devices, one more is refused
+/// `EMFILE`. Neither is opened, so the drawer cannot make the broker hold
+/// copies of a card until it runs out of descriptors.
+#[test]
+fn the_broker_holds_one_copy_of_each_node_and_a_bounded_number_in_all() {
+    let mut s = holding();
+    let now = s.now.get();
+    s.nodes.borrow_mut().calls.clear();
+    let refused = |s: &mut StandIn, id: u32, p: &str| {
+        let answer = plain(s.holder.serve(open(id, p), now));
+        match answer.as_slice() {
+            // a descriptor comes with an open, and only with one
+            [(Order::Device { opened, .. }, fd)] if *fd == opened.is_ok() => opened.err(),
+            other => panic!("{other:?}"),
+        }
+    };
+    assert_eq!(
+        refused(&mut s, 3, CARD),
+        Some(Errno(17)),
+        "a second id for the card"
+    );
+    assert_eq!(refused(&mut s, 4, KEYBOARD), Some(Errno(17)));
+    assert!(s.node_calls().is_empty(), "a refused node was opened");
+    // the card and the keyboard are held; more input devices fill the cap
+    let extra: Vec<String> = (0..DEVICES_MAX)
+        .map(|n| format!("/dev/input/event{}", 100 + n))
+        .collect();
+    for (n, p) in extra.iter().enumerate() {
+        s.nodes.borrow_mut().facts.insert(
+            PathBuf::from(p),
+            seat_node(INPUT_MAJOR, "input", &format!("event{}", 100 + n)),
+        );
+    }
+    let mut id = 10;
+    for p in &extra[..DEVICES_MAX - 2] {
+        assert_eq!(refused(&mut s, id, p), None, "{p}");
+        id += 1;
+    }
+    s.nodes.borrow_mut().calls.clear();
+    assert_eq!(
+        refused(&mut s, id, &extra[DEVICES_MAX - 2]),
+        Some(Errno(24)),
+        "a device past the cap"
+    );
+    assert!(s.node_calls().is_empty(), "a node past the cap was opened");
+    // a closed device makes room again
+    let _ = s.holder.serve(Request::CloseDevice { device: 10 }, now);
+    assert_eq!(refused(&mut s, id, &extra[DEVICES_MAX - 2]), None);
 }
 
 /// Input on the tty, as after another program changed the VT's modes,

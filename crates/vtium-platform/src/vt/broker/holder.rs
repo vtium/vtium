@@ -48,6 +48,14 @@ use crate::vt::{Console, KernelVt, Tty, Vt, VtEvent};
 /// A drawer that has not answered by then loses the devices all the same.
 pub const RELEASE_BOUND: Duration = Duration::from_millis(crate::bounds::RELEASE_BOUND_MS as u64);
 
+/// The most devices the broker holds for the drawer at once: its cards,
+/// its framebuffers and its input devices together. A machine has a few
+/// cards and seldom more than a few dozen input devices. The cap keeps a
+/// drawing process that has been taken over from making the broker hold
+/// copies until the broker runs out of descriptors, which would stop it
+/// from starting sessions and helpers.
+pub const DEVICES_MAX: usize = 128;
+
 /// The broker's calls on the device nodes, so the tests can record them.
 pub(crate) trait Nodes {
     /// Opens the node at `path` for the drawer, once it passes the seat's
@@ -271,12 +279,21 @@ impl<C: Console, N: Nodes> Holder<C, N> {
     /// the drawer asks again after the next acquire.
     /// An input device whose open at the last acquire failed keeps its id
     /// with no copy, and opens again under that id.
+    /// A node the broker holds under another id is refused `EEXIST`, and
+    /// past [`DEVICES_MAX`] devices one more is refused `EMFILE`, so the
+    /// broker holds one copy of each node and a bounded number in all.
     fn open(&mut self, device: u32, path: DevicePath) -> io::Result<OwnedFd> {
         if let Some(held) = self.devices.get(&device) {
             if held.fd.is_some() || held.path != path {
                 return Err(io::Error::from(rustix::io::Errno::EXIST));
             }
             self.devices.remove(&device);
+        }
+        if self.devices.values().any(|held| held.path == path) {
+            return Err(io::Error::from(rustix::io::Errno::EXIST));
+        }
+        if self.devices.len() >= DEVICES_MAX {
+            return Err(io::Error::from(rustix::io::Errno::MFILE));
         }
         let (kind, fd) = self.nodes.open(Path::new(path.as_str()), &self.seat)?;
         if kind == DeviceKind::Input && !self.drawers() {
