@@ -2008,16 +2008,15 @@ impl<F: Face> Renderer<F> {
     #[cfg(feature = "images")]
     fn plan_pictures(&mut self, frame: &Frame<'_>, g: &Grid) {
         #[cfg(feature = "scroll-pan")]
-        let placements = match self.placements_above(frame, g) {
-            true => self.ring.placements(),
-            false => frame.placements(),
-        };
+        let (placements, above) = Self::placements_above(frame, g);
         #[cfg(not(feature = "scroll-pan"))]
-        let placements = frame.placements();
+        let (placements, above) = (frame.placements(), 0);
         let cells = &mut self.cells;
         self.compose
             .pictures
-            .damage(placements, (g.cols, g.rows), |c, r| cells.stamp(c, r));
+            .damage(placements, (g.cols, g.rows), above, |c, r| {
+                cells.stamp(c, r)
+            });
         let l = self.layout;
         let grid_px = (
             int(g.cols).saturating_mul(l.cw),
@@ -2030,7 +2029,7 @@ impl<F: Face> Renderer<F> {
         let g = *g;
         let pictures = &mut self.compose.pictures;
         pictures.display(l.width, l.height, l.orientation);
-        pictures.plan(placements, cell, grid_px, g.rows, |a| {
+        pictures.plan(placements, cell, grid_px, g.rows, above, |a| {
             l.area(&g, a.x, a.y, a.w, a.h)
         });
     }

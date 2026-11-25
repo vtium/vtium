@@ -79,9 +79,11 @@ struct Drawn {
 }
 
 impl Drawn {
-    fn of(p: &FramePlacement) -> Drawn {
+    /// `p` as drawn on a grid that holds `above` rows above the frame's
+    /// row 0.
+    fn of(p: &FramePlacement, above: i64) -> Drawn {
         Drawn {
-            row: p.row,
+            row: p.row.saturating_add(above),
             col: p.col,
             cols: p.cols,
             rows: p.rows,
@@ -220,8 +222,16 @@ struct Geometry {
 /// A placement's pixel values are in the cell it was made in, and a value
 /// `m` measured from the grid's origin lands at `floor(m * cell / made)`,
 /// so the pieces of one picture meet with no gap and no overlap at any
-/// cell size (ADR-1100 D8, "A cell size change").
-fn geometry(p: &FramePlacement, (cw, ch): (u32, u32), (gw, gh): (i64, i64)) -> Option<Geometry> {
+/// cell size (ADR-1100 D8, "A cell size change"). The grid holds `above`
+/// rows above the frame's row 0, so the placement's row counts from the
+/// grid's top `above` rows further down.
+fn geometry(
+    p: &FramePlacement,
+    (cw, ch): (u32, u32),
+    (gw, gh): (i64, i64),
+    above: i64,
+) -> Option<Geometry> {
+    let row = p.row.saturating_add(above);
     let (mw, mh) = (i64::from(p.cell_width), i64::from(p.cell_height));
     let (iw, ih) = (p.image_width, p.image_height);
     let pixels = u64::from(iw).checked_mul(u64::from(ih))?;
@@ -254,7 +264,7 @@ fn geometry(p: &FramePlacement, (cw, ch): (u32, u32), (gw, gh): (i64, i64)) -> O
     let mx = i64::from(p.col)
         .saturating_mul(mw)
         .saturating_add(i64::from(p.x));
-    let my = p.row.saturating_mul(mh).saturating_add(i64::from(p.y));
+    let my = row.saturating_mul(mh).saturating_add(i64::from(p.y));
     let (vx, vw) = span(mx, mx.saturating_add(i64::from(p.width)), cw, mw);
     let (vy, vh) = span(my, my.saturating_add(i64::from(p.height)), ch, mh);
     let visible = Area {
@@ -265,7 +275,7 @@ fn geometry(p: &FramePlacement, (cw, ch): (u32, u32), (gw, gh): (i64, i64)) -> O
     };
     let in_box = Area {
         x: i64::from(p.col).saturating_mul(cw),
-        y: p.row.saturating_mul(ch),
+        y: row.saturating_mul(ch),
         w: i64::from(p.cols).saturating_mul(cw),
         h: i64::from(p.rows).saturating_mul(ch),
     };
@@ -281,7 +291,7 @@ fn geometry(p: &FramePlacement, (cw, ch): (u32, u32), (gw, gh): (i64, i64)) -> O
     let ox = i64::from(p.col)
         .saturating_mul(mw)
         .saturating_add(p.offset_x);
-    let oy = p.row.saturating_mul(mh).saturating_add(p.offset_y);
+    let oy = row.saturating_mul(mh).saturating_add(p.offset_y);
     let (x, w) = span(ox, ox.saturating_add(dw), cw, mw);
     let (y, h) = span(oy, oy.saturating_add(dh), ch, mh);
     let pic = Area { x, y, w, h };
@@ -323,7 +333,7 @@ pub fn placed_picture(
     cell: (u32, u32),
     (gw, gh): (u32, u32),
 ) -> Option<PlacedPicture> {
-    let g = geometry(p, cell, (i64::from(gw), i64::from(gh)))?;
+    let g = geometry(p, cell, (i64::from(gw), i64::from(gh)), 0)?;
     let (sx, sy, sw, sh) = g.src;
     let (pw, ph) = (u32::try_from(g.pic.w).ok()?, u32::try_from(g.pic.h).ok()?);
     let src = Source {
@@ -418,16 +428,20 @@ impl Pictures {
     /// of a grid `cols` by `rows`, of the old and the new box of every
     /// placement that arrived, left or changed, goes to `stamp`. A picture
     /// that moved or changed redraws only what it covers, so a pane whose
-    /// picture stayed is not drawn again (issue #30).
+    /// picture stayed is not drawn again (issue #30). The grid holds
+    /// `above` rows above the frame's row 0, the rows of history that a
+    /// build with `scroll-pan` draws above the screen, so each placement's
+    /// row counts from the grid's top that many rows further down.
     pub(crate) fn damage(
         &mut self,
         placements: &[FramePlacement],
         (cols, rows): (usize, usize),
+        above: i64,
         mut stamp: impl FnMut(usize, usize),
     ) {
         let mut now = BTreeMap::new();
         for p in placements {
-            now.insert(p.key, Drawn::of(p));
+            now.insert(p.key, Drawn::of(p, above));
         }
         let mut cells = |d: &Drawn| {
             let r0 = d.row.max(0);
@@ -459,14 +473,16 @@ impl Pictures {
 
     /// Plans the frame's pictures, in the order `placements` hands them,
     /// for a renderer of cell `cell` on a grid `grid` pixels wide and tall
-    /// of `rows` rows; `display` takes an area of the grid's pixels to the
-    /// display's. A copy a placement shows is kept for the frame.
+    /// of `rows` rows, which holds `above` rows above the frame's row 0
+    /// ([`Pictures::damage`]); `display` takes an area of the grid's pixels
+    /// to the display's. A copy a placement shows is kept for the frame.
     pub(crate) fn plan(
         &mut self,
         placements: &[FramePlacement],
         cell: (u32, u32),
         grid: (i64, i64),
         rows: usize,
+        above: i64,
         display: impl Fn(Area) -> Area,
     ) {
         self.copies.begin_frame();
@@ -474,7 +490,7 @@ impl Pictures {
         let turn = turn(self.orientation);
         let mut spans = Vec::new();
         for p in placements {
-            let Some(g) = geometry(p, cell, grid) else {
+            let Some(g) = geometry(p, cell, grid, above) else {
                 continue;
             };
             let size = (
@@ -910,8 +926,8 @@ mod tests {
                 kept.display(1000, 1000, o);
                 let mut alone = Pictures::new();
                 alone.display(0, 0, o);
-                kept.plan(&placed, cell, grid, 4, display(o, grid));
-                alone.plan(&placed, cell, grid, 4, display(o, grid));
+                kept.plan(&placed, cell, grid, 4, 0, display(o, grid));
+                alone.plan(&placed, cell, grid, 4, 0, display(o, grid));
                 let (a, b) = (lines(&mut kept), lines(&mut alone));
                 assert!(!a.is_empty());
                 assert_eq!(a, b, "{o:?} at {cell:?}");

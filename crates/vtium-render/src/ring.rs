@@ -313,21 +313,9 @@ pub(crate) struct Ring {
     /// How many of the rows the spare lines show existed in the frame
     /// planned last.
     existed: Option<usize>,
-    /// The frame's pictures with their rows counted on the grid that
-    /// reaches above the screen, kept between frames so that a frame
-    /// allocates no new list.
-    #[cfg(feature = "images")]
-    placements: Vec<vtium_image::FramePlacement>,
 }
 
 impl Ring {
-    /// The pictures of the frame being planned, their rows counted on the
-    /// grid that reaches above the screen ([`Renderer::placements_above`]).
-    #[cfg(feature = "images")]
-    pub(crate) fn placements(&self) -> &[vtium_image::FramePlacement] {
-        &self.placements
-    }
-
     /// The frame planned next is drawn on the CPU path, with the rows of
     /// history above the screen.
     pub(crate) fn draw_above(&mut self) {
@@ -1221,29 +1209,22 @@ impl<F: Face> Renderer<F> {
         ))
     }
 
-    /// Fills the ring's list of the frame's pictures ([`Ring::placements`])
-    /// with their rows counted on `g`, which reaches above the screen: the
-    /// pictures on every row the frame holds, whole, when it holds rows
-    /// beyond the screen, or the screen's. The list is kept between frames,
-    /// so a frame allocates no new one. Returns false, and leaves the list
-    /// as it is, on a grid of the screen's rows alone.
+    /// The frame's pictures that `g` shows, and how many rows `g` holds
+    /// above the frame's row 0, which the pictures' rows count from: on a
+    /// grid that reaches above the screen, the pictures on every row the
+    /// frame holds, whole, when it holds rows beyond the screen, or else
+    /// the screen's. The list is the frame's own, so nothing is copied.
     #[cfg(feature = "images")]
-    pub(super) fn placements_above(&mut self, frame: &Frame<'_>, g: &Grid) -> bool {
-        if g.above == 0 {
-            return false;
+    pub(super) fn placements_above<'a>(
+        frame: &'a Frame<'_>,
+        g: &Grid,
+    ) -> (&'a [vtium_image::FramePlacement], i64) {
+        let above = i64::try_from(g.above).unwrap_or(i64::MAX);
+        let beyond = frame.rows_above().saturating_add(frame.rows_below()) > 0;
+        match (above, beyond) {
+            (0, _) | (_, false) => (frame.placements(), above),
+            _ => (frame.placements_beyond(), above),
         }
-        let list = match frame.rows_above().saturating_add(frame.rows_below()) {
-            0 => frame.placements(),
-            _ => frame.placements_beyond(),
-        };
-        let by = i64::try_from(g.above).unwrap_or(i64::MAX);
-        let shifted = &mut self.ring.placements;
-        shifted.clear();
-        shifted.extend(list.iter().map(|p| vtium_image::FramePlacement {
-            row: p.row.saturating_add(by),
-            ..p.clone()
-        }));
-        true
     }
 
     /// How many rows of history above the screen a frame of a grid of
