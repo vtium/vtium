@@ -38,11 +38,14 @@ from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 # screen, the image ones included (t3_evaluate.IMAGE_SCREENS), so its
 # console is built with images ("tree_features"). The five default variants
 # build it with scroll-pan too, as the packages do, so their goldens show
-# the rows of history above the screen in the spare lines above the grid
-# (ADR-1310, Verification, "scroll-draw"). Every variant's cases are
-# judged by the goldens in goldens/VARIANT/, but those of a variant judged
-# by another's goldens (t3_evaluate.GOLDENS_OF) and those of a variant
-# judged another way ("verdict").
+# the rows of history above the screen in the spare lines above the grid.
+# Every variant's cases are judged by the goldens in goldens/VARIANT/, but
+# those of a variant judged by another's goldens (t3_evaluate.GOLDENS_OF)
+# and those of a variant judged another way ("verdict").
+#
+# References:
+# - ADR-1310, Verification, "scroll-draw": the default variants build with
+#   scroll-pan, as the packages do.
 # The screens the frit variants draw: Latin text the frit's font holds, and
 # CJK it lacks, which the built-in unifont draws in its place (#141); cjk
 # last, as vt-restore compares with it.

@@ -193,7 +193,10 @@ pub(crate) const BOUNDS: [Bound; 19] = [
 ];
 
 /// Rows of the scrollback above the screen that a frame asks for at
-/// least: ADR-1310 D2's K.
+/// least.
+///
+/// References:
+/// - ADR-1310 D2: this bound is K, 4 rows on each side, fixed.
 #[cfg(feature = "scroll-pan")]
 pub(crate) const OVERSCAN_ROWS: usize = OVERSCAN.value;
 
