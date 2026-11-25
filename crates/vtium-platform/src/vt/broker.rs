@@ -150,8 +150,19 @@ impl Shared {
                 State::Releasing => self.back_owed = true,
             },
             Order::Device { device, opened } => match (opened, fd) {
-                (Ok(()), Some(fd)) => {
+                // an input device opened anew at an acquire, under an id
+                // the drawer holds
+                (Ok(()), Some(fd)) if self.ids.values().any(|&id| id == device) => {
                     self.fresh.insert(device, fd);
+                }
+                // The answer to an open whose call gave up: the drawer
+                // dropped the id, but the broker still holds its copy, so
+                // the drawer tells it to let the device go.
+                (Ok(()), Some(_)) => {
+                    log::debug!(target: "vt", "vtium's root process opened device {device} after the drawing process stopped waiting, so the drawing process closes it");
+                    if let Err(e) = self.send(&Request::CloseDevice { device }) {
+                        log::debug!(target: "vt", "cannot tell vtium's root process to close device {device}: {e}");
+                    }
                 }
                 (Err(e), _) => {
                     log::debug!(target: "vt", "vtium's root process could not open device {device} again: error {}", e.0);

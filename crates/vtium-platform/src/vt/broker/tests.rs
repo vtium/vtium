@@ -595,6 +595,31 @@ fn file_of(remote: &Remote, path: &'static str) -> Option<u64> {
     remote.with(move |s| s.nodes.borrow().files.get(Path::new(path)).copied())
 }
 
+/// A device the broker opened after the drawer's call for it gave up is
+/// let go: the drawer holds no id for it, so it sends the broker
+/// `CloseDevice`, and the broker revokes its copy and closes it.
+#[test]
+fn a_device_opened_after_its_call_gave_up_is_closed() {
+    let (mut vt, courier, remote) = drawer(VT);
+    assert_eq!(events(&mut vt), [VtEvent::Acquired]);
+    // a request whose call gave up before the broker answered it
+    courier
+        .send(&open(42, MOUSE))
+        .unwrap_or_else(|e| panic!("the request goes out: {e}"));
+    remote.with(|_| ());
+    assert_eq!(deliver(&courier, &mut vt), []);
+    let (calls, requests) = remote.with(|s| (s.node_calls(), s.requests.clone()));
+    assert_eq!(
+        calls,
+        [
+            NodeCall::Open(PathBuf::from(MOUSE)),
+            NodeCall::Revoke(PathBuf::from(MOUSE)),
+        ],
+        "the late device is still held"
+    );
+    assert_eq!(requests.last(), Some(&Request::CloseDevice { device: 42 }));
+}
+
 /// The drawer's backend follows the broker: `Back` is the acquire, a
 /// release is acknowledged with `Released` once the owner says so, and the
 /// broker then lets the devices go; `Back` after it is the next acquire.

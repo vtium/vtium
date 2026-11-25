@@ -633,10 +633,40 @@ impl App {
                     root.exited(helper, status);
                 }
             }
+            // A session or a helper that the root process started reaches
+            // this arm only after the call that asked for it gave up, since
+            // a call takes its own answer. Nothing in this process holds
+            // what came, but the root process still does, so this process
+            // tells it to let the session or the helper go.
+            Order::Pty {
+                console,
+                opened: Ok(()),
+            } => {
+                drop(fd);
+                self.let_go(&Request::CloseSession { console });
+            }
+            Order::Helper {
+                helper,
+                started: Ok(()),
+            } => {
+                drop(fd);
+                self.let_go(&Request::StopHelper { helper });
+            }
             other => log::debug!(
                 target: "broker",
                 "vtium's drawing process ignores the order {other:?}"
             ),
+        }
+    }
+
+    /// Asks the root process to close the session or stop the helper in
+    /// `request`, which it started after this process stopped waiting.
+    fn let_go(&self, request: &Request) {
+        log::debug!(target: "broker", "vtium's root process answered after the drawing process stopped waiting, so the drawing process sends {request:?}");
+        if let Some(courier) = &self.broker
+            && let Err(e) = courier.send(request)
+        {
+            log::warn!(target: "broker", "vtium cannot ask its root process to let a late session or helper go: {e}");
         }
     }
 }
@@ -1314,6 +1344,62 @@ mod tests {
         let events: Vec<VtEvent> = app.vt.events().collect();
         assert!(events.contains(&VtEvent::Hangup), "{events:?}");
         drop((app, lp));
+    }
+
+    /// A session and a helper that the root process started after the
+    /// drawing process's calls for them gave up are let go: nothing in
+    /// this process holds them, so it tells the root process to close the
+    /// session and stop the helper.
+    #[test]
+    fn a_session_and_a_helper_started_after_their_calls_gave_up_are_let_go() {
+        let (broker, theirs) = Link::pair().unwrap();
+        let (lp, mut app) = seat_with(&[], None, no_fonts());
+        app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
+            .unwrap();
+        let console = console_ref("main", 4).unwrap();
+        let (master, _slave) = rustix::pipe::pipe().unwrap();
+        let (socket, _helper) = rustix::pipe::pipe().unwrap();
+        broker
+            .order(
+                &Order::Pty {
+                    console: console.clone(),
+                    opened: Ok(()),
+                },
+                Some(master.as_fd()),
+            )
+            .unwrap();
+        broker
+            .order(
+                &Order::Helper {
+                    helper: 9,
+                    started: Ok(()),
+                },
+                Some(socket.as_fd()),
+            )
+            .unwrap();
+        // refusals carry nothing to let go
+        broker
+            .order(
+                &Order::Helper {
+                    helper: 10,
+                    started: Err(Errno(13)),
+                },
+                None,
+            )
+            .unwrap();
+        app.take_orders();
+        let mut asked = Vec::new();
+        while let Got::Message(Ok(request)) = broker.next_request().unwrap() {
+            asked.push(request);
+        }
+        assert_eq!(
+            asked,
+            [
+                Request::CloseSession { console },
+                Request::StopHelper { helper: 9 },
+            ]
+        );
+        drop((app, lp, broker));
     }
 
     #[test]
