@@ -456,20 +456,27 @@ impl Pan {
                     top + i64::from(shown) - 1 + i64::from(k)
                 }
             }));
+        let on_screen = |place: u32| {
+            let lines = Write {
+                line: place * ch,
+                lines: ch,
+                strip: false,
+            };
+            lines.meets(src_y, g.height) || before.is_some_and(|y| lines.meets(y, g.height))
+        };
         for row in order.collect::<Vec<_>>() {
             let (slot, twin) = self.ring.places(row);
-            for place in std::iter::once(slot).chain(twin) {
-                if self.holds(buffer, place, row, ch) {
-                    continue;
-                }
-                let lines = Write {
-                    line: place * ch,
-                    lines: ch,
-                    strip: false,
-                };
-                let in_view = lines.meets(src_y, g.height)
-                    || before.is_some_and(|y| lines.meets(y, g.height));
-                if self.ahead && in_view {
+            let places = std::iter::once(slot).chain(twin);
+            // A row ahead whose slot or twin lies in a window on screen
+            // shares its place in the ring with a row that window shows,
+            // so drawing it would only make the pan draw that row again.
+            // The ring has no room for it yet.
+            let ahead_of_view = !(top..top + i64::from(shown)).contains(&row);
+            if ahead_of_view && places.clone().any(on_screen) {
+                continue;
+            }
+            for place in places {
+                if self.holds(buffer, place, row, ch) || (self.ahead && on_screen(place)) {
                     continue;
                 }
                 c += self.draw(pattern, g, buffer, buf, stride, place, row);

@@ -545,29 +545,32 @@ fn with_drawing_ahead_no_row_is_written_inside_the_windows_on_screen() {
 /// the rows each buffer holds ahead of the view at the end, at their slots
 /// and their twins'. This holds while a buffer's view moves less than a
 /// screen between two of its frames. A faster scroll skips rows in each
-/// buffer that drawing ahead still draws there.
+/// buffer that drawing ahead still draws there. With no spare rows the ring
+/// has no room for rows ahead, and drawing ahead draws what the pan draws.
 #[test]
 fn drawing_ahead_draws_no_more_rows_than_drawing_on_entry() {
     for buffers in 1..=3 {
         for (unit, speed) in [(Unit::Rows, 1), (Unit::Rows, 2), (Unit::Pixels, 4)] {
             let places = steps(EVEN, unit.lines(speed, EVEN), 300);
-            let rows = |ahead| -> usize {
-                pan_writes(EVEN, ahead, 20, buffers, unit, &places)
+            let rows = |ahead, spare| -> usize {
+                pan_writes(EVEN, ahead, spare, buffers, unit, &places)
                     .iter()
                     .map(|(_, w)| w.len())
                     .sum()
             };
-            let (on_entry, ahead) = (rows(false), rows(true));
             let per_frame = (unit.lines(speed, EVEN) as usize).div_ceil(6);
             if buffers * per_frame >= EVEN.rows() as usize {
                 continue;
             }
             let start = buffers * 2 * (buffers * per_frame + MARGIN as usize);
-            assert!(
-                ahead <= on_entry + start,
-                "{buffers} buffers, {speed} {}: {ahead} rows drawn ahead against {on_entry}",
-                unit.name()
-            );
+            for spare in [0, 20] {
+                let (on_entry, ahead) = (rows(false, spare), rows(true, spare));
+                assert!(
+                    ahead <= on_entry + start,
+                    "{buffers} buffers, {speed} {}, {spare} spare rows: {ahead} rows against {on_entry}",
+                    unit.name()
+                );
+            }
         }
     }
 }
