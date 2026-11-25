@@ -491,6 +491,12 @@ impl<C: Console, N: Nodes> Holder<C, N> {
         self.releasing
     }
 
+    /// A [`crate::vt::Restore`] for the broker's panic hook, which puts the
+    /// VT back where a panic runs no drop.
+    pub fn restorer(&self) -> io::Result<crate::vt::Restore<C>> {
+        self.vt.restorer()
+    }
+
     /// Whether the VT hung up, so the drawer must stop.
     pub fn hung_up(&self) -> bool {
         self.hung_up
