@@ -10,7 +10,14 @@
 //! Each screen is drawn once with the default configuration and again with
 //! each way ADR-1300 says changes speed and never pixels: a cache of no
 //! glyphs, the performance profile's budgets, and glyphs stored at 8 bits
-//! and at their drawn size. Every one must draw the same bytes.
+//! and at their drawn size. Every one must draw the same bytes. On the CPU
+//! path, each screen is drawn twice more in the default configuration,
+//! with every frame shown by the pan over buffers taller than the screen
+//! and by the copy from a ring in memory, and each must show the bytes the
+//! redraw shows.
+//!
+//! References:
+//! - ADR-1310 D6: the pan and the copy show what a redraw shows.
 
 use std::sync::Arc;
 
@@ -762,6 +769,18 @@ fn configs(screen: &Screen) -> [(&'static str, Config); 4] {
     ]
 }
 
+/// How a display shows the frames drawn into it, as `scroll-draw` sets
+/// it in the console.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Way {
+    /// Each changed cell drawn again at its place on the screen.
+    Redraw,
+    /// A window over buffers taller than the screen, moved by a scroll.
+    Pan,
+    /// A window copied from a ring of drawn rows in memory.
+    Copy,
+}
+
 /// What draws a screen's frames for one configuration: the CPU path
 /// ([`Cpu`]), or the GPU path (`crate::gpu`).
 pub trait Paint {
@@ -773,6 +792,19 @@ pub trait Paint {
         make_font: &M,
         config: Config,
     ) -> Result<Image, String>;
+
+    /// Draws `screen` as [`Paint::paint`] does, each frame shown `way`'s
+    /// way. `None` from a painter that shows frames only the redraw way,
+    /// as the GPU path does.
+    fn paint_way<F: Face, M: Fn() -> Font<F>>(
+        &mut self,
+        _: &Screen,
+        _: &M,
+        _: Config,
+        _: Way,
+    ) -> Option<Result<Image, String>> {
+        None
+    }
 }
 
 /// The CPU path, as the console draws on it: each frame into a buffer in
@@ -786,7 +818,17 @@ impl Paint for Cpu {
         make_font: &M,
         config: Config,
     ) -> Result<Image, String> {
-        draw_config(screen, make_font, config)
+        draw_config(screen, make_font, config, Way::Redraw)
+    }
+
+    fn paint_way<F: Face, M: Fn() -> Font<F>>(
+        &mut self,
+        screen: &Screen,
+        make_font: &M,
+        config: Config,
+        way: Way,
+    ) -> Option<Result<Image, String>> {
+        Some(draw_config(screen, make_font, config, way))
     }
 }
 
@@ -1058,6 +1100,7 @@ fn draw_with<F: Face>(
     painter: &mut impl Paint,
 ) -> Result<Image, String> {
     let mut first: Option<(&str, Image)> = None;
+    let [(_, default), ..] = configs(screen);
     for (name, config) in configs(screen) {
         let img = painter.paint(screen, &font, config)?;
         match &first {
@@ -1070,31 +1113,53 @@ fn draw_with<F: Face>(
             }
         }
     }
-    first
-        .map(|(_, img)| img)
-        .ok_or_else(|| "no configuration".to_owned())
+    let (base, want) = first.ok_or_else(|| "no configuration".to_owned())?;
+    for (name, way) in [("the pan", Way::Pan), ("the copy", Way::Copy)] {
+        if let Some(img) = painter.paint_way(screen, &font, default, way)
+            && img? != want
+        {
+            return Err(format!(
+                "shown by {name}, it differs from the {base} drawing's redraw"
+            ));
+        }
+    }
+    Ok(want)
 }
 
-/// A display of two buffers, each knowing the frame it holds.
+/// A display of two buffers, each knowing the frame it holds, which shows
+/// its frames `way`'s way: over the pan, each buffer is taller than the
+/// screen and shows the window its last frame was drawn for.
 struct Display {
     buffers: [Canvas; 2],
     /// The swap after which each buffer was shown, if it has been.
     shown: [Option<u64>; 2],
     back: usize,
     swaps: u64,
+    way: Way,
+    /// The screen's size, and where the window each buffer shows starts.
+    screen: (u32, u32),
+    windows: [u32; 2],
 }
 
 impl Display {
-    fn new(width: u32, height: u32) -> Display {
+    /// A display of `width` by `height` that `renderer` draws `way`'s way.
+    fn new<F: Face>(width: u32, height: u32, way: Way, renderer: &Renderer<F>) -> Display {
+        let (w, h) = match way {
+            Way::Pan => renderer.pan_buffer_size(),
+            Way::Redraw | Way::Copy => (width, height),
+        };
         // new memory holds anything: what is drawn must not depend on it
         Display {
             buffers: [
-                Canvas::new(width, height, 0x00a5_5a3c),
-                Canvas::new(width, height, 0x003c_5aa5),
+                Canvas::new(w, h, 0x00a5_5a3c),
+                Canvas::new(w, h, 0x003c_5aa5),
             ],
             shown: [None; 2],
             back: 0,
             swaps: 0,
+            way,
+            screen: (width, height),
+            windows: [0; 2],
         }
     }
 
@@ -1107,7 +1172,9 @@ impl Display {
     /// Draws the terminal's frame into the back buffer and swaps when the
     /// frame drew anything, as a display does. The pointer, when `arrow`
     /// places it, takes the shape the terminal names, as the console
-    /// hands it to the renderer before each draw.
+    /// hands it to the renderer before each draw. The pan and the copy
+    /// are told the scroll the frame's record states, as the console tells
+    /// them.
     fn frame<F: Face>(
         &mut self,
         r: &mut Renderer<F>,
@@ -1122,9 +1189,23 @@ impl Display {
         let age = self.age();
         let drew = {
             let frame = term.screen().frame(term.palette(), *since);
-            !r.draw(&frame, &mut self.buffers[self.back], age, &state)
-                .damage
-                .is_empty()
+            let scrolled = frame.scrolled();
+            let whole = scrolled.is_none();
+            let n = scrolled.and_then(|n| i64::try_from(n).ok()).unwrap_or(0);
+            let buffer = &mut self.buffers[self.back];
+            match self.way {
+                Way::Redraw => !r.draw(&frame, buffer, age, &state).damage.is_empty(),
+                Way::Copy => !r
+                    .draw_copy(&frame, buffer, age, &state, n, whole)
+                    .damage
+                    .is_empty(),
+                Way::Pan => {
+                    let (drawn, src) = r.draw_pan(&frame, buffer, age, &state, n, whole);
+                    let drew = !drawn.damage.is_empty();
+                    self.windows[self.back] = src;
+                    drew
+                }
+            }
         };
         *since = term.screen_mut().checkpoint();
         if drew {
@@ -1134,9 +1215,31 @@ impl Display {
         }
     }
 
-    /// The buffer shown last.
-    fn front(&self) -> &Canvas {
-        &self.buffers[self.back ^ 1]
+    /// What buffer `b` shows: its window of the screen's size.
+    fn showing(&self, b: usize) -> Canvas {
+        let buffer = &self.buffers[b];
+        if self.way != Way::Pan {
+            return buffer.clone();
+        }
+        let (w, h) = self.screen;
+        let turned = buffer.width() > w;
+        let (x0, y0) = if turned {
+            (self.windows[b], 0)
+        } else {
+            (0, self.windows[b])
+        };
+        let (bw, at) = (buffer.width() as usize, |v: u32| v as usize);
+        let mut shown = Canvas::new(w, h, 0);
+        for y in 0..h {
+            let start = at(y0 + y) * bw + at(x0);
+            vtium_render::Target::write(&mut shown, 0, y, &buffer.pixels()[start..start + at(w)]);
+        }
+        shown
+    }
+
+    /// What the screen shows: the buffer shown last.
+    fn front(&self) -> Canvas {
+        self.showing(self.back ^ 1)
     }
 }
 
@@ -1376,13 +1479,14 @@ fn draw_config<F: Face>(
     screen: &Screen,
     make_font: &impl Fn() -> Font<F>,
     config: Config,
+    way: Way,
 ) -> Result<Image, String> {
     let font = make_font();
     let config = screen_config(screen, config);
     let made = picture_cell(screen, font.cell());
     let (mut term, w, h) = prepare(screen, &font)?;
-    let mut display = Display::new(w, h);
     let mut r = renderer(screen, font, (w, h), config)?;
+    let mut display = Display::new(w, h, way, &r);
     let mut since = Age::NEVER;
     display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
     if let Some(next) = screen.next {
@@ -1393,26 +1497,25 @@ fn draw_config<F: Face>(
         display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
         later(screen, &mut term, 3, made)?;
         display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
-        if display.buffers[0].pixels() != display.buffers[1].pixels() {
+        if display.showing(0).pixels() != display.showing(1).pixels() {
             return Err("the two buffers differ after the last frame".to_owned());
         }
-        let mut fresh = Display::new(w, h);
         let mut r2 = renderer(screen, make_font(), (w, h), config)?;
+        let mut fresh = Display::new(w, h, Way::Redraw, &r2);
         let mut never = Age::NEVER;
         fresh.frame(&mut r2, (&mut term, screen.phase, screen.arrow), &mut never);
         if fresh.front().pixels() != display.front().pixels() {
             return Err("the frames drawn in turn differ from a fresh draw".to_owned());
         }
     }
+    let mut front = display.front();
     if let Some(overlay) = console_overlay(screen)? {
-        let front = &mut display.buffers[display.back ^ 1];
         let grid = (screen.cols, screen.rows);
-        let drawn = overlay.draw(&r, grid, screen.orientation, front);
+        let drawn = overlay.draw(&r, grid, screen.orientation, &mut front);
         if drawn.is_empty() {
             return Err("the overlay drew nothing".to_owned());
         }
     }
-    let front = display.front();
     Image::from_xrgb(front.width(), front.height(), front.pixels())
         .ok_or_else(|| format!("a display of {w}x{h} pixels"))
 }

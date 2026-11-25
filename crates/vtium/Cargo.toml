@@ -38,6 +38,16 @@ filters = ["vtium-render/filters", "vtium-settings/filters"]
 # switching come from it; otherwise the kernel's VT, as without the
 # feature.
 libseat = ["vtium-platform/libseat"]
+# Faster scrolling on the CPU path: each display that the driver lets pan
+# keeps buffers taller than the screen and shows a scroll by moving the
+# window it shows, and any other display copies the window from a ring of
+# drawn rows in system memory. vtium.conf's `scroll-draw` chooses the way.
+# The minspec build leaves it out and draws every scroll again.
+#
+# References:
+# - ADR-1310 D6: the pan, the copy, and the feature that builds them.
+# - ADR-1401 D2: the tall buffer and the copy's ring.
+scroll-pan = ["vtium-render/scroll-pan", "vtium-platform/scroll-pan"]
 
 [dependencies]
 vtium-term.workspace = true

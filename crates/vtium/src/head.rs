@@ -191,6 +191,8 @@ pub struct Head {
     overlay_colors: crate::term::OverlayColors,
     /// What the head does when it loses its last display (ADR-1401 D8).
     pub(crate) when_display_lost: WhenDisplayLost,
+    /// How the head's displays draw a scroll, as `scroll-draw` asks.
+    pub(crate) scroll_draw: crate::term::ScrollDraw,
     /// When its sessions hang up, while it has no display.
     pub(crate) hangup_due: Option<Instant>,
     pub(crate) views: BTreeMap<(PathBuf, DisplayId), View>,
@@ -548,6 +550,7 @@ impl Head {
             brief_due: None,
             overlay_colors: crate::term::OverlayColors::configured(config),
             when_display_lost: WhenDisplayLost::Keep,
+            scroll_draw: crate::term::ScrollDraw::configured(config),
             hangup_due: None,
             views: BTreeMap::new(),
             colorterm: session::Colorterm::default(),

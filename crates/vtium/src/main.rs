@@ -517,6 +517,7 @@ mod tests {
             ("images", cfg!(feature = "images")),
             ("libseat", cfg!(feature = "libseat")),
             ("logind", cfg!(feature = "logind")),
+            ("scroll-pan", cfg!(feature = "scroll-pan")),
         ]
         .iter()
         .filter(|(_, on)| *on)
