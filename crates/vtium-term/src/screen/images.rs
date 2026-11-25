@@ -473,6 +473,119 @@ mod with {
             out
         }
 
+        /// The placements with a row in `lines`, which are the lines at
+        /// places `top` onward in reading order, in draw order. Each
+        /// placement's row is its box's top row, counted from the view's top
+        /// row, `above` lines below `top`, so a row above the view is
+        /// negative. `order` is the drawing order of
+        /// each of `lines`, top to bottom, in a build with the bidi
+        /// feature. The frame's capture of the rows beyond the screen reads
+        /// its pictures through this, the way
+        /// [`placements`](Self::placements) reads the view's.
+        ///
+        /// References:
+        /// - ADR-1310 D2, "What a row beyond the screen carries": the
+        ///   pictures placed on each row.
+        #[cfg(feature = "rows-beyond")]
+        pub(in crate::screen) fn placements_over(
+            &self,
+            lines: &[&Line],
+            top: usize,
+            above: usize,
+            #[cfg(feature = "bidi")] order: &crate::order::Order,
+        ) -> Vec<FramePlacement> {
+            if !self.images.has_placements() || lines.is_empty() {
+                return Vec::new();
+            }
+            let screen: Vec<LineKey> = lines.iter().map(|l| key(l)).collect();
+            let keys_above: Vec<LineKey> = if self.flags.alternate {
+                Vec::new()
+            } else {
+                (0..top)
+                    .rev()
+                    .take(self.images.reach())
+                    .filter_map(|i| self.scrollback.get(i).map(key))
+                    .collect()
+            };
+            let rows = Rows {
+                screen: &screen,
+                above: &keys_above,
+            };
+            // the lines below the last of `lines`, as far as a relative
+            // placement's root can reach
+            let end = top.saturating_add(lines.len());
+            let below: Vec<LineKey> = if self.flags.alternate {
+                Vec::new()
+            } else {
+                (end..)
+                    .map_while(|place| self.line_at(place))
+                    .take(self.images.reach_below())
+                    .map(key)
+                    .collect()
+            };
+            let mut runs = Vec::new();
+            if self.images.has_virtual(self.flags.alternate) {
+                let from = if self.flags.alternate { 0 } else { top };
+                let (mut carry, _) = placeholder::carry_from(self.rows_above(from), self.cols);
+                for line in lines {
+                    placeholder::runs(line, key(line), self.cols, &mut carry, &mut |r| {
+                        runs.push(r);
+                    });
+                }
+            }
+            #[cfg(feature = "bidi")]
+            {
+                let rows_of: std::collections::BTreeMap<LineKey, usize> =
+                    lines.iter().enumerate().map(|(y, l)| (key(l), y)).collect();
+                for run in &mut runs {
+                    let Some(r) = rows_of.get(&run.line).and_then(|&y| order.row(y)) else {
+                        continue;
+                    };
+                    let first = usize::try_from(run.col).unwrap_or(usize::MAX);
+                    let last = first.saturating_add(usize::try_from(run.cells).unwrap_or(0));
+                    if let Some(v) = (first..last).map(|c| r.visual_at(c)).min() {
+                        run.col = u32::try_from(v).unwrap_or(run.col);
+                    }
+                }
+            }
+            let drawn = Drawn {
+                screen: self,
+                view: lines,
+                top,
+                #[cfg(feature = "bidi")]
+                order: Some(order),
+            };
+            let mut out = self
+                .images
+                .frame_drawn(rows, &below, &runs, self.cols, &drawn);
+            out.retain_mut(|p| {
+                // an entry made from a placeholder run is placed by the
+                // runs above, and the store places a relative placement
+                // from where its root is drawn
+                if p.from_placeholder_run() || p.relative {
+                    return true;
+                }
+                let size = self.size_at(lines, top, p.row);
+                #[cfg(feature = "bidi")]
+                {
+                    if size.is_double() && !shown(p.col, size, self.cols) {
+                        return false;
+                    }
+                    if let Some(r) = self.order_at(order, lines.len(), top, p.row)
+                        && r.rtl
+                    {
+                        return mirror(p, &r, size);
+                    }
+                }
+                to_screen(p, size, self.cols)
+            });
+            let shift = i64::try_from(above).unwrap_or(i64::MAX);
+            for p in &mut out {
+                p.row = p.row.saturating_sub(shift);
+            }
+            out
+        }
+
         /// The runs a frame hands the store: those on the rows the view
         /// shows, read only while the shown buffer holds a virtual
         /// placement, since only a virtual placement draws through them.

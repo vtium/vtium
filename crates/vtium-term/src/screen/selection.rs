@@ -541,6 +541,36 @@ impl Screen {
             .collect()
     }
 
+    /// The columns the selection covers in each line at `places` in
+    /// reading order, by the rule of
+    /// [`selected_columns`](Self::selected_columns): each sized run it
+    /// touches whole, and both lines of a double-height pair alike. The
+    /// frame's capture of the rows beyond the screen reads the selection
+    /// of those rows through this. Empty while nothing is selected.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "What a row beyond the screen carries": the row's
+    ///   selection.
+    #[cfg(feature = "rows-beyond")]
+    pub(super) fn selected_columns_at(&self, places: Range<usize>) -> Vec<Range<usize>> {
+        let Some(span) = self.selected_span() else {
+            return Vec::new();
+        };
+        let runs = self.touched_runs(span);
+        let covered = |i: usize| self.selected_on(i, span, &runs);
+        places
+            .map(|i| {
+                let Some(other) = self.pair_place(i) else {
+                    return covered(i);
+                };
+                let (top, bottom) = (i.min(other), i.max(other));
+                Some(covered(top))
+                    .filter(|r| !r.is_empty())
+                    .unwrap_or_else(|| covered(bottom))
+            })
+            .collect()
+    }
+
     /// The selection's first and last cells, each as its line's place in
     /// reading order and a column. A first cell whose line has gone is the
     /// oldest line's first; a last cell whose line has gone is the end of

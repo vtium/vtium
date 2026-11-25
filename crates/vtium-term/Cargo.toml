@@ -31,3 +31,12 @@ images = ["dep:vtium-image"]
 # box-drawing tables and the bidirectional algorithm. The minspec build
 # carries none of it.
 bidi = ["dep:unicode-bidi"]
+# The rows beyond the screen: a frame can hold rows of the scrollback above
+# the screen and, while the view is scrolled back, rows below it, each with
+# its line id, so a renderer can draw them before they scroll into view.
+# vtium's `scroll-pan` turns it on. The minspec build carries none of it.
+#
+# References:
+# - ADR-1310 D2: which rows the capture holds and what each carries.
+# - ADR-1310 D7: one internal feature that scroll-pan and smooth-scroll share.
+rows-beyond = []
