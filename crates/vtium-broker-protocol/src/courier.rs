@@ -31,6 +31,17 @@ use crate::{Got, Link, Order, Refusal, Request};
 /// up on the answer, in milliseconds. The broker answers each request
 /// within a few milliseconds, so the bound only ends the wait for a broker
 /// that has hung.
+///
+/// The bound is on silence, not on the call's whole time: each order that
+/// arrives during the wait starts it again. The crate reads no clock,
+/// since time enters vtium only in vtium-platform and vtium-render, and a
+/// wait on silence needs none. So a broker that keeps sending other orders
+/// can hold a call open past 5,000 ms. The broker is vtium's own root
+/// process, and the orders it sends unasked are bounded: one exit for each
+/// session and helper, and a blank or wake.
+///
+/// References:
+/// - docs/architecture.md, "Determinism": where time enters vtium.
 pub const CALL_BOUND_MS: u32 = 5_000;
 
 /// An order and the descriptor that came with it.
@@ -91,7 +102,8 @@ impl Courier {
     /// meanwhile waits in the queue for [`Courier::next`].
     ///
     /// The wait fails with [`io::ErrorKind::TimedOut`] when nothing comes
-    /// to read for [`CALL_BOUND_MS`], and with
+    /// to read for [`CALL_BOUND_MS`], a bound on silence that each order
+    /// read starts again, and with
     /// [`io::ErrorKind::BrokenPipe`] when the broker has closed its socket.
     pub fn call(&self, request: &Request, matches: impl Fn(&Order) -> bool) -> io::Result<Arrived> {
         self.call_within(request, matches, CALL_BOUND_MS)
