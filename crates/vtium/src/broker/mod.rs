@@ -336,7 +336,7 @@ impl Processes {
         // Of several blanks and wakes still unsent, the last holds, as it
         // does for vtium in one process, so a flood of signals while the
         // drawer reads nothing keeps one order waiting.
-        if let Some(order) = self.signalled.borrow_mut().drain(..).last() {
+        if let Some(order) = self.signalled.borrow_mut().drain(..).next_back() {
             self.unasked
                 .retain(|o| !matches!(o, Order::Blank | Order::Wake));
             self.unasked.push_back(match order {
