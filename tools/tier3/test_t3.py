@@ -1730,6 +1730,30 @@ class VariantTest(unittest.TestCase):
         self.assertIn("found images not offered (T3-NO-SIXEL)", got["mpv-sixel"]["error"])
         self.assertIn("no benchmark window", got["tmux-2x2"]["error"])
 
+    def test_console_cell(self):
+        # The cell the console draws in is the one its last display line
+        # names. A late cell answer logs the display line again with the
+        # font's own cell, and a second console started later (another
+        # VT's) logs lines of its own, which do not count.
+        log = ("[    9.422219] vtium[759]: log: vtium Revision v0.1\n"
+               "[    9.615129] vtium[759]: Display Virtual-1 with backend [drm2d] "
+               "text renderer [cpu], cell size 8x19\n"
+               "[    9.639941] vtium[759]: the frit terminus's own 10x18 cell came after "
+               "the wait: it draws in it from the next frame\n"
+               "[    9.642988] vtium[759]: Display Virtual-1 with backend [drm2d] "
+               "text renderer [cpu], cell size 10x18\n"
+               "[   81.007692] vtium[1397]: log: vtium Revision v0.1\n"
+               "[   81.195906] vtium[1397]: Display Virtual-1 with backend [drm2d] "
+               "text renderer [cpu], cell size 8x16\n")
+        for text, want in [(log, [10, 18]), ("[    1.0] vtium[5]: started\n", None),
+                           ("Display a, cell size 8x16\n", [8, 16])]:
+            with tempfile.NamedTemporaryFile("w", delete=False) as f:
+                f.write(text)
+            try:
+                self.assertEqual(t3_scenario.console_cell(f.name), want, text)
+            finally:
+                os.unlink(f.name)
+
     def test_startup(self):
         # from the console's revision line to its display line, same process
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
