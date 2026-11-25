@@ -53,7 +53,7 @@
 
 use core::ops::Range;
 
-use crate::bounds::{COLUMNS_MAX, ROWS_MAX};
+use crate::bounds::{COLUMNS_MAX, ROWS_MAX, SCROLL_LOG};
 
 /// A point in a screen's change history. [`Age::NEVER`] is older than
 /// every mark, so a display that has never drawn sees everything changed.
@@ -63,14 +63,6 @@ pub struct Age(u64);
 impl Age {
     pub const NEVER: Self = Self(0);
 }
-
-/// The checkpoints the scroll record remembers the count at. A checkpoint
-/// takes an entry only when the count changed since the previous entry,
-/// so checkpoints taken while nothing scrolls cost none. 32 entries hold
-/// the ages of several displays with three buffers each through a steady
-/// stream of short scrolls; an age older than the oldest entry reads no
-/// count, and its display redraws every moved row, as without the record.
-pub(crate) const SCROLL_LOG: usize = 32;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct RowAge {
