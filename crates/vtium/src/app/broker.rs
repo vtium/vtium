@@ -206,9 +206,20 @@ impl crate::helper::Root for RootHelpers {
 #[cfg(feature = "images")]
 pub struct ImagesThroughRoot {
     helpers: Rc<RootHelpers>,
-    console: ConsoleRef,
+    serves: Serves,
     /// The root process has no image helper to start, as it answered once.
     none: bool,
+}
+
+/// What the helpers that an [`ImagesThroughRoot`] starts serve.
+#[cfg(feature = "images")]
+enum Serves {
+    /// One console's pictures, as the console's session's user.
+    Console(ConsoleRef),
+    /// A head's login picture, as the pre-login account, before any of the
+    /// head's sessions opens. The root process sets the helper's limits
+    /// itself, so this process names only the head.
+    Login(Head),
 }
 
 #[cfg(feature = "images")]
@@ -216,7 +227,16 @@ impl ImagesThroughRoot {
     pub fn new(helpers: Rc<RootHelpers>, console: ConsoleRef) -> ImagesThroughRoot {
         ImagesThroughRoot {
             helpers,
-            console,
+            serves: Serves::Console(console),
+            none: false,
+        }
+    }
+
+    /// The helpers of head `head`'s login picture.
+    pub fn login_picture(helpers: Rc<RootHelpers>, head: Head) -> ImagesThroughRoot {
+        ImagesThroughRoot {
+            helpers,
+            serves: Serves::Login(head),
             none: false,
         }
     }
@@ -260,11 +280,14 @@ impl image_helper::Launch for ImagesThroughRoot {
         max_bytes: u64,
         largest_file: u64,
     ) -> Result<Box<dyn image_helper::Process>, String> {
-        let kind = Helper::Image {
-            console: self.console.clone(),
-            max_bytes,
-            largest_file,
-            file,
+        let kind = match &self.serves {
+            Serves::Console(console) => Helper::Image {
+                console: console.clone(),
+                max_bytes,
+                largest_file,
+                file,
+            },
+            Serves::Login(head) => Helper::LoginPicture { head: head.clone() },
         };
         match self.helpers.start(kind) {
             Ok(launched) => Ok(Box::new(RootImage {
@@ -354,25 +377,32 @@ impl image_helper::Process for RootImage {
     }
 }
 
-/// What makes each console's image host under the privilege split: a
-/// host whose helpers vtium's root process at `root` starts for the
-/// console, so this process never starts one as its own account. A head
-/// whose name the protocol cannot carry gets a host that answers as with
-/// no helper.
+/// What makes each image host under the privilege split: a host whose
+/// helpers vtium's root process at `root` starts, for one console or for
+/// the head's login picture, so this process never starts one as its own
+/// account. A head whose name the protocol cannot carry gets a host that
+/// answers as with no helper.
 ///
 /// References:
 /// - ADR-1400 D4, "What the broker does": the broker starts each image
 ///   helper at the drawer's request and chooses its user.
+/// - ADR-1400 D4, the note of 2026-11-25 on the login picture: the broker
+///   starts the login picture's helper as the pre-login account.
 #[cfg(feature = "images")]
 fn images_through_root(root: Rc<RootHelpers>) -> crate::head::images::Helpers {
-    Rc::new(move |head, id| {
-        let host = match console_ref(head, id) {
-            Ok(console) => image_helper::ImageHost::launched(Box::new(ImagesThroughRoot::new(
-                Rc::clone(&root),
-                console,
-            ))),
+    use crate::head::images::Host;
+    Rc::new(move |head, host| {
+        let launch = match host {
+            Host::Console(id) => console_ref(head, id)
+                .map(|console| ImagesThroughRoot::new(Rc::clone(&root), console)),
+            Host::LoginPicture => {
+                head_ref(head).map(|head| ImagesThroughRoot::login_picture(Rc::clone(&root), head))
+            }
+        };
+        let host = match launch {
+            Ok(launch) => image_helper::ImageHost::launched(Box::new(launch)),
             Err(e) => {
-                log::warn!(target: "broker", "head {head}: console {id}: vtium starts no image helper: {e}");
+                log::warn!(target: "broker", "head {head}: {host:?}: vtium starts no image helper: {e}");
                 image_helper::ImageHost::new(None, None)
             }
         };
@@ -383,13 +413,21 @@ fn images_through_root(root: Rc<RootHelpers>) -> crate::head::images::Helpers {
 /// The protocol's name of head `head`'s console `id`, or an error for a
 /// head name the protocol cannot carry, which vtium.conf never gives.
 fn console_ref(head: &str, id: u64) -> io::Result<ConsoleRef> {
-    let head = Head::new(head).ok_or_else(|| {
+    Ok(ConsoleRef {
+        head: head_ref(head)?,
+        console: id,
+    })
+}
+
+/// The protocol's name of head `head`, or an error for a name the protocol
+/// cannot carry, which vtium.conf never gives.
+fn head_ref(head: &str) -> io::Result<Head> {
+    Head::new(head).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             "the head's name is not one vtium.conf allows",
         )
-    })?;
-    Ok(ConsoleRef { head, console: id })
+    })
 }
 
 /// The drawing process's courier to the root process at the other end
@@ -1071,6 +1109,29 @@ mod tests {
         assert_eq!(kinds, [image(1, true), image(2, false), image(3, false)]);
     }
 
+    /// Reads the root process's report of a helper's end, before the
+    /// socket closes, so the stand-in reads no reset.
+    fn until_helper_exit(courier: &Courier) {
+        loop {
+            match courier.next().unwrap() {
+                Got::Message(Ok((Order::HelperExit { .. }, _))) => break,
+                Got::Message(other) => panic!("{other:?}"),
+                Got::Closed => panic!("the root process closed"),
+                Got::Nothing => {
+                    let mut fds = [rustix::event::PollFd::new(
+                        courier,
+                        rustix::event::PollFlags::IN,
+                    )];
+                    let bound = rustix::event::Timespec {
+                        tv_sec: 30,
+                        tv_nsec: 0,
+                    };
+                    assert_eq!(rustix::event::poll(&mut fds, Some(&bound)).unwrap(), 1);
+                }
+            }
+        }
+    }
+
     /// Under the split, the hosts the app makes for its consoles start
     /// each image helper through the root process, for the head and the
     /// console the host was made for, and never as this process's account.
@@ -1085,7 +1146,7 @@ mod tests {
         app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
             .unwrap();
         let make = app.image_helpers.clone().unwrap();
-        let mut host = make("main", 3);
+        let mut host = make("main", crate::head::images::Host::Console(3));
         let picture = Picture {
             medium: Medium::Direct(vec![1, 2, 3]),
             offset: 0,
@@ -1110,27 +1171,8 @@ mod tests {
             host.send(&picture, &session).is_ok(),
             "the request went out"
         );
-        // the root process's report of the helper's end, read before the
-        // socket closes, so the stand-in reads no reset
         let courier = Rc::clone(app.broker.as_ref().unwrap());
-        loop {
-            match courier.next().unwrap() {
-                Got::Message(Ok((Order::HelperExit { .. }, _))) => break,
-                Got::Message(other) => panic!("{other:?}"),
-                Got::Closed => panic!("the root process closed"),
-                Got::Nothing => {
-                    let mut fds = [rustix::event::PollFd::new(
-                        &courier,
-                        rustix::event::PollFlags::IN,
-                    )];
-                    let bound = rustix::event::Timespec {
-                        tv_sec: 30,
-                        tv_nsec: 0,
-                    };
-                    assert_eq!(rustix::event::poll(&mut fds, Some(&bound)).unwrap(), 1);
-                }
-            }
-        }
+        until_helper_exit(&courier);
         drop((host, make, courier, app, lp));
         let console = console_ref("main", 3).unwrap();
         let seen: Vec<Request> = seen.join().unwrap();
@@ -1149,6 +1191,54 @@ mod tests {
                 },
                 Request::StopHelper { helper: 1 },
             ]
+        );
+    }
+
+    /// Under the split, the head's first display asks for the login
+    /// picture, and its helper starts through the root process as the
+    /// login picture's own kind, before the head's first session opens,
+    /// since the first login prompt waits for the picture.
+    #[cfg(feature = "images")]
+    #[test]
+    fn under_the_split_the_login_picture_starts_its_helper_through_the_root_process_first() {
+        let dir = std::env::temp_dir().join(format!("vtium-split-login-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("banner.png");
+        std::fs::write(&file, b"\x89PNG\r\n\x1a\nthe helper decodes it").unwrap();
+        let option = format!("--login-image={}", file.display());
+        let (broker, theirs) = Link::pair().unwrap();
+        let seen = helper_root(broker, vec![Ok(())], Status::Code(0));
+        let (lp, mut app) = seat_with(&[option.as_str()], None, no_fonts());
+        app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
+            .unwrap();
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let head = Head::new(app.heads.get(0).unwrap().name()).unwrap();
+        assert!(
+            app.heads.get(0).unwrap().login_image_waits(),
+            "the first login prompt does not wait for the picture"
+        );
+        let courier = Rc::clone(app.broker.as_ref().unwrap());
+        until_helper_exit(&courier);
+        drop((courier, app, lp));
+        let seen: Vec<Request> = seen.join().unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            seen.first(),
+            Some(&Request::StartHelper {
+                helper: 1,
+                kind: Helper::LoginPicture { head },
+            }),
+            "{seen:?}"
+        );
+        assert!(
+            !seen
+                .iter()
+                .any(|r| matches!(r, Request::OpenSession { .. })),
+            "a session opened before the picture: {seen:?}"
         );
     }
 

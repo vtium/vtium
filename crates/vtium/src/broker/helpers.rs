@@ -55,13 +55,23 @@ pub const IMAGE_HELPERS_MAX: usize = 2;
 /// process's descriptors, whatever consoles it opens and closes.
 pub const IMAGE_HELPERS_TOTAL_MAX: usize = 16;
 
+/// What a helper the root process started serves.
+#[derive(Debug, PartialEq, Eq)]
+enum Serves {
+    /// The drawing process's fonts.
+    Fonts,
+    /// One console's pictures.
+    Console(super::protocol::ConsoleRef),
+    /// The login picture of the head this names.
+    Login(super::protocol::Head),
+}
+
 /// A helper the root process started. The helper leads its own process
 /// group, so its process id names the group too.
 struct Running {
     pid: Pid,
     pidfd: OwnedFd,
-    /// The console an image helper serves; `None` for a font helper.
-    console: Option<super::protocol::ConsoleRef>,
+    serves: Serves,
 }
 
 /// What the root process starts image helpers from: the program it opened
@@ -76,6 +86,13 @@ pub struct Images {
     /// `image-storage-limit`. For `auto`, which depends on displays the
     /// root process does not know, it is the most that `auto` gives.
     pub budget: u64,
+    /// What the account rules read about the system: logind, the root
+    /// process's own account and the accounts the system knows.
+    facts: Box<dyn vtium_platform::image_helper::Facts>,
+    /// The account a test starts the login picture's helper as, since a
+    /// test without root cannot switch to the pre-login account.
+    #[cfg(test)]
+    login_as: Option<vtium_platform::image_helper::Account>,
 }
 
 #[cfg(feature = "images")]
@@ -96,7 +113,33 @@ impl Images {
             budget: config
                 .number(&vtium::config::keys::IMAGE_STORAGE_LIMIT)
                 .unwrap_or(vtium_image::AUTO_CAP),
+            facts: Box::new(vtium_platform::image_helper::System),
+            #[cfg(test)]
+            login_as: None,
         })
+    }
+
+    /// The account the login picture's helper runs as: the pre-login
+    /// account, chosen as for a console whose pty belongs to root and
+    /// whose session has not started, for bytes sent inline.
+    fn login_account(
+        &mut self,
+    ) -> Result<vtium_platform::image_helper::Account, vtium_platform::image_helper::Refusal> {
+        #[cfg(test)]
+        if let Some(account) = self.login_as.clone() {
+            return Ok(account);
+        }
+        let session = vtium_platform::image_helper::Session {
+            child: None,
+            pty_owner: Ok(0),
+        };
+        vtium_platform::image_helper::resolve(
+            self.facts.as_ref(),
+            &mut self.prelogin,
+            &session,
+            false,
+        )
+        .0
     }
 
     /// The memory cap's bytes and the largest file that a helper starts
@@ -151,8 +194,10 @@ impl Helpers {
     /// Starts helper `id` of kind `kind`, and gives the drawing process's
     /// end of its socket, or why it started none.
     ///
-    /// - `EEXIST`: a helper with that id runs already.
-    /// - `ENOENT`: an image helper's console has no session open.
+    /// - `EEXIST`: a helper with that id runs already, or the login
+    ///   picture's helper of the head runs already.
+    /// - `ENOENT`: an image helper's console has no session open, or a
+    ///   login picture's head is not one vtium.conf names.
     /// - `EACCES`: no account may run the image helper for this request,
     ///   such as a file asked for before anyone has logged in.
     /// - `EAGAIN`: [`FONT_HELPERS_MAX`] font helpers, [`IMAGE_HELPERS_MAX`]
@@ -174,10 +219,13 @@ impl Helpers {
                 let Some(master) = sessions.master(console) else {
                     return Err(errno(libc::ENOENT));
                 };
-                let images = self.running.values().filter(|r| r.console.is_some());
+                let images = self
+                    .running
+                    .values()
+                    .filter(|r| matches!(r.serves, Serves::Console(_)));
                 let serving = images
                     .clone()
-                    .filter(|r| r.console.as_ref() == Some(console))
+                    .filter(|r| r.serves == Serves::Console(console.clone()))
                     .count();
                 if serving >= IMAGE_HELPERS_MAX || images.count() >= IMAGE_HELPERS_TOTAL_MAX {
                     return Err(errno(libc::EAGAIN));
@@ -191,13 +239,70 @@ impl Helpers {
                     Running {
                         pid,
                         pidfd,
-                        console: Some(console.clone()),
+                        serves: Serves::Console(console.clone()),
                     },
                 );
                 Ok(started)
             }
+            Helper::LoginPicture { head } => {
+                if !sessions.knows(head.as_str()) {
+                    return Err(errno(libc::ENOENT));
+                }
+                let serves = Serves::Login(head.clone());
+                if self.running.values().any(|r| r.serves == serves) {
+                    return Err(errno(libc::EEXIST));
+                }
+                let (started, pid, pidfd) = self.start_login_picture()?;
+                (self.wake)(pidfd.as_fd());
+                self.running.insert(id, Running { pid, pidfd, serves });
+                Ok(started)
+            }
             Helper::Font => self.start_font(id),
         }
+    }
+
+    /// Starts the image helper that decodes a head's login picture, before
+    /// any session of the head opens, and gives the drawing process's end
+    /// of its socket, its process id and its pidfd. The helper runs as the
+    /// pre-login account and reads only the bytes the drawing process
+    /// sends it, as vtium in one process asks for the login picture. Its
+    /// limits are the login picture's own, held to vtium.conf's budget,
+    /// and the drawing process names none of them.
+    ///
+    /// References:
+    /// - ADR-1100 D17: the login picture, decoded as the pre-login account
+    ///   from the bytes vtium read, within its bounds and the budget.
+    /// - ADR-1400 D4, the note of 2026-11-25 on the login picture: the
+    ///   broker starts this helper itself, one for each head at most.
+    #[cfg(feature = "images")]
+    fn start_login_picture(&mut self) -> Result<(OwnedFd, Pid, OwnedFd), Errno> {
+        let images = self.images.as_mut().ok_or(errno(libc::ENOEXEC))?;
+        let bytes = vtium::head::images::LOGIN_IMAGE_PIXELS_MAX.min(images.budget);
+        if bytes == 0 {
+            // `image-storage-limit=0` leaves no room for the picture
+            return Err(errno(libc::EACCES));
+        }
+        let account = images.login_account().map_err(|why| {
+            log::debug!(target: "broker", "vtium's root process starts no helper for the login picture: {why:?}");
+            errno(libc::EACCES)
+        })?;
+        let started = vtium_platform::image_helper::start(
+            &images.program,
+            &account,
+            bytes,
+            bytes,
+            images.tmpdir.as_deref(),
+        )
+        .map_err(|why| {
+            log::warn!(target: "broker", "{why}");
+            errno(libc::EIO)
+        })?;
+        Ok((started.socket, started.pid, started.pidfd))
+    }
+
+    #[cfg(not(feature = "images"))]
+    fn start_login_picture(&mut self) -> Result<(OwnedFd, Pid, OwnedFd), Errno> {
+        Err(errno(libc::ENOEXEC))
     }
 
     /// Starts an image helper for one request of `session`'s console, as
@@ -216,7 +321,7 @@ impl Helpers {
         largest_file: u64,
         file: bool,
     ) -> Result<(OwnedFd, Pid, OwnedFd), Errno> {
-        use vtium_platform::image_helper::{Session, System, resolve, start};
+        use vtium_platform::image_helper::{Session, resolve, start};
         let images = self.images.as_mut().ok_or(errno(libc::ENOEXEC))?;
         let (max_bytes, largest_file) = images.caps(max_bytes, largest_file);
         if max_bytes == 0 {
@@ -227,7 +332,8 @@ impl Helpers {
             child,
             pty_owner: vtium_platform::pty::slave_owner(master).map_err(|e| e.to_string()),
         };
-        let (account, disagree) = resolve(&System, &mut images.prelogin, &session, file);
+        let (account, disagree) =
+            resolve(images.facts.as_ref(), &mut images.prelogin, &session, file);
         if let Some((owner, logind)) = disagree {
             log::warn!(
                 target: "broker",
@@ -268,7 +374,7 @@ impl Helpers {
         if self
             .running
             .values()
-            .filter(|r| r.console.is_none())
+            .filter(|r| r.serves == Serves::Fonts)
             .count()
             >= FONT_HELPERS_MAX
         {
@@ -324,7 +430,7 @@ impl Helpers {
             Running {
                 pid,
                 pidfd,
-                console: None,
+                serves: Serves::Fonts,
             },
         );
         Ok(ours)
@@ -346,10 +452,21 @@ impl Helpers {
     /// with the session, as they do when the console's host goes in vtium
     /// in one process.
     pub fn stop_console(&mut self, console: &super::protocol::ConsoleRef) {
+        self.stop_serving(&Serves::Console(console.clone()));
+    }
+
+    /// Stops the helper of `head`'s login picture, when one runs, as a
+    /// session of the head opens: the head's first login prompt has
+    /// started, so the picture is done or failed.
+    pub fn stop_login_picture(&mut self, head: &super::protocol::Head) {
+        self.stop_serving(&Serves::Login(head.clone()));
+    }
+
+    fn stop_serving(&mut self, serves: &Serves) {
         let ids: Vec<u32> = self
             .running
             .iter()
-            .filter(|(_, r)| r.console.as_ref() == Some(console))
+            .filter(|(_, r)| r.serves == *serves)
             .map(|(&id, _)| id)
             .collect();
         for id in ids {
@@ -615,12 +732,67 @@ mod tests {
             vec!["1000".into()],
         )
         .unwrap();
+        let me = rustix::process::getuid().as_raw();
+        let group = rustix::process::getgid().as_raw();
         Images {
             program,
             tmpdir: None,
             prelogin: vtium_platform::image_helper::Prelogin::default(),
             budget,
+            facts: Box::new(vtium_platform::image_helper::System),
+            login_as: Some(vtium_platform::image_helper::Account {
+                uid: me,
+                gid: group,
+                groups: None,
+            }),
         }
+    }
+
+    /// The system as a root process sees it with no logind: the pre-login
+    /// account `vtium-image` is uid and gid 990.
+    #[cfg(feature = "images")]
+    struct AsRoot;
+
+    #[cfg(feature = "images")]
+    impl vtium_platform::image_helper::Facts for AsRoot {
+        fn logind_running(&self) -> bool {
+            false
+        }
+        fn logind_session(&self, _: u32) -> Option<vtium_platform::image_helper::LoginSession> {
+            None
+        }
+        fn me(&self) -> vtium_platform::image_helper::Me {
+            vtium_platform::image_helper::Me {
+                uid: 0,
+                gid: 0,
+                group_zero: true,
+            }
+        }
+        fn account(&self, name: &str) -> Option<(u32, u32)> {
+            (name == "vtium-image").then_some((990, 990))
+        }
+        fn groups(&self, uid: u32) -> Option<(u32, Vec<u32>)> {
+            Some((uid, vec![uid, 10]))
+        }
+    }
+
+    /// The login picture's helper runs as the pre-login account with no
+    /// supplementary groups, as a console's helper does before anyone has
+    /// logged in, and never as root.
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_login_pictures_helper_runs_as_the_prelogin_account() {
+        let mut images = sleeping_images(1 << 20);
+        images.login_as = None;
+        images.facts = Box::new(AsRoot);
+        assert_eq!(
+            images.login_account(),
+            Ok(vtium_platform::image_helper::Account {
+                uid: 990,
+                gid: 990,
+                groups: Some(Vec::new()),
+            })
+        );
     }
 
     /// An image helper of `console`, for a request of a MiB.
@@ -811,6 +983,89 @@ mod tests {
         }
     }
 
+    /// The login picture's helper starts before any session of its head
+    /// opens, at most one for each head, under the login picture's limits
+    /// held to the budget, and it stops once a session of the head opens.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_heads_login_picture_helper_starts_before_its_sessions_once() {
+        let (sessions_watched, session_wake) = watching();
+        let (helpers_watched, helper_wake) = watching();
+        let budget = 1 << 22;
+        let mut jobs = Jobs {
+            processes: Processes::new(
+                Sessions::new(
+                    conf("sleep 1000", "exit 0", WIDE),
+                    Box::new(Nowhere),
+                    session_wake,
+                ),
+                Helpers::new(None, Some(sleeping_images(budget)), helper_wake),
+                PowerKeys::new(&config(&[]), Box::new(vtium::power::System), None),
+            ),
+        };
+        let (link, theirs) = Link::pair().unwrap();
+        let drawer = Link::passed(theirs).unwrap();
+        let mut out = Outbox::new(&link);
+        let login = |head: &str| Helper::LoginPicture {
+            head: super::super::protocol::Head::new(head).unwrap(),
+        };
+        let start = |jobs: &mut Jobs, out: &mut Outbox<'_>, helper, head| {
+            jobs.serve(
+                Request::StartHelper {
+                    helper,
+                    kind: login(head),
+                },
+                out,
+            )
+            .unwrap();
+            let (order, socket) = next(&drawer);
+            let Order::Helper { started, .. } = order else {
+                panic!("{order:?}");
+            };
+            assert_eq!(started.is_ok(), socket.is_some());
+            started.err()
+        };
+        assert_eq!(start(&mut jobs, &mut out, 1, "left"), None);
+        assert!(sessions_watched.borrow().is_empty(), "a session opened");
+        let pid = jobs.processes.helpers.running[&1].pid;
+        let bytes = budget.min(vtium::head::images::LOGIN_IMAGE_PIXELS_MAX);
+        assert_eq!(
+            limit(pid, "Max address space"),
+            vtium_platform::image_helper::memory_cap(bytes)
+        );
+        assert_eq!(limit(pid, "Max file size"), bytes);
+        assert_eq!(
+            start(&mut jobs, &mut out, 2, "left"),
+            Some(errno(libc::EEXIST)),
+            "a second login picture's helper for the head started"
+        );
+        assert_eq!(
+            start(&mut jobs, &mut out, 3, "right"),
+            Some(errno(libc::ENOENT)),
+            "a helper started for a head vtium.conf does not name"
+        );
+        // the head's first session ends the login picture's helper
+        let open = Request::OpenSession {
+            console: console("left", 1),
+            grid: GRID,
+            display: Display::Kms,
+            truecolor: true,
+        };
+        jobs.serve(open, &mut out).unwrap();
+        assert!(matches!(next(&drawer).0, Order::Pty { opened: Ok(()), .. }));
+        wait_for_exits(&helpers_watched);
+        jobs.tick(&mut out);
+        assert_eq!(helper_exits(&drawer), [1]);
+        assert!(jobs.processes.helpers.running.is_empty());
+        jobs.serve(
+            Request::CloseSession {
+                console: console("left", 1),
+            },
+            &mut out,
+        )
+        .unwrap();
+    }
+
     /// A process's limit named `name` in `/proc/<pid>/limits`, soft.
     #[cfg(feature = "images")]
     fn limit(pid: Pid, name: &str) -> u64 {
@@ -889,6 +1144,8 @@ mod tests {
             tmpdir: None,
             prelogin: vtium_platform::image_helper::Prelogin::default(),
             budget: 1 << 24,
+            facts: Box::new(vtium_platform::image_helper::System),
+            login_as: None,
         };
         let (watched, wake) = watching();
         let mut helpers = Helpers::new(None, Some(images), wake);

@@ -527,10 +527,12 @@ impl Seat {
         }
         app.set_image_helpers(hosts.map(|hosts| {
             let hosts = hosts.clone();
-            let make: vtium::head::images::Helpers = Rc::new(move |head, id| {
+            let make: vtium::head::images::Helpers = Rc::new(move |head, host| {
                 let asked = Rc::new(RefCell::new(Asked::new()));
                 hosts.0.borrow_mut().push(Rc::clone(&asked));
-                hosts.1.borrow_mut().push((head.to_owned(), id));
+                if let vtium::head::images::Host::Console(id) = host {
+                    hosts.1.borrow_mut().push((head.to_owned(), id));
+                }
                 Box::new(StandIn(asked)) as Box<dyn Helper>
             });
             make

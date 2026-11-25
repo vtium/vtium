@@ -316,13 +316,16 @@ impl Processes {
                 display,
                 truecolor,
             } => match self.sessions.open(&console, &grid, display, truecolor) {
-                Ok(master) => out.order(
-                    Order::Pty {
-                        console,
-                        opened: Ok(()),
-                    },
-                    Some(master),
-                ),
+                Ok(master) => {
+                    self.helpers.stop_login_picture(&console.head);
+                    out.order(
+                        Order::Pty {
+                            console,
+                            opened: Ok(()),
+                        },
+                        Some(master),
+                    )
+                }
                 Err(errno) => out.order(
                     Order::Pty {
                         console,

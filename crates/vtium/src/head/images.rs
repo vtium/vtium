@@ -129,6 +129,8 @@ pub use built::*;
 #[cfg(feature = "images")]
 mod login;
 #[cfg(feature = "images")]
+pub use login::LOGIN_IMAGE_PIXELS_MAX;
+#[cfg(feature = "images")]
 pub(crate) use login::{DENIED as LOGIN_IMAGE_DENIED, Login, unusable as login_image_unusable};
 
 /// Logs, in a build without image support, that it ignores the login
@@ -228,15 +230,28 @@ mod built {
         }
     }
 
-    /// What makes a console's host, once for each console, given the name
-    /// of the console's head and the console's id. Under the privilege
-    /// split vtium's root process starts the console's helpers, and it
-    /// needs the console to choose their account.
+    /// What a host is made for: the pictures of the console with this id,
+    /// or the head's login picture, which is decoded before any of the
+    /// head's sessions opens.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Host {
+        Console(u64),
+        LoginPicture,
+    }
+
+    /// What makes a host, once for each console and once for the login
+    /// picture, given the name of the head and what the host is for. Under
+    /// the privilege split vtium's root process starts the helpers, and it
+    /// needs the console to choose their account. It starts the login
+    /// picture's helper as the pre-login account, since no session of the
+    /// head has opened yet.
     ///
     /// References:
     /// - ADR-1400 D4, "What the broker does": the broker starts each image
     ///   helper for a console and chooses its user.
-    pub type Helpers = Rc<dyn Fn(&str, u64) -> Box<dyn Helper>>;
+    /// - ADR-1400 D4, the note of 2026-11-25 on the login picture: the
+    ///   broker starts the login picture's helper itself.
+    pub type Helpers = Rc<dyn Fn(&str, Host) -> Box<dyn Helper>>;
 
     /// What makes the host of one console: [`Helpers`] given that console.
     pub(crate) type Make<'a> = &'a dyn Fn() -> Box<dyn Helper>;
@@ -247,7 +262,15 @@ mod built {
         head: &'a str,
         id: u64,
     ) -> Option<impl Fn() -> Box<dyn Helper> + 'a> {
-        helpers.map(move |make| move || make(head, id))
+        helpers.map(move |make| move || make(head, Host::Console(id)))
+    }
+
+    /// What makes the host of head `head`'s login picture, from `helpers`.
+    fn login_host<'a>(
+        helpers: Option<&'a Helpers>,
+        head: &'a str,
+    ) -> Option<impl Fn() -> Box<dyn Helper> + 'a> {
+        helpers.map(move |make| move || make(head, Host::LoginPicture))
     }
 
     /// What makes each console's [`ImageHost`]: from the program that
@@ -640,10 +663,9 @@ mod built {
                 log_notes(&self.name, console.id, &mut console.term);
             }
             let geometry = self.login_geometry();
-            // The login picture's host is made for the console shown when
-            // the head first asks for the picture, which its first login
-            // prompt is on.
-            let make = console_host(helpers, &self.name, self.console.id);
+            // The login picture has a host of its own, since the picture is
+            // decoded before any of the head's sessions opens.
+            let make = login_host(helpers, &self.name);
             self.login_image.turn(
                 geometry,
                 now,

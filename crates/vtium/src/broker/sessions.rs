@@ -346,6 +346,11 @@ impl Sessions {
         self.closing.push(Closing { child, pidfd });
     }
 
+    /// Whether vtium.conf, or the built-in configuration, names `head`.
+    pub fn knows(&self, head: &str) -> bool {
+        self.conf.known.contains(head)
+    }
+
     /// Sends `SIGWINCH` to the foreground process group of `console`'s
     /// session, when it is open.
     pub fn winch(&mut self, console: &ConsoleRef) {

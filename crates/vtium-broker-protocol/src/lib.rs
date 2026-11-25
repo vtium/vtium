@@ -240,6 +240,16 @@ pub enum Helper {
     },
     /// A font helper.
     Font,
+    /// The image helper that decodes the login picture of one head, before
+    /// any session of that head opens. The broker runs it as the pre-login
+    /// account, for inline bytes only, under limits it sets itself, so the
+    /// request names only the head.
+    ///
+    /// References:
+    /// - ADR-1100 D17: the login picture, decoded before the head's first
+    ///   login prompt starts.
+    /// - ADR-1400 D4: the broker starts the login picture's helper itself.
+    LoginPicture { head: Head },
 }
 
 /// The kernel's font, as the broker read it from the VT while the VT was
@@ -781,6 +791,10 @@ impl Request {
                         o.u8(u8::from(*file));
                     }
                     Helper::Font => o.u8(2),
+                    Helper::LoginPicture { head } => {
+                        o.u8(3);
+                        o.text(head.as_str(), NAME_MAX);
+                    }
                 }
                 o
             }
@@ -861,6 +875,9 @@ impl Request {
                         file: r.bool("file")?,
                     },
                     2 => Helper::Font,
+                    3 => Helper::LoginPicture {
+                        head: Head::new(r.text(NAME_MAX, "head")?).ok_or(Refusal::Field("head"))?,
+                    },
                     _ => return Err(Refusal::Field("helper kind")),
                 };
                 Request::StartHelper { helper, kind }
@@ -1396,6 +1413,12 @@ mod tests {
                 helper: 10,
                 kind: Helper::Font,
             },
+            Request::StartHelper {
+                helper: 12,
+                kind: Helper::LoginPicture {
+                    head: long_console().head,
+                },
+            },
             Request::StopHelper { helper: 9 },
             Request::Power {
                 key: PowerKey::Reboot,
@@ -1546,6 +1569,13 @@ mod tests {
             },
         }
         .encode();
+        let login_picture = Request::StartHelper {
+            helper: 1,
+            kind: Helper::LoginPicture {
+                head: Head::new("a").unwrap(),
+            },
+        }
+        .encode();
         let path = |p: &[u8]| {
             let mut b = with(open, BODY + 4, &[u8::try_from(p.len()).unwrap()]);
             b[BODY + 5..BODY + 5 + PATH_MAX].fill(0);
@@ -1642,7 +1672,18 @@ mod tests {
             ),
             (with(helper, BODY, &[0; 4]), Refusal::Field("helper")),
             (with(helper, BODY + 4, &[0]), Refusal::Field("helper kind")),
-            (with(helper, BODY + 4, &[3]), Refusal::Field("helper kind")),
+            (with(helper, BODY + 4, &[4]), Refusal::Field("helper kind")),
+            // a login picture's helper names a head vtium.conf allows
+            (
+                with(login_picture.clone(), BODY + 6, &[b'/']),
+                Refusal::Field("head"),
+            ),
+            (
+                with(login_picture.clone(), BODY + 5, &[0]),
+                Refusal::Field("head"),
+            ),
+            // and nothing past its head
+            (with(login_picture, AFTER_HEAD + 5, &[1]), Refusal::Padding),
             // the image's budget, its largest file and whether it reads a
             // file follow the console
             (
