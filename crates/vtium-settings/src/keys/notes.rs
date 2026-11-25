@@ -172,6 +172,11 @@ pub static NOTES: [Note; KEYS.len()] = [
         "vtium-platform",
         "[the displays issue](https://github.com/vtium/vtium/issues/18)",
     ),
+    note(
+        SCROLL_DRAW,
+        "vtium",
+        "[the faster scrolling issue](https://github.com/vtium/vtium/issues/432)",
+    ),
     note(HWACCEL, "vtium", "kmscon's `hwaccel` key"),
     note(
         USE_ORIGINAL_MODE,

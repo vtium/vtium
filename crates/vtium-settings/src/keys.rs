@@ -278,7 +278,7 @@ impl Levels {
     /// The top level and a look: a look's frit, its size and the other keys
     /// ADR-1200 D16 gives a look.
     pub const TOP_LOOK: Levels = Levels(1 | 2);
-    /// The top level and a head: of ADR-1401 D3's head keys, the one the
+    /// The top level and a head: those of ADR-1401 D3's head keys that the
     /// key table also has.
     pub const TOP_HEAD: Levels = Levels(1 | 4);
 
@@ -853,6 +853,20 @@ pub const DISPLAY_BUFFERS: Key = Key {
            `3` is triple buffering. No frame waits for the previous one to reach the screen, and each display needs one more frame of memory. `2` is double buffering. `1` is single buffering, which uses the least memory. vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
            A framebuffer device (fbdev) always keeps one buffer. When the key is unset, the build decides. A build uses the number that `make DISPLAY_BUFFERS=N` built it with. Without one, it uses 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.\n\n\
            [docs] `vtium config get display-buffers` prints the draft's value followed by `draft`. When the draft sets none, it prints the build's default followed by `default`. That default is `unset` when the build sets no number, and the rule above then decides.",
+};
+
+pub const SCROLL_DRAW: Key = Key {
+    name: "scroll-draw",
+    short: None,
+    kind: Kind::Choice(&["auto", "pan", "copy", "redraw"]),
+    default: Default::Text("auto"),
+    scope: Scope::Anywhere,
+    levels: TOP_HEAD,
+    what: "How the displays of a head show text that scrolls.\n\n\
+           `auto` pans where the display's driver allows it, and copies where it does not. To pan, vtium keeps each display buffer taller than the screen. A scroll then moves the part of the buffer that the screen shows, so vtium draws only the new lines. To copy, vtium keeps the drawn lines in memory and copies the screen's part to the display.\n\n\
+           `pan` and `copy` ask for one of the two ways, and `pan` copies where the driver refuses the pan. `redraw` draws again every line that moved, which takes the least memory.\n\n\
+           A display drawn with the GPU always uses `redraw`. So does a build of vtium without faster scrolling (the `scroll-pan` feature), which logs once that it ignores `pan` and `copy`.\n\n\
+           [docs] A display buffer that pans holds about two screens, and the copy keeps about one screen of memory for each display.",
 };
 
 pub const HWACCEL: Key = Key {
@@ -2088,7 +2102,7 @@ pub const LOGIN_IMAGE_SCALE: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 140] = [
+pub static KEYS: [Key; 141] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2124,6 +2138,7 @@ pub static KEYS: [Key; 140] = [
     PROGRAM_BLANK,
     DISPLAY_WAIT,
     DISPLAY_BUFFERS,
+    SCROLL_DRAW,
     HWACCEL,
     USE_ORIGINAL_MODE,
     MODE,
@@ -2511,6 +2526,10 @@ pub const SECTIONS: [Section; 11] = [
                 keys: &[&DISPLAY_BUFFERS],
             },
             Group {
+                title: "Drawing a scroll",
+                keys: &[&SCROLL_DRAW],
+            },
+            Group {
                 title: "Drawing with the GPU",
                 keys: &[&HWACCEL],
             },
@@ -2813,11 +2832,14 @@ mod tests {
     }
 
     // A look takes the font and display keys, its cell, the login
-    // picture's keys and its palette. A head takes `login`, every other key is the top
-    // level's alone, and a key the command line alone sets has no level.
-    // `cell` is the one key only a section sets.
+    // picture's keys and its palette. A head takes `login` and
+    // `scroll-draw`, every other key is the top level's alone, and a key the
+    // command line alone sets has no level. `cell` is the one key only a
+    // section sets.
     //
     // References:
+    // - ADR-1401 D3: `scroll-draw` is a head key, since the buffer belongs
+    //   to the display.
     // - ADR-1403 D5: the three levels of a key.
     // - ADR-1200 D16: the font and display keys a look takes.
     // - ADR-1100 D17, "The keys": the login picture's keys are look keys.
@@ -2846,7 +2868,7 @@ mod tests {
                 "login-image-scale",
             ]
         );
-        assert_eq!(names(Level::Head), ["login"]);
+        assert_eq!(names(Level::Head), ["login", "scroll-draw"]);
         for k in &KEYS {
             match k.scope {
                 Scope::CommandLine => assert_eq!(k.levels, NONE, "{}", k.name),
