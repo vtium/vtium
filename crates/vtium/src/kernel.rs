@@ -410,7 +410,8 @@ fn drain_with(
 }
 
 /// The records waiting in `kmsg`, read as [`System`] reads them: one
-/// record a read, at most [`RECORDS_PER_TURN`] of them.
+/// record a read, and no more in one call than one turn of vtium's loop
+/// takes.
 pub fn drain(kmsg: std::os::fd::BorrowedFd<'_>) -> io::Result<Vec<Vec<u8>>> {
     drain_with(|buf| rustix::io::read(kmsg, buf))
 }
