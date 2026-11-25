@@ -18,8 +18,8 @@ use std::time::Duration;
 use drm_ffi::{
     DRM_CLIENT_CAP_ATOMIC, DRM_CLIENT_CAP_UNIVERSAL_PLANES, DRM_EVENT_FLIP_COMPLETE,
     DRM_MODE_ATOMIC_ALLOW_MODESET, DRM_MODE_ATOMIC_NONBLOCK, DRM_MODE_ATOMIC_TEST_ONLY,
-    DRM_MODE_OBJECT_CONNECTOR, DRM_MODE_OBJECT_CRTC, DRM_MODE_OBJECT_PLANE,
-    DRM_MODE_PAGE_FLIP_EVENT, drm_mode_modeinfo,
+    DRM_MODE_FLAG_DBLSCAN, DRM_MODE_FLAG_INTERLACE, DRM_MODE_OBJECT_CONNECTOR,
+    DRM_MODE_OBJECT_CRTC, DRM_MODE_OBJECT_PLANE, DRM_MODE_PAGE_FLIP_EVENT, drm_mode_modeinfo,
 };
 use rustix::event::{PollFd, PollFlags, poll};
 use rustix::fs::{Mode, OFlags, open};
@@ -97,6 +97,29 @@ fn mode_bytes(m: &drm_mode_modeinfo) -> Vec<u8> {
     }
     b.extend(m.name.iter().map(|c| c.to_ne_bytes()[0]));
     b
+}
+
+/// The refresh rate of mode `m` in mHz, from its pixel clock (kHz) and its
+/// totals, as the kernel's `drm_mode_vrefresh` counts it, or the mode's
+/// rounded rate where the totals are unset. A mode named "60 Hz" can run
+/// at 59.94 or 60.007 Hz, and the frame rate is measured against the rate
+/// the display really runs at, the same one drm2d reports for its ways.
+pub fn refresh_mhz(m: &drm_mode_modeinfo) -> u32 {
+    let mut num = u64::from(m.clock).saturating_mul(1_000_000);
+    let mut den = u64::from(m.htotal).saturating_mul(u64::from(m.vtotal));
+    if m.flags & DRM_MODE_FLAG_INTERLACE != 0 {
+        num = num.saturating_mul(2);
+    }
+    if m.flags & DRM_MODE_FLAG_DBLSCAN != 0 {
+        den = den.saturating_mul(2);
+    }
+    if m.vscan > 1 {
+        den = den.saturating_mul(u64::from(m.vscan));
+    }
+    match num.checked_div(den) {
+        Some(mhz) => u32::try_from(mhz).unwrap_or(u32::MAX),
+        None => m.vrefresh.saturating_mul(1000),
+    }
 }
 
 /// One display of a card, driven by atomic commits.
@@ -207,13 +230,14 @@ impl Kms {
         self.fd.as_fd()
     }
 
-    /// The mode's size and its refresh rate in Hz.
-    pub fn mode(&self) -> (u32, u32, u32) {
-        (
-            u32::from(self.mode.hdisplay),
-            u32::from(self.mode.vdisplay),
-            self.mode.vrefresh,
-        )
+    /// The mode's size.
+    pub fn mode(&self) -> (u32, u32) {
+        (u32::from(self.mode.hdisplay), u32::from(self.mode.vdisplay))
+    }
+
+    /// The mode's refresh rate in Hz, from its pixel clock and totals.
+    pub fn refresh_hz(&self) -> f64 {
+        f64::from(refresh_mhz(&self.mode)) / 1000.0
     }
 
     /// A framebuffer over `dumb`.
@@ -240,7 +264,7 @@ impl Kms {
     /// Commits framebuffer `fb` on the plane, shown from pixel row `src_y`,
     /// with `flags`; with the mode and the connector too where `modeset`.
     fn commit(&self, fb: u32, src_y: u32, modeset: bool, flags: u32) -> io::Result<()> {
-        let (w, h, _) = self.mode();
+        let (w, h) = self.mode();
         let mut objects = Vec::new();
         let mut counts = Vec::new();
         let (mut props, mut values) = (Vec::new(), Vec::new());
@@ -359,5 +383,42 @@ impl Drop for Kms {
     fn drop(&mut self) {
         let _ = self.wait_flip(Duration::from_secs(1));
         let _ = drm_ffi::mode::destroy_property_blob(self.fd(), self.blob);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A 1920×1080 mode with the timings given in pixels and lines.
+    fn mode(clock: u32, htotal: u16, vtotal: u16, flags: u32, vrefresh: u32) -> drm_mode_modeinfo {
+        drm_mode_modeinfo {
+            clock,
+            hdisplay: 1920,
+            htotal,
+            vdisplay: 1080,
+            vtotal,
+            flags,
+            vrefresh,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_refresh_rate_comes_from_the_pixel_clock_and_the_totals() {
+        // CEA-861's 1080p60: 148.5 MHz over 2,200 × 1,125 is exactly 60 Hz.
+        assert_eq!(refresh_mhz(&mode(148_500, 2200, 1125, 0, 60)), 60_000);
+        // The same totals at 148.352 MHz run at 59.94 Hz, which the mode
+        // still names 60.
+        assert_eq!(refresh_mhz(&mode(148_352, 2200, 1125, 0, 60)), 59_940);
+        // A laptop panel's mode: 138.78 MHz over 2,080 × 1,111 is 60.055 Hz.
+        assert_eq!(refresh_mhz(&mode(138_780, 2080, 1111, 0, 60)), 60_055);
+        // An interlaced mode shows twice as many fields as frames.
+        assert_eq!(
+            refresh_mhz(&mode(74_250, 2200, 1125, DRM_MODE_FLAG_INTERLACE, 60)),
+            60_000
+        );
+        // A mode with no totals falls back to the rate it names.
+        assert_eq!(refresh_mhz(&mode(148_500, 0, 0, 0, 75)), 75_000);
     }
 }

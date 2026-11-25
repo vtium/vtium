@@ -460,8 +460,8 @@ pub fn pan_way(
 ) -> io::Result<Vec<Measured>> {
     let mut out = Vec::new();
     let mut kms = Kms::open(path, size)?;
-    let (w, h, hz) = kms.mode();
-    let refresh = f64::from(hz);
+    let (w, h) = kms.mode();
+    let refresh = kms.refresh_hz();
     facts.add("driver", kms.driver());
     facts.add(
         "largest framebuffer",
@@ -470,7 +470,10 @@ pub fn pan_way(
     let mut screen = MappedDumb::new(kms.fd(), w, h)?;
     let screen_fb = kms.framebuffer(&screen)?;
     kms.set_mode(screen_fb)?;
-    facts.add(&format!("pan {w}x{h}"), format!("mode set at {hz} Hz"));
+    facts.add(
+        &format!("pan {w}x{h}"),
+        format!("mode set at {refresh:.3} Hz"),
+    );
 
     // The tallest buffer the driver allows, shown from its last screen.
     let tallest = kms.max.1;
@@ -587,52 +590,13 @@ fn measure_pan(
     let speeds = plan.steps();
     for speed in speeds.iter().filter(|s| s.0 == unit).map(|s| s.1) {
         pan.forget();
-        let ch = i64::from(g.cell_height);
         let step = unit.lines(speed, g);
-        let mut pos: i64 = (1 << 40) * ch;
-        let (mut cpu, mut draw, mut counts) = (Vec::new(), Vec::new(), Vec::new());
-        let (mut commits, mut busy, mut refused) = (0, 0, 0);
-        let mut started = None;
-        for frame in 0..plan.warmup + plan.frames {
-            let b = frame % count as usize;
-            if frame == plan.warmup {
-                started = Some(Instant::now());
-            }
-            let c0 = cpu_ms();
-            // With two buffers, a frame is drawn once the flip before it
-            // completes, as drm2d draws, and with three while it flips. With
-            // one buffer, the frame waits for that flip too: the buffer is
-            // the one being scanned out, and until the flip lands the
-            // screen may still show the window of the frame before it, so a
-            // frame drawn early writes into a window nobody accounts for.
-            if count != 3 {
-                kms.wait_flip(BOUND)?;
-            }
-            let d0 = cpu_ms();
-            let (c, src_y) = pan.frame(pattern, g, b, dumbs[b].as_mut(), pitch as usize, pos);
-            let d = cpu_ms() - d0;
-            kms.wait_flip(BOUND)?;
-            commits += 1;
-            match kms.flip(fbs[b], src_y) {
-                Ok(()) => {}
-                Err(e) if e.raw_os_error() == Some(rustix::io::Errno::BUSY.raw_os_error()) => {
-                    busy += 1
-                }
-                Err(e) => {
-                    log::warn!("a flip to row {src_y} failed: {e}");
-                    refused += 1;
-                }
-            }
-            let c1 = cpu_ms();
-            if frame >= plan.warmup {
-                cpu.push(c1 - c0);
-                draw.push(d);
-                counts.push(c);
-            }
+        let mut pos: i64 = (1 << 40) * i64::from(g.cell_height);
+        let t = pan_frames(kms, &fbs, plan.warmup, plan.frames, |b| {
+            let drawn = pan.frame(pattern, g, b, dumbs[b].as_mut(), pitch as usize, pos);
             pos -= step;
-        }
-        kms.wait_flip(BOUND)?;
-        let elapsed = started.map_or(0.0, |s| s.elapsed().as_secs_f64());
+            drawn
+        })?;
         let m = Measured {
             way: way.name(),
             size: (g.width, g.height),
@@ -642,15 +606,15 @@ fn measure_pan(
             buffers: count,
             spare: Some(spare),
             frames: plan.frames,
-            cpu: summarize(&cpu),
-            draw: summarize(&draw),
-            fps: plan.frames as f64 / elapsed.max(1e-9),
+            cpu: summarize(&t.cpu),
+            draw: summarize(&t.draw),
+            fps: plan.frames as f64 / t.elapsed.max(1e-9),
             refresh,
-            counts: mean_counts(&counts),
+            counts: mean_counts(&t.counts),
             memory: memory::needs(g, way, count, u64::from(pitch), spare, unit),
-            commits,
-            busy,
-            refused,
+            commits: t.commits,
+            busy: t.busy,
+            refused: t.refused,
         };
         eprintln!(
             "scroll-timing: {} {}x{} {}x{} {speed} {} a frame, {count} buffers, {spare} spare: {:.3} ms",
@@ -672,3 +636,116 @@ fn measure_pan(
     }
     Ok(out)
 }
+
+/// A display the pan's frames flip on: the KMS stand-in on a device, and
+/// a fake that counts flips in the tests.
+trait Flipper {
+    /// Waits for the flip asked for last, if one is in flight, and returns
+    /// whether one was.
+    fn wait_for_flip(&mut self) -> io::Result<bool>;
+    /// Asks for a flip to framebuffer `fb` shown from pixel line `src_y`.
+    fn request_flip(&mut self, fb: u32, src_y: u32) -> io::Result<()>;
+    /// A clock in seconds that the run's frame rate is measured with.
+    fn seconds(&self) -> f64;
+}
+
+impl Flipper for Kms {
+    fn wait_for_flip(&mut self) -> io::Result<bool> {
+        self.wait_flip(BOUND)
+    }
+
+    fn request_flip(&mut self, fb: u32, src_y: u32) -> io::Result<()> {
+        self.flip(fb, src_y)
+    }
+
+    fn seconds(&self) -> f64 {
+        let t = clock_gettime(ClockId::Monotonic);
+        t.tv_sec as f64 + t.tv_nsec as f64 / 1e9
+    }
+}
+
+/// What the pan's timed frames measured.
+struct Timed {
+    cpu: Vec<f64>,
+    draw: Vec<f64>,
+    counts: Vec<Counts>,
+    commits: u32,
+    busy: u32,
+    refused: u32,
+    /// The seconds from the landing of the last flip before the timed
+    /// frames to the landing of the last timed frame's flip.
+    elapsed: f64,
+}
+
+/// Runs `warmup` frames and then `frames` timed frames of the pan on
+/// `display`, taking the framebuffers `fbs` in turn. `draw` draws a frame
+/// into the buffer it is given by its index, and returns what that cost
+/// and the window's `SRC_Y`.
+///
+/// With one or two buffers, a frame is drawn only once the flip before it
+/// has landed. With two, that is how drm2d draws. With one, the buffer is
+/// the one being scanned out, and until the flip lands the screen may
+/// still show the window of the frame before it, so a frame drawn early
+/// writes into a window nobody accounts for. With three buffers, a frame
+/// is drawn while the flip before it is in flight, into the buffer that
+/// is neither shown nor about to be.
+///
+/// The clock starts when the flip before the first timed frame has landed
+/// and stops when the last timed frame's flip lands, so `frames` frames
+/// span `frames` refresh periods where every frame fits one, as drm2d's
+/// ways are timed.
+fn pan_frames(
+    display: &mut impl Flipper,
+    fbs: &[u32],
+    warmup: usize,
+    frames: usize,
+    mut draw: impl FnMut(usize) -> (Counts, u32),
+) -> io::Result<Timed> {
+    let mut t = Timed {
+        cpu: Vec::new(),
+        draw: Vec::new(),
+        counts: Vec::new(),
+        commits: 0,
+        busy: 0,
+        refused: 0,
+        elapsed: 0.0,
+    };
+    let mut started = None;
+    for frame in 0..warmup + frames {
+        let b = frame % fbs.len();
+        let c0 = cpu_ms();
+        if fbs.len() != 3 {
+            display.wait_for_flip()?;
+        }
+        let d0 = cpu_ms();
+        let (c, src_y) = draw(b);
+        let d = cpu_ms() - d0;
+        display.wait_for_flip()?;
+        if frame == warmup {
+            started = Some(display.seconds());
+        }
+        t.commits += 1;
+        match display.request_flip(fbs[b], src_y) {
+            Ok(()) => {}
+            Err(e) if e.raw_os_error() == Some(rustix::io::Errno::BUSY.raw_os_error()) => {
+                t.busy += 1
+            }
+            Err(e) => {
+                log::warn!("a flip to row {src_y} failed: {e}");
+                t.refused += 1;
+            }
+        }
+        let c1 = cpu_ms();
+        if frame >= warmup {
+            t.cpu.push(c1 - c0);
+            t.draw.push(d);
+            t.counts.push(c);
+        }
+    }
+    display.wait_for_flip()?;
+    t.elapsed = started.map_or(0.0, |s| display.seconds() - s);
+    Ok(t)
+}
+
+#[cfg(test)]
+mod tests;
