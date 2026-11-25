@@ -169,7 +169,7 @@ The modules below are named from the code as it stands on 2026-11-25. Each split
 
 **crates/vtium-settings**: **parse.rs** (1,513) moves the line readers into `parse/lines.rs` and `impl Parser` into `parse/parser.rs`. keys.rs is exempt (D2).
 
-**crates/vtium-image**: **store.rs** (1,738) moves the budget and the eviction (`reserve_bytes`, `give_back`, `settle`, `evict_one`, the room makers, the frees and the spare) into `store/budget.rs`. **login.rs** moves its tests out.
+**crates/vtium-image**: **store.rs** (1,738) keeps `Rows`, `Image`, `Placement`, `Buffer`, `Store` and its accessors. `store/add.rs` takes the `add_image` methods, `store/place.rs` `place` and `place_at`, `store/room.rs` the holds, the reservations, the settling, the eviction, the frees and the spare, and `store/geometry.rs` `Geometry`. The card checks whether `store/room.rs` belongs in the existing `store/reserve.rs` instead. **login.rs** moves its tests out.
 
 vtium-font, vtium-parse, vtium-devices, vtium-clipboard and vtium-image-helper have no source file whose code passes 1,500 lines.
 
