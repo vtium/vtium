@@ -463,10 +463,11 @@ struct Above {
 impl Snapshot {
     /// What `terminal`'s view shows now.
     pub fn take(terminal: &Terminal) -> Snapshot {
-        #[cfg(feature = "scroll-pan")]
-        return Self::take_reaching(terminal, 0);
-        #[cfg(not(feature = "scroll-pan"))]
-        Self::take_frame(terminal)
+        Self::take_frame(
+            terminal,
+            #[cfg(feature = "scroll-pan")]
+            0,
+        )
     }
 
     /// What `terminal`'s view shows now, with the `above` rows of history
@@ -477,41 +478,29 @@ impl Snapshot {
     /// - ADR-1310 D2: the rows the snapshot asks for, and one more for the ink of the rows next to them.
     #[cfg(feature = "scroll-pan")]
     pub fn take_reaching(terminal: &Terminal, above: usize) -> Snapshot {
-        if above == 0 {
-            return Self::take_frame(terminal);
-        }
-        let reach = vtium_term::Reach {
-            above,
-            ..vtium_term::Reach::default()
-        };
+        Self::take_frame(terminal, above)
+    }
+
+    /// What `terminal`'s view shows now: the screen's rows, and in a build
+    /// with `scroll-pan` the `above` rows of history above the screen.
+    fn take_frame(terminal: &Terminal, #[cfg(feature = "scroll-pan")] above: usize) -> Snapshot {
+        let screen = terminal.screen();
+        let palette = terminal.palette().clone();
+        #[cfg(not(feature = "scroll-pan"))]
+        let frame = screen.frame(&palette, Age::NEVER);
         // one frame serves the screen's rows and the rows above them, so
         // the screen's order and pictures are worked out once
-        let frame = terminal
-            .screen()
-            .frame_reaching(terminal.palette(), Age::NEVER, reach);
-        let above = Above {
-            asked: above,
-            lines: frame.lines_above().iter().map(|&l| l.clone()).collect(),
-            selection: frame.selection_beyond().0.to_vec(),
-            #[cfg(feature = "images")]
-            placements: frame.placements_beyond().to_vec(),
-            #[cfg(feature = "bidi")]
-            order: frame.order_beyond().0.clone(),
+        #[cfg(feature = "scroll-pan")]
+        let frame = match above {
+            0 => screen.frame(&palette, Age::NEVER),
+            _ => {
+                let reach = vtium_term::Reach {
+                    above,
+                    ..vtium_term::Reach::default()
+                };
+                screen.frame_reaching(&palette, Age::NEVER, reach)
+            }
         };
-        let mut taken = Self::of_frame(terminal, &frame);
-        taken.above = above;
-        taken
-    }
-
-    /// What `terminal`'s view shows now, the screen's rows alone.
-    fn take_frame(terminal: &Terminal) -> Snapshot {
-        let frame = terminal.screen().frame(terminal.palette(), Age::NEVER);
-        Self::of_frame(terminal, &frame)
-    }
-
-    /// The screen's rows of `frame`, a frame of `terminal`'s screen.
-    fn of_frame(terminal: &Terminal, frame: &Frame<'_>) -> Snapshot {
-        let screen = terminal.screen();
         let rows = frame.rows();
         let lines = (0..rows).filter_map(|r| frame.line(r)).cloned().collect();
         // the selected columns of each row, as the screen keeps them:
@@ -526,6 +515,19 @@ impl Snapshot {
         let labelled = frame.labelled_links().to_vec();
         #[cfg(feature = "images")]
         let placements = frame.placements().to_vec();
+        #[cfg(feature = "scroll-pan")]
+        let above = match above {
+            0 => Above::default(),
+            _ => Above {
+                asked: above,
+                lines: frame.lines_above().iter().map(|&l| l.clone()).collect(),
+                selection: frame.selection_beyond().0.to_vec(),
+                #[cfg(feature = "images")]
+                placements: frame.placements_beyond().to_vec(),
+                #[cfg(feature = "bidi")]
+                order: frame.order_beyond().0.clone(),
+            },
+        };
         Snapshot {
             lines,
             damage: screen.damage().clone(),
@@ -536,13 +538,13 @@ impl Snapshot {
             overlay,
             link_hints,
             labelled,
-            palette: terminal.palette().clone(),
+            palette,
             #[cfg(feature = "images")]
             placements,
             #[cfg(feature = "bidi")]
             order,
             #[cfg(feature = "scroll-pan")]
-            above: Above::default(),
+            above,
         }
     }
 
