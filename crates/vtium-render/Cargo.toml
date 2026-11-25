@@ -38,3 +38,11 @@ filters = []
 # bar cursor on the right side of a right-to-left cell; the minspec build
 # leaves it out
 bidi = ["vtium-term/bidi"]
+# shows a scroll by moving a window over a ring of drawn rows, kept in a
+# display buffer taller than the screen (the pan) or in system memory (the
+# copy), instead of drawing the moved rows again; off by default, so the
+# minspec build compiles none of it
+#
+# References:
+# - ADR-1310 D6: the pan, the copy, and the feature that builds them.
+scroll-pan = []

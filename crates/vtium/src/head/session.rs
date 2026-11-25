@@ -282,7 +282,7 @@ impl Head {
             named: BTreeSet::new(),
         };
         self.colorterm.told.insert(id, told);
-        let open: BTreeSet<u64> = self.consoles().map(|c| c.id).collect();
+        let open = crate::ordered::set(self.consoles().map(|c| c.id));
         self.colorterm.told.retain(|id, _| open.contains(id));
     }
 

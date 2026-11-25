@@ -125,6 +125,7 @@ use crate::head::vt::VtHeads;
 use crate::head::{Attached, Frit, Head, Start, place_display};
 use crate::helper::{self, Answer, FritText, Helper};
 use crate::layout::{self, Zoom};
+use crate::ordered;
 use crate::osd::{self, Osd};
 use crate::painter::{Note, Painter};
 use crate::power::{self, Power};
@@ -1481,12 +1482,7 @@ impl App {
     /// Drops each frit no head draws any more, and with it its helper. The
     /// record of what the frit's helpers used up stays in `failures`.
     fn prune(&mut self) {
-        let used: BTreeSet<String> = self
-            .heads
-            .iter()
-            .filter_map(Head::frit)
-            .map(str::to_owned)
-            .collect();
+        let used = ordered::set(self.heads.iter().filter_map(Head::frit).map(str::to_owned));
         self.frits.retain(|name, _| used.contains(name));
     }
 

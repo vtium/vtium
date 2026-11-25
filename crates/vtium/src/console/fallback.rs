@@ -33,6 +33,7 @@
 use std::collections::BTreeMap;
 
 use super::{DEV, GETTY, Run, SEAT, Step, Stop, VTIUM, text};
+use crate::ordered;
 
 /// A unit's state, from `systemctl show -p Id -p ActiveState -p
 /// UnitFileState -p Job`.
@@ -69,12 +70,7 @@ impl UnitState {
 /// by an empty line.
 fn blocks(show: &str) -> Vec<BTreeMap<&str, &str>> {
     show.split("\n\n")
-        .map(|block| {
-            block
-                .lines()
-                .filter_map(|line| line.split_once('='))
-                .collect()
-        })
+        .map(|block| ordered::map(block.lines().filter_map(|line| line.split_once('='))))
         .filter(|fields: &BTreeMap<&str, &str>| !fields.is_empty())
         .collect()
 }

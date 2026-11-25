@@ -94,10 +94,11 @@ pub fn child(
     let mut env: BTreeMap<OsString, OsString> = if reset {
         BTreeMap::new()
     } else {
-        inherited
-            .into_iter()
-            .filter(|(k, _)| !(place.logind_seat && of_vtiums_session(k)))
-            .collect()
+        crate::ordered::map(
+            inherited
+                .into_iter()
+                .filter(|(k, _)| !(place.logind_seat && of_vtiums_session(k))),
+        )
     };
     if !place.truecolor {
         env.remove(OsStr::new("COLORTERM"));
