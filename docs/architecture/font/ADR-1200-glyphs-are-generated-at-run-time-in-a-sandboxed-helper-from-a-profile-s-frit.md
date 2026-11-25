@@ -386,6 +386,12 @@ considered:
   - operator: aaronsb
     said: "Follow the extension (Recommended)"
     via: "the maintainer, through the question tool, 2026-11-24, on which source a font path builds; the option read: A path takes the source its extension names, under every font-engine. D9 and D5 get a dated note saying so; the card's code stays. The option's wording is the steering session's."
+  - operator: aaronsb
+    said: "Yes, ask early (Recommended)"
+    via: "the maintainer, through the question tool, 2026-11-25, on whether the console asks for bold glyphs before the screen shows them; the option read: Amend D18 and D21: after a cell's first asks are answered, vtium asks once for bold printable ASCII while the store has room. The TUI's first frame finds every glyph. The option's wording is the steering session's."
+  - operator: aaronsb
+    said: "Yes, widen it (Recommended)"
+    via: "the maintainer, through the question tool, 2026-11-25, on widening the fill's first batch; the option read: Punctuation, arrows and geometric shapes join the first batch, so the TUI's symbols are ready with the text. The option's wording is the steering session's."
 observable:
   - "OSC 50 with the path of an active font in /usr/share/fonts switches the console to that font, and the query then reports the path; OSC 50 with the path of a font in a user's own folder, or of a font the batch does not list, leaves the font as it was with one log line"
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
@@ -776,6 +782,8 @@ The console already opens its VT as root, and it reads the kernel's font once at
 
 > Edited 2026-10-29: the operator decided the helper's memory of what it sent lasts one request (`considered`, item 6 of the open glyph questions), the rule the bullet already stated; the bullet gains the decision's reason, that the console decides when a glyph is needed.
 
+> Note 2026-11-25: the maintainer widened the fill's second tier and added one ask for glyphs that the screen does not show yet (`considered`, 2026-11-25). A measurement of vtium-config's first screen found its arrows, bullets and triangles outside that tier, and 21 bold characters that no fill brings. The fill bullet's order, "the screen's characters, then printable Latin and box drawing, then the rest of the frit's coverage", gains General Punctuation (U+2010–U+2027 and U+2030–U+205E), Arrows (U+2190–U+21FF) and Geometric Shapes (U+25A0–U+25FF) in its second tier, beside printable Latin and box drawing. The asks bullet's definition, a request "for characters that the screen shows", gains one ask that covers glyphs the screen does not show yet. Once the helper has answered every ask sent at a cell, the console asks once for bold printable ASCII (U+0021–U+007E) at that cell, and only while the store is under its limit (D19). The console decides this once for each cell, and decides again only for a cell that is dropped and made again. The glyphs of that ask count in eviction as any glyphs do, so a glyph evicted before the screen shows it comes back with the screen's own ask. The second tier is `LATIN_AND_BOX` in `crates/vtium-config/src/serve.rs`, and the bold ask is `Helper::ask_bold_early` in `crates/vtium/src/helper.rs`.
+
 ### D19: the store
 
 - **Per boot, in memory.** Generated glyphs live in the console's memory for the boot, and nothing that the console or the helper writes to disk holds a glyph. The store keeps glyphs only for the cell sizes that the displays draw at, and a zoom to another size drops the old size's glyphs.
@@ -829,6 +837,8 @@ Both are built. The console asks the helper for each cluster that the screen sho
 > Edited 2026-11-01: glyph ink reaches one cell past its own on each side, and synthetic italic is a slant (ADR-1302, accepted 2026-11-01). The cluster bullet read "fitted to its 1 or 2 cells (ADR-1301 D1).", and the style bullet ended: "and from the regular glyph emboldened, as vtium-font draws a missing style today, where it does not." The earlier text is in git at 1d51e46.
 
 > Note 2026-11-11: ADR-1202 adds script asks beside style asks. The console asks for a cluster in a style and a script, and the helper draws a frit's superscript and subscript glyphs by the kind of source each comes from: an outline rasterized at two thirds of its size, a bitmap glyph from a smaller size of the same font or kept 1-bit at two thirds, and a color glyph scaled once from its source (ADR-1202 D2 to D5, D11). The fill draws normal glyphs alone. The console draws the script glyphs of its own sources, the built-in fonts and the sprites, with the same rules (ADR-1202 D11).
+
+> Note 2026-11-25: "The background fill draws regular glyphs alone" stays true of the fill (`considered`, 2026-11-25). The one bold ask that D18's note of 2026-11-25 adds is not the fill. The console sends it as an ask once a cell's first asks are answered, and the helper answers it as it answers any bold ask. The ask names bold glyphs that the screen does not show yet, so "bold and italic glyphs come only when the console asks for them" now covers that ask as well as the screen's.
 
 ### D22: the lookup chain
 
