@@ -48,6 +48,13 @@ pub const FONT_HELPERS_MAX: usize = 2;
 /// that serves it, and one it starts while the last one goes.
 pub const IMAGE_HELPERS_MAX: usize = 2;
 
+/// The most image helpers that run at once for every console together:
+/// two for each of the eight consoles vtium.conf allows by default. Each
+/// helper holds descriptors in the root process, so the cap keeps a
+/// drawing process that has been taken over from using up the root
+/// process's descriptors, whatever consoles it opens and closes.
+pub const IMAGE_HELPERS_TOTAL_MAX: usize = 16;
+
 /// A helper the root process started. The helper leads its own process
 /// group, so its process id names the group too.
 struct Running {
@@ -58,12 +65,17 @@ struct Running {
 }
 
 /// What the root process starts image helpers from: the program it opened
-/// once, the helpers' `TMPDIR`, and the pre-login account it looked up.
+/// once, the helpers' `TMPDIR`, the pre-login account it looked up, and
+/// the image budget it read from vtium.conf.
 #[cfg(feature = "images")]
 pub struct Images {
     pub program: vtium_platform::image_helper::Program,
     pub tmpdir: Option<std::path::PathBuf>,
     prelogin: vtium_platform::image_helper::Prelogin,
+    /// The most bytes one console's pictures may take, from vtium.conf's
+    /// `image-storage-limit`. For `auto`, which depends on displays the
+    /// root process does not know, it is the most that `auto` gives.
+    pub budget: u64,
 }
 
 #[cfg(feature = "images")]
@@ -81,7 +93,27 @@ impl Images {
             program,
             tmpdir: vtium::head::images::tmpdir(env),
             prelogin: vtium_platform::image_helper::Prelogin::default(),
+            budget: config
+                .number(&vtium::config::keys::IMAGE_STORAGE_LIMIT)
+                .unwrap_or(vtium_image::AUTO_CAP),
         })
+    }
+
+    /// The memory cap's bytes and the largest file that a helper starts
+    /// with for a request that asks for `max_bytes` and `largest_file`:
+    /// never more than the budget, and for the file, the budget and the
+    /// frame allowance that animations take past it. The drawing process
+    /// names the numbers, but a drawing process that has been taken over
+    /// could name anything up to 4 GiB, so the root process holds them to
+    /// its own reading of vtium.conf.
+    ///
+    /// References:
+    /// - ADR-1102 D1: the frame allowance, a fixed multiple of the budget.
+    fn caps(&self, max_bytes: u64, largest_file: u64) -> (u64, u64) {
+        let frames = self
+            .budget
+            .saturating_mul(vtium_image::FRAME_ALLOWANCE_FACTOR.saturating_add(1));
+        (max_bytes.min(self.budget), largest_file.min(frames))
     }
 }
 
@@ -123,8 +155,9 @@ impl Helpers {
     /// - `ENOENT`: an image helper's console has no session open.
     /// - `EACCES`: no account may run the image helper for this request,
     ///   such as a file asked for before anyone has logged in.
-    /// - `EAGAIN`: [`FONT_HELPERS_MAX`] font helpers, or
-    ///   [`IMAGE_HELPERS_MAX`] image helpers of one console, run already.
+    /// - `EAGAIN`: [`FONT_HELPERS_MAX`] font helpers, [`IMAGE_HELPERS_MAX`]
+    ///   image helpers of one console, or [`IMAGE_HELPERS_TOTAL_MAX`] image
+    ///   helpers in all, run already.
     /// - `ENOEXEC`: vtium.conf's font or image helper cannot start.
     /// - any other error: the helper did not start.
     pub fn start(&mut self, id: u32, kind: &Helper, sessions: &Sessions) -> Result<OwnedFd, Errno> {
@@ -141,12 +174,12 @@ impl Helpers {
                 let Some(master) = sessions.master(console) else {
                     return Err(errno(libc::ENOENT));
                 };
-                let serving = self
-                    .running
-                    .values()
+                let images = self.running.values().filter(|r| r.console.is_some());
+                let serving = images
+                    .clone()
                     .filter(|r| r.console.as_ref() == Some(console))
                     .count();
-                if serving >= IMAGE_HELPERS_MAX {
+                if serving >= IMAGE_HELPERS_MAX || images.count() >= IMAGE_HELPERS_TOTAL_MAX {
                     return Err(errno(libc::EAGAIN));
                 }
                 let child = sessions.child(console);
@@ -185,6 +218,11 @@ impl Helpers {
     ) -> Result<(OwnedFd, Pid, OwnedFd), Errno> {
         use vtium_platform::image_helper::{Session, System, resolve, start};
         let images = self.images.as_mut().ok_or(errno(libc::ENOEXEC))?;
+        let (max_bytes, largest_file) = images.caps(max_bytes, largest_file);
+        if max_bytes == 0 {
+            // `image-storage-limit=0` turns pictures off
+            return Err(errno(libc::EACCES));
+        }
         let session = Session {
             child,
             pty_owner: vtium_platform::pty::slave_owner(master).map_err(|e| e.to_string()),
@@ -300,6 +338,22 @@ impl Helpers {
             // names it, since nothing has reaped it.
             let _ = rustix::process::pidfd_send_signal(&running.pidfd, Signal::KILL);
             let _ = rustix::process::kill_process_group(running.pid, Signal::KILL);
+        }
+    }
+
+    /// Stops every image helper of `console`, whose session has closed or
+    /// ended. A console's helpers run as its session's user, so they go
+    /// with the session, as they do when the console's host goes in vtium
+    /// in one process.
+    pub fn stop_console(&mut self, console: &super::protocol::ConsoleRef) {
+        let ids: Vec<u32> = self
+            .running
+            .iter()
+            .filter(|(_, r)| r.console.as_ref() == Some(console))
+            .map(|(&id, _)| id)
+            .collect();
+        for id in ids {
+            self.stop(id);
         }
     }
 
@@ -552,6 +606,264 @@ mod tests {
         assert_eq!(jobs.processes.unasked, [Order::Blank]);
     }
 
+    /// Image helpers that run `/bin/sleep`, so they live until something
+    /// stops them, under an image budget of `budget` bytes.
+    #[cfg(feature = "images")]
+    fn sleeping_images(budget: u64) -> Images {
+        let program = vtium_platform::image_helper::Program::open_with(
+            "/bin/sleep".as_ref(),
+            vec!["1000".into()],
+        )
+        .unwrap();
+        Images {
+            program,
+            tmpdir: None,
+            prelogin: vtium_platform::image_helper::Prelogin::default(),
+            budget,
+        }
+    }
+
+    /// An image helper of `console`, for a request of a MiB.
+    #[cfg(feature = "images")]
+    fn image_of(console: super::super::protocol::ConsoleRef) -> Helper {
+        Helper::Image {
+            console,
+            max_bytes: 1 << 20,
+            largest_file: 1 << 20,
+            file: false,
+        }
+    }
+
+    /// The process jobs with sessions that `top` runs and image helpers
+    /// that sleep, and the pidfds of the sessions and of the helpers.
+    #[cfg(feature = "images")]
+    fn image_jobs(
+        top: &str,
+    ) -> (
+        Jobs,
+        super::super::sessions::tests::Watched,
+        super::super::sessions::tests::Watched,
+    ) {
+        let (sessions_watched, session_wake) = watching();
+        let (helpers_watched, helper_wake) = watching();
+        let jobs = Jobs {
+            processes: Processes::new(
+                Sessions::new(conf(top, "exit 0", WIDE), Box::new(Nowhere), session_wake),
+                Helpers::new(None, Some(sleeping_images(1 << 24)), helper_wake),
+                PowerKeys::new(&config(&[]), Box::new(vtium::power::System), None),
+            ),
+        };
+        (jobs, sessions_watched, helpers_watched)
+    }
+
+    /// Opens `console`'s session and starts image helpers `ids` for it,
+    /// each answered with its socket.
+    #[cfg(feature = "images")]
+    fn open_with_helpers(
+        jobs: &mut Jobs,
+        out: &mut Outbox<'_>,
+        drawer: &Link,
+        console: &super::super::protocol::ConsoleRef,
+        ids: &[u32],
+    ) -> OwnedFd {
+        let open = Request::OpenSession {
+            console: console.clone(),
+            grid: GRID,
+            display: Display::Kms,
+            truecolor: true,
+        };
+        jobs.serve(open, out).unwrap();
+        let (order, master) = next(drawer);
+        assert!(
+            matches!(order, Order::Pty { opened: Ok(()), .. }),
+            "{order:?}"
+        );
+        for &helper in ids {
+            let start = Request::StartHelper {
+                helper,
+                kind: image_of(console.clone()),
+            };
+            jobs.serve(start, out).unwrap();
+            assert_eq!(
+                next(drawer).0,
+                Order::Helper {
+                    helper,
+                    started: Ok(())
+                }
+            );
+        }
+        master.unwrap()
+    }
+
+    /// The ids of the helpers whose exits the drawer reads next, sorted.
+    #[cfg(feature = "images")]
+    fn helper_exits(drawer: &Link) -> Vec<u32> {
+        let mut ids = Vec::new();
+        loop {
+            match drawer.next_order().unwrap() {
+                Got::Message(Ok((Order::HelperExit { helper, .. }, _))) => ids.push(helper),
+                Got::Message(Ok((Order::SessionExit { .. }, _))) => {}
+                Got::Nothing => break,
+                other => panic!("{other:?}"),
+            }
+        }
+        ids.sort_unstable();
+        ids
+    }
+
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_closed_consoles_image_helpers_are_stopped() {
+        let (mut jobs, _, helpers_watched) = image_jobs("sleep 1000");
+        let (link, theirs) = Link::pair().unwrap();
+        let drawer = Link::passed(theirs).unwrap();
+        let mut out = Outbox::new(&link);
+        let left = console("left", 1);
+        let master = open_with_helpers(&mut jobs, &mut out, &drawer, &left, &[1, 2]);
+        drop(master);
+        jobs.serve(Request::CloseSession { console: left }, &mut out)
+            .unwrap();
+        wait_for_exits(&helpers_watched);
+        jobs.tick(&mut out);
+        assert_eq!(helper_exits(&drawer), [1, 2]);
+        assert!(
+            jobs.processes.helpers.running.is_empty(),
+            "a closed console's helper still runs"
+        );
+    }
+
+    #[cfg(feature = "images")]
+    #[test]
+    fn an_ended_sessions_image_helpers_are_stopped() {
+        let (mut jobs, sessions_watched, helpers_watched) = image_jobs("read x; exit 4");
+        let (link, theirs) = Link::pair().unwrap();
+        let drawer = Link::passed(theirs).unwrap();
+        let mut out = Outbox::new(&link);
+        let left = console("left", 1);
+        let master = open_with_helpers(&mut jobs, &mut out, &drawer, &left, &[1, 2]);
+        rustix::io::write(&master, b"go\n").unwrap();
+        wait_for_exits(&sessions_watched);
+        // the turn that reaps the session stops its helpers
+        jobs.tick(&mut out);
+        assert_eq!(
+            next(&drawer).0,
+            Order::SessionExit {
+                console: left,
+                status: Status::Code(4)
+            }
+        );
+        wait_for_exits(&helpers_watched);
+        jobs.tick(&mut out);
+        assert_eq!(helper_exits(&drawer), [1, 2]);
+        assert!(jobs.processes.helpers.running.is_empty());
+    }
+
+    #[cfg(feature = "images")]
+    #[test]
+    fn image_helpers_are_capped_in_total() {
+        let (_, session_wake) = watching();
+        let mut sessions = Sessions::new(
+            conf("sleep 1000", "exit 0", WIDE),
+            Box::new(Nowhere),
+            session_wake,
+        );
+        let (watched, wake) = watching();
+        let mut helpers = Helpers::new(None, Some(sleeping_images(1 << 24)), wake);
+        let consoles = IMAGE_HELPERS_TOTAL_MAX.div_ceil(IMAGE_HELPERS_MAX) + 1;
+        let mut masters = Vec::new();
+        for id in 1..=u64::try_from(consoles).unwrap() {
+            masters.push(
+                sessions
+                    .open(&console("left", id), &GRID, Display::Kms, true)
+                    .unwrap(),
+            );
+        }
+        let mut started = 0;
+        let mut next_id = 1;
+        'all: for id in 1..=u64::try_from(consoles).unwrap() {
+            for _ in 0..IMAGE_HELPERS_MAX {
+                if started == IMAGE_HELPERS_TOTAL_MAX {
+                    break 'all;
+                }
+                helpers
+                    .start(next_id, &image_of(console("left", id)), &sessions)
+                    .unwrap();
+                started += 1;
+                next_id += 1;
+            }
+        }
+        // the last console has room of its own, but every console's
+        // helpers together are at the cap
+        let last = u64::try_from(consoles).unwrap();
+        assert_eq!(
+            helpers
+                .start(next_id, &image_of(console("left", last)), &sessions)
+                .err(),
+            Some(errno(libc::EAGAIN))
+        );
+        for id in 1..next_id {
+            helpers.stop(id);
+        }
+        wait_for_exits(&watched);
+        helpers.reap();
+        for id in 1..=last {
+            sessions.close(&console("left", id));
+        }
+    }
+
+    /// A process's limit named `name` in `/proc/<pid>/limits`, soft.
+    #[cfg(feature = "images")]
+    fn limit(pid: Pid, name: &str) -> u64 {
+        let limits =
+            std::fs::read_to_string(format!("/proc/{}/limits", pid.as_raw_nonzero())).unwrap();
+        let line = limits.lines().find(|l| l.starts_with(name)).unwrap();
+        line[name.len()..]
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    }
+
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_request_above_the_budget_starts_a_helper_at_the_budget() {
+        let (_, session_wake) = watching();
+        let mut sessions = Sessions::new(
+            conf("sleep 1000", "exit 0", WIDE),
+            Box::new(Nowhere),
+            session_wake,
+        );
+        let _master = sessions
+            .open(&console("left", 1), &GRID, Display::Kms, true)
+            .unwrap();
+        let budget = 1 << 20;
+        let (watched, wake) = watching();
+        let mut helpers = Helpers::new(None, Some(sleeping_images(budget)), wake);
+        let greedy = Helper::Image {
+            console: console("left", 1),
+            max_bytes: super::super::protocol::IMAGE_BYTES_MAX,
+            largest_file: super::super::protocol::IMAGE_BYTES_MAX,
+            file: false,
+        };
+        helpers.start(1, &greedy, &sessions).unwrap();
+        let pid = helpers.running[&1].pid;
+        assert_eq!(
+            limit(pid, "Max address space"),
+            vtium_platform::image_helper::memory_cap(budget),
+            "the helper's memory cap follows the drawer's number"
+        );
+        assert_eq!(
+            limit(pid, "Max file size"),
+            budget * (1 + vtium_image::FRAME_ALLOWANCE_FACTOR),
+            "the helper's largest file follows the drawer's number"
+        );
+        helpers.stop(1);
+        wait_for_exits(&watched);
+        helpers.reap();
+        sessions.close(&console("left", 1));
+    }
+
     /// An image helper starts as the account the rules choose: for a test
     /// that runs without root, the test's own user, who owns the
     /// session's pty. A third helper for one console waits.
@@ -576,6 +888,7 @@ mod tests {
             program,
             tmpdir: None,
             prelogin: vtium_platform::image_helper::Prelogin::default(),
+            budget: 1 << 24,
         };
         let (watched, wake) = watching();
         let mut helpers = Helpers::new(None, Some(images), wake);

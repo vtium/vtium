@@ -333,6 +333,7 @@ impl Processes {
             },
             Request::CloseSession { console } => {
                 self.sessions.close(&console);
+                self.helpers.stop_console(&console);
                 Ok(())
             }
             Request::Winch { console } => {
@@ -371,6 +372,7 @@ impl Processes {
 
     fn tick(&mut self, out: &mut Outbox<'_>) {
         for (console, status) in self.sessions.reap() {
+            self.helpers.stop_console(&console);
             self.unasked
                 .push_back(Order::SessionExit { console, status });
         }
