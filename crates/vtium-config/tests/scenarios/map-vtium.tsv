@@ -250,213 +250,413 @@ vtium any.too-small +unsaved	q	vtium any.question.quit below 80×25 +unsaved
 vtium any.too-small +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium any.too-small +unsaved +pending	Grow	vtium looks.look.typing +unsaved +pending	
 vtium any.too-small +unsaved +pending	q	vtium any.question.quit below 80×25 +unsaved +pending	
+vtium any.trial	.	vtium fonts(font: active, trusted)	switch
 vtium any.trial	.	vtium looks(look)	switch
+vtium any.trial	1	vtium fonts(font: active, trusted)	switch
 vtium any.trial	1	vtium looks(look)	switch
+vtium any.trial	2	vtium fonts(font: active, trusted)	switch
 vtium any.trial	2	vtium looks(look)	switch
+vtium any.trial	3	vtium fonts(font: active, trusted)	switch
 vtium any.trial	3	vtium looks(look)	switch
+vtium any.trial	4	vtium fonts(font: active, trusted)	switch
 vtium any.trial	4	vtium looks(look)	switch
+vtium any.trial	5	vtium fonts(font: active, trusted)	switch
 vtium any.trial	5	vtium looks(look)	switch
+vtium any.trial	6	vtium fonts(font: active, trusted)	switch
 vtium any.trial	6	vtium looks(look)	switch
+vtium any.trial	Backspace	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Backspace	vtium looks(look)	switch
+vtium any.trial	Click box	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Click box	vtium looks(look)	switch
+vtium any.trial	Click tab	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Click tab	vtium looks(look)	switch
 vtium any.trial	Ctrl-C	vtium left	switch, exit 130
+vtium any.trial	Ctrl-D	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Ctrl-D	vtium looks(look)	switch
+vtium any.trial	Ctrl-U	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Ctrl-U	vtium looks(look)	switch
+vtium any.trial	Down	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Down	vtium looks(look)	switch
+vtium any.trial	End	vtium fonts(font: active, trusted)	switch
 vtium any.trial	End	vtium looks(look)	switch
+vtium any.trial	Enter	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Enter	vtium looks(look)	switch
+vtium any.trial	Esc	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Esc	vtium looks(look)	switch
+vtium any.trial	G	vtium fonts(font: active, trusted)	switch
 vtium any.trial	G	vtium looks(look)	switch
+vtium any.trial	Home	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Home	vtium looks(look)	switch
+vtium any.trial	Left	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Left	vtium looks(look)	switch
+vtium any.trial	PgDn	vtium fonts(font: active, trusted)	switch
 vtium any.trial	PgDn	vtium looks(look)	switch
+vtium any.trial	PgUp	vtium fonts(font: active, trusted)	switch
 vtium any.trial	PgUp	vtium looks(look)	switch
+vtium any.trial	Right	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Right	vtium looks(look)	switch
+vtium any.trial	Shift-Tab	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Shift-Tab	vtium looks(look)	switch
 vtium any.trial	Shrink	vtium any.trial below 80×25	
+vtium any.trial	Space	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Space	vtium looks(look)	switch
+vtium any.trial	Tab	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Tab	vtium looks(look)	switch
+vtium any.trial	Up	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Up	vtium looks(look)	switch
+vtium any.trial	Wheel down	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Wheel down	vtium looks(look)	switch
+vtium any.trial	Wheel up	vtium fonts(font: active, trusted)	switch
 vtium any.trial	Wheel up	vtium looks(look)	switch
+vtium any.trial	a	vtium fonts(font: active, trusted)	switch
 vtium any.trial	a	vtium looks(look)	switch
+vtium any.trial	d	vtium fonts(font: active, trusted)	switch
 vtium any.trial	d	vtium looks(look)	switch
+vtium any.trial	e	vtium fonts(font: active, trusted)	switch
 vtium any.trial	e	vtium looks(look)	switch
+vtium any.trial	g	vtium fonts(font: active, trusted)	switch
 vtium any.trial	g	vtium looks(look)	switch
+vtium any.trial	h	vtium fonts(font: active, trusted)	switch
 vtium any.trial	h	vtium looks(look)	switch
+vtium any.trial	i	vtium fonts(font: active, trusted)	switch
 vtium any.trial	i	vtium looks(look)	switch
+vtium any.trial	j	vtium fonts(font: active, trusted)	switch
 vtium any.trial	j	vtium looks(look)	switch
+vtium any.trial	k	vtium fonts(font: active, trusted)	
 vtium any.trial	k	vtium looks(look)	
+vtium any.trial	l	vtium fonts(font: active, trusted)	switch
 vtium any.trial	l	vtium looks(look)	switch
+vtium any.trial	n	vtium fonts(font: active, trusted)	switch
 vtium any.trial	n	vtium looks(look)	switch
+vtium any.trial	o	vtium fonts(font: active, trusted)	switch
 vtium any.trial	o	vtium looks(look)	switch
+vtium any.trial	p	vtium fonts(font: active, trusted)	switch
 vtium any.trial	p	vtium looks(look)	switch
+vtium any.trial	q	vtium fonts(font: active, trusted)	switch
 vtium any.trial	q	vtium looks(look)	switch
+vtium any.trial	r	vtium fonts(font: active, trusted)	switch
 vtium any.trial	r	vtium looks(look)	switch
+vtium any.trial	s	vtium fonts(font: active, trusted)	switch
 vtium any.trial	s	vtium looks(look)	switch
+vtium any.trial	t	vtium fonts(font: active, trusted)	switch
 vtium any.trial	t	vtium looks(look)	switch
+vtium any.trial	u	vtium fonts(font: active, trusted)	switch
 vtium any.trial	u	vtium looks(look)	switch
+vtium any.trial	v	vtium fonts(font: active, trusted)	switch
 vtium any.trial	v	vtium looks(look)	switch
+vtium any.trial	w	vtium fonts(font: active, trusted)	switch
 vtium any.trial	w	vtium looks(look)	switch
+vtium any.trial	x	vtium fonts(font: active, trusted)	switch
 vtium any.trial	x	vtium looks(look)	switch
+vtium any.trial	y	vtium fonts(font: active, trusted)	switch
 vtium any.trial	y	vtium looks(look)	switch
+vtium any.trial	z	vtium fonts(font: active, trusted)	switch
 vtium any.trial	z	vtium looks(look)	switch
+vtium any.trial +pending	.	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	.	vtium looks(look) +pending	switch
+vtium any.trial +pending	1	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	1	vtium looks(look) +pending	switch
+vtium any.trial +pending	2	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	2	vtium looks(look) +pending	switch
+vtium any.trial +pending	3	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	3	vtium looks(look) +pending	switch
+vtium any.trial +pending	4	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	4	vtium looks(look) +pending	switch
+vtium any.trial +pending	5	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	5	vtium looks(look) +pending	switch
+vtium any.trial +pending	6	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	6	vtium looks(look) +pending	switch
+vtium any.trial +pending	Backspace	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Backspace	vtium looks(look) +pending	switch
+vtium any.trial +pending	Click box	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Click box	vtium looks(look) +pending	switch
+vtium any.trial +pending	Click tab	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Click tab	vtium looks(look) +pending	switch
 vtium any.trial +pending	Ctrl-C	vtium left	switch, exit 130
+vtium any.trial +pending	Ctrl-D	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Ctrl-D	vtium looks(look) +pending	switch
+vtium any.trial +pending	Ctrl-U	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Ctrl-U	vtium looks(look) +pending	switch
+vtium any.trial +pending	Down	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Down	vtium looks(look) +pending	switch
+vtium any.trial +pending	End	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	End	vtium looks(look) +pending	switch
+vtium any.trial +pending	Enter	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Enter	vtium looks(look) +pending	switch
+vtium any.trial +pending	Esc	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Esc	vtium looks(look) +pending	switch
+vtium any.trial +pending	G	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	G	vtium looks(look) +pending	switch
+vtium any.trial +pending	Home	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Home	vtium looks(look) +pending	switch
+vtium any.trial +pending	Left	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Left	vtium looks(look) +pending	switch
+vtium any.trial +pending	PgDn	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	PgDn	vtium looks(look) +pending	switch
+vtium any.trial +pending	PgUp	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	PgUp	vtium looks(look) +pending	switch
+vtium any.trial +pending	Right	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Right	vtium looks(look) +pending	switch
+vtium any.trial +pending	Shift-Tab	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Shift-Tab	vtium looks(look) +pending	switch
 vtium any.trial +pending	Shrink	vtium any.trial below 80×25 +pending	
+vtium any.trial +pending	Space	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Space	vtium looks(look) +pending	switch
+vtium any.trial +pending	Tab	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Tab	vtium looks(look) +pending	switch
+vtium any.trial +pending	Up	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Up	vtium looks(look) +pending	switch
+vtium any.trial +pending	Wheel down	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Wheel down	vtium looks(look) +pending	switch
+vtium any.trial +pending	Wheel up	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	Wheel up	vtium looks(look) +pending	switch
+vtium any.trial +pending	a	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	a	vtium looks(look) +pending	switch
+vtium any.trial +pending	d	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	d	vtium looks(look) +pending	switch
+vtium any.trial +pending	e	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	e	vtium looks(look) +pending	switch
+vtium any.trial +pending	g	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	g	vtium looks(look) +pending	switch
+vtium any.trial +pending	h	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	h	vtium looks(look) +pending	switch
+vtium any.trial +pending	i	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	i	vtium looks(look) +pending	switch
+vtium any.trial +pending	j	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	j	vtium looks(look) +pending	switch
+vtium any.trial +pending	k	vtium fonts(font: active, trusted) +pending	
 vtium any.trial +pending	k	vtium looks(look) +pending	
+vtium any.trial +pending	l	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	l	vtium looks(look) +pending	switch
+vtium any.trial +pending	n	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	n	vtium looks(look) +pending	switch
+vtium any.trial +pending	o	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	o	vtium looks(look) +pending	switch
+vtium any.trial +pending	p	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	p	vtium looks(look) +pending	switch
+vtium any.trial +pending	q	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	q	vtium looks(look) +pending	switch
+vtium any.trial +pending	r	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	r	vtium looks(look) +pending	switch
+vtium any.trial +pending	s	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	s	vtium looks(look) +pending	switch
+vtium any.trial +pending	t	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	t	vtium looks(look) +pending	switch
+vtium any.trial +pending	u	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	u	vtium looks(look) +pending	switch
+vtium any.trial +pending	v	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	v	vtium looks(look) +pending	switch
+vtium any.trial +pending	w	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	w	vtium looks(look) +pending	switch
+vtium any.trial +pending	x	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	x	vtium looks(look) +pending	switch
+vtium any.trial +pending	y	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	y	vtium looks(look) +pending	switch
+vtium any.trial +pending	z	vtium fonts(font: active, trusted) +pending	switch
 vtium any.trial +pending	z	vtium looks(look) +pending	switch
+vtium any.trial +unsaved	.	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	.	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	1	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	1	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	2	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	2	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	3	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	3	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	4	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	4	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	5	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	5	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	6	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	6	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Backspace	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Backspace	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Click box	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Click box	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Click tab	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Click tab	vtium looks(look) +unsaved	switch
 vtium any.trial +unsaved	Ctrl-C	vtium left	save, switch, exit 130
+vtium any.trial +unsaved	Ctrl-D	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Ctrl-D	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Ctrl-U	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Ctrl-U	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Down	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Down	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	End	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	End	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Enter	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Enter	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Esc	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Esc	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	G	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	G	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Home	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Home	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Left	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Left	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	PgDn	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	PgDn	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	PgUp	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	PgUp	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Right	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Right	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Shift-Tab	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Shift-Tab	vtium looks(look) +unsaved	switch
 vtium any.trial +unsaved	Shrink	vtium any.trial below 80×25 +unsaved	
+vtium any.trial +unsaved	Space	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Space	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Tab	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Tab	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Up	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Up	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Wheel down	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Wheel down	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	Wheel up	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	Wheel up	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	a	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	a	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	d	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	d	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	e	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	e	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	g	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	g	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	h	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	h	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	i	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	i	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	j	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	j	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	k	vtium fonts(font: active, trusted) +unsaved	
 vtium any.trial +unsaved	k	vtium looks(look) +unsaved	
+vtium any.trial +unsaved	l	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	l	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	n	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	n	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	o	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	o	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	p	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	p	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	q	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	q	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	r	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	r	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	s	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	s	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	t	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	t	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	u	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	u	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	v	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	v	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	w	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	w	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	x	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	x	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	y	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	y	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved	z	vtium fonts(font: active, trusted) +unsaved	switch
 vtium any.trial +unsaved	z	vtium looks(look) +unsaved	switch
+vtium any.trial +unsaved +pending	.	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	.	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	1	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	1	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	2	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	2	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	3	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	3	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	4	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	4	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	5	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	5	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	6	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	6	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Backspace	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Backspace	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Click box	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Click box	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Click tab	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Click tab	vtium looks(look) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Ctrl-C	vtium left	save, switch, exit 130
+vtium any.trial +unsaved +pending	Ctrl-D	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Ctrl-D	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Ctrl-U	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Ctrl-U	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Down	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Down	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	End	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	End	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Enter	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Enter	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Esc	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Esc	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	G	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	G	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Home	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Home	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Left	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Left	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	PgDn	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	PgDn	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	PgUp	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	PgUp	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Right	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Right	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Shift-Tab	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Shift-Tab	vtium looks(look) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Shrink	vtium any.trial below 80×25 +unsaved +pending	
+vtium any.trial +unsaved +pending	Space	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Space	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Tab	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Tab	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Up	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Up	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Wheel down	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Wheel down	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Wheel up	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Wheel up	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	a	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	a	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	d	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	d	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	e	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	e	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	g	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	g	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	h	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	h	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	i	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	i	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	j	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	j	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	k	vtium fonts(font: active, trusted) +unsaved +pending	
 vtium any.trial +unsaved +pending	k	vtium looks(look) +unsaved +pending	
+vtium any.trial +unsaved +pending	l	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	l	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	n	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	n	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	o	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	o	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	p	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	p	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	q	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	q	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	r	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	r	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	s	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	s	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	t	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	t	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	u	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	u	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	v	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	v	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	w	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	w	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	x	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	x	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	y	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	y	vtium looks(look) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	z	vtium fonts(font: active, trusted) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	z	vtium looks(look) +unsaved +pending	switch
 vtium any.trial below 80×25	.	vtium any.too-small	switch
 vtium any.trial below 80×25	1	vtium any.too-small	switch
@@ -3382,6 +3582,7 @@ vtium fonts(font: active, trusted)	Tab	vtium effects(filter)
 vtium fonts(font: active, trusted)	Up	vtium fonts(filter)	
 vtium fonts(font: active, trusted)	i	vtium fonts(font: active, trusted)	prepare
 vtium fonts(font: active, trusted)	q	vtium left	exit 0
+vtium fonts(font: active, trusted)	t	vtium any.trial	switch
 vtium fonts(font: active, trusted) +pending	2	vtium effects(filter) +pending	
 vtium fonts(font: active, trusted) +pending	3	vtium looks(marked) +pending	
 vtium fonts(font: active, trusted) +pending	4	vtium flow(doc display) +pending	mouse on
@@ -3401,6 +3602,7 @@ vtium fonts(font: active, trusted) +pending	Tab	vtium effects(filter) +pending
 vtium fonts(font: active, trusted) +pending	Up	vtium fonts(filter) +pending	
 vtium fonts(font: active, trusted) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(font: active, trusted) +pending	q	vtium left	exit 0
+vtium fonts(font: active, trusted) +pending	t	vtium any.trial +pending	switch
 vtium fonts(font: active, trusted) +unsaved	2	vtium effects(filter) +unsaved	
 vtium fonts(font: active, trusted) +unsaved	3	vtium looks(no looks) +unsaved	
 vtium fonts(font: active, trusted) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
@@ -3421,6 +3623,7 @@ vtium fonts(font: active, trusted) +unsaved	Up	vtium fonts(filter) +unsaved
 vtium fonts(font: active, trusted) +unsaved	i	vtium any.question.confirm	save, prepare
 vtium fonts(font: active, trusted) +unsaved	q	vtium any.question.quit +unsaved	
 vtium fonts(font: active, trusted) +unsaved	s	vtium fonts(font: active, trusted)	save
+vtium fonts(font: active, trusted) +unsaved	t	vtium any.trial +unsaved	switch
 vtium fonts(font: active, trusted) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium fonts(font: active, trusted) +unsaved +pending	3	vtium looks(marked) +unsaved +pending	
 vtium fonts(font: active, trusted) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
@@ -3441,6 +3644,7 @@ vtium fonts(font: active, trusted) +unsaved +pending	Up	vtium fonts(filter) +uns
 vtium fonts(font: active, trusted) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium fonts(font: active, trusted) +unsaved +pending	q	vtium any.question.quit +unsaved +pending	
 vtium fonts(font: active, trusted) +unsaved +pending	s	vtium fonts(font: active, trusted) +pending	save
+vtium fonts(font: active, trusted) +unsaved +pending	t	vtium any.trial +unsaved +pending	switch
 vtium fonts(font: deactivates on install, trusted)	2	vtium effects(filter)	
 vtium fonts(font: deactivates on install, trusted)	3	vtium looks(look)	
 vtium fonts(font: deactivates on install, trusted)	4	vtium flow(doc display)	mouse on
@@ -3460,6 +3664,7 @@ vtium fonts(font: deactivates on install, trusted)	Tab	vtium effects(filter)
 vtium fonts(font: deactivates on install, trusted)	Up	vtium fonts(filter)	
 vtium fonts(font: deactivates on install, trusted)	i	vtium fonts(font: deactivates on install, trusted)	prepare
 vtium fonts(font: deactivates on install, trusted)	q	vtium left	exit 0
+vtium fonts(font: deactivates on install, trusted)	t	vtium any.trial	switch
 vtium fonts(font: deactivates on install, trusted) +pending	2	vtium effects(filter) +pending	
 vtium fonts(font: deactivates on install, trusted) +pending	3	vtium looks(marked) +pending	
 vtium fonts(font: deactivates on install, trusted) +pending	4	vtium flow(doc display) +pending	mouse on
@@ -3479,6 +3684,7 @@ vtium fonts(font: deactivates on install, trusted) +pending	Tab	vtium effects(fi
 vtium fonts(font: deactivates on install, trusted) +pending	Up	vtium fonts(filter) +pending	
 vtium fonts(font: deactivates on install, trusted) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(font: deactivates on install, trusted) +pending	q	vtium left	exit 0
+vtium fonts(font: deactivates on install, trusted) +pending	t	vtium any.trial +pending	switch
 vtium fonts(font: deactivates on install, trusted) +unsaved	2	vtium effects(filter) +unsaved	
 vtium fonts(font: deactivates on install, trusted) +unsaved	3	vtium looks(no looks) +unsaved	
 vtium fonts(font: deactivates on install, trusted) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
@@ -3499,6 +3705,7 @@ vtium fonts(font: deactivates on install, trusted) +unsaved	Up	vtium fonts(filte
 vtium fonts(font: deactivates on install, trusted) +unsaved	i	vtium any.question.confirm	save, prepare
 vtium fonts(font: deactivates on install, trusted) +unsaved	q	vtium any.question.quit +unsaved	
 vtium fonts(font: deactivates on install, trusted) +unsaved	s	vtium fonts(font: deactivates on install, trusted)	save
+vtium fonts(font: deactivates on install, trusted) +unsaved	t	vtium any.trial +unsaved	switch
 vtium fonts(font: deactivates on install, trusted) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium fonts(font: deactivates on install, trusted) +unsaved +pending	3	vtium looks(marked) +unsaved +pending	
 vtium fonts(font: deactivates on install, trusted) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
@@ -3519,6 +3726,7 @@ vtium fonts(font: deactivates on install, trusted) +unsaved +pending	Up	vtium fo
 vtium fonts(font: deactivates on install, trusted) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium fonts(font: deactivates on install, trusted) +unsaved +pending	q	vtium any.question.quit +unsaved +pending	
 vtium fonts(font: deactivates on install, trusted) +unsaved +pending	s	vtium fonts(font: deactivates on install, trusted) +pending	save
+vtium fonts(font: deactivates on install, trusted) +unsaved +pending	t	vtium any.trial +unsaved +pending	switch
 vtium fonts(font: not active, fails the trust rule)	2	vtium effects(filter)	
 vtium fonts(font: not active, fails the trust rule)	3	vtium looks(look)	
 vtium fonts(font: not active, fails the trust rule)	4	vtium flow(doc display)	mouse on

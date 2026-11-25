@@ -35,6 +35,7 @@ use vtium_font::spacing::{Band, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
 use vtium_settings::cullet::{self, Rule};
+use vtium_settings::fontpath::{self, path_source};
 use vtium_settings::mounts::Mounts;
 use vtium_settings::{Trust, batch};
 
@@ -1167,31 +1168,25 @@ pub fn by_name(
 
 /// The folders where installed outline fonts are found when `font-paths`
 /// is unset, as fontconfig's default configuration names them for the
-/// system. vtium-config's font helper searches the same list.
+/// system. vtium-settings holds the list, and vtium-config's font helper
+/// searches the same folders.
 ///
 /// References:
 /// - ADR-1200 D25: `font-paths` replaces this list.
-pub const FONT_DIRS: [&str; 2] = ["/usr/share/fonts", "/usr/local/share/fonts"];
+pub const FONT_DIRS: [&str; 2] = fontpath::SYSTEM_FONTS;
 
 /// The folders a font that OSC 50 names by its path must sit in, or below.
 /// They are the folders of `font-paths`, else [`FONT_DIRS`], then the
 /// package's font folder and kbd's console-font folders. Root installs
 /// fonts in each of them, and a fresh batch already activates the fonts in
 /// the last two. The configuration has already left out each folder of
-/// `font-paths` that is not an absolute path.
+/// `font-paths` that is not an absolute path. vtium-settings holds the
+/// rule, so vtium-config's Fonts tab searches the same folders.
 ///
 /// References:
 /// - ADR-1200 D5, "A qualifying font": the second check and its folders.
 pub fn font_folders(config: &Config) -> Vec<PathBuf> {
-    let configured: Vec<PathBuf> = match config.text(&FONT_PATHS) {
-        Some(paths) => paths.split(':').map(PathBuf::from).collect(),
-        None => FONT_DIRS.iter().map(PathBuf::from).collect(),
-    };
-    configured
-        .into_iter()
-        .chain(std::iter::once(PathBuf::from(batch::PACKAGE_FONTS)))
-        .chain(batch::CONSOLE_FONT_FOLDERS.iter().map(PathBuf::from))
-        .collect()
+    fontpath::folders(config.text(&FONT_PATHS))
 }
 
 /// Checks the folder `dir` under the trust rule `rule`, judging its
@@ -1246,51 +1241,6 @@ fn one_source(path: &str) -> Result<FritText, String> {
     }
 }
 
-/// The source of the one-source frit vtium makes for the font file at
-/// `path`, chosen by the file's extension with case ignored. An OpenType or
-/// TrueType file or collection, `.ttf`, `.otf`, `.ttc`, `.otc` or `.otb`,
-/// takes `outline:`, a BDF font `bdf:` and a `.hex` font `hex:`. A console
-/// font, `.psf` or `.psfu`, and a file of any other name take `file:`,
-/// which reads PSF, CPI and raw fonts. A PSF or BDF font's extension may be
-/// followed by `.gz`, `.bz2`, `.xz` or `.zst`, and vtium looks past that.
-///
-/// The console decides from the path's text alone and opens no font file.
-/// The font helper then reads the file with the reader of that kind, so a
-/// file whose name does not match its contents is refused there and draws
-/// the built-in font. vtium-config builds the same source for a font file
-/// in its previews and in the Fonts tab, which sends OSC 50 the path of
-/// the font it showed.
-///
-/// References:
-/// - ADR-1200 D1: the source forms, and which kinds of font each reads.
-/// - ADR-1200 D5: the console makes its checks from the path's text and
-///   opens no font file.
-/// - ADR-1200 D9: a path at the start becomes a one-source frit.
-fn path_source(path: &str) -> String {
-    let name = path.rsplit('/').next().unwrap_or_default();
-    let name = name.to_ascii_lowercase();
-    let extensions: Vec<&str> = name.split('.').skip(1).collect();
-    let mut extensions = extensions.into_iter().rev();
-    let mut extension = extensions.next();
-    if extension.is_some_and(|e| ["gz", "bz2", "xz", "zst"].contains(&e)) {
-        extension = extensions.next();
-    }
-    let kind = match extension {
-        Some("ttf" | "otf" | "ttc" | "otc" | "otb") => "outline",
-        Some("bdf") => "bdf",
-        Some("hex") => "hex",
-        _ => "file",
-    };
-    format!("{kind}:{path}")
-}
-
-/// Whether `path` is in its plain form: the form `Path` gives when it
-/// rebuilds the path from its components. Such a path has no `.`
-/// component, no `//` and no `/` at its end.
-fn plain_form(path: &Path) -> bool {
-    path.components().collect::<PathBuf>().as_os_str() == path.as_os_str()
-}
-
 /// Whether `path`, the text OSC 50 carries, names a qualifying font: one
 /// that root already installed and trusts. vtium makes four checks, in
 /// this order, and the error says which one failed:
@@ -1319,21 +1269,10 @@ fn plain_form(path: &Path) -> bool {
 /// - ADR-1205 D4: the trust rule and the batch.
 pub fn qualifying(path: &str, folders: &[PathBuf], gate: &cullet::Gate) -> Result<(), String> {
     let file = Path::new(path);
-    let plain = path.starts_with('/')
-        && plain_form(file)
-        && !file
-            .components()
-            .any(|c| c == std::path::Component::ParentDir)
-        && !path.chars().any(char::is_control)
-        && !path.contains('#')
-        && path.trim() == path;
-    if !plain {
+    if !fontpath::plain(path) {
         return Err("a font's path must be absolute and plain: no `.`, `..` or empty component, no `/` at its end, no control character, no `#`, and no space at either end".to_owned());
     }
-    let searched = folders
-        .iter()
-        .any(|dir| file != dir && file.starts_with(dir));
-    if !searched {
+    if !fontpath::inside(file, folders) {
         return Err(
             "the file is not in a folder that vtium searches for fonts: those of font-paths, the package's font folder and kbd's console-font folders".to_owned(),
         );

@@ -1080,7 +1080,11 @@ impl App {
             }
             if self.nav.trial.as_ref().is_some_and(|t| t.font == asked) {
                 self.nav.trial = None;
-                self.shared.message = Some(super::words::trial_refused(&asked));
+                self.shared.message = Some(if super::shot::is_file(&asked) {
+                    super::words::font_file_refused(super::shot::font_shown(&asked))
+                } else {
+                    super::words::trial_refused(&asked)
+                });
             }
         }
         if shown.is_some() {

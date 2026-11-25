@@ -1779,17 +1779,19 @@ mod list_window {
     }
 }
 
-/// The status line names `t` only where `t` tries a font set: on a look or
-/// a font set in the Looks tab, and in a look's card. Among the Looks
-/// tab's color schemes and pointer themes, and in their details, `t` does
-/// nothing, so the status line says where the live trial works instead.
+/// The status line names `t` only where `t` tries a font: on a look or a
+/// font set in the Looks tab, in a look's card, and in the Fonts tab's
+/// list. Among the Looks tab's color schemes and pointer themes, in their
+/// details, and in the Fonts tab's filters, `t` does nothing, so the
+/// status line says where the live trial works instead. Every other tab
+/// names both tabs where `t` tries a font: Fonts and Looks.
 ///
 /// References:
 /// - ADR-1201 D4: the live trial of a font set.
 /// - ADR-1403 D7, its note of 2026-11-18: the screen names only keys that
 ///   act where it is shown.
 #[test]
-fn the_status_line_names_t_only_where_t_tries_a_font_set() {
+fn the_status_line_names_t_only_where_t_tries_a_font() {
     use vtium_config::tui::input::Key;
     use vtium_config::tui::model::{self, App};
     use vtium_config::tui::{nav, words};
@@ -1810,8 +1812,25 @@ fn the_status_line_names_t_only_where_t_tries_a_font_set() {
     press(&mut a, Key::Enter);
     assert_eq!(nav::node(&a), "looks.pointer");
     assert!(!status(&a).contains(words::TRIAL_KEY), "{}", status(&a));
-    // another tab says where the trial is
+    // the Fonts tab's list tries a font; its filters and a font's detail
+    // do not
     press(&mut a, Key::Escape);
     press(&mut a, Key::Char('1'));
-    assert!(status(&a).contains(words::TRIAL_IN_LOOKS), "{}", status(&a));
+    assert_eq!(nav::node(&a), "fonts");
+    assert!(status(&a).contains(words::TRIAL_KEY), "{}", status(&a));
+    press(&mut a, Key::Enter);
+    assert_eq!(nav::node(&a), "fonts.filter");
+    assert!(!status(&a).contains(words::TRIAL_KEY), "{}", status(&a));
+    assert!(status(&a).contains(words::TRIAL_ON_FONTS), "{}", status(&a));
+    // every other tab says where the trial is: in Fonts and in Looks.
+    // This draft's Flow tab fills the status line with its tags, so the
+    // scenarios' snapshots of the Flow nodes show its trial words
+    press(&mut a, Key::Escape);
+    for (tab, node) in [('2', "effects"), ('5', "settings"), ('6', "help")] {
+        press(&mut a, Key::Char(tab));
+        assert_eq!(nav::node(&a), node);
+        let line = status(&a);
+        assert!(line.ends_with(" · trial: Fonts, Looks"), "{line}");
+        assert!(!line.contains(words::TRIAL_KEY), "{line}");
+    }
 }

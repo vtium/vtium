@@ -1051,8 +1051,8 @@ pub const NODES: &[Node] = &[
         key_pages: &[
             "↑↓ move  Space activate  q quit  . more 1/4",
             "Home first  End last  PgUp page up  PgDn page down  Enter open  . more 2/4",
-            "2 3 4 5 6 go to tab  s save  i install  p preview  Tab next view  . more 3/4",
-            "Shift-Tab view before  Ctrl-C save and quit  . more 4/4",
+            "2 3 4 5 6 go to tab  s save  i install  t try live  p preview  . more 3/4",
+            "Tab next view  Shift-Tab view before  Ctrl-C save and quit  . more 4/4",
         ],
         help: &[
             ("↑", "Moves to the item above."),
@@ -1071,6 +1071,7 @@ pub const NODES: &[Node] = &[
             ("s", "Saves the changes that are not saved into the draft."),
             ("i", "Saves, then asks whether to install the draft."),
             (".", "Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row."),
+            ("t", "Tries the highlighted font on this console for 10 seconds, and k keeps it. A font that root has not installed, activated and trusted cannot be tried, and t says why."),
             ("p", "Switches the preview between the sample characters and the picture of the console. In a terminal that does not support images, says that it cannot show the picture."),
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),
@@ -1101,7 +1102,7 @@ pub const NODES: &[Node] = &[
             ("pgdn.view", true),
             ("space.view.resources", true),
             ("enter.view.fonts", true),
-            ("t.view.fonts", false),
+            ("t.view.fonts", true),
             ("p.view.fonts", true),
             ("n.view.fonts", true),
             ("r.view.fonts", true),
