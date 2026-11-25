@@ -79,7 +79,7 @@ Two rows a cell, `row-display` and `row-system`, give the cost of drawing one te
 
 `memory` gives the same column. Only the pan's memory differs between the units: at pixel steps each of its buffers is one text row taller.
 
-The dated files in `results/` hold the runs reported to the maintainer. `2026-11-24-padnoir-look.tsv` holds what the maintainer saw on padnoir's display in each of the 24 whole-row runs, one way, buffer count and cell size each, in the maintainer's own words.
+The dated files in `results/` hold the runs reported to the maintainer. `2026-11-24-padnoir-look.tsv` holds what the maintainer saw on padnoir's display in each of the 24 whole-row runs, one way, buffer count and cell size each, in the maintainer's own words. `2026-11-24-padnoir-look-pixels.tsv` holds the same for the 12 runs at 1, 2, 4 and 8 pixel lines a frame with the text look, which add `pan-ahead` and the pan's spare rows.
 
 ## What it leaves out
 
