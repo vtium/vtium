@@ -87,6 +87,13 @@ impl Screen {
         if stripped && self.scrollback.offset() != 0 {
             self.damage.mark_all();
         }
+        // A stripped line may hold the hovered or a labelled link, whose
+        // cells lose their underline; a frame can capture that line above
+        // the view, where it keeps no damage of its own.
+        #[cfg(feature = "rows-beyond")]
+        if stripped && (self.hover.link.is_some() || !self.hover.hints.is_empty()) {
+            self.damage.mark_all();
+        }
     }
 
     /// How many lines name each link, by `LinkId`, the hovered link and
@@ -261,7 +268,8 @@ impl Screen {
         }
     }
 
-    /// Marks the view rows whose link tables hold `link`.
+    /// Marks the view rows whose link tables hold `link`, and everything
+    /// when a row a frame captures beyond the view holds it.
     fn mark_link_rows(&mut self, link: Option<LinkId>) {
         let Some(link) = link else {
             return;
@@ -276,6 +284,8 @@ impl Screen {
         for row in rows {
             self.damage.mark_rows(row..row.saturating_add(1));
         }
+        #[cfg(feature = "rows-beyond")]
+        self.mark_all_if_beyond(|line| line.link_table().any(|l| l == link));
     }
 
     /// The text the overlay row shows: vtium's note while one is set, else

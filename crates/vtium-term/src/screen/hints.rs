@@ -149,7 +149,9 @@ impl Screen {
     }
 
     /// Marks the view rows whose link tables hold any of `links`, in one
-    /// pass over the view, with a list by link slot to look each entry up.
+    /// pass over the view, with a list by link slot to look each entry up,
+    /// and everything when a row a frame captures beyond the view holds
+    /// one of them.
     fn mark_rows_of_links(&mut self, links: impl Iterator<Item = LinkId>) {
         let mut wanted = vec![false; self.links.len()];
         for link in links {
@@ -170,6 +172,11 @@ impl Screen {
         for row in rows {
             self.damage.mark_rows(row..row.saturating_add(1));
         }
+        #[cfg(feature = "rows-beyond")]
+        self.mark_all_if_beyond(|line| {
+            line.link_table()
+                .any(|l| wanted.get(slot(l)).copied().unwrap_or(false))
+        });
     }
 
     /// The labels of link hints, while they are on, each placed where its
@@ -221,12 +228,20 @@ impl Screen {
         }
         let cols = self.cols;
         let mut marks = Vec::new();
+        // the links whose label goes, whose cells beyond the view lose the
+        // dashed underline
+        #[cfg(feature = "rows-beyond")]
+        let mut gone: Vec<LinkId> = Vec::new();
         let mut kept: Vec<(LinkHint, (usize, usize))> = Vec::new();
         for hint in core::mem::take(&mut self.hover.hints) {
             probe();
             match wanted.get(slot(hint.link)).copied().flatten() {
                 Some(at) => kept.push((hint, at)),
-                None => marks.push(hint.at.1),
+                None => {
+                    marks.push(hint.at.1);
+                    #[cfg(feature = "rows-beyond")]
+                    gone.push(hint.link);
+                }
             }
         }
         // a stable sort, so labels whose links start in the same cell keep
@@ -253,6 +268,10 @@ impl Screen {
         self.hover.labelled = labelled;
         for row in marks {
             self.damage.mark_rows(row..row.saturating_add(1));
+        }
+        #[cfg(feature = "rows-beyond")]
+        if !gone.is_empty() {
+            self.mark_all_if_beyond(|line| line.link_table().any(|l| gone.contains(&l)));
         }
     }
 

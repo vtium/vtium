@@ -29,6 +29,18 @@ import unittest
 # The longest any test waits on another process. It only makes a broken test fail instead of hanging.
 WAIT_BOUND = 120
 
+# The tests start the tools as a terminal starts them, with the signals a
+# terminal sends at their defaults. A launcher can leave one of them ignored:
+# nohup ignores SIGHUP, and a shell ignores SIGINT and SIGQUIT in a job it
+# starts in the background. Every process the tests start inherits that, and
+# bash cannot trap a signal that was ignored when it started, so accept.sh
+# would go on through the hangup a test sends it, and the test would see the
+# walk carry on instead of end. So the tests put these signals back to their
+# defaults before they start anything.
+for _sig in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM):
+    if signal.getsignal(_sig) == signal.SIG_IGN:
+        signal.signal(_sig, signal.default_int_handler if _sig == signal.SIGINT else signal.SIG_DFL)
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 VT = os.path.join(ROOT, "tools", "vt")
 ACCEPT_SH = os.path.join(VT, "accept.sh")

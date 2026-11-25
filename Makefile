@@ -168,12 +168,13 @@ minspec install-tree vt-dev-console config-release image-release clipboard-relea
 # FEATURES exported in the shell builds nothing different.
 FEATURES :=
 # The acceptance pass shows every page by default (ADR-1501 D5): make
-# vt-accept builds the console with images and bidi unless make's command
-# line names FEATURES, so make vt-accept FEATURES= is a pass of the minspec
-# build. A binary named with VTIUM_BIN is run as it is, so its features are
-# the ones it was built with: images when it carries the line only a build
-# with images carries (VT_IMAGES_MARKER), else none, and the run gives it
-# the image helper only when it has pictures.
+# vt-accept builds the console with images, bidi, filters, and scroll-pan,
+# the features of the packaged console, unless make's command line names
+# FEATURES, so make vt-accept FEATURES= is a pass of the minspec build. A
+# binary named with VTIUM_BIN is run as it is, so its features are the ones
+# it was built with: images when it carries the line only a build with
+# images carries (VT_IMAGES_MARKER), else none, and the run gives it the
+# image helper only when it has pictures.
 #
 # RENDER_PATH chooses the path the pass judges: cpu, the default, runs
 # vtium with --no-hwaccel, and gpu runs it with --hwaccel, so that one batch
@@ -197,7 +198,7 @@ ifneq ($(origin FEATURES),command line)
 ifeq ($(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),)
 FEATURES := $(if $(shell grep -qaF -- '$(VT_IMAGES_MARKER)' '$(VTIUM_BIN)' 2>/dev/null && echo images),images)
 else
-FEATURES := images bidi filters$(if $(filter gpu,$(RENDER_PATH)), gpu)
+FEATURES := images bidi filters scroll-pan$(if $(filter gpu,$(RENDER_PATH)), gpu)
 endif
 else ifeq ($(RENDER_PATH),gpu)
 ifeq ($(filter gpu,$(subst $(comma), ,$(FEATURES))),)
@@ -754,7 +755,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the locale mode scripts with the real vtium-config, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the release files' check, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the scroll timing tool's ways and its frame loop on a counted display without a KMS device, the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the locale mode scripts with the real vtium-config, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the feature check's plan and the minspec size report, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the release files' check, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the scroll timing tool's ways and its frame loop on a counted display without a KMS device, the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I tools/vt/tests/test_typepad.py
@@ -766,6 +767,7 @@ test-tools: ## Test the VT review tools, the locale mode scripts with the real v
 	python3 -I -B tools/gallery/tests/test_gallery.py
 	python3 -I -B tools/fuzz/test_run.py
 	python3 -I -B tools/gates/test_run.py
+	python3 -I -B tools/gates/test_features.py
 	python3 -I -B docs/scripts/test_fork_refs.py
 	python3 -I -B docs/scripts/test_prose.py
 	python3 -I -B docs/scripts/test_claims.py
@@ -1109,6 +1111,16 @@ api: ## Build the crates' interfaces with rustdoc into target/doc, failing on an
 	rm -rf $(API_DOC_DIR)
 	RUSTDOCFLAGS="$(API_RUSTDOCFLAGS)" cargo doc --no-deps --all-features --lib $(API_PACKAGES)
 
+# make features-check runs clippy and rustdoc on each crate under crates/
+# that declares cargo features, once with no feature and once with each
+# feature alone, through tools/gates/features. The gate line's clippy and make
+# api build every crate with every feature on, so they never see an import
+# or a doc link that only a build with fewer features breaks. rustdoc runs
+# with make api's flags. make features-check is a gate of the gate line.
+.PHONY: features-check
+features-check: ## Run clippy and rustdoc on each crate with no feature and with each feature alone, failing on any warning and naming the crate and the features
+	RUSTDOCFLAGS="$(API_RUSTDOCFLAGS)" python3 -I -B tools/gates/features
+
 site-api: api ## Copy the crates' interfaces into the built site under target/site/api (run make docs first)
 	@test -f target/site/index.html || { echo "target/site has no built site: run make docs first" >&2; exit 1; }
 	mkdir -p target/site/api
@@ -1289,6 +1301,7 @@ docs/scripts/claims
 docs/scripts/prose --check
 docs/scripts/coverage
 make api
+make features-check
 make man-check
 make test-tools
 make conformance
@@ -1315,12 +1328,42 @@ endef
 # and its report. No gate needs the machine to itself. A CARGO_TARGET_DIR
 # set by the caller must not be shared by worktrees whose sources differ
 # (AGENTS.md, "The gates").
+#
+# After the gates, make gates builds the minspec binary with make minspec,
+# in $(GATES_DIR)/minspec-size, and tools/gates/minspec-size prints its size
+# against tier 3's budget. make minspec builds the binary that tier 3
+# measures, and the gate cargo build --profile minspec builds another one,
+# without the minspec link flags. The report is not a gate: a binary over
+# the budget prints a warning, and make gates exits as the gates decided.
+# make tier3-minimal is the check that fails on that binary. The sub-make
+# gets make's command line through MAKEFLAGS, so the build names FEATURES,
+# HWACCEL, DISPLAY_BUFFERS, and CARGO_TARGET_DIR itself: make gates
+# FEATURES=images still measures the minspec binary, in its own directory.
+# The report follows each run in which the gates ran, passed or failed. An
+# interrupted run and a usage error of tools/gates/run skip it.
+#
+# References:
+# - ADR-1200 D19: the minspec binary's size budget.
 GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),8)
 GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
+GATES_SIZE_LOG = $(GATES_DIR)/logs/minspec-size.log
+# The recipe names make through this variable rather than as $(MAKE): make
+# runs a recipe line that names $(MAKE) even under make -n, and make -n gates
+# must print the gates' line without running the gates.
+GATES_SIZE_BUILD = $(MAKE) --no-print-directory minspec CARGO_TARGET_DIR=$(GATES_DIR)/minspec-size \
+	FEATURES= HWACCEL= DISPLAY_BUFFERS=
 
 .PHONY: gates
-gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed
-	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR)
+gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed; then report the minspec binary's size against tier 3's budget
+	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR); code=$$?; \
+	[ $$code -eq 0 ] || [ $$code -eq 1 ] || exit $$code; \
+	echo; echo "==> make minspec, for the size of the binary tier 3 measures (log: $(GATES_SIZE_LOG))"; \
+	if $(GATES_SIZE_BUILD) >$(GATES_SIZE_LOG) 2>&1 </dev/null; then \
+		python3 -I -B tools/gates/minspec-size $(GATES_DIR)/minspec-size/$(X86_TARGET)/minspec/vtium; \
+	else \
+		echo "warning: make minspec failed, so make gates cannot report the minspec binary's size. Its log is $(GATES_SIZE_LOG)."; \
+	fi; \
+	exit $$code
 
 # make ci-local runs the tests in a container with the userland of CI's
 # runner, Ubuntu 24.04, so a test that only fails there shows up before a

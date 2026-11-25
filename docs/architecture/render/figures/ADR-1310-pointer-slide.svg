@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 560" width="880" height="560" font-family="DejaVu Sans, Verdana, sans-serif" font-size="14">
+  <title>The cell under a still pointer while the text slides</title>
+  <desc>Two views of a screen five rows high, rows 20 pixels high drawn twice their size, with the pointer at the same place, 50 pixels below the grid's top. On the left, in the middle of a slide with 13 pixels of lag left, the picture shows every line 13 pixels lower than the terminal puts it: the bottom of line 9, which the terminal has already moved into the scrollback, shows at the top in slate, and the pointer is over line 11, terminal row 1, outlined in orange. On the right, at rest with no lag, the same pointer is over line 12, terminal row 2. Below, the formula t = floor((y - grid_top - D) / h) with the numbers of each view.</desc>
+  <defs>
+    <clipPath id="mid"><rect x="60" y="110" width="300" height="200"/></clipPath>
+    <clipPath id="rest"><rect x="500" y="110" width="300" height="200"/></clipPath>
+  </defs>
+  <rect x="0" y="0" width="880" height="560" fill="#ffffff"/>
+
+  <!-- In the middle of a slide: each line drawn D = 13 px lower than the terminal puts it -->
+  <text x="60" y="40" fill="#111827" font-weight="bold">In the middle of a slide</text>
+  <text x="60" y="62" fill="#374151" font-size="13">lag left D = 13 px, as at frame 1 of the window's steps</text>
+  <g clip-path="url(#mid)">
+    <rect x="60" y="96" width="300" height="40" fill="#475569"/>
+    <rect x="60" y="136" width="300" height="40" fill="#1f2937"/>
+    <rect x="60" y="176" width="300" height="40" fill="#111827"/>
+    <rect x="60" y="216" width="300" height="40" fill="#1f2937"/>
+    <rect x="60" y="256" width="300" height="40" fill="#111827"/>
+    <rect x="60" y="296" width="300" height="40" fill="#1f2937"/>
+    <g stroke="#6b7280" stroke-width="1">
+      <line x1="60" y1="136" x2="360" y2="136"/>
+      <line x1="60" y1="176" x2="360" y2="176"/>
+      <line x1="60" y1="216" x2="360" y2="216"/>
+      <line x1="60" y1="256" x2="360" y2="256"/>
+      <line x1="60" y1="296" x2="360" y2="296"/>
+    </g>
+    <rect x="62" y="177.5" width="296" height="37" fill="none" stroke="#f97316" stroke-width="3.5"/>
+    <text x="72" y="128" fill="#e5e7eb" stroke="#475569" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row −1, line 9</text>
+    <text x="72" y="162" fill="#e5e7eb" stroke="#1f2937" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row 0, line 10</text>
+    <text x="72" y="202" fill="#e5e7eb" stroke="#111827" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row 1, line 11</text>
+    <text x="72" y="242" fill="#e5e7eb" stroke="#1f2937" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row 2, line 12</text>
+    <text x="72" y="282" fill="#e5e7eb" stroke="#111827" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row 3, line 13</text>
+    <text x="72" y="322" fill="#e5e7eb" stroke="#1f2937" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row 4, line 14</text>
+  </g>
+  <rect x="60" y="110" width="300" height="200" fill="none" stroke="#374151" stroke-width="2"/>
+  <path d="M 260 210 l 0 22 l 6 -5 l 5 10 l 4 -2 l -5 -10 l 8 -1 z" fill="#ffffff" stroke="#111827" stroke-width="1.5" stroke-linejoin="round"/>
+
+  <!-- At rest: each line drawn D = 0 px lower than the terminal puts it -->
+  <text x="500" y="40" fill="#111827" font-weight="bold">At rest</text>
+  <text x="500" y="62" fill="#374151" font-size="13">no lag, D = 0</text>
+  <g clip-path="url(#rest)">
+    <rect x="500" y="110" width="300" height="40" fill="#1f2937"/>
+    <rect x="500" y="150" width="300" height="40" fill="#111827"/>
+    <rect x="500" y="190" width="300" height="40" fill="#1f2937"/>
+    <rect x="500" y="230" width="300" height="40" fill="#111827"/>
+    <rect x="500" y="270" width="300" height="40" fill="#1f2937"/>
+    <g stroke="#6b7280" stroke-width="1">
+      <line x1="500" y1="150" x2="800" y2="150"/>
+      <line x1="500" y1="190" x2="800" y2="190"/>
+      <line x1="500" y1="230" x2="800" y2="230"/>
+      <line x1="500" y1="270" x2="800" y2="270"/>
+    </g>
+    <rect x="502" y="191.5" width="296" height="37" fill="none" stroke="#f97316" stroke-width="3.5"/>
+    <text x="512" y="136" fill="#e5e7eb" stroke="#1f2937" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row 0, line 10</text>
+    <text x="512" y="176" fill="#e5e7eb" stroke="#111827" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row 1, line 11</text>
+    <text x="512" y="216" fill="#e5e7eb" stroke="#1f2937" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row 2, line 12</text>
+    <text x="512" y="256" fill="#e5e7eb" stroke="#111827" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row 3, line 13</text>
+    <text x="512" y="296" fill="#e5e7eb" stroke="#1f2937" stroke-width="6" stroke-linejoin="round" paint-order="stroke">row 4, line 14</text>
+  </g>
+  <rect x="500" y="110" width="300" height="200" fill="none" stroke="#374151" stroke-width="2"/>
+  <path d="M 700 210 l 0 22 l 6 -5 l 5 10 l 4 -2 l -5 -10 l 8 -1 z" fill="#ffffff" stroke="#111827" stroke-width="1.5" stroke-linejoin="round"/>
+
+  <!-- the pointer's pixel line, the same in both views -->
+  <g stroke="#d97706" stroke-width="1.5" stroke-dasharray="6 4">
+    <line x1="30" y1="210" x2="58" y2="210"/>
+    <line x1="362" y1="210" x2="498" y2="210"/>
+  </g>
+  <text x="372" y="202" fill="#92400e" font-size="13">y = 50 px</text>
+
+  <!-- the row each view names -->
+  <g fill="#111827">
+    <text x="60" y="352">t = ⌊(50 − 13) / 20⌋ = 1</text>
+    <text x="60" y="376">names line 11, terminal row 1</text>
+    <text x="500" y="352">t = ⌊(50 − 0) / 20⌋ = 2</text>
+    <text x="500" y="376">names line 12, terminal row 2</text>
+  </g>
+  <text x="60" y="426" fill="#111827" font-weight="bold">t = ⌊(y − grid_top − D) / h⌋</text>
+  <g fill="#374151" font-size="13">
+    <text x="60" y="450">y: the pointer's pixel line. grid_top: where the grid's first row starts at rest, 0 here.</text>
+    <text x="60" y="470">h: a row's height, 20 px. D: the lag left, in pixels. With no slide D is 0.</text>
+  </g>
+  <rect x="60" y="494" width="30" height="18" fill="none" stroke="#f97316" stroke-width="3"/>
+  <text x="100" y="508" fill="#111827">the line the pointer names</text>
+  <rect x="370" y="494" width="30" height="18" fill="#475569"/>
+  <text x="410" y="508" fill="#111827">already in the scrollback: a press there sends no report</text>
+</svg>

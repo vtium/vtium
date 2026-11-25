@@ -47,7 +47,7 @@ libseat = ["vtium-platform/libseat"]
 # References:
 # - ADR-1310 D6: the pan, the copy, and the feature that builds them.
 # - ADR-1401 D2: the tall buffer and the copy's ring.
-scroll-pan = ["vtium-render/scroll-pan", "vtium-platform/scroll-pan"]
+scroll-pan = ["vtium-term/rows-beyond", "vtium-render/scroll-pan", "vtium-platform/scroll-pan"]
 
 [dependencies]
 vtium-term.workspace = true
@@ -63,6 +63,9 @@ vtium-settings.workspace = true
 # The devices present as the head file's rules see them, which the start
 # places and `check-config` lists (ADR-1403 D9).
 vtium-devices.workspace = true
+# The messages between the broker and the drawer, and the socket that
+# carries them (ADR-1513 D4).
+vtium-broker-protocol.workspace = true
 # The messages vtium-platform writes through it, and the binary's own,
 # which the binary routes to stderr.
 log = "0.4"
@@ -84,6 +87,9 @@ libc = "=0.2.191"
 xkbcommon = { version = "=0.9.0", default-features = false }
 
 [dev-dependencies]
+# `Link::wait_for_close`, which the broker's tests use to wait for the
+# drawer's end to close.
+vtium-broker-protocol = { workspace = true, features = ["test-support"] }
 # The window size and the name of a kept pty, which the tests of the
 # sessions that survive a restart read (ADR-1401 D13); vtium-platform
 # already builds the same version with these features.

@@ -97,6 +97,8 @@ pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId, SizedRun, TextS
 #[cfg(feature = "bidi")]
 pub use order::{Joins, Order};
 pub use palette::{PALETTE_NAMES, Palette, Special};
+#[cfg(feature = "rows-beyond")]
+pub use screen::Reach;
 pub use screen::{Erase, Screen, WidthMethod};
 pub use scrollback::{
     MINSPEC_GRID, MINSPEC_PEAK, MINSPEC_REST, SB_MEMORY_DEFAULT, SB_MEMORY_DEFAULT_IMAGES,

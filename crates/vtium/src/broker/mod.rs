@@ -37,10 +37,11 @@
 )]
 
 pub mod outbox;
-pub mod protocol;
 pub mod refusals;
 pub mod start;
 pub mod watch;
+
+pub use vtium_broker_protocol as protocol;
 
 use std::ffi::OsString;
 use std::io;

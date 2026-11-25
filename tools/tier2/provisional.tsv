@@ -2,3 +2,17 @@
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
 palette-ink	the shipped color scheme Ink (crates/vtium/install/palettes/ink.palette), drawn on 2026-11-20 by tier2 render from feat/w5-look-keys at 4110c2ce; every color is black, red or white
+edges	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+edges-right	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+edges-upside-down	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+edges-left	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+scroll-unifont	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+scroll-unifont-right	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+pictures-kitty-right	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+login-contain	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+login-banner	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+login-contain-top-left	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+login-contain-right	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+login-contain-bottom	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+login-scale-bottom-right	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+login-banner-bottom-right	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
