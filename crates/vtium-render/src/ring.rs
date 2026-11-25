@@ -660,6 +660,7 @@ impl<F: Face> Renderer<F> {
             }
         };
         self.ring.pending = Some((scrolled, whole));
+        let before = self.ring.base;
         let plan = self.plan(frame, ring_age, state);
         let g = Geometry::new(&self.layout, &plan.grid);
         let base = self.ring.base;
@@ -674,20 +675,25 @@ impl<F: Face> Renderer<F> {
         };
         let ((cells, rows), missing) = painted;
         let stats = self.finish(&plan, (cells, rows), missing, start).stats;
-        // the copy's damage log holds one entry for each frame the display
-        // swaps in, the newest last; this frame's entry is the area it
-        // changed, which may be none
-        self.ring.copied.clear();
-        self.ring.log.push(self.cells.damage().to_vec());
-        if self.ring.log.len() > COPY_FRAMES {
-            self.ring.log.remove(0);
-        }
         let screen = Rect {
             x: 0,
             y: 0,
             width: self.layout.width,
             height: self.layout.height,
         };
+        // the copy's damage log holds one entry for each frame the display
+        // swaps in, the newest last; this frame's entry is the area it
+        // changed, which may be none, or the whole screen when the window
+        // moved, since every pixel of the screen then shows another line
+        self.ring.copied.clear();
+        let entry = match self.ring.base == before {
+            true => self.cells.damage().to_vec(),
+            false => vec![screen],
+        };
+        self.ring.log.push(entry);
+        if self.ring.log.len() > COPY_FRAMES {
+            self.ring.log.remove(0);
+        }
         // a buffer `age` frames old lacks what the last `age` frames
         // changed, and the whole window when one of them moved it
         let n = to_usize(age);
@@ -742,6 +748,8 @@ impl<F: Face> Renderer<F> {
     /// code drew over, and the arrow drawn in software, which stay at
     /// their places on the screen. The cursor's last places move with the
     /// lines, so the cells it was drawn in are drawn again once it is gone.
+    /// The border's areas move with the lines too, and the border that the
+    /// window shows anew changes ([`Renderer::scroll_border`]).
     pub(super) fn scroll_rows(&mut self, g: &Grid, n: i64) {
         for area in core::mem::take(&mut self.touched) {
             self.stamp_area(g, area);
@@ -750,6 +758,7 @@ impl<F: Face> Renderer<F> {
             self.stamp_pointer(&p);
         }
         self.cells.rotate(n);
+        self.scroll_border(g, n);
         let shift = usize::try_from(n.unsigned_abs()).unwrap_or(usize::MAX);
         let rows = self.sizes.len();
         let shift_sizes = shift.min(rows);
@@ -777,6 +786,87 @@ impl<F: Face> Renderer<F> {
             .saturating_add(n.rem_euclid(slots))
             .rem_euclid(slots);
         self.ring.base = u32::try_from(base).unwrap_or(0);
+    }
+
+    /// The border after the grid's lines moved `n` rows up, or down when
+    /// `n` is negative. The border's areas that the history keeps move
+    /// with the lines, as the cells' history does. Two bands across the
+    /// screen then change. The leaving rows' lines now lie outside the
+    /// grid, so they show the border where a row's cells were. The lines
+    /// at the screen's far end, which the window did not show before, hold
+    /// whatever the ring held there. Every other line keeps its border
+    /// pixels as it moves, since the border is one color. The border
+    /// skips the grid, so a band that crosses the grid draws only its side
+    /// margins. The arrow drawn in software is stamped on its own.
+    fn scroll_border(&mut self, g: &Grid, n: i64) {
+        let l = self.layout;
+        let (w, h) = (l.width, l.height);
+        let turned = l.orientation.turned();
+        let forward = matches!(l.orientation, Orientation::Normal | Orientation::Left);
+        // the lines move to lower coordinates when the rows count up as
+        // the coordinate grows
+        let by = n.saturating_mul(l.ch);
+        let by = if forward { by.saturating_neg() } else { by };
+        let shift = if turned { (by, 0) } else { (0, by) };
+        self.cells.move_border_areas(shift, (w, h));
+        let rows = g.rows;
+        let k = usize::try_from(n.unsigned_abs())
+            .unwrap_or(usize::MAX)
+            .min(rows);
+        if k == 0 || g.cols == 0 {
+            return;
+        }
+        let screen = i64::from(if turned { w } else { h });
+        // the leaving rows, where they were along the axis before the move
+        let (first, last) = match n > 0 {
+            true => (0, k.saturating_sub(1)),
+            false => (rows.saturating_sub(k), rows.saturating_sub(1)),
+        };
+        let (a, b) = (l.cell_rect(g, 0, first), l.cell_rect(g, 0, last));
+        let (r0, r1) = match turned {
+            true => (
+                a.x.min(b.x),
+                a.x.saturating_add(a.width).max(b.x.saturating_add(b.width)),
+            ),
+            false => (
+                a.y.min(b.y),
+                a.y.saturating_add(a.height)
+                    .max(b.y.saturating_add(b.height)),
+            ),
+        };
+        let leaving = (
+            i64::from(r0).saturating_add(by),
+            i64::from(r1).saturating_add(by),
+        );
+        // the lines the window shows anew: those whose place before the
+        // move lay past the screen's end
+        let fresh = match by < 0 {
+            true => (screen.saturating_add(by), screen),
+            false => (0, by),
+        };
+        let band = |(from, to): (i64, i64)| {
+            let cut = |v: i64| u32::try_from(v.clamp(0, screen)).unwrap_or(0);
+            let (from, to) = (cut(from), cut(to));
+            match turned {
+                true => Rect {
+                    x: from,
+                    y: 0,
+                    width: to.saturating_sub(from),
+                    height: h,
+                },
+                false => Rect {
+                    x: 0,
+                    y: from,
+                    width: w,
+                    height: to.saturating_sub(from),
+                },
+            }
+        };
+        for r in [band(leaving), band(fresh)] {
+            if r.area() > 0 {
+                self.cells.stamp_border_area(r);
+            }
+        }
     }
 
     /// Readies the twins of the buffer being drawn, whose stale slots

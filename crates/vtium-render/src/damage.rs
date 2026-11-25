@@ -402,7 +402,12 @@ impl Cells {
     }
 }
 
-/// What a ring of drawn rows needs of the history (ADR-1310 D6).
+/// What a ring of drawn rows needs of the history: the buffer being
+/// drawn, the rows it draws whole, and the lines' history moved by a
+/// scroll.
+///
+/// References:
+/// - ADR-1310 D6: the ring, the pan and the copy that use this history.
 #[cfg(feature = "scroll-pan")]
 impl Cells {
     /// The serial of the frame the buffer being drawn holds, `None` when
@@ -444,14 +449,13 @@ impl Cells {
     /// its blink phase. The rows that come in hold nothing yet, so they
     /// change on this frame. Before the lines move, the cells that the ink
     /// of a leaving row reached change, so each is drawn again without
-    /// that ink. The whole border changes too, since the window over the
-    /// ring moves and the border has to be drawn at its place again.
+    /// that ink. The border's areas are left as they are:
+    /// [`Cells::move_border_areas`] moves them.
     pub(crate) fn rotate(&mut self, n: i64) {
         let (cols, rows) = (self.cols, self.rows);
         let shift = usize::try_from(n.unsigned_abs())
             .unwrap_or(usize::MAX)
             .min(rows);
-        self.border = self.serial;
         if shift == 0 {
             return;
         }
@@ -492,6 +496,38 @@ impl Cells {
             #[cfg(feature = "bidi")]
             refill_head(&mut self.pieces, cells, None);
         }
+    }
+}
+
+#[cfg(feature = "scroll-pan")]
+impl Cells {
+    /// The display moved its pixels `dx` and `dy` along with the grid's
+    /// lines, as a window over a ring of drawn rows does on a scroll. Each
+    /// area of the border that the history keeps moves with them, cut to
+    /// the display `w` by `h`, so that a buffer drawn before the scroll
+    /// draws the area again where its old pixels now show. An area that
+    /// leaves the display is dropped: its pixels come back on the screen
+    /// only as part of a row that comes in, which is drawn again anyway.
+    pub(crate) fn move_border_areas(&mut self, (dx, dy): (i64, i64), (w, h): (u32, u32)) {
+        self.border_areas.retain_mut(|(_, r)| {
+            let span = |at: u32, len: u32, by: i64, end: u32| {
+                let a = i64::from(at).saturating_add(by);
+                let b = a.saturating_add(i64::from(len));
+                let (a, b) = (a.clamp(0, i64::from(end)), b.clamp(0, i64::from(end)));
+                let a = u32::try_from(a).unwrap_or(0);
+                let b = u32::try_from(b).unwrap_or(0);
+                (a, b.saturating_sub(a))
+            };
+            let (x, width) = span(r.x, r.width, dx, w);
+            let (y, height) = span(r.y, r.height, dy, h);
+            *r = Rect {
+                x,
+                y,
+                width,
+                height,
+            };
+            r.area() > 0
+        });
     }
 }
 
