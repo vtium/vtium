@@ -295,7 +295,7 @@ pub fn try_unplain(file: impl Display) -> String {
 /// for fonts.
 pub fn try_outside_folders(file: impl Display) -> String {
     format!(
-        "{file} cannot be tried on the console, because the console looks for fonts only in the folders that font-paths names, and this font is in none of them."
+        "{file} cannot be tried on the console, because this font is in none of the folders where the console looks for fonts. The console looks in the folders that font-paths in vtium.conf names, or in the system font folders when it names none. The console also looks in vtium's own font folder and in kbd's console-font folders."
     )
 }
 
@@ -315,14 +315,16 @@ pub fn try_activates(file: impl Display) -> String {
 
 /// What `t` says on a font that fails the trust rule, and why it fails.
 pub fn try_untrusted(file: impl Display, why: impl Display) -> String {
-    format!("{file} cannot be tried on the console, because it fails the trust rule: {why}")
+    format!("{file} cannot be tried on the console, because the font fails the trust rule: {why}")
 }
 
 /// What the message line says when the console did not switch to the
-/// font file `file` that `t` sent.
+/// font file `file` that `t` sent. The console reads the list of active
+/// fonts only when it starts and at each login, so a font activated in
+/// this session is refused until the next login.
 pub fn font_file_refused(file: impl Display) -> String {
     format!(
-        "The console refused {file}, because it takes only fonts that root has installed and trusts. The console's log says which check the font failed."
+        "The console refused {file}, because it takes only fonts that root has installed and trusts. The console's log says which check the font failed. A font activated since you logged in can be tried after you log in again."
     )
 }
 

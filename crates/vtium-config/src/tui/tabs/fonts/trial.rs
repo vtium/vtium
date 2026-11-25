@@ -16,75 +16,32 @@
 //!   makes the checks before it sends anything, and says why on a font
 //!   that fails one.
 
-use std::path::{Component, Path, PathBuf};
+use vtium_settings::fontpath;
 
 use crate::batch::State;
-use crate::discover::{LOCAL_FONTS, PACKAGE_FONTS, font_paths};
 use crate::onscreen::text;
 use crate::tui::fonts_found::FontFile;
 use crate::tui::words;
-
-/// The folders where the console looks for a font that OSC 50 names by
-/// its path, for `conf`, the installed vtium.conf's text: the folders of
-/// `font-paths` where vtium.conf sets it, else the system's two font
-/// folders, then vtium's own font folder and kbd's console-font folders.
-/// A font may sit in one of them or in a folder below one.
-fn searched(conf: Option<&str>) -> Vec<PathBuf> {
-    let set = conf
-        .and_then(|c| vtium_settings::setting(c, vtium_settings::keys::FONT_PATHS.name))
-        .is_some();
-    let configured = if set {
-        font_paths(conf)
-    } else {
-        vec![PathBuf::from(PACKAGE_FONTS), PathBuf::from(LOCAL_FONTS)]
-    };
-    configured
-        .into_iter()
-        .chain(std::iter::once(PathBuf::from(
-            vtium_settings::batch::PACKAGE_FONTS,
-        )))
-        .chain(
-            vtium_settings::batch::CONSOLE_FONT_FOLDERS
-                .iter()
-                .map(PathBuf::from),
-        )
-        .collect()
-}
-
-/// Whether `path` is a path the console takes as the text of a font
-/// switch: absolute, in the form that rebuilding it from its components
-/// gives, with no `..` component, no control character, no `#`, and no
-/// space at either end. A path in another form names the same file, but
-/// the console's answer to the query would spell it another way.
-fn plain(path: &str) -> bool {
-    let file = Path::new(path);
-    path.starts_with('/')
-        && file.components().collect::<PathBuf>().as_os_str() == file.as_os_str()
-        && !file.components().any(|c| c == Component::ParentDir)
-        && !path.chars().any(char::is_control)
-        && !path.contains('#')
-        && path.trim() == path
-}
 
 /// The path that `t` sends the console for `file`, or the sentence that
 /// says why the console would not take it. `conf` is the installed
 /// vtium.conf's text. vtium-config makes the console's checks in the
 /// console's order: the path is plain, the file sits in a folder where the
 /// console looks for fonts, the font is active, and it passes the trust
-/// rule. A font in the person's own folder fails the second check, and
-/// the sentence then says how to install it as a system font.
+/// rule. vtium-settings holds the rules of the first two checks for both
+/// programs. A font in the person's own folder fails the second check,
+/// and the sentence then says how to install it as a system font.
 pub fn path_to_try(conf: Option<&str>, file: &FontFile) -> Result<String, String> {
     let name = text(&file.resource.name());
     if file.resource.own {
         return Err(words::try_own_font(&name));
     }
-    let Some(path) = file.path().to_str().filter(|p| plain(p)) else {
+    let Some(path) = file.path().to_str().filter(|p| fontpath::plain(p)) else {
         return Err(words::try_unplain(&name));
     };
-    let inside = searched(conf)
-        .iter()
-        .any(|dir| file.path() != dir && file.path().starts_with(dir));
-    if !inside {
+    let font_paths =
+        conf.and_then(|c| vtium_settings::setting(c, vtium_settings::keys::FONT_PATHS.name));
+    if !fontpath::inside(file.path(), &fontpath::folders(font_paths.as_deref())) {
         return Err(words::try_outside_folders(&name));
     }
     match file.resource.state {
@@ -100,6 +57,8 @@ pub fn path_to_try(conf: Option<&str>, file: &FontFile) -> Result<String, String
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use crate::discover::{Folder, Found, Place};
 
@@ -197,6 +156,30 @@ mod tests {
             path_to_try(Some(conf), &f),
             Err(words::try_outside_folders("Mono.ttf"))
         );
+    }
+
+    #[test]
+    fn font_paths_with_no_absolute_folder_leaves_the_system_s_folders() {
+        // the console leaves font-paths unset when no absolute folder
+        // remains, so it looks in the system's two font folders
+        for conf in [
+            "font-paths = a:b\n",
+            "font-paths =\n",
+            "font-paths = fonts\n",
+        ] {
+            let f = file(DEJAVU, State::Active, Ok(()));
+            assert_eq!(
+                path_to_try(Some(conf), &f),
+                Ok(DEJAVU.to_owned()),
+                "{conf:?}"
+            );
+            let f = file("/opt/fonts/Mono.ttf", State::Active, Ok(()));
+            assert_eq!(
+                path_to_try(Some(conf), &f),
+                Err(words::try_outside_folders("Mono.ttf")),
+                "{conf:?}"
+            );
+        }
     }
 
     #[test]

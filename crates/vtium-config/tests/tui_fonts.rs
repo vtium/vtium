@@ -970,7 +970,10 @@ fn the_countdown_s_end_puts_the_font_before_the_trial_back() {
 /// A console that answers the query with another font refused the path:
 /// the message line says that the console takes only fonts that root has
 /// installed and trusts, the trial ends, and nothing more is sent. A
-/// second `t` sends nothing and says so again.
+/// second `t` sends nothing and says so again. The console reads the
+/// batch only at its start and at each login, so the sentence also says
+/// that a font activated since the person logged in can be tried after
+/// the next login.
 ///
 /// References:
 /// - ADR-1200 D5, "Trying one font from vtium-config's Fonts tab": a
@@ -987,6 +990,12 @@ fn a_font_file_the_console_refuses_says_why_and_changes_nothing() {
     assert_eq!(app.shared.shown_font.as_deref(), Some("unifont"));
     let refused = words::font_file_refused("DejaVuSansMono.ttf");
     assert_eq!(app.shared.message.as_deref(), Some(refused.as_str()));
+    assert!(
+        refused.ends_with(
+            " A font activated since you logged in can be tried after you log in again."
+        ),
+        "{refused}"
+    );
     assert_eq!(app.event(Event::Input(Input::Key(Key::Char('t')))), []);
     assert_eq!(app.shared.message.as_deref(), Some(refused.as_str()));
     // the screen shows the sentence, through the real loop and a console
