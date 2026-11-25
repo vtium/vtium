@@ -115,6 +115,9 @@ considered:
   - operator: aaronsb
     said: "Text flush to bottom (Recommended) [the last row touches the bottom edge; the spare lines at the top show the bottom of the scrollback row above, and the border only on a console with no history yet; every pixel golden moves by a few lines and goes to the maintainer once]"
     via: question tool, 2026-11-25, on where the spare pixel lines go at rest; the bracketed words are the option's description, which is the steering session's
+  - operator: aaronsb
+    said: "A lot to read but I agree with your leans on the open questions"
+    via: "chat, 2026-11-25, after the reading page https://claude.ai/artifact/EgzAu4ZhEgjsFajYtyVqtn listing seven open questions with leans: three tall buffers; the row above drawn in every way in a scroll-pan build; smooth scrolling needs scroll-pan on the CPU path; the pacing slice adds the per-head smooth-scroll keys; scroll-draw per head as decided; joined heads keep ADR-1404 D3; a figure for D10"
 status: accepted
 date: 2026-11-17
 deciders:

@@ -522,6 +522,9 @@ considered:
   - operator: aaronsb
     said: "[on the copy's ring in system memory, which the rule that the CPU path keeps no shadow forbids] if we benefit from performance even when not using smooth scroll, maybe we are less strict on this?"
     via: chat, 2026-11-25, B8b gap-check questions
+  - operator: aaronsb
+    said: "A lot to read but I agree with your leans on the open questions"
+    via: "chat, 2026-11-25, the same reading page; for this record: three tall buffers by default, and scroll-draw per head deciding whether a head's buffers are tall"
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
