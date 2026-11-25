@@ -588,3 +588,104 @@ fn the_sandbox_line_names_each_missing_part_and_its_reason() {
         )
     );
 }
+
+/// A launch whose helpers have each exited, and whose end the process
+/// that reaps them reports only at the second ask, as vtium's root
+/// process reports a helper's end after its socket has closed.
+struct LateReport {
+    started: std::rc::Rc<std::cell::Cell<u32>>,
+}
+
+#[derive(Debug)]
+struct Reported {
+    socket: std::os::fd::OwnedFd,
+    _peer: std::os::fd::OwnedFd,
+    asked: u32,
+}
+
+impl super::Launch for LateReport {
+    fn account(
+        &mut self,
+        _: &super::Session,
+        _: bool,
+    ) -> (Result<Account, super::Refusal>, Option<(u32, u32)>) {
+        let account = Account {
+            uid: 1000,
+            gid: 1000,
+            groups: None,
+        };
+        (Ok(account), None)
+    }
+
+    fn can_start(&self) -> bool {
+        true
+    }
+
+    fn start(
+        &mut self,
+        _: &Account,
+        _: bool,
+        _: u64,
+        _: u64,
+    ) -> Result<Box<dyn super::Process>, String> {
+        use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
+        self.started.set(self.started.get().saturating_add(1));
+        let (socket, peer) = socketpair(
+            AddressFamily::UNIX,
+            SocketType::SEQPACKET,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(Box::new(Reported {
+            socket,
+            _peer: peer,
+            asked: 0,
+        }))
+    }
+}
+
+impl super::Process for Reported {
+    fn socket(&self) -> std::os::fd::BorrowedFd<'_> {
+        use std::os::fd::AsFd;
+        self.socket.as_fd()
+    }
+    fn pid(&self) -> Option<u32> {
+        None
+    }
+    fn exited(&self) -> bool {
+        true
+    }
+    fn kill(self: Box<Self>) {}
+    fn finish(mut self: Box<Self>) -> super::Finish {
+        self.asked = self.asked.saturating_add(1);
+        if self.asked == 1 {
+            super::Finish::Unknown(self)
+        } else {
+            super::Finish::Failed
+        }
+    }
+}
+
+#[test]
+fn a_helpers_crash_counts_once_its_end_is_reported() {
+    let started = std::rc::Rc::default();
+    let mut host = super::ImageHost::launched(Box::new(LateReport {
+        started: std::rc::Rc::clone(&started),
+    }));
+    let session = super::Session {
+        child: None,
+        pty_owner: Ok(1000),
+    };
+    let sixel = || request(Medium::Direct(vec![1, 2, 3]));
+    assert!(host.send(&sixel(), &session).is_ok());
+    // the request's reply came; the helper is found exited before the
+    // second request, and its end is not known yet
+    host.out = None;
+    let _ = host.send(&sixel(), &session);
+    assert_eq!(host.crashes(), 0, "no end is known yet");
+    host.out = None;
+    let _ = host.send(&sixel(), &session);
+    assert_eq!(host.crashes(), 1, "the reported failure counts");
+    assert_eq!(started.get(), 3, "each exited helper is replaced");
+}

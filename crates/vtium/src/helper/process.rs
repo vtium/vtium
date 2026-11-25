@@ -1,9 +1,11 @@
 //! The font helper's process, and the threads that write to it and read
 //! from it.
 
+use std::fs::File;
 use std::io::Write;
 use std::os::fd::OwnedFd;
 use std::process::{Child, ExitStatus, Stdio};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Instant;
@@ -18,10 +20,33 @@ use super::search::leave_out_request;
 use super::wire::Event;
 use super::{Helper, after, frame};
 
-/// The helper's process: its pidfd, which ends it, the writer's queue and
-/// the reader's events. The reaper thread owns the child.
+/// vtium's root process, which starts and stops the font helper's
+/// processes for the drawing process under the privilege split.
+pub trait Root {
+    /// Starts a font helper, and gives this process's end of the stream
+    /// socket that is the helper's standard input and output.
+    fn start_font(&self) -> std::io::Result<Launched>;
+    /// Stops the helper started under `id`.
+    fn stop(&self, id: u32);
+}
+
+/// A font helper that vtium's root process started.
+pub struct Launched {
+    /// The id the root process knows the helper by.
+    pub id: u32,
+    /// This process's end of the helper's stream socket.
+    pub socket: OwnedFd,
+    /// How the helper exited, once the root process has reaped it.
+    pub exit: mpsc::Receiver<ExitStatus>,
+}
+
+/// The helper's process: what ends it, the writer's queue and the
+/// reader's events. When this process started the helper, the reaper
+/// thread owns the child and the pidfd ends it; when vtium's root process
+/// started it, the root process ends it by its id.
 pub(super) struct Running {
     pidfd: Option<OwnedFd>,
+    started_by_root: Option<(Rc<dyn Root>, u32)>,
     pub(super) requests: mpsc::Sender<Vec<u8>>,
     pub(super) events: mpsc::Receiver<Event>,
 }
@@ -69,6 +94,86 @@ impl Helper {
     }
 
     fn start(&self) -> Result<Running, String> {
+        let started = match &self.root {
+            Some(root) => self.start_by_root(root)?,
+            None => self.start_here()?,
+        };
+        let Started {
+            input,
+            output,
+            status,
+            pidfd,
+            started_by_root,
+        } = started;
+        // a thread that cannot start ends the child, which its reaper, or
+        // the root process, reaps
+        let end = |what: &str, e: std::io::Error| {
+            if let Some(fd) = &pidfd {
+                let _ = pidfd_send_signal(fd, Signal::KILL);
+            }
+            if let Some((root, id)) = &started_by_root {
+                root.stop(*id);
+            }
+            format!("vtium cannot start the font helper's {what} thread: {e}")
+        };
+        let (requests, to_write) = mpsc::channel::<Vec<u8>>();
+        // the active fonts go first, before any request reads a frit, and
+        // then the sources the frit leaves out
+        if let Some(active) = &self.launcher.active {
+            let _ = requests.send(active.to_vec());
+        }
+        let leave = self.leave_out();
+        if leave != 0 {
+            let _ = requests.send(leave_out_request(leave));
+        }
+        if let Some(mut stdin) = input {
+            thread("writer", move || {
+                for bytes in to_write {
+                    if stdin
+                        .write_all(&bytes)
+                        .and_then(|()| stdin.flush())
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            })
+            .map_err(|e| end("writer", e))?;
+        }
+        let (tx, events) = mpsc::channel();
+        let wake = Arc::clone(&self.wake);
+        thread("reader", move || {
+            if let Some(mut stdout) = output {
+                while let Some(e) = frame(&mut stdout) {
+                    let malformed = matches!(e, Event::Malformed(_));
+                    if tx.send(e).is_err() {
+                        break;
+                    }
+                    wake();
+                    if malformed {
+                        break;
+                    }
+                }
+            }
+            // its end is told once it has exited too, so a helper that
+            // closes its output a moment before it exits is waited for,
+            // never ended
+            let status = status.recv().ok();
+            let _ = tx.send(Event::Closed(status));
+            wake();
+        })
+        .map_err(|e| end("reader", e))?;
+        Ok(Running {
+            pidfd,
+            started_by_root,
+            requests,
+            events,
+        })
+    }
+
+    /// Starts the helper's process here, as the account vtium runs as or
+    /// the one the launcher drops to, with a reaper thread that owns it.
+    fn start_here(&self) -> Result<Started, String> {
         // a descriptor the console holds, the VT's and the display's among
         // them, would otherwise reach the helper
         vtium_platform::cloexec_above_stdio().map_err(|e| {
@@ -93,14 +198,17 @@ impl Helper {
             .ok()
             .and_then(Pid::from_raw)
             .and_then(|pid| pidfd_open(pid, PidfdFlags::empty()).ok());
-        let (stdin, stdout) = (child.stdin.take(), child.stdout.take());
+        let input = child.stdin.take().map(|i| File::from(OwnedFd::from(i)));
+        let output = child.stdout.take().map(|o| File::from(OwnedFd::from(o)));
         // the reaper starts first, so the child is reaped whatever fails
         // after
         let (exited, status) = mpsc::channel();
         let (give, given) = mpsc::channel::<Child>();
         if let Err(e) = thread("reaper", move || {
-            if let Ok(child) = given.recv() {
-                let _ = exited.send(reap(child));
+            if let Ok(child) = given.recv()
+                && let Some(status) = reap(child)
+            {
+                let _ = exited.send(status);
             }
         }) {
             let _ = child.kill();
@@ -110,64 +218,39 @@ impl Helper {
             ));
         }
         let _ = give.send(child);
-        // a thread that cannot start ends the child, which its reaper reaps
-        let end = |what: &str, e: std::io::Error| {
-            if let Some(fd) = &pidfd {
-                let _ = pidfd_send_signal(fd, Signal::KILL);
-            }
-            format!("vtium cannot start the font helper's {what} thread: {e}")
-        };
-        let (requests, to_write) = mpsc::channel::<Vec<u8>>();
-        // the active fonts go first, before any request reads a frit, and
-        // then the sources the frit leaves out
-        if let Some(active) = &self.launcher.active {
-            let _ = requests.send(active.to_vec());
-        }
-        let leave = self.leave_out();
-        if leave != 0 {
-            let _ = requests.send(leave_out_request(leave));
-        }
-        if let Some(mut stdin) = stdin {
-            thread("writer", move || {
-                for bytes in to_write {
-                    if stdin
-                        .write_all(&bytes)
-                        .and_then(|()| stdin.flush())
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            })
-            .map_err(|e| end("writer", e))?;
-        }
-        let (tx, events) = mpsc::channel();
-        let wake = Arc::clone(&self.wake);
-        thread("reader", move || {
-            if let Some(mut stdout) = stdout {
-                while let Some(e) = frame(&mut stdout) {
-                    let malformed = matches!(e, Event::Malformed(_));
-                    if tx.send(e).is_err() {
-                        break;
-                    }
-                    wake();
-                    if malformed {
-                        break;
-                    }
-                }
-            }
-            // its end is told once it has exited too, so a helper that
-            // closes its output a moment before it exits is waited for,
-            // never ended
-            let status = status.recv().ok().flatten();
-            let _ = tx.send(Event::Closed(status));
-            wake();
-        })
-        .map_err(|e| end("reader", e))?;
-        Ok(Running {
+        Ok(Started {
+            input,
+            output,
+            status,
             pidfd,
-            requests,
-            events,
+            started_by_root: None,
+        })
+    }
+
+    /// Asks vtium's root process to start the helper's process. The root
+    /// process chooses the helper's account, checks that the helper
+    /// dropped to it, reaps the helper and reports its exit, which
+    /// reaches the reader as the helper's status.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker starts the font
+    ///   helper and passes the drawer its socket.
+    /// - ADR-1200 D15: the font helper runs as `nobody`.
+    fn start_by_root(&self, root: &Rc<dyn Root>) -> Result<Started, String> {
+        let launched = root
+            .start_font()
+            .map_err(|e| format!("vtium's root process cannot start the font helper: {e}"))?;
+        let Launched { id, socket, exit } = launched;
+        let input = socket.try_clone().map_err(|e| {
+            root.stop(id);
+            format!("vtium cannot use the font helper's socket: {e}")
+        })?;
+        Ok(Started {
+            input: Some(File::from(input)),
+            output: Some(File::from(socket)),
+            status: exit,
+            pidfd: None,
+            started_by_root: Some((Rc::clone(root), id)),
         })
     }
 
@@ -202,8 +285,14 @@ impl Helper {
     pub(super) fn stop(&mut self) {
         self.stopped.clear();
         self.late.clear();
-        if let Some(fd) = self.running.take().and_then(|r| r.pidfd) {
-            let _ = pidfd_send_signal(&fd, Signal::KILL);
+        let Some(running) = self.running.take() else {
+            return;
+        };
+        if let Some(fd) = &running.pidfd {
+            let _ = pidfd_send_signal(fd, Signal::KILL);
+        }
+        if let Some((root, id)) = &running.started_by_root {
+            root.stop(*id);
         }
     }
 }
@@ -212,6 +301,16 @@ impl Drop for Helper {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// A helper's process as it started: the ends of its standard input and
+/// output, where its exit status comes from, and what ends it.
+struct Started {
+    input: Option<File>,
+    output: Option<File>,
+    status: mpsc::Receiver<ExitStatus>,
+    pidfd: Option<OwnedFd>,
+    started_by_root: Option<(Rc<dyn Root>, u32)>,
 }
 
 /// Starts one of a helper's threads, `name` its role.

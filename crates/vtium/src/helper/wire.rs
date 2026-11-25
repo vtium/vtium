@@ -338,6 +338,15 @@ pub(crate) enum Event {
 /// the stream. An end inside the head is the end of the stream too: the
 /// helper has closed its output, as when the kernel ended it while it
 /// wrote, and how it exited says why.
+/// Whether `e` ends the helper's stream as its end of file does. Under the
+/// privilege split the helper's input and output are one stream socket,
+/// and a helper that exits with requests it has not read resets that
+/// socket. The kernel reports the reset only once every byte the helper
+/// wrote has been read, so no answer is lost.
+fn ended(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::ConnectionReset
+}
+
 fn head(r: &mut impl Read) -> Result<Option<(u32, u32)>, String> {
     let mut b = [0u8; 8];
     let mut got = 0;
@@ -347,6 +356,7 @@ fn head(r: &mut impl Read) -> Result<Option<(u32, u32)>, String> {
             Ok(0) => return Ok(None),
             Ok(n) => got = got.saturating_add(n),
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) if ended(&e) => return Ok(None),
             Err(e) => return Err(format!("cannot read the helper's answer: {e}")),
         }
     }
@@ -447,7 +457,7 @@ pub(crate) fn frame(r: &mut impl Read) -> Option<Event> {
     let mut payload = vec![0u8; usize::try_from(len).unwrap_or(0)];
     match r.read_exact(&mut payload) {
         Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return None,
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof || ended(&e) => return None,
         Err(e) => {
             return Some(Event::Malformed(format!(
                 "cannot read the helper's answer: {e}"

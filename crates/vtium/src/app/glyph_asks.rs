@@ -137,7 +137,13 @@ impl App {
                         self.heads.len(),
                     ),
                 )
-                .remembering(record)),
+                .remembering(record))
+                .map(|helper| match &self.root_helpers {
+                    Some(root) => {
+                        helper.through_root(Rc::clone(root) as Rc<dyn crate::helper::Root>)
+                    }
+                    None => helper,
+                }),
                 Err(why) => {
                     log::warn!(
                         "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"

@@ -434,6 +434,9 @@ pub struct App {
     /// sessions and runs the power keys; `None` when vtium runs as one
     /// process.
     broker: Option<Rc<vtium_broker_protocol::Courier>>,
+    /// Under the privilege split, the helpers vtium's root process starts
+    /// for this process, and their exits.
+    root_helpers: Option<Rc<broker::RootHelpers>>,
     /// Device events a test hands the next turn, as udev would.
     #[cfg(test)]
     queued_devices: Vec<DeviceEvent>,
@@ -702,6 +705,7 @@ impl App {
             retaking: BTreeSet::new(),
             releasing: None,
             broker: None,
+            root_helpers: None,
             #[cfg(test)]
             queued_devices: Vec::new(),
             wait,

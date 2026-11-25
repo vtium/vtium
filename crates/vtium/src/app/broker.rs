@@ -19,22 +19,29 @@
 //! - ADR-1400 D4, "The device protocol": one socket, fixed-size messages
 //!   and descriptors passed with them.
 
+use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::io;
 use std::os::fd::{AsFd, OwnedFd};
+use std::process::ExitStatus;
 use std::rc::Rc;
+use std::sync::mpsc;
 
 use vtium_broker_protocol::{
-    ConsoleRef, Courier, Display, Got, Grid, Head, Link, Order, PowerKey, Request, Status,
+    ConsoleRef, Courier, Display, Got, Grid, Head, Helper, Link, Order, PowerKey, Request, Status,
 };
 use vtium_platform::calloop::generic::Generic;
 use vtium_platform::calloop::ping::make_ping;
 use vtium_platform::calloop::{Interest, Mode, PostAction};
+#[cfg(feature = "images")]
+use vtium_platform::image_helper;
 use vtium_platform::pty::{Pty, Remote, Size};
 use vtium_platform::vt::BrokerVt;
 
 use super::{App, Exit};
 use crate::blank;
 use crate::child::Display as SessionDisplay;
+use crate::helper::Launched;
 
 /// Asks the root process behind `courier` for the session of `console`
 /// at `size`, with the two hints, and gives the pty's master.
@@ -75,9 +82,9 @@ pub fn open_session(
 }
 
 /// `status`, as the process's own exit status would read it.
-fn exit_status(status: Status) -> std::process::ExitStatus {
+fn exit_status(status: Status) -> ExitStatus {
     use std::os::unix::process::ExitStatusExt;
-    std::process::ExitStatus::from_raw(match status {
+    ExitStatus::from_raw(match status {
         Status::Code(code) => i32::from(code) << 8,
         Status::Signal(signal) => i32::from(signal),
     })
@@ -104,6 +111,246 @@ impl Remote for Starter {
         self.courier.send(&Request::Winch {
             console: self.console.clone(),
         })
+    }
+}
+
+/// The helpers that vtium's root process starts for the drawing process:
+/// the next id to name one by, and where each one's exit status goes once
+/// the root process reports it.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the broker starts and stops the
+///   helpers, passes each helper's socket and reports each exit.
+pub struct RootHelpers {
+    courier: Rc<Courier>,
+    next: Cell<u32>,
+    waiting: RefCell<BTreeMap<u32, mpsc::Sender<ExitStatus>>>,
+}
+
+impl RootHelpers {
+    pub fn new(courier: Rc<Courier>) -> RootHelpers {
+        RootHelpers {
+            courier,
+            next: Cell::new(1),
+            waiting: RefCell::default(),
+        }
+    }
+
+    /// Asks the root process to start a helper of `kind`, and gives the
+    /// id it runs under, this process's end of its socket, and where its
+    /// exit status comes once the root process has reaped it.
+    pub fn start(&self, kind: Helper) -> io::Result<Launched> {
+        let id = self.next.get();
+        // ids are never 0, and one wraps only after 2^32 starts
+        self.next.set(id.checked_add(1).unwrap_or(1));
+        let request = Request::StartHelper { helper: id, kind };
+        let answers = |o: &Order| matches!(o, Order::Helper { helper, .. } if *helper == id);
+        match self.courier.call(&request, answers)? {
+            (
+                Order::Helper {
+                    started: Ok(()), ..
+                },
+                Some(socket),
+            ) => {
+                let (tell, exit) = mpsc::channel();
+                self.waiting.borrow_mut().insert(id, tell);
+                Ok(Launched { id, socket, exit })
+            }
+            (
+                Order::Helper {
+                    started: Err(errno),
+                    ..
+                },
+                _,
+            ) => Err(io::Error::from_raw_os_error(i32::from(errno.0))),
+            _ => Err(io::Error::other(
+                "vtium's root process answered without the helper's socket",
+            )),
+        }
+    }
+
+    /// Asks the root process to stop helper `id`. Its exit is reported
+    /// when the root process reaps it.
+    pub fn stop(&self, id: u32) {
+        if let Err(e) = self.courier.send(&Request::StopHelper { helper: id }) {
+            log::warn!(target: "broker", "vtium cannot ask its root process to stop a helper: {e}");
+        }
+    }
+
+    /// The root process reaped helper `id`, which ended with `status`.
+    fn exited(&self, id: u32, status: Status) {
+        if let Some(tell) = self.waiting.borrow_mut().remove(&id) {
+            // the helper's reader may have gone already
+            let _ = tell.send(exit_status(status));
+        }
+    }
+}
+
+impl crate::helper::Root for RootHelpers {
+    fn start_font(&self) -> io::Result<Launched> {
+        self.start(Helper::Font)
+    }
+
+    fn stop(&self, id: u32) {
+        RootHelpers::stop(self, id);
+    }
+}
+
+/// The image helpers of one console, which vtium's root process starts
+/// for each request as the account its rules choose.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the broker chooses each image
+///   helper's user.
+/// - ADR-1101 D2: the image helper runs as the session's user.
+#[cfg(feature = "images")]
+pub struct ImagesThroughRoot {
+    helpers: Rc<RootHelpers>,
+    console: ConsoleRef,
+    /// The root process has no image helper to start, as it answered once.
+    none: bool,
+}
+
+#[cfg(feature = "images")]
+impl ImagesThroughRoot {
+    pub fn new(helpers: Rc<RootHelpers>, console: ConsoleRef) -> ImagesThroughRoot {
+        ImagesThroughRoot {
+            helpers,
+            console,
+            none: false,
+        }
+    }
+}
+
+#[cfg(feature = "images")]
+impl image_helper::Launch for ImagesThroughRoot {
+    /// The root process chooses the account itself. This process tells a
+    /// change of account by the owner of the console's pty, which `login`
+    /// changes when someone logs in, so a helper of the prompt's account
+    /// never serves the user's session.
+    fn account(
+        &mut self,
+        session: &image_helper::Session,
+        _: bool,
+    ) -> (
+        Result<image_helper::Account, image_helper::Refusal>,
+        Option<(u32, u32)>,
+    ) {
+        let account = match &session.pty_owner {
+            Ok(owner) => Ok(image_helper::Account {
+                uid: *owner,
+                gid: *owner,
+                groups: None,
+            }),
+            Err(why) => Err(image_helper::Refusal::NoAccount(format!(
+                "the pty's owner cannot be read: {why}"
+            ))),
+        };
+        (account, None)
+    }
+
+    fn can_start(&self) -> bool {
+        !self.none
+    }
+
+    fn start(
+        &mut self,
+        _: &image_helper::Account,
+        file: bool,
+        max_bytes: u64,
+        largest_file: u64,
+    ) -> Result<Box<dyn image_helper::Process>, String> {
+        let kind = Helper::Image {
+            console: self.console.clone(),
+            max_bytes,
+            largest_file,
+            file,
+        };
+        match self.helpers.start(kind) {
+            Ok(launched) => Ok(Box::new(RootImage {
+                helpers: Rc::clone(&self.helpers),
+                launched,
+                ended: Cell::new(None),
+                stopped: Cell::new(false),
+            })),
+            Err(e) => {
+                if e.raw_os_error() == Some(libc::ENOEXEC) {
+                    self.none = true;
+                }
+                Err(format!(
+                    "vtium's root process starts no image helper for this request: {e}"
+                ))
+            }
+        }
+    }
+}
+
+/// An image helper that vtium's root process started, reaps and reports.
+#[cfg(feature = "images")]
+struct RootImage {
+    helpers: Rc<RootHelpers>,
+    launched: Launched,
+    /// Its exit status, once the root process has reported it.
+    ended: Cell<Option<ExitStatus>>,
+    /// Whether this process has asked the root process to stop it.
+    stopped: Cell<bool>,
+}
+
+#[cfg(feature = "images")]
+impl RootImage {
+    fn status(&self) -> Option<ExitStatus> {
+        if self.ended.get().is_none() {
+            self.ended.set(self.launched.exit.try_recv().ok());
+        }
+        self.ended.get()
+    }
+
+    fn stop(&self) {
+        if !self.stopped.replace(true) {
+            self.helpers.stop(self.launched.id);
+        }
+    }
+}
+
+#[cfg(feature = "images")]
+impl std::fmt::Debug for RootImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RootImage")
+            .field("id", &self.launched.id)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "images")]
+impl image_helper::Process for RootImage {
+    fn socket(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.launched.socket.as_fd()
+    }
+
+    fn pid(&self) -> Option<u32> {
+        None
+    }
+
+    fn exited(&self) -> bool {
+        self.status().is_some()
+    }
+
+    fn kill(self: Box<Self>) {
+        self.stop();
+    }
+
+    /// A helper that closed its socket but still runs is stopped, as
+    /// this process stops its own, and its end is known once the root
+    /// process reports it.
+    fn finish(self: Box<Self>) -> image_helper::Finish {
+        match self.status() {
+            Some(status) if status.success() => image_helper::Finish::Clean,
+            Some(_) => image_helper::Finish::Failed,
+            None => {
+                self.stop();
+                image_helper::Finish::Unknown(self)
+            }
+        }
     }
 }
 
@@ -153,6 +400,14 @@ impl App {
             .insert_source(queued, |(), &mut (), app: &mut App| app.take_orders())
             .map_err(|e| io::Error::other(e.error))?;
         courier.on_queued(Box::new(move || ping.ping()));
+        self.root_helpers = Some(Rc::new(RootHelpers::new(Rc::clone(&courier))));
+        // The font helper runs as `nobody` for the root process, so the
+        // files of root, which vtium runs as, pass its trust rule beside
+        // the system's, and not those of the drawing process's account.
+        self.launcher = self
+            .launcher
+            .clone()
+            .map(|l| l.with_active(0, &crate::font::gate().batch));
         self.broker = Some(courier);
         Ok(())
     }
@@ -333,10 +588,12 @@ impl App {
             Order::Wake => self.order(blank::Order::Wake),
             Order::Stop => self.request_exit(Exit::Signal),
             Order::SessionExit { console, status } => self.session_exit(&console, status),
-            Order::HelperExit { helper, status } => log::debug!(
-                target: "broker",
-                "helper {helper} ended: {status:?}"
-            ),
+            Order::HelperExit { helper, status } => {
+                log::debug!(target: "broker", "helper {helper} ended: {status:?}");
+                if let Some(root) = &self.root_helpers {
+                    root.exited(helper, status);
+                }
+            }
             other => log::debug!(
                 target: "broker",
                 "vtium's drawing process ignores the order {other:?}"
@@ -622,6 +879,168 @@ mod tests {
             .filter(|r| matches!(r, Request::OpenSession { .. }))
             .count();
         assert_eq!(opened, 2, "the console's next session starts: {seen:?}");
+    }
+
+    /// A stand-in root process that answers each helper's start with the
+    /// next of `answers`, a socket when it is `Ok`, and then reports the
+    /// helper ended with `exit`. It gives the requests it saw once the
+    /// drawing process closes its socket.
+    fn helper_root(
+        link: Link,
+        answers: Vec<Result<(), Errno>>,
+        exit: Status,
+    ) -> std::thread::JoinHandle<Vec<Request>> {
+        std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            let mut answers = answers.into_iter();
+            let mut kept = Vec::new();
+            loop {
+                let mut fds = [rustix::event::PollFd::new(
+                    &link,
+                    rustix::event::PollFlags::IN,
+                )];
+                let bound = rustix::event::Timespec {
+                    tv_sec: 30,
+                    tv_nsec: 0,
+                };
+                assert_eq!(rustix::event::poll(&mut fds, Some(&bound)).unwrap(), 1);
+                match link.next_request().unwrap() {
+                    Got::Message(Ok(request)) => {
+                        if let Request::StartHelper { helper, .. } = &request {
+                            let started = answers.next().unwrap();
+                            let (ours, theirs) = rustix::net::socketpair(
+                                rustix::net::AddressFamily::UNIX,
+                                rustix::net::SocketType::STREAM,
+                                rustix::net::SocketFlags::CLOEXEC,
+                                None,
+                            )
+                            .unwrap();
+                            let order = Order::Helper {
+                                helper: *helper,
+                                started,
+                            };
+                            let fd = started.is_ok().then(|| theirs.as_fd());
+                            link.order(&order, fd).unwrap();
+                            if started.is_ok() {
+                                let order = Order::HelperExit {
+                                    helper: *helper,
+                                    status: exit,
+                                };
+                                link.order(&order, None).unwrap();
+                            }
+                            kept.push(ours);
+                        }
+                        seen.push(request);
+                    }
+                    Got::Message(Err(refused)) => panic!("{refused:?}"),
+                    Got::Nothing => {}
+                    Got::Closed => break,
+                }
+            }
+            seen
+        })
+    }
+
+    #[test]
+    fn the_root_process_starts_each_helper_and_reports_its_exit() {
+        let (broker, theirs) = Link::pair().unwrap();
+        let seen = helper_root(broker, vec![Ok(()), Ok(())], Status::Signal(9));
+        let (lp, mut app) = seat_with(&[], None, no_fonts());
+        app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
+            .unwrap();
+        let root = Rc::clone(app.root_helpers.as_ref().unwrap());
+        let first = root.start(Helper::Font).unwrap();
+        let second = root.start(Helper::Font).unwrap();
+        assert_eq!(
+            (first.id, second.id),
+            (1, 2),
+            "each helper has an id of its own"
+        );
+        assert!(first.exit.try_recv().is_err(), "no exit before the report");
+        app.take_orders();
+        use std::os::unix::process::ExitStatusExt;
+        for launched in [&first, &second] {
+            let status = launched.exit.try_recv().unwrap();
+            assert_eq!(status.signal(), Some(9), "the root process's status");
+        }
+        root.stop(first.id);
+        drop((root, app, lp));
+        let seen = seen.join().unwrap();
+        assert_eq!(
+            seen,
+            [
+                Request::StartHelper {
+                    helper: 1,
+                    kind: Helper::Font
+                },
+                Request::StartHelper {
+                    helper: 2,
+                    kind: Helper::Font
+                },
+                Request::StopHelper { helper: 1 },
+            ]
+        );
+    }
+
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_consoles_image_helpers_start_through_the_root_process() {
+        use vtium_platform::image_helper::{Launch, Session};
+        let (broker, theirs) = Link::pair().unwrap();
+        let seen = helper_root(
+            broker,
+            vec![Err(Errno(13)), Ok(()), Err(Errno(8))],
+            Status::Code(0),
+        );
+        let courier = Rc::new(Courier::new(Link::passed(theirs).unwrap()));
+        let root = Rc::new(RootHelpers::new(Rc::clone(&courier)));
+        let console = console_ref("console", 2).unwrap();
+        let mut launch = ImagesThroughRoot::new(Rc::clone(&root), console.clone());
+        let session = Session {
+            child: None,
+            pty_owner: Ok(1000),
+        };
+        let (account, _) = launch.account(&session, true);
+        let account = account.unwrap();
+        assert_eq!(
+            account.uid, 1000,
+            "a new owner of the pty asks for a new helper"
+        );
+        // EACCES: no account may read this request, such as a file before
+        // anyone has logged in
+        assert!(launch.start(&account, true, 4096, 8192).is_err());
+        assert!(launch.can_start());
+        let process = launch.start(&account, false, 4096, 8192).unwrap();
+        assert_eq!(process.pid(), None, "this process never signals it");
+        assert!(!process.exited());
+        // the root process's report, which the loop takes
+        let Got::Message(Ok((order, _))) = courier.next().unwrap() else {
+            panic!("no report");
+        };
+        let Order::HelperExit { helper, status } = order else {
+            panic!("{order:?}");
+        };
+        root.exited(helper, status);
+        assert!(process.exited());
+        assert!(matches!(
+            process.finish(),
+            vtium_platform::image_helper::Finish::Clean
+        ));
+        // ENOEXEC: the root process has no image helper to start
+        assert!(launch.start(&account, false, 4096, 8192).is_err());
+        assert!(!launch.can_start(), "no helper is asked for again");
+        drop((launch, root, courier));
+        let kinds: Vec<Request> = seen.join().unwrap();
+        let image = |helper, file| Request::StartHelper {
+            helper,
+            kind: Helper::Image {
+                console: console.clone(),
+                max_bytes: 4096,
+                largest_file: 8192,
+                file,
+            },
+        };
+        assert_eq!(kinds, [image(1, true), image(2, false), image(3, false)]);
     }
 
     #[test]
