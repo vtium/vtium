@@ -26,7 +26,9 @@ use crate::cell::{Cell, StyleIndex, Width};
 use crate::damage::{Age, Damage};
 use crate::line::{Glyph, Line, LineSize, LinkId};
 #[cfg(feature = "bidi")]
-use crate::order::{Order, RowOrder};
+use crate::order::Order;
+#[cfg(all(feature = "bidi", feature = "rows-beyond"))]
+use crate::order::RowOrder;
 use crate::palette::{Palette, Special};
 use crate::style::{Attrs, Color, Rgb, Style};
 
@@ -621,48 +623,19 @@ impl<'a> Frame<'a> {
         col: usize,
         c: Colors,
     ) -> FrameCell<'a> {
+        let link = line.link(cell);
         #[cfg(feature = "bidi")]
         let order = self.order.row(row);
         #[cfg(feature = "bidi")]
-        let changed = match order {
-            Some(_) => self.paragraph_changed.get(row).copied().unwrap_or(true),
-            None => self.damage.changed(row, col, self.since),
+        let (glyph, changed) = match order {
+            Some(r) => (
+                r.drawn(col, line.glyph(cell)),
+                self.paragraph_changed.get(row).copied().unwrap_or(true),
+            ),
+            None => (line.glyph(cell), self.damage.changed(row, col, self.since)),
         };
         #[cfg(not(feature = "bidi"))]
-        let changed = self.damage.changed(row, col, self.since);
-        self.make_cell(
-            line,
-            cell,
-            col,
-            c,
-            changed,
-            #[cfg(feature = "bidi")]
-            order,
-        )
-    }
-
-    /// The cell `cell` of `line` at logical column `col`, with its colors
-    /// `c` resolved, marked `changed` or not, and drawn in the row's
-    /// `order` in a build with the bidi feature.
-    fn make_cell(
-        &self,
-        line: &'a Line,
-        cell: Cell,
-        col: usize,
-        c: Colors,
-        changed: bool,
-        #[cfg(feature = "bidi")] order: Option<&RowOrder>,
-    ) -> FrameCell<'a> {
-        let link = line.link(cell);
-        #[cfg(feature = "bidi")]
-        let glyph = match order {
-            Some(r) => r.drawn(col, line.glyph(cell)),
-            None => line.glyph(cell),
-        };
-        #[cfg(not(feature = "bidi"))]
-        let glyph = line.glyph(cell);
-        #[cfg(not(feature = "bidi"))]
-        let _ = col;
+        let (glyph, changed) = (line.glyph(cell), self.damage.changed(row, col, self.since));
         FrameCell {
             glyph,
             width: cell.width(),
@@ -1021,7 +994,10 @@ impl<'a> Frame<'a> {
             }))
     }
 
-    /// A cell of a row beyond the screen, at logical column `col`.
+    /// A cell of a row beyond the screen, at logical column `col`. The
+    /// frame builds it as a cell of no row on the screen, which has no
+    /// order and no damage, then gives it the row's change and, in a build
+    /// with the bidi feature, the row's order.
     fn beyond_cell(
         &self,
         r: &BeyondRow<'a, '_>,
@@ -1029,15 +1005,17 @@ impl<'a> Frame<'a> {
         col: usize,
         c: Colors,
     ) -> FrameCell<'a> {
-        self.make_cell(
-            r.line,
-            cell,
-            col,
-            c,
-            self.beyond_changed(),
-            #[cfg(feature = "bidi")]
-            r.order,
-        )
+        let mut out = self.frame_cell(r.line, cell, usize::MAX, col, c);
+        out.changed = self.beyond_changed();
+        #[cfg(feature = "bidi")]
+        if let Some(order) = r.order {
+            let glyph = r.line.glyph(cell);
+            out.glyph = order.drawn(col, glyph);
+            out.rtl = order.rtl_at(col);
+            out.joins = order.joins_at(col);
+            out.mirror = order.mirror(col, glyph);
+        }
+        out
     }
 }
 
