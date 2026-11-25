@@ -257,6 +257,16 @@ impl Cells {
         self.row_stamps.fill(serial);
     }
 
+    /// Marks the reach of the cell at `col`, `row` to be read again the
+    /// next time a frame draws the cell. The reach it holds stays as it is
+    /// until then.
+    #[cfg(feature = "scroll-pan")]
+    pub(crate) fn reread_reach(&mut self, col: usize, row: usize) {
+        if let Some(s) = self.get_mut(col, row) {
+            s.set_flag(REACH_KNOWN, false);
+        }
+    }
+
     /// Whether any cell of the rows from `first` to `last` sends ink into
     /// another cell.
     pub(crate) fn rows_reach(&self, first: usize, last: usize) -> bool {

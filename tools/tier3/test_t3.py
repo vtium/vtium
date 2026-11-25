@@ -6115,12 +6115,14 @@ class DefaultVariantsTest(unittest.TestCase):
 
     def test_default_variants(self):
         # Every default variant draws the image screens, so its console is
-        # built with images, and the GL one, which draws on the GPU path,
-        # with gpu too; goldens judge each one.
+        # built with images, and with scroll-pan, as the packages are, and
+        # the GL one, which draws on the GPU path, with gpu too; goldens
+        # judge each one.
         for name in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
-                features = ["gpu", "images"] if name == "gl-1280x800" else ["images"]
+                features = (["gpu", "images", "scroll-pan"] if name == "gl-1280x800"
+                            else ["images", "scroll-pan"])
                 self.assertEqual(v["tree_features"], features)
                 self.assertIn(name, t3_scenario.golden_cases())
                 self.assertEqual(t3_scenario.check_tree_features([name], {"tree_features": []}),
@@ -6308,10 +6310,10 @@ class DefaultVariantsTest(unittest.TestCase):
         # variants need, each once.
         for declared, variants, want in (
                 (None, ["2d-potato-min"], []),
-                (None, t3_scenario.DEFAULT_VARIANTS, ["gpu", "images"]),
-                (None, ["2d-1280x800", "2d-7680x2160"], ["images"]),
-                (["logind"], [self.VARIANT], ["images", "logind"]),
-                (["images"], [self.VARIANT, "2d-potato-min"], ["images"]),
+                (None, t3_scenario.DEFAULT_VARIANTS, ["gpu", "images", "scroll-pan"]),
+                (None, ["2d-1280x800", "2d-7680x2160"], ["images", "scroll-pan"]),
+                (["logind"], [self.VARIANT], ["images", "logind", "scroll-pan"]),
+                (["images"], [self.VARIANT, "2d-potato-min"], ["images", "scroll-pan"]),
                 ([], ["images-640x480", "2d-640x480-psf16"], ["images"])):
             with self.subTest(declared=declared, variants=variants):
                 self.assertEqual(t3.tree_features(declared, variants), want)
