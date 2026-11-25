@@ -1561,7 +1561,8 @@ fn a_screen_rewritten_in_place_writes_no_more_through_the_pan() {
 }
 
 // The figures the scroll's record asks for: pixels written and time per
-// frame for a one-line scroll and for a screen rewritten in place, drawn
+// frame for a one-line scroll up and down and for a screen rewritten in
+// place, drawn
 // the redraw way, through the pan and through the copy, with two buffers
 // and 8×16 cells. `cargo test --release -p vtium-render --features
 // scroll-pan --lib scroll_figures -- --ignored --nocapture` prints them.
@@ -1571,6 +1572,7 @@ fn scroll_figures() {
     let screens = [((1366, 768), (170, 48)), ((1920, 1080), (240, 67))];
     let loads = [
         ("one-line scroll", SCROLL),
+        ("one-line scroll down", SCROLL_BACK),
         (
             "in place, window at rest",
             Load {
