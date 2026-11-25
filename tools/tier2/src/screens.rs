@@ -647,6 +647,17 @@ const ROWS_ABOVE_ALT: &[u8] = concat!(
 
 const ROWS_ABOVE_ALT_DESC: &str = "The rows above the screen on the alternate screen: a grid of 48 by 10 cells on a display of 389x167 pixels, with 7 spare lines above the grid. Thirteen numbered lines on the main screen put three in its scrollback, then the program switches to the alternate screen (DEC mode 1049) and writes two lines there. In unifont. Correct: `on the alternate screen` on the top row and `no row lies above it` below it; the 7 spare lines above the grid in the border's color across the whole display, since the alternate screen has no scrollback; the grid's last row on the display's bottom edge.";
 
+/// Thirteen numbered lines, three in the scrollback, each line in its own
+/// background color so the row above shows in the spare lines.
+const ROWS_ABOVE_NOTICE: &[u8] = concat!(
+    "\x1b[44mline 0\x1b[K\r\n\x1b[45mline 1\x1b[K\r\n\x1b[46mline 2\x1b[K\r\n",
+    "\x1b[0mline 3\r\nline 4\r\nline 5\r\nline 6\r\nline 7\r\nline 8\r\n",
+    "line 9\r\nline 10\r\nline 11\r\nline 12",
+)
+.as_bytes();
+
+const ROWS_ABOVE_NOTICE_DESC: &str = "A notice ending over the spare lines: a grid of 48 by 10 cells on a display of 389x167 pixels, with 7 spare lines above the grid. Thirteen numbered lines put three in the scrollback, the third, line 2, on a cyan background. A notice is drawn over the first frame at the display's top, across the spare lines and the top rows, then it goes, and two more frames are drawn, one into each buffer. In unifont. Correct: no trace of the notice; the spare lines show the bottom of line 2's cyan row across the grid's width, with the border's color beside it; `line 3` to `line 12` on the screen; the grid's last row on the display's bottom edge.";
+
 /// A line of cedillas and hooks, which goes into the scrollback, above a
 /// line of capitals with accents, which the screen's top row shows.
 const ROWS_ABOVE_INK: &[u8] = "çç ƒ çç ç\r\nÀÉÎẤỘ ÀÉ\r\nrow two\r\nrow three".as_bytes();
@@ -2045,6 +2056,21 @@ const BASE: &[Case] = &[
                 "rows-above-alt",
                 ROWS_ABOVE_ALT_DESC,
                 ROWS_ABOVE_ALT,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            overlay: Some(shown(&[notices::no_keyboard])),
+            overlay_ends: true,
+            display: Some((48 * 8 + 5, 10 * 16 + 7)),
+            ..Screen::new(
+                "rows-above-notice",
+                ROWS_ABOVE_NOTICE_DESC,
+                ROWS_ABOVE_NOTICE,
                 48,
                 10,
             )
