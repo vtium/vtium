@@ -47,7 +47,7 @@ libseat = ["vtium-platform/libseat"]
 # References:
 # - ADR-1310 D6: the pan, the copy, and the feature that builds them.
 # - ADR-1401 D2: the tall buffer and the copy's ring.
-scroll-pan = ["vtium-render/scroll-pan", "vtium-platform/scroll-pan"]
+scroll-pan = ["vtium-term/rows-beyond", "vtium-render/scroll-pan", "vtium-platform/scroll-pan"]
 
 [dependencies]
 vtium-term.workspace = true

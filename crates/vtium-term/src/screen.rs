@@ -39,6 +39,8 @@ pub(crate) mod paragraph;
 mod print;
 mod rect;
 pub(crate) mod reflow;
+#[cfg(test)]
+mod rows_beyond;
 mod selection;
 
 use core::ops::Range;
@@ -110,6 +112,40 @@ struct Segment {
     /// cluster is gone.
     cell: Cell,
     state: Segmenter,
+}
+
+/// What a frame asks to capture beyond the screen, for
+/// [`Screen::frame_reaching`]: the rows it always holds on each side where
+/// they exist, the rows drawn ahead and behind that it holds only while a
+/// scroll can show them, and the age since which a move of the view
+/// counts.
+///
+/// References:
+/// - ADR-1310 D2, "What the capture holds under `scroll-pan`": the K+1
+///   rows above always, and the spare rows only while the view is scrolled
+///   back or the scroll record counted a move.
+/// - ADR-1310 D6: the spare rows drawn ahead and behind, up to one screen.
+/// - ADR-1310 D10, "A strip taller than a row": as many rows above as the
+///   spare pixel lines above the grid show.
+#[cfg(feature = "rows-beyond")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Reach {
+    /// The rows above the screen that the capture always holds where they
+    /// exist: the overscan's K, or more where the spare pixel lines above
+    /// the grid show more rows of the scrollback.
+    pub above: usize,
+    /// The rows below the screen that the capture always holds where they
+    /// exist, which is only while the view is scrolled back.
+    pub below: usize,
+    /// The rows drawn ahead and behind on each side of the screen, counted
+    /// from the screen's edge, as `above` and `below` are. The capture
+    /// holds them only while the view is scrolled back, or when the scroll
+    /// record counted a move of the view since `moved_since`. Each side
+    /// then holds the larger of `spare` and its own count, not their sum.
+    pub spare: usize,
+    /// The age since which a move of the view counts: the oldest age among
+    /// the displays that read the capture.
+    pub moved_since: Age,
 }
 
 /// A terminal screen.
@@ -654,6 +690,142 @@ impl Screen {
             .chain(screen)
             .take(self.rows)
             .collect()
+    }
+
+    /// The view as [`frame`](Self::frame) gives it, with the rows beyond
+    /// the screen that `reach` asks for, each with its line id, its cells
+    /// and styles, its line size, its selection, the pictures on it, and in
+    /// a build with the bidi feature its order.
+    ///
+    /// Each side holds one row past the farthest row asked for, because the
+    /// renderer composes each row with the ink of the rows next to it. A
+    /// side holds only rows that exist. Nothing lies above the oldest line
+    /// of the scrollback or above the alternate screen, and nothing lies
+    /// below the screen while the view shows the newest output. A change
+    /// of width rewraps at once the newest ROWS_MAX + 1 rows of the
+    /// scrollback above the rows the screen needs, so every row a side can
+    /// hold exists at the screen's width; older rows may still wait to be
+    /// rewrapped. A side asks for at most [`ROWS_MAX`] rows.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "The snapshot asks for them": which rows exist, and
+    ///   that the capture counts its rows on each side.
+    /// - ADR-1306: each row takes ink from the rows next to it, so the
+    ///   capture holds one row more on each side.
+    #[cfg(feature = "rows-beyond")]
+    pub fn frame_reaching<'a>(
+        &'a self,
+        palette: &'a Palette,
+        since: Age,
+        reach: Reach,
+    ) -> Frame<'a> {
+        let (above, below) = self.rows_reached(reach);
+        let top = self.view_place(0);
+        let rows = self.view().len();
+        let end = top.saturating_add(rows);
+        let above = top.saturating_sub(above)..top;
+        let below = end..end.saturating_add(below);
+        let lines = |places: Range<usize>| -> Vec<&Line> {
+            places.filter_map(|p| self.line_at(p)).collect()
+        };
+        let frame = self
+            .frame(palette, since)
+            .with_rows_beyond(lines(above.clone()), lines(below.clone()))
+            .with_selection_beyond(
+                self.selected_columns_at(above.clone()),
+                self.selected_columns_at(below.clone()),
+            );
+        #[cfg(feature = "bidi")]
+        let orders = |places: Range<usize>| -> Vec<Option<crate::order::RowOrder>> {
+            places.map(|p| self.place_order(p)).collect()
+        };
+        #[cfg(feature = "bidi")]
+        let (order_above, order_below) = (orders(above.clone()), orders(below.clone()));
+        #[cfg(feature = "images")]
+        let frame = {
+            let captured = lines(above.start..below.end);
+            #[cfg(feature = "bidi")]
+            let order = {
+                let screen = frame.order();
+                let all = order_above
+                    .iter()
+                    .cloned()
+                    .chain((0..rows).map(|y| screen.row(y).cloned()))
+                    .chain(order_below.iter().cloned())
+                    .collect();
+                crate::order::Order::new(all)
+            };
+            frame.with_placements_beyond(self.placements_over(
+                &captured,
+                above.start,
+                above.len(),
+                #[cfg(feature = "bidi")]
+                &order,
+            ))
+        };
+        #[cfg(feature = "bidi")]
+        let frame = frame.with_order_beyond(
+            crate::order::Order::new(order_above),
+            crate::order::Order::new(order_below),
+        );
+        frame
+    }
+
+    /// How many rows [`frame_reaching`](Self::frame_reaching) captures
+    /// above and below the screen for `reach`.
+    #[cfg(feature = "rows-beyond")]
+    pub fn rows_reached(&self, reach: Reach) -> (usize, usize) {
+        if self.flags.alternate {
+            return (0, 0);
+        }
+        let offset = self.scrollback.offset();
+        let moved = self
+            .damage
+            .scrolled(reach.moved_since)
+            .is_some_and(|n| n != 0);
+        let spare = if offset > 0 || moved { reach.spare } else { 0 };
+        // the rewrapped rows of the scrollback above the view's top row,
+        // and the rows between the view's bottom and the screen's
+        let exist_above = self.view_place(0);
+        let side = |asked: usize, exist: usize| {
+            if asked == 0 {
+                return 0;
+            }
+            asked.min(ROWS_MAX).saturating_add(1).min(exist)
+        };
+        (
+            side(reach.above.max(spare), exist_above),
+            side(reach.below.max(spare), offset),
+        )
+    }
+
+    /// Marks everything changed when a line that a frame can capture
+    /// beyond the view matches `changed`: one of the ROWS_MAX + 1 lines
+    /// above the view's top row, or, while the view is scrolled back, of
+    /// those below its bottom row. A row beyond the screen keeps no damage
+    /// of its own, and a display keeps its pixels by line id, so a change
+    /// of look that reaches such a line, a hover or a label of link hints,
+    /// has the whole frame read as drawn whole.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "What the capture holds under `scroll-pan`": a row
+    ///   beyond the screen reads as changed only in a frame drawn whole.
+    #[cfg(feature = "rows-beyond")]
+    pub(super) fn mark_all_if_beyond(&mut self, changed: impl Fn(&Line) -> bool) {
+        if self.flags.alternate {
+            return;
+        }
+        let side = ROWS_MAX.saturating_add(1);
+        let top = self.view_place(0);
+        let end = top.saturating_add(self.rows);
+        let below = end..end.saturating_add(side.min(self.scrollback.offset()));
+        let beyond = (top.saturating_sub(side)..top)
+            .chain(below)
+            .filter_map(|p| self.line_at(p))
+            .any(changed);
+        if beyond {
+            self.damage.mark_all();
+        }
     }
 
     /// The line the view shows at row `y`.

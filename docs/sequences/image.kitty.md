@@ -76,6 +76,7 @@ These tests check what vtium does with the sequences on this page.
 - `the_old_image_stays_until_the_upload_is_accepted` in [crates/vtium-image/src/protocol/kitty/tests/uploads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-image/src/protocol/kitty/tests/uploads.rs)
 - `cell_selectors_choose_by_the_cells_a_placement_covers` in [crates/vtium-image/src/store/kitty.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-image/src/store/kitty.rs)
 - `d_a_removes_every_kitty_placement_on_the_screen_and_keeps_the_sixel` in [crates/vtium-image/src/store/kitty.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-image/src/store/kitty.rs)
+- `a_kitty_delete_marks_the_screen_rows_of_a_box_whose_top_scrolled_off` in [crates/vtium-term/src/screen/images.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/src/screen/images.rs)
 - `a_palette_index_picture_takes_the_colors_of_now_whenever_it_arrived` in [crates/vtium-term/src/terminal/images.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/src/terminal/images.rs)
 - `every_color_change_and_reset_redraws_a_palette_index_picture` in [crates/vtium-term/src/terminal/images.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/src/terminal/images.rs)
 - `osc_colors_reach_a_palette_index_picture` in [crates/vtium-term/src/terminal/images.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/src/terminal/images.rs)
