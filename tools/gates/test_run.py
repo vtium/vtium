@@ -171,5 +171,49 @@ class Make(unittest.TestCase):
         self.assertIn(f"--dir {ROOT}/relative/gates", self.dry_run("CARGO_TARGET_DIR=relative"))
 
 
+class SizeBuild(unittest.TestCase):
+    """After the gates, make gates builds the minspec binary that tier 3
+    measures, whatever FEATURES and CARGO_TARGET_DIR make's command line names,
+    and only when the gates ran. A stand-in for make records where the build
+    would go and with which features: it runs the real make with -n, which
+    prints the build without running it, after printing the two variables as
+    the sub-make sees them."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.stub = self.tmp / "make"
+        self.stub.write_text("#!/bin/sh\n"
+                             f"touch {self.tmp}/size-build-ran\n"
+                             "exec make \"$@\" -n "
+                             "--eval='$(info size build: target=$(CARGO_TARGET_DIR) features=[$(FEATURES)])'\n")
+        self.stub.chmod(0o755)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def gates(self, *args):
+        environ = {k: v for k, v in os.environ.items()
+                   if k not in ("MAKEFLAGS", "MFLAGS", "JOBS", "CARGO_TARGET_DIR", "FEATURES")}
+        return subprocess.run(["make", "--no-print-directory", "-C", str(ROOT), "gates",
+                               f"MAKE={self.stub}", *args],
+                              env=environ, capture_output=True, text=True, timeout=WAIT_BOUND)
+
+    def test_the_size_build_ignores_features_and_cargo_target_dir_from_the_command_line(self):
+        target = self.tmp / "build"
+        p = self.gates("GATE_LINE=true", "JOBS=1", f"CARGO_TARGET_DIR={target}", "FEATURES=images bidi")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        log = (target / "gates" / "logs" / "minspec-size.log").read_text()
+        self.assertIn(f"size build: target={target}/gates/minspec-size features=[]\n", log)
+
+    def test_a_usage_error_skips_the_size_build(self):
+        for args in (("GATE_LINE=true", "JOBS=0"), ("GATE_LINE=",)):
+            with self.subTest(args=args):
+                p = self.gates(*args, f"CARGO_TARGET_DIR={self.tmp / 'build'}")
+                self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+                self.assertNotIn("make minspec", p.stdout)
+                self.assertFalse((self.tmp / "size-build-ran").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
