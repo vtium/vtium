@@ -2,6 +2,10 @@ use std::ffi::OsString;
 
 use std::path::PathBuf;
 
+use super::frits::frit;
+#[cfg(feature = "images")]
+use super::notes::image_helper_note;
+use super::notes::{font_path_note, helper_note, semantics_under};
 use super::*;
 use crate::config;
 use crate::scratch::Scratch;
