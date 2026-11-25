@@ -62,7 +62,8 @@ Each run prints a header, then one row for each way, size, cell, speed, buffer c
 | `written_bytes`, `read_bytes` | The mean bytes a frame writes into the display's buffer and reads back from it. |
 | `system_bytes` | The mean bytes a frame writes into memory of the way's own, the copy's ring. |
 | `rows_drawn` | The mean text rows a frame draws from the pattern. |
-| `display_memory`, `extra_memory` | The display's buffers together, and what the way adds to buffers at the screen's size. |
+| `display_memory`, `system_memory` | The display's buffers together, as the way makes them, and the memory the way keeps outside them, the copy's ring. |
+| `added_memory` | What the way adds to today's buffers at the screen's size. |
 | `commits`, `busy`, `refused` | The swaps or flips asked for, those held back behind a flip, and those the driver refused. |
 
 Two rows a cell, `row-display` and `row-system`, give the cost of drawing one text row into a display buffer and into system memory. The pan pays that cost for each row that comes in, twice where the row's slot has a second drawing.

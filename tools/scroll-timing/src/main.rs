@@ -137,7 +137,7 @@ const MIB: f64 = 1024.0 * 1024.0;
 /// screen, which a dumb buffer's pitch may round up.
 fn memory_table(o: &Options) -> Vec<String> {
     let mut rows = vec![
-        "way\tsize\tcell\tbuffers\tspare\tdisplay_bytes\textra_bytes\tdisplay_mib\textra_mib"
+        "way\tsize\tcell\tbuffers\tspare\tdisplay_bytes\tsystem_bytes\tadded_bytes\tadded_mib"
             .to_owned(),
     ];
     for size in &o.sizes {
@@ -165,12 +165,12 @@ fn memory_table(o: &Options) -> Vec<String> {
                             "-".to_owned()
                         };
                         rows.push(format!(
-                            "{}\t{w}x{h}\t{cw}x{ch}\t{b}\t{spare_text}\t{}\t{}\t{:.1}\t{:.1}",
+                            "{}\t{w}x{h}\t{cw}x{ch}\t{b}\t{spare_text}\t{}\t{}\t{}\t{:.1}",
                             way.name(),
                             m.display,
-                            m.extra,
-                            m.display as f64 / MIB,
-                            m.extra as f64 / MIB
+                            m.system,
+                            m.added,
+                            m.added as f64 / MIB
                         ));
                     }
                 }
@@ -180,12 +180,12 @@ fn memory_table(o: &Options) -> Vec<String> {
     rows
 }
 
-const HEADER: &str = "way\tsize\tcell\trows_a_frame\tbuffers\tspare\tframes\tcpu_median_ms\tcpu_p95_ms\tcpu_max_ms\tdraw_median_ms\tfps\trefresh_hz\twritten_bytes\tread_bytes\tsystem_bytes\trows_drawn\tdisplay_memory\textra_memory\tcommits\tbusy\trefused";
+const HEADER: &str = "way\tsize\tcell\trows_a_frame\tbuffers\tspare\tframes\tcpu_median_ms\tcpu_p95_ms\tcpu_max_ms\tdraw_median_ms\tfps\trefresh_hz\twritten_bytes\tread_bytes\tsystem_bytes\trows_drawn\tdisplay_memory\tsystem_memory\tadded_memory\tcommits\tbusy\trefused";
 
 fn row(m: &Measured) -> String {
     let spare = m.spare.map_or("-".to_owned(), |s| s.to_string());
     format!(
-        "{}\t{}x{}\t{}x{}\t{}\t{}\t{spare}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.1}\t{:.3}\t{:.0}\t{:.0}\t{:.0}\t{:.1}\t{}\t{}\t{}\t{}\t{}",
+        "{}\t{}x{}\t{}x{}\t{}\t{}\t{spare}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.1}\t{:.3}\t{:.0}\t{:.0}\t{:.0}\t{:.1}\t{}\t{}\t{}\t{}\t{}\t{}",
         m.way,
         m.size.0,
         m.size.1,
@@ -205,7 +205,8 @@ fn row(m: &Measured) -> String {
         m.counts[2],
         m.counts[3],
         m.memory.display,
-        m.memory.extra,
+        m.memory.system,
+        m.memory.added,
         m.commits,
         m.busy,
         m.refused

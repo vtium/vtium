@@ -392,7 +392,8 @@ fn row_measured(way: &'static str, g: Geometry, samples: &[f64], refresh: f64) -
         counts: [g.row_bytes() as f64, 0.0, 0.0, 1.0],
         memory: memory::Memory {
             display: 0,
-            extra: 0,
+            system: 0,
+            added: 0,
         },
         commits: 0,
         busy: 0,
