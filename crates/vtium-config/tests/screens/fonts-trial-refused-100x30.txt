@@ -23,8 +23,8 @@
 
 
 
-
  The console refused DejaVuSansMono.ttf, because it takes only fonts that root has installed and
- trusts. The console's log says which check the font failed.
+ trusts. The console's log says which check the font failed. A font activated since you logged in
+ can be tried after you log in again.
 ----------------------------------------------------------------------------------------------------
  ↑↓ move  Space activate  q quit  . more 1/4

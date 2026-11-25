@@ -1,5 +1,5 @@
  Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
- draft workstation · 1 change · no problems  text preview · live trial in Looks
+ draft workstation · 1 change · no problems  text preview · trial: Fonts, Looks
 --------------------------------------------------------------------------------
  > Text font          none
    Box drawing        vtium's own lines, unless the text font has them all
