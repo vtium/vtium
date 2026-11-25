@@ -1,0 +1,48 @@
+#!/bin/sh
+# The scroll timing tool in the tier 3 guest (t3_scrolltiming.py). The run's
+# disc carries this script as its setup, with the tool scroll-timing
+# (tools/scroll-timing) and its arguments in the file args. The boot hook
+# runs it with the disc's mount point; it copies the disc to
+# /run/scrolltiming and starts itself again as the unit t3-scrolltiming,
+# once the boot has reached getty.target. The guest has no network, so the
+# boot does not reach multi-user.target, which waits for the network. The
+# tool takes DRM master
+# of the virtio-gpu card, which no other program holds: the getty on tty1
+# draws through the kernel's console, which stops drawing while a program
+# holds master. Every line of the tool's results goes to the event port,
+# ttyS1, as "SCROLLTIMING-ROW <line>", and SCROLLTIMING-END ends the run,
+# after which the guest powers off.
+set -u
+
+if [ "${1:-}" != run ]; then
+    mkdir -p /run/scrolltiming
+    cp -a "$1"/. /run/scrolltiming/
+    chmod 755 /run/scrolltiming/scroll-timing /run/scrolltiming/setup
+    systemd-run --no-block --unit=t3-scrolltiming --property=After=getty.target \
+        /bin/sh /run/scrolltiming/setup run
+    echo TIER3-SCROLLTIMING-STARTED > /dev/ttyS0
+    exit 0
+fi
+
+exec >/dev/ttyS1 2>&1
+D=/run/scrolltiming
+echo SCROLLTIMING-BEGIN
+# The card the virtio-gpu driver drives. The kernel's simpledrm may have
+# held card0 until virtio-gpu took the display over.
+card=
+for c in /dev/dri/card*; do
+    driver=$(basename "$(readlink -f "/sys/class/drm/$(basename "$c")/device/driver")")
+    if [ "$driver" = virtio-pci ] || [ "$driver" = virtio_gpu ]; then card=$c; break; fi
+done
+[ -n "$card" ] || card=/dev/dri/card0
+echo "SCROLLTIMING-CARD $card"
+# The arguments come from the driver, one a line.
+set --
+while IFS= read -r a; do set -- "$@" "$a"; done < "$D/args"
+"$D/scroll-timing" run --device "$card" --tsv "$D/out.tsv" "$@" 2>"$D/stderr.log"
+echo "SCROLLTIMING-EXIT $?"
+[ -f "$D/out.tsv" ] && sed 's/^/SCROLLTIMING-ROW /' "$D/out.tsv"
+sed 's/^/SCROLLTIMING-LOG /' "$D/stderr.log"
+echo SCROLLTIMING-END
+sync
+systemctl poweroff

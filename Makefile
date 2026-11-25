@@ -999,6 +999,32 @@ shader-timing: ## Time the spatial shaders of ADR-1304 D18 off-screen on DEVICE 
 	@mkdir -p $(SHADER_TIMING_OUT)
 	$(SHADER_TIMING) run --device '$(or $(DEVICE),surfaceless)' --tsv '$(SHADER_TIMING_OUT)/$(notdir $(or $(DEVICE),surfaceless)).tsv' $(ARGS)
 
+# The scroll timing tool, which times three ways to scroll the CPU path's
+# display on a KMS device: the copy from a ring in system memory, the move
+# of rows within the display's buffer and the pan over a taller buffer,
+# beside today's redraw. Not a gate: its numbers belong to the machine that
+# runs it. The tool takes DRM master, so it never runs on a desktop that is
+# showing. DEVICE=tier3, the default, runs it in tier 3's 1-vCPU guest, once
+# at 1920x1080 and once at 1366x768, into target/tier3/scroll-timing/. A
+# card's path, such as DEVICE=/dev/dri/card1, runs it on that card at its
+# preferred mode, into target/scroll-timing/cardN.tsv, as a user who may
+# take DRM master, from a text console nobody else draws on. ARGS passes
+# more options to the tool, such as ARGS='--frames 60'.
+#
+# References:
+# - ADR-1310 D6, "The measurement": what the tool measures, and why.
+SCROLL_TIMING_TARGET := $(or $(CARGO_TARGET_DIR),target)/scroll-timing-tool
+SCROLL_TIMING_OUT := $(or $(CARGO_TARGET_DIR),target)/scroll-timing
+.PHONY: scroll-timing
+scroll-timing: ## Time ADR-1310 D6's three ways to scroll on DEVICE (default tier3, the 1-vCPU guest; or a card such as /dev/dri/card1, which takes DRM master); ARGS='...' passes more options
+	@if [ '$(or $(DEVICE),tier3)' = tier3 ]; then \
+		$(MAKE) --no-print-directory tier3-image && $(T3_PY) tools/tier3/t3_scrolltiming.py -- $(ARGS); \
+	else \
+		cargo build --release --locked --manifest-path tools/scroll-timing/Cargo.toml --target-dir $(SCROLL_TIMING_TARGET) && \
+		mkdir -p $(SCROLL_TIMING_OUT) && \
+		$(SCROLL_TIMING_TARGET)/release/scroll-timing run --device '$(DEVICE)' --tsv '$(SCROLL_TIMING_OUT)/$(notdir $(DEVICE)).tsv' $(ARGS); \
+	fi
+
 # What the maintainer reviews tier 1's goldens on (ADR-1505, V3); not a
 # gate. tier1-shots replays every case of the corpus and of vtium's own
 # cases, and every behaviour scenario, through vtium-replay's code, checks
