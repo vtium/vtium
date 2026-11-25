@@ -54,6 +54,8 @@ mod text;
 
 use held::Holder;
 
+use crate::ordered;
+
 /// The highest VT number the kernel has (`MAX_NR_CONSOLES`).
 pub const LAST_VT: u16 = 63;
 
@@ -574,7 +576,7 @@ pub fn enabled_vts(root: &Path) -> Option<Enabled> {
         return None;
     }
     let state = State::links(root, VTIUM);
-    let mut all: BTreeSet<u16> = (1..=LOGIND_VTS).collect();
+    let mut all = ordered::set(1..=LOGIND_VTS);
     all.insert(RESERVED_VT);
     all.extend(state.vts());
     let mut vts = BTreeSet::new();
@@ -827,7 +829,7 @@ impl State {
 
     /// Every VT anything is enabled, linked, running or recorded on.
     fn vts(&self) -> BTreeSet<u16> {
-        let mut vts: BTreeSet<u16> = self.wants.keys().copied().collect();
+        let mut vts = ordered::set(self.wants.keys().copied());
         vts.extend(self.own.keys());
         vts.extend(self.running.keys());
         vts.extend(self.records.keys());
@@ -1165,7 +1167,7 @@ impl Run<'_, '_, '_> {
     /// unit directory links, but the consoles vtium knows by name, which
     /// have rules of their own, and a masked unit.
     fn boot_units(&self, display_manager: Option<&str>) -> BTreeSet<String> {
-        let mut units: BTreeSet<String> = display_manager.map(str::to_owned).into_iter().collect();
+        let mut units = ordered::set(display_manager.map(str::to_owned));
         for dir in UNIT_DIRS {
             let dir = self.path(dir);
             for deps in names(&dir)
@@ -1843,7 +1845,7 @@ impl Run<'_, '_, '_> {
         self.say(text::TAKEN_BACK_ALL);
         // Every vtium still running, the ones logind started through the
         // template included.
-        let mut still: BTreeSet<u16> = running.into_iter().collect();
+        let mut still = ordered::set(running);
         still.extend(state.vts().into_iter().filter(|&n| state.vtium_runs(n)));
         if !still.is_empty() {
             self.say(&text::still_running(&still.into_iter().collect::<Vec<_>>()));
@@ -1864,7 +1866,7 @@ impl Run<'_, '_, '_> {
         if let Some(why) = &state.sessions_unknown {
             self.say(why);
         }
-        let mut vts: BTreeSet<u16> = (1..=LOGIND_VTS).collect();
+        let mut vts = ordered::set(1..=LOGIND_VTS);
         vts.extend(state.vts());
         vts.extend(state.held.keys());
         let rows: Vec<[String; 4]> = vts
