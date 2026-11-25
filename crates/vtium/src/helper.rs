@@ -1402,6 +1402,9 @@ struct CellState {
     /// at the cell ([`Helper::ask_bold_early`]): it sent the ask, or the
     /// store was at its limit. Kept in the regular normal record alone.
     bold_early: bool,
+    /// The early bold ask fell due while the last start of a search ran,
+    /// and waits until the search ends ([`Helper::ask_bold_waiting`]).
+    bold_waits: bool,
 }
 
 impl CellState {
@@ -1440,6 +1443,7 @@ impl CellState {
             started: None,
             first_glyphs: None,
             bold_early: false,
+            bold_waits: false,
         }
     }
 }
@@ -2121,7 +2125,7 @@ impl Helper {
                             // as poll does after each answer, so that a
                             // search this answer ends is not left waiting
                             // for an answer already taken
-                            self.settle();
+                            self.settle(clock());
                         }
                         // As poll does after each answer: the watchdog
                         // runs from this answer while the helper still
@@ -2787,6 +2791,7 @@ impl Helper {
             return self.fail("it failed on every font of the font set");
         }
         self.resend(now, false);
+        self.ask_bold_waiting(now);
     }
 
     /// Starts the helper again after `why`, a failure of a helper whose
@@ -2827,7 +2832,7 @@ impl Helper {
             if self.failed.is_none() {
                 self.due = (!open.is_empty()).then(|| after(now, self.answer));
                 self.suspect = Some(Suspect { open, ..suspect });
-                self.settle();
+                self.settle(now);
             }
             return;
         }
@@ -2855,8 +2860,9 @@ impl Helper {
 
     /// Ends the search once the last start has ended the work it was
     /// sent: no source fails on its own, and vtium goes on with that
-    /// helper, with every source still in use.
-    fn settle(&mut self) {
+    /// helper, with every source still in use. The early bold asks that
+    /// waited for the search go out then.
+    fn settle(&mut self, now: Instant) {
         if self.suspect.as_ref().is_some_and(|s| s.open.is_empty())
             && let Some(suspect) = self.suspect.take()
         {
@@ -2865,6 +2871,7 @@ impl Helper {
                 suspect.why,
                 escaped(&self.frit.name)
             );
+            self.ask_bold_waiting(now);
         }
     }
 
@@ -3135,7 +3142,7 @@ impl Helper {
                 self.fail(&why);
                 break;
             }
-            self.settle();
+            self.settle(now);
             self.due = (self.owes() || self.suspect.is_some()).then(|| after(now, self.answer));
         }
         if self.failed.is_none() {
@@ -3467,7 +3474,16 @@ impl Helper {
     /// glyphs do: a glyph evicted before the screen shows it comes back
     /// with the screen's own ask.
     ///
+    /// While the last start of a search runs, the ask waits until the
+    /// search ends. A request sent to that start after it began is work
+    /// the search never tried, so a crash on its fill would then begin a
+    /// new search and cost another chance, where it should leave out the
+    /// source the search added last at once. When [`ASKS_MAX`] asks wait,
+    /// the console has not decided, so the cell's next answer tries again.
+    ///
     /// References:
+    /// - ADR-1200 D15, "Restarted after a failure": the chances a boot
+    ///   gives the helper, which a search uses.
     /// - ADR-1200 D18, note of 2026-11-25: the one ask for glyphs the
     ///   screen does not show yet, and when the console sends it.
     /// - ADR-1200 D21, note of 2026-11-25: this ask is not the fill.
@@ -3475,11 +3491,21 @@ impl Helper {
         if !self.asks_bold_early || !self.cells.iter().any(|c| c.at == at) {
             return;
         }
+        let searching = self.suspect.is_some();
+        let full = self.asks.len() >= ASKS_MAX;
         let under = crate::deferred::lock(&self.store).bytes() < self.limit;
         let Some(state) = self.state(at, Variant::default()) else {
             return;
         };
-        if std::mem::replace(&mut state.bold_early, true) || !under {
+        if state.bold_early {
+            return;
+        }
+        state.bold_waits = searching;
+        if searching || full {
+            return;
+        }
+        state.bold_early = true;
+        if !under {
             return;
         }
         let bold = Shown {
@@ -3494,6 +3520,25 @@ impl Helper {
             clusters: Vec::new(),
         };
         self.ask(at.cell, at.band, &bold, now);
+    }
+
+    /// Sends the early bold asks that waited while the last start of a
+    /// search ran, once the search has ended. A cell where an ask still
+    /// waits makes its bold ask when the helper answers that ask.
+    fn ask_bold_waiting(&mut self, now: Instant) {
+        if self.search.is_some() || self.suspect.is_some() {
+            return;
+        }
+        let waiting: Vec<SpacedCell> = self
+            .cells
+            .iter_mut()
+            .filter_map(|c| std::mem::take(&mut c.bold_waits).then_some(c.at))
+            .collect();
+        for at in waiting {
+            if !self.asks.iter().any(|a| a.at == at) {
+                self.ask_bold_early(at, now);
+            }
+        }
     }
 
     /// The helper took the oldest stop at `cell`: the frames after it are
@@ -4569,6 +4614,81 @@ mod tests {
         assert_eq!(sent("2"), fill, "then the fill");
         assert_eq!(sent("3"), bold, "then the bold ask");
         assert!(held_in(&s.helper, BOLD, '~'));
+    }
+
+    /// Whether an ask for bold printable ASCII waits at [`AT`].
+    fn bold_ask_waits(helper: &Helper) -> bool {
+        helper.asks.iter().any(|a| {
+            a.at == AT && a.variant == Variant::from(BOLD) && a.want.len() == bold_ascii().len()
+        })
+    }
+
+    // The console can decide on the early bold ask while ASKS_MAX asks
+    // wait, as it does when a search ends. The bound then refuses the ask,
+    // so the console has not decided: the cell's next answer sends it.
+    //
+    // References:
+    // - ADR-1200 D18, note of 2026-11-25: the console asks once for bold
+    //   printable ASCII at each cell.
+    #[test]
+    fn a_bold_ask_that_the_asks_bound_refuses_goes_out_with_the_next_answer() {
+        let mut s = StandIn::new("bold-bound", "cat >/dev/null", b"");
+        s.helper.asks_bold_early = true;
+        let now = t0();
+        let other = Cell {
+            width: 16,
+            height: 32,
+        };
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        for c in ('\u{4e00}'..).take(ASKS_MAX - 1) {
+            s.helper.ask(other, Band::NONE, &shown(&[c]), now);
+        }
+        assert_eq!(s.helper.asks.len(), ASKS_MAX);
+        s.helper.ask_bold_early(AT, now);
+        assert_eq!(s.helper.asks.len(), ASKS_MAX, "the bound refused the ask");
+        assert!(!bold_ask_waits(&s.helper));
+        // the helper answers the ask at the cell, which frees room
+        s.helper.done(now).unwrap();
+        assert!(bold_ask_waits(&s.helper), "the next answer sends it");
+    }
+
+    // An ask whose cell the console dropped before the answer came sends
+    // no bold ask, and does not make the cell's record again
+    //
+    // References:
+    // - ADR-1200 D18, note of 2026-11-25: the console decides again only
+    //   for a cell dropped and made again.
+    #[test]
+    fn an_ask_answered_after_its_cell_is_dropped_sends_no_bold_ask() {
+        let mut s = StandIn::new("bold-dropped", "cat >/dev/null", b"");
+        s.helper.asks_bold_early = true;
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        s.helper.retain(&[], now);
+        s.helper.done(now).unwrap();
+        assert!(s.helper.asks.is_empty(), "no bold ask waits");
+        assert!(!s.helper.cells.iter().any(|c| c.at == AT));
+    }
+
+    // With two asks waiting at a cell, the first answer sends no bold
+    // ask; the second, the cell's last, sends it
+    //
+    // References:
+    // - ADR-1200 D18, note of 2026-11-25: the bold ask follows the cell's
+    //   first asks.
+    #[test]
+    fn the_bold_ask_waits_for_every_ask_at_the_cell() {
+        let mut s = StandIn::new("bold-two", "cat >/dev/null", b"");
+        s.helper.asks_bold_early = true;
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['B']), now);
+        assert_eq!(s.helper.asks.len(), 2);
+        s.helper.done(now).unwrap();
+        assert_eq!(s.helper.asks.len(), 1, "the second ask waits alone");
+        assert!(!bold_ask_waits(&s.helper));
+        s.helper.done(now).unwrap();
+        assert!(bold_ask_waits(&s.helper), "the last answer sends it");
     }
 
     // ADR-1200 D21: the console refuses a strike in a style other than the
@@ -6590,6 +6710,55 @@ if [ $k -ge 6 ]; then cat \"$1\"; cat \"$1.done\"; exec cat >/dev/null; fi";
                 "chance 2 of the 3 that vtium gives the font helper each boot)"
             ]
         );
+    }
+
+    // The last start of a search is sent the waiting ask and the fill at
+    // its start. It answers the ask, then crashes while the fill is still
+    // open. The early bold ask that the answer makes due waits until the
+    // search has ended, so the last start is sent nothing after its
+    // start, and its crash blames the source the search added last. vtium
+    // leaves that source out at once, uses no second chance, and sends
+    // the bold ask to the helper it starts without the source.
+    //
+    // References:
+    // - ADR-1200 D15, "Restarted after a failure": three chances a boot,
+    //   shared by the searches and the plain restarts.
+    // - ADR-1200 D18, note of 2026-11-25: the one ask for glyphs the
+    //   screen does not show yet.
+    #[test]
+    fn a_bold_ask_waits_until_the_search_ends_so_the_last_starts_crash_blames_its_source() {
+        crate::getty::tests::logged();
+        // the first helper crashes at once; the fifth start, the last of
+        // the search, answers the ask and crashes with the fill open; the
+        // helper started after the blame answers the fill and the bold ask
+        let fails = "if [ $k = 1 ]; then kill -SEGV $$; fi
+if [ $k = 5 ]; then cat \"$1.ask\"; kill -SEGV $$; fi
+if [ $k -ge 6 ]; then cat \"$1.after\"; exec cat >/dev/null; fi";
+        let mut s = sourced("source-bold-early", "true", fails, &filled(CELL));
+        s.helper.asks_bold_early = true;
+        let mut ask = frame_bytes(FRAME_GLYPHS, &set(CELL, &['A']));
+        ask.extend(frame_bytes(FRAME_DONE, &[]));
+        std::fs::write(s.dir.join("answer.ask"), ask).unwrap();
+        let mut after = filled(CELL);
+        after.extend(answered(BOLD, &bold_ascii()));
+        std::fs::write(s.dir.join("answer.after"), after).unwrap();
+        let mut now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        s.helper.fill(CELL, Band::NONE, &['A'], now);
+        let _ = drive(&mut s, &mut now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(s.helper.restarts(), 1, "the search alone used a chance");
+        assert_eq!(s.helper.left_out(), 0b100, "the third source is left out");
+        assert_eq!(masks(&s), [0, 7, 6, 4, 0, 4]);
+        assert!(s.held('A'));
+        assert!(held_in(&s.helper, BOLD, '~'), "the bold ask went out after");
+        assert!(s.helper.asks.is_empty());
+        let blamed: Vec<String> = crate::getty::tests::logged()
+            .into_iter()
+            .filter(|l| l.contains("leaves out source="))
+            .collect();
+        assert_eq!(blamed.len(), 1, "{blamed:?}");
+        assert!(blamed[0].contains("source=builtin:unifont"), "{blamed:?}");
     }
 
     // ADR-1302 D13 changed the request's and the answers' layout: a helper
