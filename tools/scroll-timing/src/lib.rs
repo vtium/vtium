@@ -3,9 +3,13 @@
 //! pixels. The binary runs them on a KMS device; the tests run them on
 //! buffers in memory and check every picture against a redraw.
 //!
-//! The view scrolls back through a scrollback with no end: the row at the
-//! top of the screen has an id that falls by the speed each frame, and the
-//! rows come in at the top. Each row is a test pattern of character cells
+//! The view scrolls back through a scrollback with no end, and new rows
+//! come in at the top. The view's place is a pixel line of that scrollback,
+//! where text row `r` covers lines `r` times the cell's height and the
+//! cell's height after it. A scroll by whole text rows moves the place by
+//! a cell's height each step; a smooth scroll moves it by a few pixel
+//! lines, so the view can stand inside a row and show the first and last
+//! rows of the grid in part. Each row is a test pattern of character cells
 //! that stands in for text ([`pattern`]), so the figures measure moving
 //! rows and not drawing glyphs.
 //!
@@ -54,6 +58,33 @@ impl Geometry {
     }
 }
 
+/// The unit a scroll's speed is given in: whole text rows a frame, or
+/// pixel lines a frame, as a smooth scroll moves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unit {
+    Rows,
+    Pixels,
+}
+
+impl Unit {
+    /// The name the results file's `speed_unit` column uses.
+    pub fn name(self) -> &'static str {
+        match self {
+            Unit::Rows => "rows",
+            Unit::Pixels => "pixels",
+        }
+    }
+
+    /// The pixel lines a speed of `speed` in this unit moves the view by
+    /// each frame, in cells of `g`.
+    pub fn lines(self, speed: u32, g: Geometry) -> i64 {
+        match self {
+            Unit::Rows => i64::from(speed) * i64::from(g.cell_height),
+            Unit::Pixels => i64::from(speed),
+        }
+    }
+}
+
 /// What one frame of a way did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Counts {
@@ -64,7 +95,9 @@ pub struct Counts {
     /// Bytes written into memory of the way's own, outside the display's
     /// buffer.
     pub system_written: u64,
-    /// Text rows drawn from the pattern, wherever they were drawn.
+    /// Text rows drawn from the pattern, wherever they were drawn. A row
+    /// drawn in part, only the lines of it that came into view, counts as
+    /// one.
     pub rows_drawn: u32,
 }
 

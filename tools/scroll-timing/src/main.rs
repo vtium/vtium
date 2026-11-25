@@ -5,10 +5,15 @@
 //! scroll-timing memory [--sizes 1920x1080,1366x768] [--cells 8x16,16x32]
 //!                      [--buffers 1,2,3] [--spare 0,screen]
 //! scroll-timing run [--device /dev/dri/card0] [--sizes preferred|WxH,...]
-//!                   [--cells 8x16,16x32] [--speeds 1,4,16] [--buffers 1,2,3]
+//!                   [--cells 8x16,16x32] [--speeds 1,4,16|none]
+//!                   [--pixel-speeds 1,2,4,8|none] [--buffers 1,2,3]
 //!                   [--ways redraw,copy,move,pan] [--spare 0,screen]
 //!                   [--frames 120] [--warmup 10] [--tsv FILE]
 //! ```
+//!
+//! `--speeds` gives speeds in whole text rows a frame, and `--pixel-speeds`
+//! in pixel lines a frame, as a smooth scroll moves. The move runs only at
+//! whole-row speeds.
 //!
 //! `memory` prints what each way needs and opens no device. `run` takes
 //! DRM master of the card, so it runs only where no other program shows
@@ -26,15 +31,15 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use vtium_scroll_timing::Geometry;
 use vtium_scroll_timing::memory;
 use vtium_scroll_timing::ways::Way;
+use vtium_scroll_timing::{Geometry, Unit};
 
 use run::{Facts, Measured, Plan};
 
 const USAGE: &str = "usage: scroll-timing memory [--sizes WxH,...] [--cells WxH,...] [--buffers 1,2,3] [--spare 0,screen]\n       \
 scroll-timing run [--device /dev/dri/cardN] [--sizes preferred|WxH,...] [--cells WxH,...] [--speeds N,...] \
-[--buffers 1,2,3] [--ways redraw,copy,move,pan] [--spare N|screen,...] [--frames N] [--warmup N] [--tsv FILE]";
+[--pixel-speeds N,...] [--buffers 1,2,3] [--ways redraw,copy,move,pan] [--spare N|screen,...] [--frames N] [--warmup N] [--tsv FILE]";
 
 fn usage(problem: &str) -> ExitCode {
     eprintln!("scroll-timing: {problem}\n{USAGE}");
@@ -74,6 +79,14 @@ fn list<T>(text: &str, parse: impl Fn(&str) -> Option<T>) -> Option<Vec<T>> {
     text.split(',').map(parse).collect()
 }
 
+/// A list of speeds, each above 0, or `none` for no speeds of that unit.
+fn speeds(text: &str) -> Option<Vec<u32>> {
+    if text == "none" {
+        return Some(Vec::new());
+    }
+    list(text, |s| s.parse().ok().filter(|&n| n > 0))
+}
+
 fn options(args: &[String]) -> Result<Options, String> {
     let mut o = Options {
         device: PathBuf::from("/dev/dri/card0"),
@@ -81,6 +94,7 @@ fn options(args: &[String]) -> Result<Options, String> {
         plan: Plan {
             cells: vec![(8, 16), (16, 32)],
             speeds: vec![1, 4, 16],
+            pixel_speeds: vec![1, 2, 4, 8],
             buffers: vec![1, 2, 3],
             ways: Way::ALL.to_vec(),
             spares: vec![Some(0), None],
@@ -106,10 +120,8 @@ fn options(args: &[String]) -> Result<Options, String> {
                 o.plan.cells =
                     list(value, |s| parse_size(s).filter(|c| c.0 <= 64)).ok_or_else(bad)?
             }
-            "--speeds" => {
-                o.plan.speeds =
-                    list(value, |s| s.parse().ok().filter(|&n| n > 0)).ok_or_else(bad)?
-            }
+            "--speeds" => o.plan.speeds = speeds(value).ok_or_else(bad)?,
+            "--pixel-speeds" => o.plan.pixel_speeds = speeds(value).ok_or_else(bad)?,
             "--buffers" => {
                 o.plan.buffers = list(value, |s| s.parse().ok().filter(|n| (1..=3).contains(n)))
                     .ok_or_else(bad)?
@@ -137,7 +149,7 @@ const MIB: f64 = 1024.0 * 1024.0;
 /// screen, which a dumb buffer's pitch may round up.
 fn memory_table(o: &Options) -> Vec<String> {
     let mut rows = vec![
-        "way\tsize\tcell\tbuffers\tspare\tdisplay_bytes\tsystem_bytes\tadded_bytes\tadded_mib"
+        "way\tsize\tcell\tbuffers\tspare\tdisplay_bytes\tsystem_bytes\tadded_bytes\tadded_mib\tspeed_unit"
             .to_owned(),
     ];
     for size in &o.sizes {
@@ -155,23 +167,32 @@ fn memory_table(o: &Options) -> Vec<String> {
                 } else {
                     vec![Some(0)]
                 };
+                // Only the pan's memory differs at pixel steps, so the
+                // other ways give one row for both units.
+                let units: &[(Unit, &str)] = match way {
+                    Way::Pan => &[(Unit::Rows, "rows"), (Unit::Pixels, "pixels")],
+                    Way::Move => &[(Unit::Rows, "rows")],
+                    _ => &[(Unit::Rows, "rows,pixels")],
+                };
                 for spare in spares {
                     let spare = spare.unwrap_or(g.rows());
-                    for &b in &o.plan.buffers {
-                        let m = memory::needs(g, *way, b, u64::from(w) * 4, spare);
-                        let spare_text = if *way == Way::Pan {
-                            spare.to_string()
-                        } else {
-                            "-".to_owned()
-                        };
-                        rows.push(format!(
-                            "{}\t{w}x{h}\t{cw}x{ch}\t{b}\t{spare_text}\t{}\t{}\t{}\t{:.1}",
-                            way.name(),
-                            m.display,
-                            m.system,
-                            m.added,
-                            m.added as f64 / MIB
-                        ));
+                    for &(unit, unit_text) in units {
+                        for &b in &o.plan.buffers {
+                            let m = memory::needs(g, *way, b, u64::from(w) * 4, spare, unit);
+                            let spare_text = if *way == Way::Pan {
+                                spare.to_string()
+                            } else {
+                                "-".to_owned()
+                            };
+                            rows.push(format!(
+                                "{}\t{w}x{h}\t{cw}x{ch}\t{b}\t{spare_text}\t{}\t{}\t{}\t{:.1}\t{unit_text}",
+                                way.name(),
+                                m.display,
+                                m.system,
+                                m.added,
+                                m.added as f64 / MIB
+                            ));
+                        }
                     }
                 }
             }
@@ -180,12 +201,12 @@ fn memory_table(o: &Options) -> Vec<String> {
     rows
 }
 
-const HEADER: &str = "way\tsize\tcell\trows_a_frame\tbuffers\tspare\tframes\tcpu_median_ms\tcpu_p95_ms\tcpu_max_ms\tdraw_median_ms\tfps\trefresh_hz\twritten_bytes\tread_bytes\tsystem_bytes\trows_drawn\tdisplay_memory\tsystem_memory\tadded_memory\tcommits\tbusy\trefused";
+const HEADER: &str = "way\tsize\tcell\trows_a_frame\tbuffers\tspare\tframes\tcpu_median_ms\tcpu_p95_ms\tcpu_max_ms\tdraw_median_ms\tfps\trefresh_hz\twritten_bytes\tread_bytes\tsystem_bytes\trows_drawn\tdisplay_memory\tsystem_memory\tadded_memory\tcommits\tbusy\trefused\tspeed_unit";
 
 fn row(m: &Measured) -> String {
     let spare = m.spare.map_or("-".to_owned(), |s| s.to_string());
     format!(
-        "{}\t{}x{}\t{}x{}\t{}\t{}\t{spare}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.1}\t{:.3}\t{:.0}\t{:.0}\t{:.0}\t{:.1}\t{}\t{}\t{}\t{}\t{}\t{}",
+        "{}\t{}x{}\t{}x{}\t{}\t{}\t{spare}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.1}\t{:.3}\t{:.0}\t{:.0}\t{:.0}\t{:.1}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
         m.way,
         m.size.0,
         m.size.1,
@@ -209,7 +230,8 @@ fn row(m: &Measured) -> String {
         m.memory.added,
         m.commits,
         m.busy,
-        m.refused
+        m.refused,
+        m.unit.name()
     )
 }
 
@@ -292,5 +314,65 @@ fn main() -> ExitCode {
             }
         }
         other => usage(&format!("unknown command {other}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vtium_scroll_timing::stats::Summary;
+
+    /// A row of results at a pixel speed, with every column its own value.
+    fn measured(unit: Unit) -> Measured {
+        Measured {
+            way: "pan",
+            size: (1920, 1080),
+            cell: (8, 16),
+            speed: 2,
+            unit,
+            buffers: 2,
+            spare: Some(0),
+            frames: 120,
+            cpu: Summary::default(),
+            draw: Summary::default(),
+            fps: 75.0,
+            refresh: 75.0,
+            counts: [0.0; 4],
+            memory: memory::Memory {
+                display: 0,
+                system: 0,
+                added: 0,
+            },
+            commits: 130,
+            busy: 0,
+            refused: 0,
+        }
+    }
+
+    /// The unit is the header's last column, so a results file written
+    /// before the column existed still reads by its own header, and each
+    /// row gives its speed's unit there.
+    #[test]
+    fn each_row_ends_with_its_speeds_unit() {
+        let header: Vec<&str> = HEADER.split('\t').collect();
+        assert_eq!(header.last(), Some(&"speed_unit"));
+        assert_eq!(header[3], "rows_a_frame");
+        for (unit, name) in [(Unit::Rows, "rows"), (Unit::Pixels, "pixels")] {
+            let line = row(&measured(unit));
+            let fields: Vec<&str> = line.split('\t').collect();
+            assert_eq!(fields.len(), header.len(), "{line}");
+            assert_eq!(fields.last(), Some(&name));
+            assert_eq!(fields[3], "2");
+        }
+    }
+
+    #[test]
+    fn the_pixel_speeds_are_read_and_none_leaves_a_unit_out() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let o = options(&args(&["--pixel-speeds", "1,3", "--speeds", "none"])).unwrap();
+        assert_eq!(o.plan.steps(), [(Unit::Pixels, 1), (Unit::Pixels, 3)]);
+        let o = options(&[]).unwrap();
+        assert_eq!(o.plan.pixel_speeds, [1, 2, 4, 8]);
+        assert!(options(&args(&["--pixel-speeds", "0"])).is_err());
     }
 }

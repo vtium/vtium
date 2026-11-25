@@ -76,6 +76,22 @@ impl Pattern {
     /// left pixel and whose lines are `stride` bytes apart, as wide as the
     /// screen. Returns the bytes written.
     pub fn draw_row(&self, dst: &mut [u8], stride: usize, row: i64) -> u64 {
+        self.draw_lines(dst, stride, row, 0, self.geometry.cell_height)
+    }
+
+    /// Draws `count` pixel lines of text row `row`, from its line `first`
+    /// down, into `dst`, whose first byte is the left pixel of line `first`
+    /// and whose lines are `stride` bytes apart. A smooth scroll draws a
+    /// row in part this way where only some of its lines come into view.
+    /// Returns the bytes written.
+    pub fn draw_lines(
+        &self,
+        dst: &mut [u8],
+        stride: usize,
+        row: i64,
+        first: u32,
+        count: u32,
+    ) -> u64 {
         let g = self.geometry;
         let (cw, ch) = (g.cell_width as usize, g.cell_height as usize);
         let cols = g.cols();
@@ -90,9 +106,11 @@ impl Pattern {
                 (bg, fg, shape)
             })
             .collect();
+        let first = first as usize;
+        let end = (first + count as usize).min(ch);
         let mut written = 0;
-        for y in 0..ch {
-            let Some(line) = dst.get_mut(y * stride..y * stride + line_bytes) else {
+        for (i, y) in (first..end).enumerate() {
+            let Some(line) = dst.get_mut(i * stride..i * stride + line_bytes) else {
                 break;
             };
             let (cells_part, rest) = line.split_at_mut(cols as usize * cw * 4);

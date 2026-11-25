@@ -1,10 +1,15 @@
 //! The ways to scroll, each a frame at a time into a display's buffer.
 //!
+//! The redraw, the copy and the pan take the view's place as a pixel line
+//! (see the crate's documentation), so they scroll by whole rows or by a
+//! few pixel lines at a time. The move takes the top row, and scrolls only
+//! by whole rows.
+//!
 //! - [`redraw`] draws every row of the grid, as vtium does today when the
 //!   whole screen moves.
-//! - [`Copy`] keeps the grid's rows in a ring in system memory, draws each
-//!   row into the ring once, and copies the visible window into the
-//!   display's buffer at each frame.
+//! - [`Copy`] keeps the grid's pixel lines in a ring in system memory,
+//!   draws each line into the ring once, and copies the visible window into
+//!   the display's buffer at each frame.
 //! - [`Move`] moves the rows already in the display's buffer by the rows
 //!   the view moved since that buffer was drawn, and draws the rows that
 //!   came in. It reads the buffer back to do so.
@@ -17,7 +22,7 @@
 //!   with each row of its first screen-height drawn twice.
 
 use crate::pattern::Pattern;
-use crate::{Counts, Geometry};
+use crate::{Counts, Geometry, Unit};
 
 /// The ways the tool measures, by the names its rows and options use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,31 +55,49 @@ fn at(line: u32, stride: usize) -> usize {
     line as usize * stride
 }
 
-/// Draws the grid's rows from `top` down into `buf`, the screen's buffer
-/// with lines `stride` bytes apart.
-pub fn redraw(pattern: &Pattern, g: Geometry, buf: &mut [u8], stride: usize, top: i64) -> Counts {
+/// The text row that holds pixel line `line`, and the line's place inside
+/// that row, from 0 at the row's top.
+fn row_of(line: i64, g: Geometry) -> (i64, u32) {
+    let ch = i64::from(g.cell_height);
+    (line.div_euclid(ch), line.rem_euclid(ch) as u32)
+}
+
+/// Draws the grid's pixel lines from line `pos` of the scrollback down into
+/// `buf`, the screen's buffer with lines `stride` bytes apart. Where `pos`
+/// falls inside a row, the grid's first and last rows are drawn in part.
+pub fn redraw(pattern: &Pattern, g: Geometry, buf: &mut [u8], stride: usize, pos: i64) -> Counts {
     let mut c = Counts::default();
-    for i in 0..g.rows() {
-        let dst = &mut buf[at(i * g.cell_height, stride)..];
-        c.written += pattern.draw_row(dst, stride, top + i64::from(i));
+    let lines = g.rows() * g.cell_height;
+    let mut y = 0;
+    while y < lines {
+        let (row, first) = row_of(pos + i64::from(y), g);
+        let count = (g.cell_height - first).min(lines - y);
+        let dst = &mut buf[at(y, stride)..];
+        c.written += pattern.draw_lines(dst, stride, row, first, count);
         c.rows_drawn += 1;
+        y += count;
     }
     c
 }
 
-/// The copy from a ring in system memory. The ring holds as many rows as
-/// the grid, upright, a line of pixels as wide as the screen with no
-/// padding, and row `r` lives in slot `r` modulo the grid's rows.
+/// The copy from a ring in system memory. The ring holds as many pixel
+/// lines as the grid, upright, each as wide as the screen with no padding,
+/// and line `l` of the scrollback lives in the ring's line `l` modulo the
+/// grid's lines. A text row's lines therefore stay together in the ring, at
+/// slot `r` modulo the grid's rows, and a view that stands inside a row
+/// finds the lines of its first and last rows apart, at the ring's two
+/// ends.
 pub struct Copy {
     ring: Vec<u8>,
-    slots: Vec<Option<i64>>,
+    /// The scrollback's line that each line of the ring holds.
+    lines: Vec<Option<i64>>,
 }
 
 impl Copy {
     pub fn new(g: Geometry) -> Copy {
         Copy {
             ring: vec![0; Copy::memory(g) as usize],
-            slots: vec![None; g.rows() as usize],
+            lines: vec![None; (g.rows() * g.cell_height) as usize],
         }
     }
 
@@ -83,38 +106,51 @@ impl Copy {
         g.row_bytes() * u64::from(g.rows())
     }
 
-    /// Draws the rows the ring lacks for the view from `top`, then copies
-    /// the view's rows from the ring into `buf`.
+    /// Draws the pixel lines the ring lacks for the view from line `pos`,
+    /// then copies the view's lines from the ring into `buf`.
     pub fn frame(
         &mut self,
         pattern: &Pattern,
         g: Geometry,
         buf: &mut [u8],
         stride: usize,
-        top: i64,
+        pos: i64,
     ) -> Counts {
         let mut c = Counts::default();
-        let rows = i64::from(g.rows());
+        let n = g.rows() * g.cell_height;
         let line = g.line_bytes();
-        let row_bytes = g.row_bytes() as usize;
-        for i in 0..rows {
-            let row = top + i;
-            let slot = row.rem_euclid(rows) as usize;
-            if self.slots[slot] != Some(row) {
-                let dst = &mut self.ring[slot * row_bytes..];
-                c.system_written += pattern.draw_row(dst, line, row);
+        let ring_line = |l: i64| l.rem_euclid(i64::from(n)) as usize;
+        // Each text row the view shows, in whole or in part, and the run of
+        // its lines that lie in the view: the lines it lacks among them are
+        // drawn in one pass of the pattern, since a row's lines lie
+        // together in the ring.
+        let mut y = 0;
+        while y < n {
+            let (row, first) = row_of(pos + i64::from(y), g);
+            let count = (g.cell_height - first).min(n - y);
+            let from = pos + i64::from(y);
+            let missing: Vec<u32> = (0..count)
+                .filter(|&k| {
+                    self.lines[ring_line(from + i64::from(k))] != Some(from + i64::from(k))
+                })
+                .collect();
+            if let (Some(&lo), Some(&hi)) = (missing.first(), missing.last()) {
+                let start = ring_line(from + i64::from(lo));
+                let dst = &mut self.ring[start * line..];
+                c.system_written += pattern.draw_lines(dst, line, row, first + lo, hi - lo + 1);
                 c.rows_drawn += 1;
-                self.slots[slot] = Some(row);
+                for k in lo..=hi {
+                    let l = from + i64::from(k);
+                    self.lines[ring_line(l)] = Some(l);
+                }
             }
+            y += count;
         }
-        for i in 0..g.rows() {
-            let slot = (top + i64::from(i)).rem_euclid(rows) as usize;
-            for y in 0..g.cell_height {
-                let src = slot * row_bytes + y as usize * line;
-                let dst = at(i * g.cell_height + y, stride);
-                buf[dst..dst + line].copy_from_slice(&self.ring[src..src + line]);
-                c.written += line as u64;
-            }
+        for y in 0..n {
+            let src = ring_line(pos + i64::from(y)) * line;
+            let dst = at(y, stride);
+            buf[dst..dst + line].copy_from_slice(&self.ring[src..src + line]);
+            c.written += line as u64;
         }
         c
     }
@@ -147,7 +183,7 @@ impl Move {
             .map(|i| self.tops[i]);
         self.tops.push(top);
         let Some(then) = then.filter(|t| (t - top).abs() < rows) else {
-            return redraw(pattern, g, buf, stride, top);
+            return redraw(pattern, g, buf, stride, top * i64::from(g.cell_height));
         };
         let mut c = Counts::default();
         let line = g.line_bytes();
@@ -195,10 +231,15 @@ pub struct Ring {
 }
 
 impl Ring {
-    /// The ring for `g` with `spare` rows beyond the grid's.
-    pub fn new(g: Geometry, spare: u32) -> Ring {
+    /// The ring for `g` with `spare` rows beyond the grid's, for a view
+    /// that scrolls by `unit`. A view that stands inside a row shows one
+    /// row more than the grid holds, the last in part, so the ring for
+    /// pixel steps holds that row too: without it, the first and the last
+    /// row shown would share a slot.
+    pub fn new(g: Geometry, spare: u32, unit: Unit) -> Ring {
+        let partial = u32::from(unit == Unit::Pixels);
         Ring {
-            rows: g.rows() + spare,
+            rows: g.rows() + partial + spare,
             twins: g.height.div_ceil(g.cell_height),
         }
     }
@@ -229,8 +270,8 @@ pub struct Pan {
 }
 
 impl Pan {
-    pub fn new(g: Geometry, spare: u32, buffers: usize) -> Pan {
-        let ring = Ring::new(g, spare);
+    pub fn new(g: Geometry, spare: u32, unit: Unit, buffers: usize) -> Pan {
+        let ring = Ring::new(g, spare, unit);
         let slots = (ring.rows + ring.twins) as usize;
         Pan {
             ring,
@@ -275,15 +316,17 @@ impl Pan {
     }
 
     /// Draws into buffer `buffer`, `buf` with lines `stride` bytes apart,
-    /// what the view from `top` needs, and returns what that cost and the
-    /// pixel row the plane's window starts at, its `SRC_Y`.
+    /// what the view from pixel line `pos` needs, and returns what that
+    /// cost and the pixel line the plane's window starts at, its `SRC_Y`.
     ///
-    /// Each row of the view is drawn at its slot and at its twin's, each
-    /// where the buffer lacks it there. The window starts at the slot of
-    /// the view's top row, so each of its slots is either a row's slot or
-    /// its twin's, and the window shows the view's rows in order. The
-    /// strip under the grid is then drawn at the window's bottom, over
-    /// whatever slot lies there, and that slot holds no row afterwards.
+    /// Each row the view shows, in whole or in part, is drawn whole at its
+    /// slot and at its twin's, each where the buffer lacks it there. The
+    /// window starts at the slot of the view's top row, as far down it as
+    /// the view stands inside that row, so each of its slots is either a
+    /// row's slot or its twin's, and the window shows the view's lines in
+    /// order. The strip under the grid is then drawn at the window's
+    /// bottom, over whatever slots lie there, and those slots hold no row
+    /// afterwards.
     pub fn frame(
         &mut self,
         pattern: &Pattern,
@@ -291,21 +334,30 @@ impl Pan {
         buffer: usize,
         buf: &mut [u8],
         stride: usize,
-        top: i64,
+        pos: i64,
     ) -> (Counts, u32) {
         let mut c = Counts::default();
+        let (top, offset) = row_of(pos, g);
+        assert!(
+            offset == 0 || self.ring.rows > g.rows(),
+            "a ring with no room for a row in part cannot stand inside a row"
+        );
         let start = self.ring.slot(top);
-        for i in 0..g.rows() {
+        let shown = g.rows() + u32::from(offset > 0);
+        for i in 0..shown {
             c += self.enter(pattern, g, buffer, buf, stride, top + i64::from(i));
         }
+        let src_y = start * g.cell_height + offset;
         let strip = g.strip();
         if strip > 0 {
-            let s = start + g.rows();
-            let dst = &mut buf[at(s * g.cell_height, stride)..];
+            let from = src_y + g.rows() * g.cell_height;
+            let dst = &mut buf[at(from, stride)..];
             c.written += pattern.draw_border(dst, stride, strip);
-            self.held[buffer][s as usize] = None;
+            for s in from / g.cell_height..=(from + strip - 1) / g.cell_height {
+                self.held[buffer][s as usize] = None;
+            }
         }
-        (c, start * g.cell_height)
+        (c, src_y)
     }
 }
 

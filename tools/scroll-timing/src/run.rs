@@ -22,7 +22,7 @@ use vtium_scroll_timing::memory;
 use vtium_scroll_timing::pattern::Pattern;
 use vtium_scroll_timing::stats::{Summary, summarize};
 use vtium_scroll_timing::ways::{Copy, Move, Pan, Way, redraw};
-use vtium_scroll_timing::{Counts, Geometry};
+use vtium_scroll_timing::{Counts, Geometry, Unit};
 
 use crate::kms::Kms;
 
@@ -41,6 +41,8 @@ pub struct Measured {
     pub size: (u32, u32),
     pub cell: (u32, u32),
     pub speed: u32,
+    /// Whether `speed` counts text rows or pixel lines a frame.
+    pub unit: Unit,
     pub buffers: u32,
     /// The pan's spare rows; `None` for the other ways.
     pub spare: Option<u32>,
@@ -63,13 +65,36 @@ pub struct Measured {
 /// What a run asks for at one mode.
 pub struct Plan {
     pub cells: Vec<(u32, u32)>,
+    /// The speeds in text rows a frame.
     pub speeds: Vec<u32>,
+    /// The speeds in pixel lines a frame, as a smooth scroll moves.
+    pub pixel_speeds: Vec<u32>,
     pub buffers: Vec<u32>,
     pub ways: Vec<Way>,
     /// The pan's spare rows, each `None` for a screen of them.
     pub spares: Vec<Option<u32>>,
     pub frames: usize,
     pub warmup: usize,
+}
+
+impl Plan {
+    /// Each speed with its unit: the whole-row speeds, then the pixel ones.
+    pub fn steps(&self) -> Vec<(Unit, u32)> {
+        let rows = self.speeds.iter().map(|&s| (Unit::Rows, s));
+        rows.chain(self.pixel_speeds.iter().map(|&s| (Unit::Pixels, s)))
+            .collect()
+    }
+
+    /// The units the plan's speeds use, each once.
+    fn units(&self) -> Vec<Unit> {
+        let mut units = Vec::new();
+        for (unit, _) in self.steps() {
+            if !units.contains(&unit) {
+                units.push(unit);
+            }
+        }
+        units
+    }
 }
 
 /// The facts of a mode that the results file's header gives.
@@ -183,14 +208,33 @@ pub fn drm2d_ways(
                 cell_height: cell.1,
             };
             let pattern = Pattern::new(g);
-            for &speed in &plan.speeds {
-                for &way in &ways {
+            for (unit, speed) in plan.steps() {
+                // The move scrolls only by whole rows: padnoir's figures
+                // at whole rows already rule it out, since its read-back
+                // from write-combined memory takes 13 to 23 ms a frame.
+                for &way in ways
+                    .iter()
+                    .filter(|&&w| unit == Unit::Rows || w != Way::Move)
+                {
                     let m = measure_drm2d(
-                        &mut ev, &mut st, id, way, g, &pattern, speed, plan, count, refresh,
+                        &mut ev,
+                        &mut st,
+                        id,
+                        way,
+                        g,
+                        &pattern,
+                        (unit, speed),
+                        plan,
+                        count,
+                        refresh,
                     )?;
                     eprintln!(
-                        "scroll-timing: {} {w}x{h} {}x{} {speed} rows a frame, {count} buffers: {:.3} ms",
-                        m.way, cell.0, cell.1, m.cpu.median
+                        "scroll-timing: {} {w}x{h} {}x{} {speed} {} a frame, {count} buffers: {:.3} ms",
+                        m.way,
+                        cell.0,
+                        cell.1,
+                        unit.name(),
+                        m.cpu.median
                     );
                     out.push(m);
                 }
@@ -208,14 +252,17 @@ fn measure_drm2d(
     way: Way,
     g: Geometry,
     pattern: &Pattern,
-    speed: u32,
+    (unit, speed): (Unit, u32),
     plan: &Plan,
     count: u32,
     refresh: f64,
 ) -> io::Result<Measured> {
     let mut copy = Copy::new(g);
     let mut moves = Move::default();
-    let mut top: i64 = 1 << 40;
+    // The view's top pixel line, which falls by the step each frame.
+    let ch = i64::from(g.cell_height);
+    let step = unit.lines(speed, g);
+    let mut pos: i64 = (1 << 40) * ch;
     let (mut cpu, mut draw, mut counts) = (Vec::new(), Vec::new(), Vec::new());
     let (mut commits, mut busy, mut refused) = (0, 0, 0);
     let mut pitch = 0u64;
@@ -236,9 +283,11 @@ fn measure_drm2d(
                 let stride = canvas.stride as usize;
                 let d0 = cpu_ms();
                 let c = match way {
-                    Way::Redraw => redraw(pattern, g, canvas.pixels, stride, top),
-                    Way::Copy => copy.frame(pattern, g, canvas.pixels, stride, top),
-                    Way::Move => moves.frame(pattern, g, canvas.pixels, stride, canvas.age, top),
+                    Way::Redraw => redraw(pattern, g, canvas.pixels, stride, pos),
+                    Way::Copy => copy.frame(pattern, g, canvas.pixels, stride, pos),
+                    Way::Move => {
+                        moves.frame(pattern, g, canvas.pixels, stride, canvas.age, pos / ch)
+                    }
                     Way::Pan => Counts::default(),
                 };
                 (c, cpu_ms() - d0)
@@ -279,7 +328,7 @@ fn measure_drm2d(
             draw.push(d);
             counts.push(c);
         }
-        top -= i64::from(speed);
+        pos -= step;
     }
     turn_until_ready(ev, st, Some(id))?;
     let elapsed = started.map_or(0.0, |s| s.elapsed().as_secs_f64());
@@ -288,6 +337,7 @@ fn measure_drm2d(
         size: (g.width, g.height),
         cell: (g.cell_width, g.cell_height),
         speed,
+        unit,
         buffers: count,
         spare: None,
         frames: plan.frames,
@@ -296,7 +346,7 @@ fn measure_drm2d(
         fps: plan.frames as f64 / elapsed.max(1e-9),
         refresh,
         counts: mean_counts(&counts),
-        memory: memory::needs(g, way, count, pitch, 0),
+        memory: memory::needs(g, way, count, pitch, 0, unit),
         commits,
         busy,
         refused,
@@ -382,6 +432,7 @@ fn row_measured(way: &'static str, g: Geometry, samples: &[f64], refresh: f64) -
         size: (g.width, g.height),
         cell: (g.cell_width, g.cell_height),
         speed: 1,
+        unit: Unit::Rows,
         buffers: 1,
         spare: None,
         frames: samples.len(),
@@ -468,9 +519,11 @@ pub fn pan_way(
         for &spare in &plan.spares {
             let spare = spare.unwrap_or(g.rows());
             for &count in &plan.buffers {
-                out.extend(measure_pan(
-                    &mut kms, screen_fb, g, &pattern, spare, count, plan, refresh, facts,
-                )?);
+                for unit in plan.units() {
+                    out.extend(measure_pan(
+                        &mut kms, screen_fb, g, &pattern, spare, count, unit, plan, refresh, facts,
+                    )?);
+                }
             }
         }
     }
@@ -489,11 +542,12 @@ fn measure_pan(
     pattern: &Pattern,
     spare: u32,
     count: u32,
+    unit: Unit,
     plan: &Plan,
     refresh: f64,
     facts: &mut Facts,
 ) -> io::Result<Vec<Measured>> {
-    let mut pan = Pan::new(g, spare, count as usize);
+    let mut pan = Pan::new(g, spare, unit, count as usize);
     let height = pan.ring.buffer_height(g);
     let mut dumbs = Vec::new();
     for _ in 0..count {
@@ -503,15 +557,25 @@ fn measure_pan(
         .iter()
         .map(|d| kms.framebuffer(d))
         .collect::<io::Result<_>>()?;
-    let last = (pan.ring.rows - 1) * g.cell_height;
+    // The window's lowest start: the ring's last slot, and at pixel steps
+    // its last line, where the view stands one line above the next row.
+    let last = match unit {
+        Unit::Rows => (pan.ring.rows - 1) * g.cell_height,
+        Unit::Pixels => pan.ring.rows * g.cell_height - 1,
+    };
     let test = match kms.test(fbs[0], last) {
         Ok(()) => "accepted".to_owned(),
         Err(e) => format!("refused: {e}"),
     };
     facts.add(
         &format!(
-            "pan {}x{} {}x{}, {spare} spare rows, a {}x{height} buffer shown from row {last}",
-            g.width, g.height, g.cell_width, g.cell_height, g.width
+            "pan {}x{} {}x{}, {spare} spare rows, {} steps, a {}x{height} buffer shown from row {last}",
+            g.width,
+            g.height,
+            g.cell_width,
+            g.cell_height,
+            unit.name(),
+            g.width
         ),
         format!("test commit {test}"),
     );
@@ -522,9 +586,12 @@ fn measure_pan(
     }
     let pitch = dumbs[0].pitch();
     let mut out = Vec::new();
-    for &speed in &plan.speeds {
+    let speeds = plan.steps();
+    for speed in speeds.iter().filter(|s| s.0 == unit).map(|s| s.1) {
         pan.forget();
-        let mut top: i64 = 1 << 40;
+        let ch = i64::from(g.cell_height);
+        let step = unit.lines(speed, g);
+        let mut pos: i64 = (1 << 40) * ch;
         let (mut cpu, mut draw, mut counts) = (Vec::new(), Vec::new(), Vec::new());
         let (mut commits, mut busy, mut refused) = (0, 0, 0);
         let mut started = None;
@@ -540,7 +607,7 @@ fn measure_pan(
                 kms.wait_flip(BOUND)?;
             }
             let d0 = cpu_ms();
-            let (c, src_y) = pan.frame(pattern, g, b, dumbs[b].as_mut(), pitch as usize, top);
+            let (c, src_y) = pan.frame(pattern, g, b, dumbs[b].as_mut(), pitch as usize, pos);
             let d = cpu_ms() - d0;
             kms.wait_flip(BOUND)?;
             commits += 1;
@@ -560,7 +627,7 @@ fn measure_pan(
                 draw.push(d);
                 counts.push(c);
             }
-            top -= i64::from(speed);
+            pos -= step;
         }
         kms.wait_flip(BOUND)?;
         let elapsed = started.map_or(0.0, |s| s.elapsed().as_secs_f64());
@@ -569,6 +636,7 @@ fn measure_pan(
             size: (g.width, g.height),
             cell: (g.cell_width, g.cell_height),
             speed,
+            unit,
             buffers: count,
             spare: Some(spare),
             frames: plan.frames,
@@ -577,14 +645,19 @@ fn measure_pan(
             fps: plan.frames as f64 / elapsed.max(1e-9),
             refresh,
             counts: mean_counts(&counts),
-            memory: memory::needs(g, Way::Pan, count, u64::from(pitch), spare),
+            memory: memory::needs(g, Way::Pan, count, u64::from(pitch), spare, unit),
             commits,
             busy,
             refused,
         };
         eprintln!(
-            "scroll-timing: pan {}x{} {}x{} {speed} rows a frame, {count} buffers, {spare} spare: {:.3} ms",
-            g.width, g.height, g.cell_width, g.cell_height, m.cpu.median
+            "scroll-timing: pan {}x{} {}x{} {speed} {} a frame, {count} buffers, {spare} spare: {:.3} ms",
+            g.width,
+            g.height,
+            g.cell_width,
+            g.cell_height,
+            unit.name(),
+            m.cpu.median
         );
         out.push(m);
     }
