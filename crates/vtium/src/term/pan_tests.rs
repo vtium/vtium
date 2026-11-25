@@ -29,23 +29,52 @@ const UNWRITTEN: [u8; 4] = [0x5a, 0xa5, 0x3c, 0xc3];
 /// The cell of the built-in GNU Unifont at 16 pixels.
 const CELL: (u32, u32) = (8, 16);
 
-/// A display that makes the buffers a view asks for: taller than its
-/// screen, unless it refuses the pan, and else the screen's size.
+/// A display that makes the buffers a view asks for, as drm2d does: taller
+/// than its screen, unless it refuses the pan, and else the screen's size.
+/// Like drm2d it keeps one window for all its buffers: the window the last
+/// frame swapped carries, and the window the screen shows once that frame
+/// is sent. It lends the buffers it holds as tall ones only while they are
+/// the buffers last asked for.
 struct Panning {
     screen: (u32, u32),
+    /// The size of the buffers it holds, and whether their window moves
+    /// across them.
     size: (u32, u32),
     turned: bool,
     refuses: bool,
+    /// Each ask, in order.
     asked: Vec<Option<Tall>>,
+    /// The ask in force.
+    ask: Option<Tall>,
+    /// It keeps the buffers it holds after an ask until [`Panning::arrive`],
+    /// as drm2d does while it is asleep, blanked or waiting on a flip, or
+    /// after a modeset that failed.
+    defers: bool,
+    /// Unlike drm2d, it lends the buffers it holds as tall ones until the
+    /// new ones arrive, which [`Video::set_tall`] allows a display to do.
+    stale_as_tall: bool,
+    /// Each frame it sends starts a flip that lasts until
+    /// [`Panning::flip_done`]. While a flip is in flight a swap is refused as
+    /// busy and its frame kept, and with two buffers it lends no buffer.
+    flips: bool,
+    flipping: bool,
+    /// A frame drawn and kept that waits to be sent.
+    fresh: bool,
     bufs: Vec<Arc<Mutex<Vec<u8>>>>,
     /// Each buffer's frame number, `None` while it holds no frame.
     drawn: Vec<Option<u32>>,
     frames: u32,
     back: usize,
+    /// Counts the buffers made: a token lent before the last were made is
+    /// dropped at its swap.
+    lease: u64,
     /// What the back buffer held before it was lent.
     before: Vec<u8>,
-    /// The window each buffer shows.
-    windows: Vec<u32>,
+    /// The window the last frame swapped carries, and the one the screen
+    /// shows.
+    window: u32,
+    shown: u32,
+    events: Vec<Event>,
     /// The pixels each frame swapped wrote, and its window.
     written: Vec<(usize, u32)>,
 }
@@ -58,12 +87,21 @@ impl Panning {
             turned: false,
             refuses: false,
             asked: Vec::new(),
+            ask: None,
+            defers: false,
+            stale_as_tall: false,
+            flips: false,
+            flipping: false,
+            fresh: false,
             bufs: Vec::new(),
             drawn: Vec::new(),
             frames: 0,
             back: 0,
+            lease: 0,
             before: Vec::new(),
-            windows: Vec::new(),
+            window: 0,
+            shown: 0,
+            events: Vec::new(),
             written: Vec::new(),
         };
         p.make(buffers);
@@ -74,21 +112,72 @@ impl Panning {
         let len = (self.size.0 * self.size.1 * 4) as usize;
         self.bufs = (0..n).map(|_| Arc::new(Mutex::new(vec![0; len]))).collect();
         self.drawn = vec![None; n];
-        self.windows = vec![0; n];
         self.back = 0;
+        self.lease += 1;
+        self.window = 0;
+        self.shown = 0;
+        self.fresh = false;
+    }
+
+    /// The tall buffers it makes: those asked for, unless it refuses them.
+    fn making(&self) -> Option<Tall> {
+        self.ask.filter(|t| t.ring > 0 && !self.refuses)
+    }
+
+    /// Whether the buffers it holds are the tall buffers last asked for.
+    fn holds_tall(&self) -> bool {
+        self.making()
+            .is_some_and(|t| self.size == t.buffer(self.screen))
     }
 
     fn tall(&self) -> bool {
         self.size != self.screen
     }
 
-    /// What the screen shows: the window of the buffer swapped last.
+    /// Makes the buffers last asked for, as drm2d's modeset does: the
+    /// window goes back to the buffer's start, and the owner hears that it
+    /// redraws.
+    fn arrive(&mut self) {
+        let made = match self.making() {
+            Some(t) => (t.buffer(self.screen), t.turned),
+            None => (self.screen, false),
+        };
+        if made != (self.size, self.turned) {
+            (self.size, self.turned) = made;
+            let n = self.bufs.len();
+            self.make(n);
+            self.events.push(Event::Redraw(ID));
+        }
+    }
+
+    /// The flip in flight ends.
+    fn flip_done(&mut self) {
+        self.flipping = false;
+    }
+
+    /// Sends the frame kept, as drm2d's commit does: refused as busy while
+    /// a flip is in flight.
+    fn send(&mut self) -> Result<Swapped, SwapError> {
+        if self.flipping {
+            return Err(SwapError::Busy);
+        }
+        if !self.fresh {
+            return Ok(Swapped::Nothing);
+        }
+        self.fresh = false;
+        self.shown = self.window;
+        self.back = (self.back + 1) % self.bufs.len();
+        self.flipping = self.flips;
+        Ok(Swapped::Frame)
+    }
+
+    /// What the screen shows: the window of the buffer sent last.
     fn shown(&self) -> Vec<u8> {
         let front = (self.back + self.bufs.len() - 1) % self.bufs.len();
         let pixels = self.bufs[front].lock().unwrap();
         let (w, h) = self.screen;
         let stride = self.size.0 as usize * 4;
-        let window = self.windows[front] as usize;
+        let window = if self.tall() { self.shown as usize } else { 0 };
         let (x0, y0) = if self.turned {
             (window, 0)
         } else {
@@ -130,7 +219,7 @@ impl Video for Panning {
         "panning"
     }
     fn events(&mut self) -> Vec<Event> {
-        Vec::new()
+        std::mem::take(&mut self.events)
     }
     fn displays(&self) -> Vec<DisplayId> {
         vec![ID]
@@ -144,7 +233,13 @@ impl Video for Panning {
     fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
         None
     }
+    // As drm2d, it lends no buffer while the one to draw into waits for a
+    // flip: with two buffers, the back one is on screen until the flip
+    // ends, and a frame kept waits for its flip whatever the buffers.
     fn lend(&mut self, _: DisplayId) -> Option<Token> {
+        if !self.ready_for_frame(ID) {
+            return None;
+        }
         let age = self.drawn[self.back].map_or(0, |n| self.frames - n + 1);
         let mut pixels = self.bufs[self.back].lock().unwrap();
         self.before = pixels.clone();
@@ -153,40 +248,52 @@ impl Video for Panning {
         }
         drop(pixels);
         let memory: Arc<Memory> = self.bufs[self.back].clone();
-        let token = Token::new(ID, self.size, self.size.0 * 4, age, memory);
-        if !self.tall() {
+        let token = Token::new(ID, self.size, self.size.0 * 4, age, memory).leased(self.lease);
+        if !(self.holds_tall() || (self.stale_as_tall && self.tall())) {
             return Some(token);
         }
         let mut token = token.tall(self.screen, self.turned);
-        assert!(token.set_window(self.windows[self.back]));
+        assert!(token.set_window(self.window.min(token.last_window())));
         Some(token)
     }
-    fn give_back(&mut self, _: Token) {
+    fn give_back(&mut self, token: Token) {
+        if token.lease() != self.lease {
+            return;
+        }
         let (written, _) = self.count_written(&[]);
         assert_eq!(written, 0, "a buffer given back unused");
     }
     // Every pixel a frame writes lies in its damage, as the display
-    // presents only the damage.
+    // presents only the damage. A token lent before the buffers were made
+    // again is dropped, and every buffer is then age 0.
     fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        if token.lease() != self.lease {
+            self.drawn.fill(None);
+            return Err(SwapError::Dropped);
+        }
         let (written, outside) = self.count_written(damage);
         assert_eq!(outside, 0, "pixels written outside the damage {damage:?}");
-        let window = if self.tall() { token.window() } else { 0 };
-        let moved = window != self.windows[self.back];
-        if damage.is_empty() && !moved {
-            return Ok(Swapped::Nothing);
+        let tall = token.size() != token.screen();
+        if tall {
+            self.window = token.window().min(token.last_window());
         }
-        self.frames += 1;
-        self.drawn[self.back] = Some(self.frames);
-        self.windows[self.back] = window;
-        self.written.push((written, window));
-        self.back = (self.back + 1) % self.bufs.len();
-        Ok(Swapped::Frame)
+        let moved = tall && self.window != self.shown;
+        if !damage.is_empty() || moved {
+            self.frames += 1;
+            self.drawn[self.back] = Some(self.frames);
+            self.fresh = true;
+            self.written.push((written, self.window));
+        }
+        self.send()
+    }
+    fn commit(&mut self, _: DisplayId) -> Result<Swapped, SwapError> {
+        self.send()
     }
     fn is_flipping(&self, _: DisplayId) -> bool {
-        false
+        self.flipping
     }
     fn ready_for_frame(&self, _: DisplayId) -> bool {
-        true
+        !self.flipping || (self.bufs.len() != 2 && !self.fresh)
     }
     fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
         Ok(())
@@ -207,18 +314,17 @@ impl Video for Panning {
     fn as_any(&mut self) -> &mut dyn Any {
         self
     }
-    // A display holds new buffers after a change of what is asked, as a
-    // modeset makes them, so each is drawn whole first.
+    // As drm2d, it takes the ask at once, so the buffers it holds stop
+    // being lent as tall ones, and makes the new buffers at once unless it
+    // defers them.
     fn set_tall(&mut self, _: DisplayId, tall: Option<Tall>) -> io::Result<()> {
         self.asked.push(tall);
-        let made = match tall {
-            Some(t) if !self.refuses => (t.buffer(self.screen), t.turned),
-            _ => (self.screen, false),
-        };
-        if made != (self.size, self.turned) {
-            (self.size, self.turned) = made;
-            let n = self.bufs.len();
-            self.make(n);
+        if self.ask == tall {
+            return Ok(());
+        }
+        self.ask = tall;
+        if !self.defers {
+            self.arrive();
         }
         Ok(())
     }
@@ -524,4 +630,245 @@ fn a_frame_drawn_whole_puts_the_window_at_rest() {
     draw(&mut term, &mut view, &mut video);
     let whole = (screen.0 * screen.1) as usize;
     assert_eq!(video.written.last(), Some(&(whole, 0)));
+}
+
+/// Draws a frame as the app does: the view first hears of the buffers the
+/// display made since. On a display whose frames flip, the frame meets the
+/// flip of the frame before still in flight: the display keeps it as busy,
+/// or with two buffers lends none. The flip then ends, and the frame kept
+/// goes out, or the frame held back is drawn, which starts the next flip.
+fn draw_through(term: &mut Term, view: &mut View, video: &mut Panning) {
+    hear(view, video);
+    draw(term, view, video);
+    if video.flips && (view.kept.is_some() || view.pending) {
+        video.flip_done();
+        view.send_kept(term, video);
+        if view.pending {
+            draw(term, view, video);
+        }
+    }
+}
+
+/// What the app does with the display's events: a modeset's redraw makes
+/// the view draw whole.
+fn hear(view: &mut View, video: &mut Panning) {
+    for e in video.events() {
+        if matches!(e, Event::Redraw(_)) {
+            view.lost = true;
+        }
+    }
+}
+
+/// Draws with a font of `height` pixels from here on, the terminal resized
+/// to the grid that fits, as a change of the head's font does.
+fn refont(term: &mut Term, view: &mut View, height: u32, orientation: Orientation) {
+    let face: DisplayFace = Box::new(Unifont::new(height));
+    let config = RenderConfig {
+        orientation,
+        ..RenderConfig::default()
+    };
+    view.rebuild(Font::new(face), height, config);
+    let (cols, rows) = view.drawing.as_ref().unwrap().renderer.grid_size();
+    term.terminal.resize(cols, rows);
+}
+
+/// A change to how the stand-in display behaves.
+type SetUp = fn(&mut Panning);
+
+/// The step before which the font goes from 16 to 32 pixels.
+const REFONT: usize = 3;
+/// The step at which the display makes the buffers asked for.
+const ARRIVE: usize = 7;
+
+/// What a display shows after each of [`STEPS`], drawn under `scroll` on
+/// `buffers` buffers turned as `orientation` says: before step [`REFONT`]
+/// `set_up` changes how the display behaves and the font goes from 16 to
+/// 32 pixels, and the display makes the new buffers at step [`ARRIVE`],
+/// while a frame of that step composes.
+fn shows_refont(
+    screen: (u32, u32),
+    scroll: ScrollDraw,
+    orientation: Orientation,
+    buffers: usize,
+    set_up: SetUp,
+) -> (Vec<Vec<u8>>, Option<Way>) {
+    let (mut term, mut view) = view(screen, scroll, orientation);
+    let mut video = Panning::new(screen, buffers);
+    let key = (PathBuf::from("/dev/test"), ID);
+    let mut shown = Vec::new();
+    for (n, step) in STEPS.iter().enumerate() {
+        if n == REFONT {
+            set_up(&mut video);
+            refont(&mut term, &mut view, 32, orientation);
+        }
+        feed(&mut term, step);
+        if n == ARRIVE {
+            // the buffers arrive while the step's frame composes: a token
+            // lent before is dropped at its swap
+            hear(&mut view, &mut video);
+            let prepared = view.prepare(
+                &key,
+                &mut term,
+                &mut None,
+                &mut video,
+                &DrawState::default(),
+                None,
+                &Instant::now,
+            );
+            video.arrive();
+            if let Prepared::Job(job) = prepared {
+                let composed = job.compose(None);
+                view.present(composed, &mut term, &mut video, true, &Instant::now);
+            }
+        }
+        draw_through(&mut term, &mut view, &mut video);
+        shown.push(video.shown());
+    }
+    (shown, way(&view))
+}
+
+// A font change while the display keeps the buffers it holds, as drm2d
+// does while it is asleep, blanked or waiting on a flip, shows no wrong
+// picture. drm2d stops lending its tall buffers as tall ones once the
+// view asks for buffers of another size, so the view draws nothing until
+// the new buffers arrive, and the screen keeps the picture it had. A
+// display that lends the buffers it holds as tall ones, as `set_tall`
+// allows, gets each frame drawn whole in the buffer's first screen, with
+// the window at the buffer's start. Once the new buffers arrive, every
+// frame is what the redraw shows. This holds on one to three buffers,
+// upright and turned, with flips that make the display keep a frame and
+// a token that comes back after the buffers were made again.
+//
+// References:
+// - ADR-1310 D6: the pan and the copy show what a redraw shows.
+// - ADR-1401 D2, "A buffer taller than the screen": the display makes the
+//   buffers asked for at its next modeset.
+#[test]
+fn a_font_change_shows_what_the_redraw_shows_until_and_after_the_new_buffers() {
+    fn drm2d(video: &mut Panning) {
+        video.defers = true;
+    }
+    fn drm2d_flipping(video: &mut Panning) {
+        (video.defers, video.flips) = (true, true);
+    }
+    fn stale_as_tall(video: &mut Panning) {
+        (video.defers, video.stale_as_tall) = (true, true);
+    }
+    fn stale_as_tall_flipping(video: &mut Panning) {
+        (video.defers, video.stale_as_tall, video.flips) = (true, true, true);
+    }
+    let set_ups: [(&str, SetUp); 4] = [
+        ("drm2d", drm2d),
+        ("drm2d flipping", drm2d_flipping),
+        ("stale as tall", stale_as_tall),
+        ("stale as tall flipping", stale_as_tall_flipping),
+    ];
+    for orientation in [Orientation::Normal, Orientation::Right] {
+        let screen = match orientation {
+            Orientation::Right => (96, 160),
+            _ => (160, 96),
+        };
+        for buffers in [1, 2, 3] {
+            let (want, _) = shows_refont(screen, ScrollDraw::Redraw, orientation, buffers, |_| {});
+            for (name, set_up) in set_ups {
+                let what = format!("{name} {orientation:?} {buffers} buffers");
+                let (got, way) =
+                    shows_refont(screen, ScrollDraw::Pan, orientation, buffers, set_up);
+                assert_eq!(way, Some(Way::Pan), "{what}");
+                for (n, (g, w)) in got.iter().zip(&want).enumerate() {
+                    let kept = name.starts_with("drm2d") && (REFONT..ARRIVE).contains(&n);
+                    if kept {
+                        assert!(g == &want[REFONT - 1], "{what}: step {n} keeps its picture");
+                    } else {
+                        assert!(g == w, "{what}: step {n}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The GPU path is offered only frames drawn the `redraw` way: a frame over
+// the pan or from the copy is drawn on the CPU path, and the GPU path
+// neither sets the display up nor draws.
+//
+// References:
+// - ADR-1310 D6, "Where the driver allows it": a display on the GPU path
+//   draws a scroll the `redraw` way.
+#[cfg(feature = "gpu")]
+#[test]
+fn the_gpu_path_is_offered_no_frame_of_the_pan_or_the_copy() {
+    use crate::gpu::head::HeadGpu;
+    use crate::painter::{GpuSource, TestGpu};
+    let screen = (160, 96);
+    let key = (PathBuf::from("/dev/test"), ID);
+    for (scroll, drawn) in [
+        (ScrollDraw::Pan, Way::Pan),
+        (ScrollDraw::Copy, Way::Copy),
+        (ScrollDraw::Redraw, Way::Redraw),
+    ] {
+        let test = Arc::new(TestGpu::default());
+        let mut gpu = HeadGpu::new(&GpuSource::Test(Arc::clone(&test))).unwrap();
+        let (mut term, mut view) = view(screen, scroll, Orientation::Normal);
+        let mut video = Panning::new(screen, 2);
+        fill(&mut term, 6);
+        for _ in 0..3 {
+            feed(&mut term, b"\r\nnext");
+            let Prepared::Job(job) = view.prepare(
+                &key,
+                &mut term,
+                &mut None,
+                &mut video,
+                &DrawState::default(),
+                None,
+                &Instant::now,
+            ) else {
+                panic!("a job");
+            };
+            let composed = job.compose(Some(&mut gpu));
+            view.present(composed, &mut term, &mut video, true, &Instant::now);
+        }
+        assert_eq!(way(&view), Some(drawn));
+        let set_ups = test.set_ups.lock().unwrap().len();
+        let on_gpu = test.drawn.load(Ordering::SeqCst);
+        if drawn == Way::Redraw {
+            assert!(on_gpu > 0, "the GPU path draws the redraw");
+        } else {
+            assert_eq!((set_ups, on_gpu), (0, 0), "{scroll:?}");
+        }
+    }
+}
+
+// A display whose driver refuses the pan copies under `auto` and `pan`,
+// and the log says so once. Under `pan` the line is a warning, since the
+// key asked for the pan; under `auto` the copy is one of the ways the key
+// allows.
+//
+// References:
+// - ADR-1310 D6, "Where the driver allows it": vtium logs once when the
+//   driver refuses an asked-for pan, and copies.
+#[test]
+fn a_refused_pan_is_logged_once_and_warned_of_under_pan() {
+    let screen = (160, 96);
+    for (scroll, line) in [
+        (
+            ScrollDraw::Auto,
+            "Display PAN-1 scrolls by copying: vtium keeps the drawn lines in memory and copies the part that the screen shows.",
+        ),
+        (
+            ScrollDraw::Pan,
+            "Display PAN-1 cannot pan, because its driver does not allow it. The display scrolls by copying instead.",
+        ),
+    ] {
+        let (mut term, mut view) = view(screen, scroll, Orientation::Normal);
+        let mut video = Panning::new(screen, 2);
+        video.refuses = true;
+        crate::getty::tests::logged();
+        fill(&mut term, 6);
+        for _ in 0..3 {
+            feed(&mut term, b"\r\nnext");
+            draw(&mut term, &mut view, &mut video);
+        }
+        assert_eq!(crate::getty::tests::logged(), [line], "{scroll:?}");
+    }
 }
