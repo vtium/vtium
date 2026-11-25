@@ -44,7 +44,7 @@
 use super::Screen;
 use super::links::slot;
 use crate::frame::LinkHint;
-use crate::line::{Line, LinkId};
+use crate::line::LinkId;
 
 #[cfg(test)]
 std::thread_local! {
@@ -159,22 +159,24 @@ impl Screen {
                 *w = true;
             }
         }
-        let holds = |line: &Line| {
-            line.link_table()
-                .any(|l| wanted.get(slot(l)).copied().unwrap_or(false))
-        };
         let rows: Vec<usize> = self
             .view()
             .iter()
             .enumerate()
-            .filter(|(_, line)| holds(line))
+            .filter(|(_, line)| {
+                line.link_table()
+                    .any(|l| wanted.get(slot(l)).copied().unwrap_or(false))
+            })
             .map(|(row, _)| row)
             .collect();
         for row in rows {
             self.damage.mark_rows(row..row.saturating_add(1));
         }
         #[cfg(feature = "rows-beyond")]
-        self.mark_all_if_beyond(holds);
+        self.mark_all_if_beyond(|line| {
+            line.link_table()
+                .any(|l| wanted.get(slot(l)).copied().unwrap_or(false))
+        });
     }
 
     /// The labels of link hints, while they are on, each placed where its
