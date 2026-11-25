@@ -2262,9 +2262,10 @@ class Make(Case):
     def test_vt_accept_chooses_the_render_path(self):
         # RENDER_PATH=gpu or cpu, cpu unless named, reaches vtium as --hwaccel
         # or --no-hwaccel and the pass as ACCEPT_RENDER_PATH (ADR-1501 D5).
-        # Unnamed, FEATURES is images and bidi, and gpu with them for the GPU
-        # path.
-        for path, opt, features in (("cpu", "--no-hwaccel", "images bidi filters scroll-pan"), ("gpu", "--hwaccel", "images bidi filters scroll-pan gpu")):
+        # Unnamed, FEATURES is images, bidi, filters, and scroll-pan, and gpu
+        # with them for the GPU path.
+        for path, opt, features in (("cpu", "--no-hwaccel", "images bidi filters scroll-pan"),
+                                    ("gpu", "--hwaccel", "images bidi filters scroll-pan gpu")):
             with self.subTest(path=path):
                 open(self.s.calls, "w").close()
                 named = () if path == "cpu" else ("RENDER_PATH=gpu",)

@@ -168,7 +168,7 @@ minspec install-tree vt-dev-console config-release image-release clipboard-relea
 # FEATURES exported in the shell builds nothing different.
 FEATURES :=
 # The acceptance pass shows every page by default (ADR-1501 D5): make
-# vt-accept builds the console with images, bidi, filters and scroll-pan,
+# vt-accept builds the console with images, bidi, filters, and scroll-pan,
 # the features of the packaged console, unless make's command line names
 # FEATURES, so make vt-accept FEATURES= is a pass of the minspec build. A
 # binary named with VTIUM_BIN is run as it is, so its features are the ones
@@ -1337,9 +1337,9 @@ endef
 # the budget prints a warning, and make gates exits as the gates decided.
 # make tier3-minimal is the check that fails on that binary. The sub-make
 # gets make's command line through MAKEFLAGS, so the build names FEATURES,
-# HWACCEL, DISPLAY_BUFFERS and CARGO_TARGET_DIR itself: make gates
+# HWACCEL, DISPLAY_BUFFERS, and CARGO_TARGET_DIR itself: make gates
 # FEATURES=images still measures the minspec binary, in its own directory.
-# The report runs only after the gates ran, whatever their result: an
+# The report follows each run in which the gates ran, passed or failed. An
 # interrupted run and a usage error of tools/gates/run skip it.
 #
 # References:
