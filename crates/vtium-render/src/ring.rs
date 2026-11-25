@@ -1221,8 +1221,8 @@ impl<F: Face> Renderer<F> {
     }
 
     /// How many rows of history above the screen a frame of a grid of
-    /// `grid` columns and rows asks the terminal for: the overscan's
-    /// [`OVERSCAN_ROWS`], or as many as the spare lines above the grid show
+    /// `grid` columns and rows asks the terminal for: the overscan's 4
+    /// rows (the bound `OVERSCAN_ROWS`), or as many as the spare lines above the grid show
     /// where that is more. The terminal hands one row more, for the ink of
     /// the row above the last.
     ///
