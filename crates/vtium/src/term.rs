@@ -86,11 +86,14 @@ pub struct Term {
     /// The time from each key to the present of the frame that carries its
     /// echo.
     echoes: Echoes,
-    /// The most rows of history above the screen that a view of this term
-    /// asked its frames to hold: the overscan's, or the rows the spare lines
-    /// above its grid show. The frames taken for every view hold as many.
+    /// How many rows of history above the screen each view of this term
+    /// asks its frames to hold: the overscan's, or the rows the spare lines
+    /// above its grid show. Each view keeps its own count and the term
+    /// holds a weak reference to it, so the count of a view that goes away
+    /// no longer counts. The frames taken for every view hold the most any
+    /// view still asks for.
     #[cfg(feature = "scroll-pan")]
-    rows_above: usize,
+    asks: Vec<std::rc::Weak<std::cell::Cell<usize>>>,
 }
 
 /// How many keys' send times a term keeps. A display whose last frame
@@ -156,8 +159,35 @@ impl Term {
             answered: 0,
             echoes: Echoes::default(),
             #[cfg(feature = "scroll-pan")]
-            rows_above: 0,
+            asks: Vec::new(),
         }
+    }
+
+    /// Notes the count of rows above the screen that a view asks its
+    /// frames to hold, which the view keeps up to date in `ask`.
+    #[cfg(feature = "scroll-pan")]
+    fn ask_rows_above(&mut self, ask: &Rc<std::cell::Cell<usize>>) {
+        self.asks.retain(|w| w.strong_count() > 0);
+        if !self
+            .asks
+            .iter()
+            .any(|w| std::ptr::eq(w.as_ptr(), Rc::as_ptr(ask)))
+        {
+            self.asks.push(Rc::downgrade(ask));
+        }
+    }
+
+    /// The most rows above the screen that a view of this term still asks
+    /// its frames to hold. The count goes down when the view that asked for
+    /// the most goes away or asks for fewer.
+    #[cfg(feature = "scroll-pan")]
+    fn rows_above(&self) -> usize {
+        self.asks
+            .iter()
+            .filter_map(std::rc::Weak::upgrade)
+            .map(|a| a.get())
+            .max()
+            .unwrap_or(0)
     }
 
     /// A key went to the program. It opens a key's window on each display:
@@ -1379,6 +1409,11 @@ pub struct View {
     /// the way `scroll-draw` asked for then.
     #[cfg(feature = "scroll-pan")]
     told: Option<(ScrollDraw, ScrollDraw)>,
+    /// How many rows of history above the screen this view asks its
+    /// frames to hold, which the term reads through a weak reference
+    /// ([`Term::rows_above`]).
+    #[cfg(feature = "scroll-pan")]
+    rows_above: Rc<std::cell::Cell<usize>>,
     /// The log said once that the GPU path failed one of the display's
     /// frames.
     pub gpu_failure_logged: bool,
@@ -1469,6 +1504,8 @@ impl View {
             asked: None,
             #[cfg(feature = "scroll-pan")]
             told: None,
+            #[cfg(feature = "scroll-pan")]
+            rows_above: Rc::default(),
             gpu_failure_logged: false,
             timer: measure.then(RenderTimer::new),
             timer_line: None,
@@ -1896,7 +1933,7 @@ impl View {
         };
         // The frames hold the rows of history above the screen that this
         // view's spare lines show, or the overscan's, and as many as any
-        // other view of the term asked for, since one snapshot serves them
+        // other view of the term asks for, since one snapshot serves them
         // all. The screen learns the reach before the snapshot is taken,
         // so a change of width rewraps the rows the capture holds.
         #[cfg(feature = "scroll-pan")]
@@ -1905,18 +1942,20 @@ impl View {
             let asked = drawing
                 .renderer
                 .rows_above_asked((screen.cols(), screen.rows()));
-            term.rows_above = term.rows_above.max(asked);
+            self.rows_above.set(asked);
+            term.ask_rows_above(&self.rows_above);
         }
         let (snapshot, upto) = snapshot.get_or_insert_with(|| {
             #[cfg(feature = "scroll-pan")]
             #[cfg_attr(not(feature = "images"), expect(unused_mut, reason = "no pictures"))]
             let mut taken = {
+                let above = term.rows_above();
                 let reach = vtium_term::Reach {
-                    above: term.rows_above,
+                    above,
                     ..vtium_term::Reach::default()
                 };
                 term.terminal.screen_mut().set_reach(reach);
-                Snapshot::take_reaching(&term.terminal, term.rows_above)
+                Snapshot::take_reaching(&term.terminal, above)
             };
             #[cfg(not(feature = "scroll-pan"))]
             #[cfg_attr(not(feature = "images"), expect(unused_mut, reason = "no pictures"))]

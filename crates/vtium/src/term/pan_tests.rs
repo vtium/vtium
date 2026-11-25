@@ -872,3 +872,119 @@ fn a_refused_pan_is_logged_once_and_warned_of_under_pan() {
         assert_eq!(crate::getty::tests::logged(), [line], "{scroll:?}");
     }
 }
+
+/// A terminal of 4 by 2 cells with 20 lines of history, for views on
+/// displays taller than its grid.
+fn term_with_history() -> Term {
+    let clock: Clock = Rc::new(Instant::now);
+    let mut term = Term::new(
+        Terminal::new(4, 2, 100),
+        Sync::new(Duration::ZERO, 0),
+        Blink::new(false),
+        clock,
+    );
+    term.terminal.screen_mut().set_scrollback_max(100);
+    for i in 0..20 {
+        feed(&mut term, format!("{i:02}xx\r\n").as_bytes());
+    }
+    term
+}
+
+/// One pass of the head's drawing loop over `views`, in order, as
+/// app/drawing.rs runs it: the first view to prepare takes the snapshot
+/// that every view of the pass draws. Returns that snapshot.
+fn pass(term: &mut Term, views: &mut [(&mut View, &mut Panning)]) -> Arc<Snapshot> {
+    let mut snapshot = None;
+    for (view, video) in views.iter_mut() {
+        let key = (PathBuf::new(), view.id);
+        let prepared = view.prepare(
+            &key,
+            term,
+            &mut snapshot,
+            *video,
+            &DrawState::default(),
+            None,
+            &Instant::now,
+        );
+        let Prepared::Job(job) = prepared else {
+            panic!("the view takes a frame");
+        };
+        view.present(job.compose(None), term, *video, true, &Instant::now);
+    }
+    let Some((taken, _)) = snapshot else {
+        panic!("a view took the snapshot");
+    };
+    taken
+}
+
+/// How many rows above the screen `snapshot` holds.
+fn held(snapshot: &Snapshot) -> usize {
+    snapshot.above.lines.len()
+}
+
+/// A view of `screen`'s pixels, which draws a scroll the redraw way.
+fn display(screen: (u32, u32)) -> (View, Panning) {
+    let (_, view) = view(screen, ScrollDraw::Redraw, Orientation::Normal);
+    (view, Panning::new(screen, 2))
+}
+
+/// 2 spare lines above the grid of 4 by 2 cells: the overscan's 4 rows.
+const SHORT: (u32, u32) = (32, 2 * 16 + 2);
+/// 130 spare lines above the grid of 4 by 2 cells, 8 rows and 2 lines:
+/// 9 rows.
+const TALL: (u32, u32) = (32, 2 * 16 + 8 * 16 + 2);
+
+// The snapshot asks for the most rows above the screen that a view of the
+// term still asks for. The count goes down when the view that asked for
+// the most goes away or asks for fewer, and the screen's rewrap margin
+// goes down with it.
+//
+// References:
+// - ADR-1310 D10, "A strip taller than a row": the snapshot captures as many rows above the screen as the spare lines show.
+#[test]
+fn the_rows_a_snapshot_holds_follow_the_views_that_ask() {
+    let mut term = term_with_history();
+    let (mut tall, mut tall_video) = display(TALL);
+    let (mut short, mut short_video) = display(SHORT);
+    assert_eq!(
+        held(&pass(&mut term, &mut [(&mut tall, &mut tall_video)])),
+        10
+    );
+    let mut both = [(&mut tall, &mut tall_video), (&mut short, &mut short_video)];
+    assert_eq!(held(&pass(&mut term, &mut both)), 10);
+    // the tall display goes away
+    drop(tall);
+    assert_eq!(
+        held(&pass(&mut term, &mut [(&mut short, &mut short_video)])),
+        5
+    );
+    // a tall display whose grid grows until its spare lines show 1 row,
+    // with history enough that the rows the screen takes back leave more
+    // above it than a frame asks for
+    for i in 20..50 {
+        feed(&mut term, format!("{i:02}xx\r\n").as_bytes());
+    }
+    let (mut tall, mut tall_video) = display(TALL);
+    assert_eq!(
+        held(&pass(&mut term, &mut [(&mut tall, &mut tall_video)])),
+        10
+    );
+    term.terminal.screen_mut().resize(4, 10);
+    assert_eq!(
+        held(&pass(&mut term, &mut [(&mut tall, &mut tall_video)])),
+        5
+    );
+    // and a change of width rewraps the screen's 10 rows and those 5
+    // alone, where the tall grid's frames held 10
+    let palette = term.terminal.palette().clone();
+    term.terminal.screen_mut().resize(8, 10);
+    let more = vtium_term::Reach {
+        above: 30,
+        ..vtium_term::Reach::default()
+    };
+    let frame = term
+        .terminal
+        .screen()
+        .frame_reaching(&palette, Age::NEVER, more);
+    assert_eq!(frame.rows_above(), 10 + 5);
+}
