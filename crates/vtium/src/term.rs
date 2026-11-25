@@ -2578,7 +2578,8 @@ mod tests {
     }
 
     /// A terminal of 4 by 2 cells and its view on a display of 36 by 34,
-    /// the grid at 2,1.
+    /// the grid at 2,2: centred across, its last row on the display's
+    /// bottom edge.
     fn view() -> (Term, View) {
         let clock: Clock = Rc::new(Instant::now);
         let term = Term::new(
@@ -2682,9 +2683,9 @@ mod tests {
         }
 
         /// Whether buffer `b` shows anything in the grid's cell `col` of
-        /// row 0, the grid at 2,1 in 8x16 cells.
+        /// row 0, the grid at 2,2 in 8x16 cells.
         fn shows(&self, b: usize, col: u32) -> bool {
-            (1..17).any(|y| {
+            (2..18).any(|y| {
                 (2 + col * 8..10 + col * 8).any(|x| {
                     let i = ((y * SIZE.0 + x) * 4) as usize;
                     self.bufs[b].lock().unwrap()[i..i + 3]
@@ -3205,10 +3206,10 @@ mod tests {
         let mut video = Plane::new(true);
         draw(&mut term, &mut view, &mut video, Some((5, 6)));
         assert_eq!(video.arrow.as_ref(), Some(view.arrow()));
-        assert_eq!(video.sent, Some((7, 7)), "the first frame carries it");
+        assert_eq!(video.sent, Some((7, 8)), "the first frame carries it");
         assert!(!lit(&video), "the frame draws no arrow");
         draw(&mut term, &mut view, &mut video, Some((9, 9)));
-        assert_eq!(video.sent, Some((11, 10)));
+        assert_eq!(video.sent, Some((11, 11)));
         assert_eq!(video.swaps, [1, 0], "the move swaps the plane alone");
         draw(&mut term, &mut view, &mut video, Some((9, 9)));
         assert_eq!(video.swaps, [1, 0], "nothing changed, nothing swapped");
@@ -3327,8 +3328,9 @@ mod tests {
         draw(&mut term, &mut view, &mut video, Some((5, 6)));
         let turned = Arrow::new(16, vtium_render::Orientation::Right);
         assert_eq!(video.arrow, Some(turned));
-        // turned right, the grid's pixel 5,6 lands at 2 + 32 - 1 - 6, 1 + 5
-        assert_eq!(video.sent, Some((27, 6)));
+        // turned right, the grid's last row touches the display's left
+        // edge, so the grid's pixel 5,6 lands at 0 + 32 - 1 - 6, 1 + 5
+        assert_eq!(video.sent, Some((25, 6)));
     }
 
     // The pointer's log line names the display as the video device names
@@ -3391,7 +3393,7 @@ mod tests {
         assert!(view.pending, "a draw is owed");
         draw(&mut term, &mut view, &mut video, Some((5, 6)));
         assert!(lit(&video), "the arrow is drawn in software");
-        assert_eq!(video.pixel(7, 8) & 0xff_ff_ff, 0xff_ff_ff);
+        assert_eq!(video.pixel(7, 9) & 0xff_ff_ff, 0xff_ff_ff);
     }
 
     // A display without a cursor plane has the renderer draw the arrow.
@@ -3402,8 +3404,8 @@ mod tests {
         draw(&mut term, &mut view, &mut video, Some((5, 6)));
         assert_eq!(video.arrow, None);
         assert!(lit(&video), "the frame draws the arrow");
-        // its tip's fill, one pixel below the hotspot at 7,7
-        assert_eq!(video.pixel(7, 8) & 0xff_ff_ff, 0xff_ff_ff);
+        // its tip's fill, one pixel below the hotspot at 7,8
+        assert_eq!(video.pixel(7, 9) & 0xff_ff_ff, 0xff_ff_ff);
         assert_eq!(video.swaps, [1]);
     }
 
