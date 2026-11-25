@@ -53,6 +53,8 @@ use vtium_font::syllable::{
 };
 use vtium_term::{CLUSTER_MAX, Frame, FrameCell, Glyph, Line, LineSize, Rgb, Width};
 
+use crate::joined::cell_at;
+
 /// The most clusters a syllable holds: each holds one scalar value at
 /// least.
 const CLUSTERS_MAX: usize = SYLLABLE_SCALARS_MAX;
@@ -170,10 +172,11 @@ impl Syllable {
     /// - ADR-1308 D8: which cells a ligature joins.
     pub fn find(
         frame: &Frame<'_>,
-        at: (usize, usize),
+        (col, row): (usize, usize),
         fc: &FrameCell<'_>,
         ligatures: bool,
     ) -> Option<(Syllable, usize)> {
+        let at = (col, isize::try_from(row).ok()?);
         match Syllable::walk(frame, at, fc, ligatures, false) {
             Walk::Run(s, index) => Some((s, index)),
             Walk::Alone | Walk::Long(_) => None,
@@ -186,7 +189,7 @@ impl Syllable {
     /// run, so that [`Runs`] learns every column of a long run at once.
     fn walk(
         frame: &Frame<'_>,
-        (col, row): (usize, usize),
+        (col, row): (usize, isize),
         fc: &FrameCell<'_>,
         ligatures: bool,
         whole: bool,
@@ -195,9 +198,8 @@ impl Syllable {
             return Walk::Alone;
         }
         // cells of a double-size line never join into a ligature
-        let symbols = frame
-            .line(row)
-            .filter(|_| ligatures && frame.size(row) == LineSize::Single);
+        let symbols =
+            line_at(frame, row).filter(|_| ligatures && size(frame, row) == LineSize::Single);
         // a quick answer for most cells: one that neither ends with a
         // linker, nor starts with a letter that follows one, nor is a
         // symbol a ligature may join, joins nothing
@@ -224,12 +226,13 @@ impl Syllable {
         let mut len_before = 0usize;
         let (mut at, mut here) = (col, *fc);
         while let Some(left_col) = at.checked_sub(1) {
-            let Some(mut left) = frame.cell(row, left_col) else {
+            let Some(mut left) = cell_at(frame, row, left_col) else {
                 return Walk::Alone;
             };
             let mut lead = left_col;
             if left.width == Width::WideTail {
-                let Some(cell) = left_col.checked_sub(1).and_then(|c| frame.cell(row, c)) else {
+                let Some(cell) = left_col.checked_sub(1).and_then(|c| cell_at(frame, row, c))
+                else {
                     return Walk::Alone;
                 };
                 (lead, left) = (left_col.saturating_sub(1), cell);
@@ -268,7 +271,7 @@ impl Syllable {
             let Some(next) = at.checked_add(usize::from(cells(&here))) else {
                 return Walk::Alone;
             };
-            let Some(right) = frame.cell(row, next) else {
+            let Some(right) = cell_at(frame, row, next) else {
                 break;
             };
             if !linked(&here, &right, symbols) {
@@ -359,7 +362,8 @@ impl Syllable {
     }
 
     /// Whether the syllable may draw joined: the visible cursor, at `held`
-    /// in either phase of its blink, stands on none of its cells on `row`;
+    /// in either phase of its blink, stands on none of its cells on `row`,
+    /// both at the frame's positions ([`Runs::find_at`]);
     /// the selection covers all of its cells or none of them; its cells
     /// agree in foreground color, in style and in script; and `covered`
     /// says no link overlay covers any of them. The selection is checked
@@ -371,8 +375,8 @@ impl Syllable {
     /// - ADR-1308 D8: a ligature draws apart under the same rules.
     pub fn joined(
         &self,
-        row: usize,
-        held: Option<(usize, usize)>,
+        row: isize,
+        held: Option<(usize, isize)>,
         covered: impl Fn(usize) -> bool,
     ) -> bool {
         let members = self.members.get(..self.len).unwrap_or_default();
@@ -388,6 +392,25 @@ impl Syllable {
                 && m.selected == first.selected
                 && !cols.clone().any(&covered)
         })
+    }
+}
+
+/// The line of the frame's row at position `row`, negative above the
+/// screen ([`cell_at`]).
+fn line_at<'a>(frame: &Frame<'a>, row: isize) -> Option<&'a Line> {
+    #[cfg(feature = "scroll-pan")]
+    return frame.line_at(row);
+    #[cfg(not(feature = "scroll-pan"))]
+    frame.line(usize::try_from(row).ok()?)
+}
+
+/// The size the frame's row at position `row` draws at, as
+/// [`Frame::size`] gives it for a row of the screen; a row of history
+/// above the screen draws at its line's size.
+fn size(frame: &Frame<'_>, row: isize) -> LineSize {
+    match usize::try_from(row) {
+        Ok(y) => frame.size(y),
+        Err(_) => line_at(frame, row).map_or(LineSize::Single, |l| l.flags().size()),
     }
 }
 
@@ -411,7 +434,7 @@ enum Slot {
 /// the reader computes once: whether it draws joined.
 #[derive(Clone, Debug, Default)]
 pub struct Runs {
-    row: Option<usize>,
+    row: Option<isize>,
     ligatures: bool,
     slots: Vec<Slot>,
     found: Vec<(Syllable, Option<bool>)>,
@@ -423,8 +446,8 @@ impl Runs {
         self.row = None;
     }
 
-    /// The run the cell `fc` at `col`, `row` belongs to, as
-    /// [`Syllable::find`] finds it, and the cell's place among its
+    /// The run the cell `fc` at `col` of the screen's row `row` belongs
+    /// to, as [`Syllable::find`] finds it, and the cell's place among its
     /// clusters: the run's number for [`Runs::get`] and [`Runs::verdict`].
     /// Reading another row, or with another `ligatures`, forgets the runs
     /// of the row read before.
@@ -432,6 +455,21 @@ impl Runs {
         &mut self,
         frame: &Frame<'_>,
         (col, row): (usize, usize),
+        fc: &FrameCell<'_>,
+        ligatures: bool,
+    ) -> Option<(usize, usize)> {
+        self.find_at(frame, (col, isize::try_from(row).ok()?), fc, ligatures)
+    }
+
+    /// The run the cell `fc` at `col` of the frame's row at position `row`
+    /// belongs to, as [`Runs::find`] says for a row of the screen. The
+    /// rows of history above the screen are at negative positions in a
+    /// build with `scroll-pan`, so a row above the screen joins its
+    /// letters as a row of the screen does.
+    pub fn find_at(
+        &mut self,
+        frame: &Frame<'_>,
+        (col, row): (usize, isize),
         fc: &FrameCell<'_>,
         ligatures: bool,
     ) -> Option<(usize, usize)> {

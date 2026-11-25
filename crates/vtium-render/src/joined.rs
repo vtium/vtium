@@ -49,6 +49,16 @@ pub enum Span {
     Tail,
 }
 
+/// The cell drawn at column `col` of the frame's row at position `row`:
+/// a row of the screen from 0, and in a build with `scroll-pan` a row of
+/// history above the screen at a negative position.
+pub(crate) fn cell_at<'a>(frame: &Frame<'a>, row: isize, col: usize) -> Option<FrameCell<'a>> {
+    #[cfg(feature = "scroll-pan")]
+    return frame.cell_at(row, col);
+    #[cfg(not(feature = "scroll-pan"))]
+    frame.cell(usize::try_from(row).ok()?, col)
+}
+
 /// The first character of a cell's glyph.
 fn first(glyph: Glyph<'_>) -> Option<char> {
     match glyph {
@@ -68,23 +78,48 @@ fn ligature(left: &FrameCell<'_>, right: &FrameCell<'_>) -> bool {
     alef && lam && left.joins.before && right.joins.after
 }
 
-/// How the cell `fc` at column `col` of `row`, counted from the left as
-/// drawn, takes part in drawing its row. `held` is where the visible cursor
-/// stands, in either phase of its blink: a lam-alef ligature with the
-/// cursor on either of its cells draws as two letters. Only an alef or a
-/// lam that joins looks at its neighbour.
+/// How the cell `fc` at column `col` of the screen's row `row`, counted
+/// from the left as drawn, takes part in drawing its row. `held` is where
+/// the visible cursor stands, in either phase of its blink: a lam-alef
+/// ligature with the cursor on either of its cells draws as two letters.
+/// Only an alef or a lam that joins looks at its neighbour.
 pub fn span(
     frame: &Frame<'_>,
     (col, row): (usize, usize),
     fc: &FrameCell<'_>,
     held: Option<(usize, usize)>,
 ) -> Span {
+    span_at(
+        frame,
+        (col, position(row)),
+        fc,
+        held.map(|(c, r)| (c, position(r))),
+    )
+}
+
+/// The frame's position of the screen's row `row`.
+fn position(row: usize) -> isize {
+    isize::try_from(row).unwrap_or(isize::MAX)
+}
+
+/// How the cell `fc` at column `col` of the frame's row at position `row`
+/// takes part in drawing its row, as [`span`] says for a row of the
+/// screen. The position counts the screen's rows from 0, and in a build
+/// with `scroll-pan` the rows of history above the screen are negative, so
+/// a row above the screen joins its letters as a row of the screen does.
+/// `held` is where the visible cursor stands, at its position.
+pub fn span_at(
+    frame: &Frame<'_>,
+    (col, row): (usize, isize),
+    fc: &FrameCell<'_>,
+    held: Option<(usize, isize)>,
+) -> Span {
     let free =
         |left: usize, right: usize| held.is_none_or(|(c, r)| r != row || (c != left && c != right));
     let c = first(fc.glyph);
     if fc.joins.before && c.is_some_and(|c| ALEFS.contains(&c)) {
         let right = col.checked_add(1);
-        let lam = right.and_then(|r| frame.cell(row, r));
+        let lam = right.and_then(|r| cell_at(frame, row, r));
         if let (Some(right), Some(lam)) = (right, lam)
             && free(col, right)
             && ligature(fc, &lam)
@@ -93,7 +128,7 @@ pub fn span(
         }
     } else if fc.joins.after && c == Some(LAM) {
         let left = col.checked_sub(1);
-        let alef = left.and_then(|l| frame.cell(row, l));
+        let alef = left.and_then(|l| cell_at(frame, row, l));
         if let (Some(left), Some(alef)) = (left, alef)
             && free(left, col)
             && ligature(&alef, fc)
@@ -156,11 +191,25 @@ pub fn drawn(
     held: Option<(usize, usize)>,
     out: &mut Vec<char>,
 ) -> Span {
-    let span = span(frame, (col, row), fc, held);
+    let held = held.map(|(c, r)| (c, position(r)));
+    drawn_at(frame, (col, position(row)), fc, held, out)
+}
+
+/// Appends to `out` the text the cell `fc` at column `col` of the frame's
+/// row at position `row` draws, as [`drawn`] gives it for a row of the
+/// screen, with the cursor `held` at its position ([`span_at`]).
+pub fn drawn_at(
+    frame: &Frame<'_>,
+    (col, row): (usize, isize),
+    fc: &FrameCell<'_>,
+    held: Option<(usize, isize)>,
+    out: &mut Vec<char>,
+) -> Span {
+    let span = span_at(frame, (col, row), fc, held);
     match span {
         Span::One => text(fc, out),
         Span::Pair => {
-            if let Some(lam) = col.checked_add(1).and_then(|r| frame.cell(row, r)) {
+            if let Some(lam) = col.checked_add(1).and_then(|r| cell_at(frame, row, r)) {
                 pair_text(fc, &lam, out);
             }
         }

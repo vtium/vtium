@@ -607,18 +607,34 @@ impl<'f> Pass<'_, 'f> {
     fn hidden(&self, row: usize) -> bool {
         self.above > 0 && row == 0
     }
+}
 
-    /// The cell at `at` on the screen, as the screen's own rows count it;
-    /// `None` above the screen.
-    #[cfg(feature = "bidi")]
-    fn on_screen(&self, (col, row): (usize, usize)) -> Option<(usize, usize)> {
-        Some((col, self.screen_row(row)?))
+/// A grid's cells at the frame's positions, which the ligatures and the
+/// syllables read the rows through, so a row above the screen joins its
+/// letters as a row of the screen does.
+#[cfg(feature = "bidi")]
+impl Pass<'_, '_> {
+    /// The frame's position of the grid's cell `at`: its column, and its
+    /// row counted from the screen's first, negative above the screen.
+    fn frame_at(&self, (col, row): (usize, usize)) -> (usize, isize) {
+        #[cfg(feature = "scroll-pan")]
+        return (col, self.at(row));
+        #[cfg(not(feature = "scroll-pan"))]
+        (col, isize::try_from(row).unwrap_or(isize::MAX))
     }
 
-    /// Where the visible cursor stands, as the screen's rows count it.
-    #[cfg(feature = "bidi")]
-    fn held_on_screen(&self) -> Option<(usize, usize)> {
-        self.held.and_then(|at| self.on_screen(at))
+    /// Where the visible cursor stands, at the frame's position.
+    fn held_at(&self) -> Option<(usize, isize)> {
+        self.held.map(|at| self.frame_at(at))
+    }
+
+    /// Whether the overlay row showing the hovered link covers the cell at
+    /// `col` of the grid's row `row`.
+    fn covered(&self, col: usize, row: usize) -> bool {
+        #[cfg(feature = "scroll-pan")]
+        return self.link_covers(col, row);
+        #[cfg(not(feature = "scroll-pan"))]
+        self.link_row.is_some_and(|o| o.covers(col, row))
     }
 }
 
@@ -1209,25 +1225,10 @@ fn paired(p: &Pass<'_, '_>, at: (usize, usize), fc: &FrameCell<'_>) -> Option<us
     // the overlay's characters join nothing, and the letter beside them
     // joins none of them
     let (col, row) = at;
-    #[cfg(feature = "scroll-pan")]
-    if p.link_covers(col.saturating_sub(1), row) {
+    if p.covered(col.saturating_sub(1), row) {
         return None;
     }
-    #[cfg(not(feature = "scroll-pan"))]
-    if p.link_row
-        .is_some_and(|o| o.covers(col.saturating_sub(1), row))
-    {
-        return None;
-    }
-    // a row above the screen draws each letter alone: the ligature reads
-    // the screen's rows
-    #[cfg(feature = "scroll-pan")]
-    let (at, held) = (p.on_screen(at)?, p.held_on_screen());
-    #[cfg(feature = "scroll-pan")]
-    let span = crate::joined::span(p.frame, at, fc, held);
-    #[cfg(not(feature = "scroll-pan"))]
-    let span = crate::joined::span(p.frame, at, fc, p.held);
-    match span {
+    match crate::joined::span_at(p.frame, p.frame_at(at), fc, p.held_at()) {
         crate::joined::Span::Pair => Some(2),
         crate::joined::Span::Tail => Some(0),
         crate::joined::Span::One => None,
@@ -1251,22 +1252,17 @@ fn joined_syllable<F: Face>(
     fc: &FrameCell<'_>,
     out: &mut Vec<char>,
 ) -> Option<(Syllable, Piece)> {
-    // a row above the screen draws each cell alone: the syllables read
-    // the screen's rows
-    #[cfg(feature = "scroll-pan")]
-    let ((col, row), held) = (p.on_screen((col, row))?, p.held_on_screen());
-    #[cfg(not(feature = "scroll-pan"))]
-    let held = p.held;
     // a cell under the link overlay draws the overlay's text, so it joins
     // nothing, and its text stays out of the row's runs
-    let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
+    let covered = |c: usize| p.covered(c, row);
     if covered(col) {
         return None;
     }
+    let (at, held) = (p.frame_at((col, row)), p.held_at());
     let mut runs = p.runs.borrow_mut();
-    let (run, index) = runs.find(p.frame, (col, row), fc, p.ligatures)?;
+    let (run, index) = runs.find_at(p.frame, at, fc, p.ligatures)?;
     let joined = runs.verdict(run, |s| {
-        s.joined(row, held, covered)
+        s.joined(at.1, held, covered)
             && (0..s.len()).all(|i| {
                 out.clear();
                 s.key(i, out).is_some() && font.holds(out, s.variant())
@@ -1296,17 +1292,7 @@ fn drawn_text<F: Face>(
     match joined_syllable(font, p, at, fc, &mut scratch) {
         Some((s, piece)) => piece.key(s.text(), out),
         None => {
-            // a row above the screen draws each letter alone, with its
-            // joining sides and mirroring
-            #[cfg(feature = "scroll-pan")]
-            match p.on_screen(at) {
-                Some(at) => {
-                    crate::joined::drawn(p.frame, at, fc, p.held_on_screen(), out);
-                }
-                None => crate::joined::text(fc, out),
-            }
-            #[cfg(not(feature = "scroll-pan"))]
-            crate::joined::drawn(p.frame, at, fc, p.held, out);
+            crate::joined::drawn_at(p.frame, p.frame_at(at), fc, p.held_at(), out);
         }
     }
 }
@@ -3947,6 +3933,32 @@ mod tests {
                 "the spare lines show the border's color"
             );
         }
+    }
+
+    // A row of history above the screen joins its letters as a row of the
+    // screen does: in the spare lines, a lam-alef pair draws its ligature
+    // and an Arabic word draws its joined forms, as the same line draws on
+    // the screen's first row beside the same neighbours.
+    //
+    // References:
+    // - ADR-1310 D10, "Every build": every way of drawing shows the same pixels in the spare lines.
+    // - ADR-1004 D6 and D7: the lam-alef ligature and the joined forms.
+    #[cfg(all(feature = "scroll-pan", feature = "bidi"))]
+    #[test]
+    fn the_spare_lines_join_the_letters_of_the_row_above() {
+        let line = "\u{644}\u{627} \u{628}\u{64a}\u{62a}";
+        let screen = spare_lines_drawn(line.as_bytes());
+        let history = spare_lines_drawn(format!("{line}\r\nB\r\nC\r\nD\r\nE").as_bytes());
+        let rows = |c: &Canvas, from: u32| -> Vec<u32> {
+            (from..from + 7)
+                .flat_map(|y| (0..48).map(move |x| (x, y)))
+                .map(|(x, y)| c.pixel(x, y).unwrap_or_default())
+                .collect()
+        };
+        let border = rows(&spare_lines_drawn(b""), 0);
+        let want = rows(&screen, 16);
+        assert_ne!(want, border, "the line's bottom shows ink");
+        assert_eq!(rows(&history, 0), want, "the spare lines join the letters");
     }
 
     // When the scrollback is cleared, the rows of history above the screen
