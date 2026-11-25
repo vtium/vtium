@@ -50,6 +50,14 @@ const WIDE: Shape = Shape {
     along: 4 * 16 + 42,
     across: 6 * 8 + 40,
 };
+/// The grid's 4 rows leave 32 spare lines above them, two whole rows, so
+/// the topmost row the spare lines show takes the ink of the hidden row
+/// above it where it shows.
+const FULL: Shape = Shape {
+    along: 4 * 16 + 32,
+    across: 6 * 8 + 5,
+};
+
 /// What a buffer holds before anything is drawn into it, so that a pixel
 /// the ring should have drawn and did not shows.
 const UNDRAWN: u32 = 0x00ab_cdef;
@@ -117,6 +125,9 @@ struct Term {
     /// The cursor's blink phase: false while it is off.
     cursor_on: bool,
     pointer: Option<(u32, u32)>,
+    /// How many rows of history above the screen the frame holds, where
+    /// they exist, as the terminal hands them to a build with `scroll-pan`.
+    above: usize,
     #[cfg(feature = "images")]
     store: vtium_image::Store,
     /// The pictures placed so far.
@@ -213,6 +224,7 @@ impl Term {
             },
             cursor_on: true,
             pointer: Some((13, 21)),
+            above: 0,
             #[cfg(feature = "images")]
             store: vtium_image::Store::new(),
             #[cfg(feature = "images")]
@@ -334,6 +346,30 @@ impl Term {
                 above: &above,
             };
             f.with_placements(self.store.frame(rows, COLS))
+        };
+        // the rows of history above the screen, and the pictures on every
+        // row the frame holds, whole, each row counted from the screen's top
+        let first = self.top.saturating_sub(self.above);
+        let f = f.with_rows_beyond(self.lines[first..self.top].iter().collect(), Vec::new());
+        #[cfg(feature = "images")]
+        let f = {
+            let key = |i: usize| vtium_image::LineKey::new(i as u64 + 1);
+            let held: Vec<_> = (first..self.top + ROWS).map(key).collect();
+            let above: Vec<_> = (0..first).rev().map(key).collect();
+            let rows = vtium_image::Rows {
+                screen: &held,
+                above: &above,
+            };
+            let up = (self.top - first) as i64;
+            let all = self.store.frame(rows, COLS);
+            f.with_placements_beyond(
+                all.into_iter()
+                    .map(|p| vtium_image::FramePlacement {
+                        row: p.row - up,
+                        ..p
+                    })
+                    .collect(),
+            )
         };
         f
     }
@@ -539,8 +575,12 @@ fn inside_damage(writes: &[(u32, u32, u32)], damage: &[crate::Rect]) -> Result<(
 /// new buffer each frame for 0, and through one that copies into as many,
 /// on a display of shape `s`. Checks each frame against the redraw, and
 /// that the pan's damage holds every pixel the pan wrote.
-fn run(o: Orientation, s: Shape, buffers: usize, steps: &[Step]) -> Seen {
+///
+/// The frames hold `above` rows of history above the screen where they
+/// exist.
+fn run_above(o: Orientation, s: Shape, buffers: usize, steps: &[Step], above: usize) -> Seen {
     let mut term = Term::new();
+    term.above = above;
     let mut pan = renderer(o, s);
     let mut copy = renderer(o, s);
     let mut pans = Buffers::new(buffers, pan.pan_buffer_size());
@@ -630,14 +670,34 @@ fn run(o: Orientation, s: Shape, buffers: usize, steps: &[Step]) -> Seen {
 // ADR-1310, Verification, "The pan and the copy match the redraw"
 #[test]
 fn the_pan_and_the_copy_show_what_the_redraw_draws() {
+    the_ways_match(0);
+}
+
+// ADR-1310, Verification, "The grid at rest": the spare lines show the
+// bottom of the rows of history above the screen, with their neighbours'
+// ink, the same in every way of drawing
+#[test]
+fn the_pan_and_the_copy_show_the_rows_above_as_the_redraw_does() {
+    // more rows than the wide display's spare lines show, so the hidden
+    // row above them sends its ink down
+    the_ways_match(6);
+}
+
+/// Runs [`steps`] in every turn, shape and count of buffers, with the
+/// frames holding `above` rows of history above the screen.
+fn the_ways_match(above: usize) {
     let steps = steps();
+    let shapes: &[Shape] = match above {
+        0 => &[TIGHT, WIDE],
+        _ => &[TIGHT, WIDE, FULL],
+    };
     for o in TURNS {
-        for s in [TIGHT, WIDE] {
+        for &s in shapes {
             let slots = renderer(o, s).ring_geometry().slots;
             // up to 6 buffers: more than the pan remembers stale twins for,
             // and ages past the frames the copy keeps the damage of
             for buffers in 0..=6 {
-                let seen = run(o, s, buffers, &steps);
+                let seen = run_above(o, s, buffers, &steps, above);
                 let mut starts = seen.starts.clone();
                 starts.sort_unstable();
                 starts.dedup();
@@ -672,12 +732,14 @@ fn the_cursor_s_last_places_move_with_the_lines() {
         let d = Damage::new(COLS, ROWS);
         let frame = term.frame(&d, Age::NEVER);
         pan.draw_pan(&frame, &mut buf, 0, &term.state(), 0, true);
-        let at = (2, ROWS - 1);
+        // the renderer counts the grid's rows from the rows of history it
+        // draws above the screen
+        let grid = pan.grid.expect("the frame placed the grid");
+        let at = (2, grid.above + ROWS - 1);
         assert_eq!(pan.held_at, Some(at), "cursor on: {on}");
         assert_eq!(pan.cursor_at, on.then_some(at), "cursor on: {on}");
-        let grid = pan.grid.expect("the frame placed the grid");
         pan.scroll_rows(&grid, 1);
-        let moved = (2, ROWS - 2);
+        let moved = (2, grid.above + ROWS - 2);
         assert_eq!(pan.held_at, Some(moved), "cursor on: {on}");
         assert_eq!(pan.cursor_at, on.then_some(moved), "cursor on: {on}");
     }
@@ -1339,13 +1401,18 @@ fn draw_over(target: &mut impl Target, (w, h): (u32, u32), area: crate::Rect) {
 /// the redraw with the overlay drawn over it, and that the pan's damage
 /// with the overlay's holds every pixel the pan wrote. Returns the first
 /// failure.
-fn overlay_run(
+///
+/// The frames hold `above` rows of history above the screen where they
+/// exist, which the overlay covers in part on the wide display.
+fn overlay_run_above(
     o: Orientation,
     s: Shape,
     buffers: usize,
     script: &[(Step, bool)],
+    above: usize,
 ) -> Result<(), String> {
     let mut term = Term::new();
+    term.above = above;
     let size = display(o, s);
     let mut pan = renderer(o, s);
     let mut copy = renderer(o, s);
@@ -1457,12 +1524,16 @@ fn an_overlay_drawn_over_the_pan_moves_with_its_lines_and_goes() {
     .enumerate()
     .map(|(n, step)| (step, n == 7))
     .collect();
-    for o in TURNS {
-        for s in [TIGHT, WIDE] {
-            for buffers in 0..=3 {
-                for script in [&script, &still] {
-                    let ran = overlay_run(o, s, buffers, script);
-                    assert!(ran.is_ok(), "{}", ran.err().unwrap_or_default());
+    // and with the rows of history above the screen in the spare lines,
+    // which the overlay covers in part and which show again once it goes
+    for above in [0, 6] {
+        for o in TURNS {
+            for s in [TIGHT, WIDE] {
+                for buffers in 0..=3 {
+                    for script in [&script, &still] {
+                        let ran = overlay_run_above(o, s, buffers, script, above);
+                        assert!(ran.is_ok(), "{}", ran.err().unwrap_or_default());
+                    }
                 }
             }
         }
@@ -1535,7 +1606,8 @@ fn random_overlay_run(run: u64) -> Result<(), String> {
             _ => script.extend([(Step::Still, false), (Step::Still, true)]),
         }
     }
-    overlay_run(o, s, buffers, &script).map_err(|e| format!("run {run}: {e}"))
+    let above = [0, 6][(random(&mut seed) % 2) as usize];
+    overlay_run_above(o, s, buffers, &script, above).map_err(|e| format!("run {run}: {e}"))
 }
 
 // a frame whose scroll record states another scroll than the one the

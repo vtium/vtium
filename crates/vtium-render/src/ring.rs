@@ -9,8 +9,11 @@
 //! when the screen's length is not a whole number of rows, lie above the
 //! grid's first row. The ring has one slot more than the screen has rows,
 //! and that slot lies directly above the grid's first row, so the spare
-//! lines are the bottom of that slot. They show the border's color, which
-//! vtium draws again there over each new window.
+//! lines are the bottom of that slot. On a grid smaller than the screen,
+//! the slots the grid leaves lie above it too. The renderer draws the
+//! rows of history above the screen into those slots, as it draws them
+//! in every way of drawing, so the spare lines show the bottom of the
+//! row above, and the border's color only where no row exists.
 //!
 //! The pan keeps the ring in the display's own buffer, which is one
 //! screen longer than the ring along the axis the rows run down. Each
@@ -47,7 +50,7 @@
 //!
 //! References:
 //! - ADR-1310 D6: the pan over a tall buffer, the twins drawn only where a window reaches them, the copy, and the window at rest.
-//! - ADR-1310 D10: the grid flush to the screen's bottom edge, with the spare lines above it.
+//! - ADR-1310 D10: the grid flush to the screen's bottom edge, with the spare lines above it, which show the rows of history above the screen.
 //! - ADR-1401 D2: the copy's ring in system memory, in a build with `scroll-pan`.
 //! - ADR-1310 D2: the scroll record the ring reads its changes from.
 
@@ -58,7 +61,8 @@ use vtium_font::Face;
 use vtium_term::{Frame, LineSize};
 
 use super::{DrawState, Drawn, Grid, Layout, Renderer};
-use crate::bounds::{COPY_FRAMES, TWIN_BUFFERS};
+use crate::bounds::{COPY_FRAMES, OVERSCAN_ROWS, TWIN_BUFFERS};
+use crate::compose::{Area, int};
 use crate::link_row::LinkRow;
 use crate::target::{Orientation, Rect, Target};
 
@@ -91,8 +95,10 @@ pub(crate) struct Geometry {
 }
 
 impl Geometry {
-    /// The ring of a renderer whose layout is `l`, around the grid `g`.
+    /// The ring of a renderer whose layout is `l`, around the grid `g`,
+    /// whose screen's rows it holds as they lie on the display.
     fn new(l: &Layout, g: &Grid) -> Geometry {
+        let g = &l.screen_of(g);
         let (screen, across) = if l.orientation.turned() {
             (l.width, l.height)
         } else {
@@ -297,9 +303,25 @@ pub(crate) struct Ring {
     log: Vec<Vec<Rect>>,
     /// The areas the copy wrote into the display's buffer.
     copied: Vec<Rect>,
+    /// The frame being planned is drawn on the CPU path, which draws the
+    /// rows of history above the screen.
+    above: bool,
+    /// How many of the grid's rows above the screen exist in the frame
+    /// being planned: the rows of history the frame holds above the screen,
+    /// the hidden row whose ink reaches down included.
+    held: usize,
+    /// How many of the rows the spare lines show existed in the frame
+    /// planned last.
+    existed: Option<usize>,
 }
 
 impl Ring {
+    /// The frame planned next is drawn on the CPU path, with the rows of
+    /// history above the screen.
+    pub(crate) fn draw_above(&mut self) {
+        self.above = true;
+    }
+
     /// Moves the window to the ring's start, where it holds no twin, and
     /// forgets every buffer's twins: the frame draws every row anyway, so
     /// it reads no change in place.
@@ -666,12 +688,13 @@ impl<F: Face> Renderer<F> {
         self.gpu.drew_on_cpu();
         self.ring.pending = Some((scrolled, whole));
         self.ring.uncounted = None;
+        self.ring.draw_above();
         let plan = self.plan(frame, age, state);
         let g = Geometry::new(&self.layout, &plan.grid);
         let base = self.ring.base;
         let held = self.cells.held();
         let mut stale = self.ring.take_twins(held, g.slots);
-        self.draw_stale_twins(&g, plan.grid.rows, &mut stale);
+        self.draw_stale_twins(&g, &plan.grid, &mut stale);
         let flag = Cell::new(false);
         let painted = {
             let mut pan = Pan {
@@ -828,6 +851,7 @@ impl<F: Face> Renderer<F> {
         };
         self.ring.pending = Some((scrolled, whole));
         let before = self.ring.base;
+        self.ring.draw_above();
         let plan = self.plan(frame, ring_age, state);
         let g = Geometry::new(&self.layout, &plan.grid);
         let base = self.ring.base;
@@ -948,6 +972,25 @@ impl<F: Face> Renderer<F> {
             self.stamp_pointer(&p);
         }
         self.cells.rotate(n);
+        // a scroll down moves the hidden row above the spare lines into
+        // them, and the row the spare lines show in part further down: the
+        // ring holds no pixel of a hidden row, and only the part on the
+        // display of a row shown in part
+        if n < 0 && g.above > 0 {
+            let k = usize::try_from(n.unsigned_abs()).unwrap_or(usize::MAX);
+            let l = self.layout;
+            let spare = l.spare_lines(&l.screen_of(g));
+            let in_part = g.above > 1 && spare.checked_rem(l.ch).is_some_and(|r| r != 0);
+            let last = k
+                .saturating_add(1)
+                .saturating_add(usize::from(in_part))
+                .min(g.rows);
+            for row in k..last {
+                for col in 0..g.cols {
+                    self.cells.stamp(col, row);
+                }
+            }
+        }
         self.scroll_border(g, n);
         let shift = usize::try_from(n.unsigned_abs()).unwrap_or(usize::MAX);
         let rows = self.sizes.len();
@@ -982,20 +1025,18 @@ impl<F: Face> Renderer<F> {
     /// The border after the grid's lines moved `n` rows up, or down when
     /// `n` is negative. The border's areas that the history keeps move
     /// with the lines, as the cells' history does. Two bands across the
-    /// screen then change. On a scroll up, the rows that leave the grid
-    /// move into the spare lines above its first row, which show the
-    /// border's color, so the leaving rows' lines there are drawn as
-    /// border. On a scroll down, the leaving rows move past the screen's
-    /// bottom edge, which the grid's last row touches, and nothing of them
-    /// stays in view. The lines that the window did not show before, at
-    /// the screen's end the lines moved away from, hold whatever the ring
-    /// held there. Every other line keeps its border pixels as it moves,
-    /// since the border is one color. The border skips the grid, so a band
-    /// that crosses the grid draws only its side margins. The arrow drawn
-    /// in software is stamped on its own.
+    /// screen then change. The lines that the window did not show before,
+    /// at the screen's end the lines moved away from, hold whatever the
+    /// ring held there. And the spare lines above the grid show the border
+    /// where no row of history exists, but a scroll up moves the rows that
+    /// leave the screen into them, so the part of the spare lines above the
+    /// rows that exist is drawn as border. Every other line keeps its
+    /// border pixels as it moves, since the border is one color. The
+    /// border skips the rows drawn, so a band that crosses them draws only
+    /// its side margins. The arrow drawn in software is stamped on its own.
     ///
     /// References:
-    /// - ADR-1310 D10: the spare lines above the grid, which show the border's color where no row is drawn there.
+    /// - ADR-1310 D10: the spare lines above the grid show the rows of history above the screen, and the border's color where none exists.
     fn scroll_border(&mut self, g: &Grid, n: i64) {
         let l = self.layout;
         let (w, h) = (l.width, l.height);
@@ -1007,64 +1048,190 @@ impl<F: Face> Renderer<F> {
         let by = if forward { by.saturating_neg() } else { by };
         let shift = if turned { (by, 0) } else { (0, by) };
         self.cells.move_border_areas(shift, (w, h));
-        let rows = g.rows;
         let k = usize::try_from(n.unsigned_abs())
             .unwrap_or(usize::MAX)
-            .min(rows);
+            .min(g.rows);
         if k == 0 || g.cols == 0 {
             return;
         }
         let screen = i64::from(if turned { w } else { h });
-        // the lines of a scroll up's leaving rows, its first rows, after the
-        // move: in the spare lines above the grid. A scroll down's leaving
-        // rows, its last, move past the screen's bottom edge.
-        let leaving = (n > 0).then(|| {
-            let (a, b) = (l.cell_rect(g, 0, 0), l.cell_rect(g, 0, k.saturating_sub(1)));
-            let (r0, r1) = match turned {
-                true => (
-                    a.x.min(b.x),
-                    a.x.saturating_add(a.width).max(b.x.saturating_add(b.width)),
-                ),
-                false => (
-                    a.y.min(b.y),
-                    a.y.saturating_add(a.height)
-                        .max(b.y.saturating_add(b.height)),
-                ),
-            };
-            (
-                i64::from(r0).saturating_add(by),
-                i64::from(r1).saturating_add(by),
-            )
-        });
         // the lines the window shows anew: those whose place before the
         // move lay past the screen's end
         let fresh = match by < 0 {
             true => (screen.saturating_add(by), screen),
             false => (0, by),
         };
-        let band = |(from, to): (i64, i64)| {
-            let cut = |v: i64| u32::try_from(v.clamp(0, screen)).unwrap_or(0);
-            let (from, to) = (cut(from), cut(to));
-            match turned {
-                true => Rect {
-                    x: from,
-                    y: 0,
-                    width: to.saturating_sub(from),
-                    height: h,
-                },
-                false => Rect {
-                    x: 0,
-                    y: from,
-                    width: w,
-                    height: to.saturating_sub(from),
-                },
-            }
+        let cut = |v: i64| u32::try_from(v.clamp(0, screen)).unwrap_or(0);
+        let (from, to) = (cut(fresh.0), cut(fresh.1));
+        let band = match turned {
+            true => Rect {
+                x: from,
+                y: 0,
+                width: to.saturating_sub(from),
+                height: h,
+            },
+            false => Rect {
+                x: 0,
+                y: from,
+                width: w,
+                height: to.saturating_sub(from),
+            },
         };
-        for r in leaving.map(band).into_iter().chain([band(fresh)]) {
+        // the rows of the spare lines where no row of history exists that
+        // now hold pixels of a row: a scroll up moves the rows leaving the
+        // screen there, and a scroll down moves lines in from above the
+        // grid, which the window did not show
+        let before = g.above.saturating_sub(self.ring.existed.unwrap_or(0));
+        let now = g.above.saturating_sub(self.existing_above(g));
+        let bands = match n > 0 {
+            true => [(before.saturating_sub(k).max(1), now), (0, 0)],
+            false => [(1, k.min(now)), (before.saturating_add(k).max(1), now)],
+        };
+        let empty = bands.map(|rows| self.strip_band(g, rows));
+        for r in [Some(band)].into_iter().chain(empty).flatten() {
             if r.area() > 0 {
                 self.cells.stamp_border_area(r);
             }
         }
+    }
+
+    /// The band of the spare lines that the grid's rows from `r0` up to
+    /// `r1` cover, all across the display; `None` where it holds no pixel.
+    fn strip_band(&self, g: &Grid, (r0, r1): (usize, usize)) -> Option<Rect> {
+        if r0 >= r1 {
+            return None;
+        }
+        let r = self.layout.rows_rect(g, (r0, r1))?;
+        let (w, h) = (self.layout.width, self.layout.height);
+        Some(match self.layout.orientation.turned() {
+            true => Rect {
+                y: 0,
+                height: h,
+                ..r
+            },
+            false => Rect {
+                x: 0,
+                width: w,
+                ..r
+            },
+        })
+    }
+
+    /// How many of the rows the spare lines show exist in the frame being
+    /// planned.
+    fn existing_above(&self, g: &Grid) -> usize {
+        self.ring.held.min(g.above.saturating_sub(1))
+    }
+
+    /// The grid of the screen's grid `s` that the frame being planned
+    /// draws: on the CPU path, with the rows of history above the screen
+    /// that the spare lines show, and the one above them for its ink; on
+    /// the GPU path, the screen's grid alone. Notes how many of the rows
+    /// the spare lines show exist in `frame`.
+    ///
+    /// References:
+    /// - ADR-1310 D10, "Every build": every way of drawing on the CPU path draws the bottom of the row above into the spare lines.
+    pub(super) fn with_rows_above(&mut self, frame: &Frame<'_>, s: Grid) -> Grid {
+        let cpu = core::mem::take(&mut self.ring.above);
+        let g = match cpu {
+            true => self.layout.with_rows_above(s),
+            false => s,
+        };
+        self.ring.held = frame.rows_above().min(g.above);
+        g
+    }
+
+    /// Readies the grid's rows above the screen for the frame being
+    /// planned. A row the frame does not hold sends no ink, as no row does
+    /// where none exists, so the cells its ink reached are drawn again
+    /// without it. When the frame holds more or fewer of the rows the
+    /// spare lines show than the frame planned last, those rows and the
+    /// spare lines above them are stamped, so each buffer draws the rows
+    /// that came and the border where rows went. A frame that `reset` the
+    /// history draws everything anyway.
+    pub(super) fn rows_above_exist(&mut self, g: &Grid, reset: bool) {
+        let missing = g.above.saturating_sub(self.ring.held);
+        for row in 0..missing {
+            if !self.cells.rows_reach(row, row) {
+                continue;
+            }
+            for col in 0..g.cols {
+                self.reach_to(col, row, 1, (true, crate::reach::Reach::NONE));
+            }
+        }
+        let existing = self.existing_above(g);
+        let was = self.ring.existed.replace(existing);
+        if reset || was == Some(existing) || g.above < 2 {
+            return;
+        }
+        for row in 1..g.above {
+            for col in 0..g.cols {
+                self.cells.stamp(col, row);
+            }
+        }
+        let band = self.strip_band(g, (1, g.above.saturating_sub(existing)));
+        if let Some(r) = band {
+            self.cells.stamp_border_area(r);
+        }
+    }
+
+    /// The display area that the rows of `g` cover where they exist: the
+    /// screen's grid and the rows of history the frame holds above it.
+    /// The border leaves it. `None` when the screen's grid is empty.
+    pub(super) fn drawn_area(&self, g: &Grid) -> Option<Area> {
+        if g.cols == 0 || g.rows <= g.above {
+            return None;
+        }
+        let top = g.above.saturating_sub(self.existing_above(g));
+        let l = &self.layout;
+        Some(l.area(
+            g,
+            0,
+            int(top).saturating_mul(l.ch),
+            int(g.cols).saturating_mul(l.cw),
+            int(g.rows.saturating_sub(top)).saturating_mul(l.ch),
+        ))
+    }
+
+    /// The frame's pictures with their rows counted on `g`, which reaches
+    /// above the screen: the pictures on every row the frame holds, whole,
+    /// when it holds rows beyond the screen, or the screen's. `None` on a
+    /// grid of the screen's rows alone.
+    #[cfg(feature = "images")]
+    pub(super) fn placements_above(
+        frame: &Frame<'_>,
+        g: &Grid,
+    ) -> Option<Vec<vtium_image::FramePlacement>> {
+        if g.above == 0 {
+            return None;
+        }
+        let list = match frame.rows_above().saturating_add(frame.rows_below()) {
+            0 => frame.placements(),
+            _ => frame.placements_beyond(),
+        };
+        let by = i64::try_from(g.above).unwrap_or(i64::MAX);
+        Some(
+            list.iter()
+                .map(|p| vtium_image::FramePlacement {
+                    row: p.row.saturating_add(by),
+                    ..p.clone()
+                })
+                .collect(),
+        )
+    }
+
+    /// How many rows of history above the screen a frame of a grid of
+    /// `grid` columns and rows asks the terminal for: the overscan's
+    /// [`OVERSCAN_ROWS`], or as many as the spare lines above the grid show
+    /// where that is more. The terminal hands one row more, for the ink of
+    /// the row above the last.
+    ///
+    /// References:
+    /// - ADR-1310 D2: K rows on each side, and one more for the ink of the rows next to them.
+    /// - ADR-1310 D10, "A strip taller than a row": the capture holds as many rows above as the spare lines show.
+    pub fn rows_above_asked(&self, (cols, rows): (usize, usize)) -> usize {
+        let s = self.layout.grid_of(cols, rows);
+        self.layout.strip_rows(&s).max(OVERSCAN_ROWS)
     }
 
     /// Readies the copies of the buffer being drawn, whose stale copies
@@ -1074,7 +1241,8 @@ impl<F: Face> Renderer<F> {
     /// row whose stale copy the window shows, its twin or its first copy,
     /// is drawn whole into this buffer, and only this buffer: the other
     /// buffers keep their history.
-    fn draw_stale_twins(&mut self, g: &Geometry, rows: usize, stale: &mut [u64]) {
+    fn draw_stale_twins(&mut self, g: &Geometry, grid: &Grid, stale: &mut [u64]) {
+        let (rows, above) = (grid.rows, grid.above);
         let base = self.ring.base;
         let shown = g.twins_shown(base);
         // the first copies the window shows, counted in the rows'
@@ -1082,13 +1250,27 @@ impl<F: Face> Renderer<F> {
         let w = g.window(base);
         let firsts = (w, w.saturating_add(g.screen).min(g.period()));
         for s in 0..g.slots {
-            let row = rem(
+            // the screen's row in the slot, counted from the screen's first
+            // row, and the slots the screen's rows leave above them
+            let y = rem(
                 s.saturating_add(g.slots).saturating_sub(rem(base, g.slots)),
                 g.slots,
             );
-            let Some(row) = usize::try_from(row).ok().filter(|&r| r < rows) else {
-                // a slot no grid row lies in, which holds the spare lines
-                // above the grid and whose twin is drawn with the border
+            let y = usize::try_from(y).unwrap_or(usize::MAX);
+            let screen = rows.saturating_sub(above);
+            let row = match y < screen {
+                true => Some(y.saturating_add(above)),
+                // a row of history above the screen, which the spare lines
+                // show; the hidden row above them is never drawn into it
+                false => usize::try_from(g.slots)
+                    .ok()
+                    .and_then(|slots| slots.checked_sub(y))
+                    .and_then(|up| above.checked_sub(up))
+                    .filter(|&r| r >= 1),
+            };
+            let Some(row) = row else {
+                // a slot no grid row lies in, whose twin is drawn with the
+                // border
                 continue;
             };
             let copies = [
