@@ -170,10 +170,11 @@ FEATURES :=
 # The acceptance pass shows every page by default (ADR-1501 D5): make
 # vt-accept builds the console with images, bidi, filters and scroll-pan,
 # the features of the packaged console, unless make's command line names
-# FEATURES, so make vt-accept FEATURES= is a pass of the minspec build. A binary named with VTIUM_BIN is run as it is, so its features are
-# the ones it was built with: images when it carries the line only a build
-# with images carries (VT_IMAGES_MARKER), else none, and the run gives it
-# the image helper only when it has pictures.
+# FEATURES, so make vt-accept FEATURES= is a pass of the minspec build. A
+# binary named with VTIUM_BIN is run as it is, so its features are the ones
+# it was built with: images when it carries the line only a build with
+# images carries (VT_IMAGES_MARKER), else none, and the run gives it the
+# image helper only when it has pictures.
 #
 # RENDER_PATH chooses the path the pass judges: cpu, the default, runs
 # vtium with --no-hwaccel, and gpu runs it with --hwaccel, so that one batch
@@ -1334,8 +1335,12 @@ endef
 # measures, and the gate cargo build --profile minspec builds another one,
 # without the minspec link flags. The report is not a gate: a binary over
 # the budget prints a warning, and make gates exits as the gates decided.
-# make tier3-minimal is the check that fails on that binary. An interrupted
-# run skips the report.
+# make tier3-minimal is the check that fails on that binary. The sub-make
+# gets make's command line through MAKEFLAGS, so the build names FEATURES,
+# HWACCEL, DISPLAY_BUFFERS and CARGO_TARGET_DIR itself: make gates
+# FEATURES=images still measures the minspec binary, in its own directory.
+# The report runs only after the gates ran, whatever their result: an
+# interrupted run and a usage error of tools/gates/run skip it.
 #
 # References:
 # - ADR-1200 D19: the minspec binary's size budget.
@@ -1345,12 +1350,13 @@ GATES_SIZE_LOG = $(GATES_DIR)/logs/minspec-size.log
 # The recipe names make through this variable rather than as $(MAKE): make
 # runs a recipe line that names $(MAKE) even under make -n, and make -n gates
 # must print the gates' line without running the gates.
-GATES_SIZE_BUILD = CARGO_TARGET_DIR=$(GATES_DIR)/minspec-size $(MAKE) --no-print-directory minspec
+GATES_SIZE_BUILD = $(MAKE) --no-print-directory minspec CARGO_TARGET_DIR=$(GATES_DIR)/minspec-size \
+	FEATURES= HWACCEL= DISPLAY_BUFFERS=
 
 .PHONY: gates
 gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed; then report the minspec binary's size against tier 3's budget
 	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR); code=$$?; \
-	[ $$code -ne 130 ] || exit $$code; \
+	[ $$code -eq 0 ] || [ $$code -eq 1 ] || exit $$code; \
 	echo; echo "==> make minspec, for the size of the binary tier 3 measures (log: $(GATES_SIZE_LOG))"; \
 	if $(GATES_SIZE_BUILD) >$(GATES_SIZE_LOG) 2>&1 </dev/null; then \
 		python3 -I -B tools/gates/minspec-size $(GATES_DIR)/minspec-size/$(X86_TARGET)/minspec/vtium; \

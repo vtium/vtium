@@ -12,18 +12,27 @@ a build with fewer features compiles is never linted there: an import that only
 a feature uses becomes an unused import without it, and a doc link to an item
 that only a feature defines breaks. This script runs both checks with fewer
 features. For each crate under crates/ whose Cargo.toml declares features, it
-runs these two commands once with no feature and once with each feature alone:
+runs these three commands once with no feature and once with each feature
+alone:
 
+    cargo clippy -p CRATE FLAGS --lib --bins -- -D warnings
     cargo clippy -p CRATE FLAGS --all-targets -- -D warnings
     cargo doc --no-deps --lib -p CRATE FLAGS
+
+clippy runs twice because a build of all targets includes the crate's
+dev-dependencies, and cargo turns on the features they name for the library
+too. vtium-font's tests depend on vtium-font with psf and gzip, for example, so
+a clippy of all targets never lints vtium-font without them. The clippy of the
+library and binaries alone builds without the dev-dependencies, so it lints the
+library with exactly the features named.
 
 rustdoc runs with RUSTDOCFLAGS from the environment, which `make
 features-check` sets to `make api`'s flags, or with `-D warnings` when the
 variable is unset. With no feature, FLAGS is empty, or --no-default-features
 for a crate whose default features are not empty. With one feature, FLAGS adds
 --features NAME. A crate whose default features are not empty also gets a run
-with FLAGS empty, named "its default features", since that is the build cargo makes when
-nobody names a feature.
+with FLAGS empty, named "its default features", since that is the build cargo
+makes when nobody names a feature.
 
 The script reads the crates and their features from `cargo metadata`, so a new
 crate or a new feature joins the check by itself. It builds in the cargo target
@@ -71,16 +80,20 @@ def plan(metadata):
 
 
 def commands(crate, flags):
-    """The two checks of one run, as (check, argv)."""
+    """The three checks of one run, as (check, argv)."""
+    lint = ["--", "-D", "warnings"]
     return [
-        ("clippy", ["cargo", "clippy", "-p", crate, *flags, "--all-targets", "--", "-D", "warnings"]),
+        ("clippy (lib, bins)", ["cargo", "clippy", "-p", crate, *flags, "--lib", "--bins", *lint]),
+        ("clippy (all targets)", ["cargo", "clippy", "-p", crate, *flags, "--all-targets", *lint]),
         ("rustdoc", ["cargo", "doc", "--no-deps", "--lib", "-p", crate, *flags]),
     ]
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Lint and document each crate with no feature and with each feature alone.")
-    ap.add_argument("--list", action="store_true", help="print the combinations without running them")
+    ap = argparse.ArgumentParser(
+        description="Lint and document each crate with no feature and with each feature alone.")
+    ap.add_argument("--list", action="store_true",
+                    help="print the combinations without running them")
     args = ap.parse_args()
 
     meta = subprocess.run(["cargo", "metadata", "--no-deps", "--format-version", "1"],
@@ -91,24 +104,28 @@ def main():
         return 2
     runs = plan(json.loads(meta.stdout))
     if not runs:
-        print("features: no crate under crates/ declares features, so there is nothing to check.", file=sys.stderr)
+        print("features: no crate under crates/ declares features, so there is nothing to check.",
+              file=sys.stderr)
         return 2
 
     env = dict(os.environ)
     env.setdefault("RUSTDOCFLAGS", "-D warnings")
-    checks = [(crate, label, check, argv) for crate, label, flags in runs for check, argv in commands(crate, flags)]
+    checks = [(crate, label, check, argv)
+              for crate, label, flags in runs
+              for check, argv in commands(crate, flags)]
     if args.list:
         for crate, label, check, argv in checks:
-            print(f"{check:8}{crate:20}{label}")
+            print(f"{check:22}{crate:16}{label}")
         return 0
 
-    print(f"features: {len(checks)} runs, clippy and rustdoc for {len({c for c, _, _ in runs})} crates")
+    crates = len({c for c, _, _ in runs})
+    print(f"features: {len(checks)} runs, clippy twice and rustdoc for {crates} crates")
     start = time.monotonic()
     failed = []
     for crate, label, check, argv in checks:
         p = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env)
         ok = p.returncode == 0
-        print(f"{'ok  ' if ok else 'FAIL'}  {check:8}{crate:20}{label}", flush=True)
+        print(f"{'ok  ' if ok else 'FAIL'}  {check:22}{crate:16}{label}", flush=True)
         if not ok:
             failed.append((crate, label, check, argv, p.stdout + p.stderr))
 

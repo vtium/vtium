@@ -13,6 +13,7 @@ import importlib.machinery
 import importlib.util
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -63,9 +64,16 @@ class Plan(unittest.TestCase):
             ("f", "--features v", ["--no-default-features", "--features", "v"]),
         ])
 
-    def test_each_run_is_clippy_and_rustdoc_with_its_flags(self):
+    def test_each_run_is_clippy_twice_and_rustdoc_with_its_flags(self):
+        # The clippy of the library and binaries alone builds without the
+        # dev-dependencies, whose features cargo otherwise adds to the
+        # library's: vtium-font's tests depend on vtium-font with psf and
+        # gzip, so a clippy of all targets never sees vtium-font without them.
         self.assertEqual(features.commands("a", ["--features", "z"]), [
-            ("clippy", ["cargo", "clippy", "-p", "a", "--features", "z", "--all-targets", "--", "-D", "warnings"]),
+            ("clippy (lib, bins)",
+             ["cargo", "clippy", "-p", "a", "--features", "z", "--lib", "--bins", "--", "-D", "warnings"]),
+            ("clippy (all targets)",
+             ["cargo", "clippy", "-p", "a", "--features", "z", "--all-targets", "--", "-D", "warnings"]),
             ("rustdoc", ["cargo", "doc", "--no-deps", "--lib", "-p", "a", "--features", "z"]),
         ])
 
@@ -80,8 +88,14 @@ class Size(unittest.TestCase):
                                   capture_output=True, text=True, env=dict(os.environ))
 
     def test_the_budget_is_t3_impls(self):
-        text = (HERE.parent / "tier3" / "t3_impl.py").read_text()
-        self.assertIn(f"BINARY_BUDGET = {size.budget()}\n", text)
+        # Tier 3's own module gives the number, so a budget that t3_impl.py
+        # computes or writes in another form still has to match.
+        sys.path.insert(0, str(HERE.parent / "tier3"))
+        try:
+            import t3_impl
+        finally:
+            sys.path.pop(0)
+        self.assertEqual(size.budget(), t3_impl.BINARY_BUDGET)
 
     def test_at_and_under_the_budget_the_report_warns_of_nothing(self):
         for n, margin in ((size.budget(), "0 bytes"), (size.budget() - 1, "1 byte")):
@@ -94,8 +108,8 @@ class Size(unittest.TestCase):
         p = self.report(size.budget() + 1)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("1 byte over tier 3's budget", p.stdout)
-        self.assertIn("warning: the minspec binary is 1 byte over tier 3's budget, so make tier3-minimal fails on it.",
-                      p.stdout)
+        self.assertIn("warning: the minspec binary is 1 byte over tier 3's budget, "
+                      "so make tier3-minimal fails on it.", p.stdout)
 
     def test_a_missing_binary_exits_2(self):
         p = subprocess.run(["python3", "-I", "-B", str(HERE / "minspec-size"), "/nonexistent/vtium"],
