@@ -41,6 +41,12 @@ pub mod refusals;
 pub mod start;
 pub mod watch;
 
+// The process jobs: sessions, helpers, the power keys and the store.
+pub mod helpers;
+pub mod power;
+pub mod sessions;
+pub mod store;
+
 pub use vtium_broker_protocol as protocol;
 
 use std::ffi::OsString;
@@ -142,6 +148,12 @@ pub fn plan(facts: &dyn Facts) -> Plan {
 /// full.
 pub trait Serve {
     fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()>;
+
+    /// Sends the orders that no request asked for, such as a session's
+    /// exit, once each turn of the loop while the drawer's socket is open.
+    /// It sends nothing while the queue of orders is full, and keeps what
+    /// it holds for a later turn.
+    fn tick(&mut self, _out: &mut Outbox<'_>) {}
 }
 
 /// The broker before it serves any request: each request that waits for
@@ -178,6 +190,243 @@ impl Serve for Unserved {
             }
         };
         out.order(answer, None)
+    }
+}
+
+/// The broker's jobs: each request goes to the job that serves it.
+pub struct Jobs {
+    pub processes: Processes,
+}
+
+impl Serve for Jobs {
+    fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()> {
+        match request {
+            // The process jobs: sessions, helpers and the power keys.
+            Request::OpenSession { .. }
+            | Request::CloseSession { .. }
+            | Request::Winch { .. }
+            | Request::StartHelper { .. }
+            | Request::StopHelper { .. }
+            | Request::Power { .. } => self.processes.serve(request, out),
+            other => Unserved.serve(other, out),
+        }
+    }
+
+    fn tick(&mut self, out: &mut Outbox<'_>) {
+        self.processes.tick(out);
+    }
+}
+
+/// The broker's process jobs: the sessions, the helpers, the power keys,
+/// and `vtium blank` and `vtium wake`, which reach the broker as signals
+/// because the broker holds the VT open.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the sessions, the helpers, the
+///   power keys, reaping, the exits reported, and `vtium blank` and
+///   `vtium wake` passed on.
+pub struct Processes {
+    pub sessions: sessions::Sessions,
+    pub helpers: helpers::Helpers,
+    pub power: power::PowerKeys,
+    /// The orders no request asked for, in the order they came: the exits
+    /// of sessions and helpers, and blank and wake. They are as many as
+    /// the sessions and helpers that can end, and the signals that came
+    /// in one turn.
+    unasked: std::collections::VecDeque<Order>,
+    /// The blanks and wakes that signals asked for since the last turn.
+    signalled: std::rc::Rc<std::cell::RefCell<Vec<vtium::blank::Order>>>,
+}
+
+impl Processes {
+    pub fn new(
+        sessions: sessions::Sessions,
+        helpers: helpers::Helpers,
+        power: power::PowerKeys,
+    ) -> Processes {
+        Processes {
+            sessions,
+            helpers,
+            power,
+            unasked: std::collections::VecDeque::new(),
+            signalled: std::rc::Rc::default(),
+        }
+    }
+
+    /// Takes `SIGRTMIN+1` and `SIGRTMIN+2`, which `vtium blank` and
+    /// `vtium wake` send to the process that holds the VT, through `lp`,
+    /// and passes each on to the drawer as [`Order::Blank`] or
+    /// [`Order::Wake`].
+    pub fn listen(&self, lp: &Loop<Seen>) -> io::Result<()> {
+        let signalled = std::rc::Rc::clone(&self.signalled);
+        vtium::blank::listen_with(&lp.handle(), move |order, _: &mut Seen| {
+            signalled.borrow_mut().push(order);
+        })
+    }
+
+    fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()> {
+        match request {
+            Request::OpenSession {
+                console,
+                grid,
+                display,
+                truecolor,
+            } => match self.sessions.open(&console, &grid, display, truecolor) {
+                Ok(master) => out.order(
+                    Order::Pty {
+                        console,
+                        opened: Ok(()),
+                    },
+                    Some(master),
+                ),
+                Err(errno) => out.order(
+                    Order::Pty {
+                        console,
+                        opened: Err(errno),
+                    },
+                    None,
+                ),
+            },
+            Request::CloseSession { console } => {
+                self.sessions.close(&console);
+                Ok(())
+            }
+            Request::Winch { console } => {
+                self.sessions.winch(&console);
+                Ok(())
+            }
+            Request::StartHelper { helper, kind } => {
+                match self.helpers.start(helper, &kind, &self.sessions) {
+                    Ok(socket) => out.order(
+                        Order::Helper {
+                            helper,
+                            started: Ok(()),
+                        },
+                        Some(socket),
+                    ),
+                    Err(errno) => out.order(
+                        Order::Helper {
+                            helper,
+                            started: Err(errno),
+                        },
+                        None,
+                    ),
+                }
+            }
+            Request::StopHelper { helper } => {
+                self.helpers.stop(helper);
+                Ok(())
+            }
+            Request::Power { key } => {
+                self.power.run(key);
+                Ok(())
+            }
+            other => Unserved.serve(other, out),
+        }
+    }
+
+    fn tick(&mut self, out: &mut Outbox<'_>) {
+        for (console, status) in self.sessions.reap() {
+            self.unasked
+                .push_back(Order::SessionExit { console, status });
+        }
+        for (helper, status) in self.helpers.reap() {
+            self.unasked.push_back(Order::HelperExit { helper, status });
+        }
+        for order in self.signalled.borrow_mut().drain(..) {
+            self.unasked.push_back(match order {
+                vtium::blank::Order::Blank => Order::Blank,
+                vtium::blank::Order::Wake => Order::Wake,
+            });
+        }
+        while !out.full()
+            && let Some(order) = self.unasked.pop_front()
+        {
+            if let Err(e) = out.order(order, None) {
+                log::warn!(target: "broker", "vtium's root process cannot tell its drawing process: {e}");
+            }
+        }
+    }
+}
+
+/// What the root process reads and sets up for its process jobs before
+/// it starts the drawer.
+///
+/// References:
+/// - ADR-1400 D4, "vtium.conf under the split": the broker reads the login
+///   command, the power keys and the closed policy from vtium.conf itself.
+/// - ADR-1401 D9: the closed policy's marker, written before the loop and
+///   the VT.
+/// - ADR-1401 D10: the VT's run directory.
+/// - ADR-1401 D13: the keeper of the pty masters.
+pub struct Begun {
+    loaded: vtium::config::Loaded,
+    vt: Option<u16>,
+    env: Vec<(OsString, OsString)>,
+    store: store::Store,
+}
+
+impl Begun {
+    /// Reads vtium.conf through its ownership check, finds the VT, writes
+    /// or removes the closed policy's marker, makes the VT's run directory
+    /// and starts the keeper of the pty masters.
+    pub fn read(args: &[OsString]) -> Begun {
+        use std::path::Path;
+        let loaded = vtium::config::load(args, &mut vtium::config::read_file);
+        // Only the VT's path is read from the start's settings.
+        let tty = vtium::start::Start::new(&loaded.config, String::new())
+            .vt
+            .or_else(|| vtium_platform::vt::Tty::find().ok().flatten());
+        let vt = tty.as_deref().and_then(vtium::getty::vt_number);
+        let dir = Path::new(vtium::getty::DIR);
+        let policy = vtium::head::rules(&loaded.path, &loaded.file)
+            .on_vt(vt)
+            .outcome
+            .policy;
+        vtium::getty::mark(dir, tty.as_deref(), policy);
+        if let Some(vt) = vt
+            && let Err(e) = vtium::survive::hold::run_dir(&dir.join(format!("tty{vt}")))
+        {
+            log::warn!(target: "broker", "vtium cannot make its run directory for tty{vt}: {e}");
+        }
+        let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+        let (keeper, kept) = vtium::survive::start(
+            &env,
+            tty.as_deref(),
+            dir,
+            Path::new("/proc/self/exe"),
+            vtium_platform::take_passed,
+        );
+        Begun {
+            loaded,
+            vt,
+            env,
+            store: store::Store::new(keeper, kept),
+        }
+    }
+
+    /// The process jobs, whose processes `lp` watches.
+    pub fn processes(self, lp: &Loop<Seen>) -> Processes {
+        let wake = |lp: &Loop<Seen>| -> sessions::Wake {
+            let handle = lp.handle();
+            Box::new(move |pidfd| sessions::wake_at_exit(&handle, pidfd))
+        };
+        let config = &self.loaded.config;
+        let font = match vtium::helper::Launcher::configured(config) {
+            Ok(launcher) => Some(launcher.with_locale(&vtium::app::locale(&self.env))),
+            Err(why) => {
+                log::warn!(target: "broker", "{why}");
+                None
+            }
+        };
+        let power =
+            power::PowerKeys::new(config, Box::new(vtium::power::System), Some(lp.handle()));
+        let conf = sessions::Conf::read(&self.loaded, self.vt, self.env);
+        Processes::new(
+            sessions::Sessions::new(conf, Box::new(self.store), wake(lp)),
+            helpers::Helpers::new(font, wake(lp)),
+            power,
+        )
     }
 }
 
@@ -224,6 +473,9 @@ fn now() -> Instant {
 }
 
 fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
+    // Before the loop blocks any signal, since a holder of the pty masters
+    // started here inherits the mask.
+    let begun = Begun::read(args);
     let mut lp: Loop<Seen> = Loop::new()?;
     for signal in [Signal::SIGTERM, Signal::SIGINT] {
         lp.on_signal(signal, |seen: &mut Seen| seen.stop = true)?;
@@ -231,10 +483,20 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     // A write to a drawer gone returns an error in place of ending the
     // broker.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
+    let env = begun.env.clone();
+    let processes = begun.processes(&lp);
+    processes.listen(&lp)?;
     let (link, theirs) = Link::pair()?;
     let arg0 = std::env::args_os()
         .next()
         .unwrap_or_else(|| OsString::from("vtium"));
+    // systemd starts the display manager only once vtium holds its VT, so
+    // the broker says it is ready once it holds the VT open, and before
+    // the drawer starts. The card that moves the VT into the broker opens
+    // the VT above this line.
+    if let Err(e) = vtium::survive::notify::ready(&env) {
+        log::warn!(target: "broker", "vtium cannot tell systemd that it is ready: {e}");
+    }
     let drawer = start::spawn(&Program::vtium(arg0, args), account, theirs, true)?;
     log::info!(
         target: "broker",
@@ -249,7 +511,7 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
         &mut lp,
         &link,
         &drawer,
-        &mut Unserved,
+        &mut Jobs { processes },
         &mut restore,
         Bounds::default(),
         &now,
@@ -416,6 +678,9 @@ fn turns(
                     }
                 }
             }
+        }
+        if socket.is_some() {
+            serve.tick(&mut out);
         }
         if (seen.exited || socket.is_none())
             && let Ok(Some(ended)) = watch::ended(pidfd)

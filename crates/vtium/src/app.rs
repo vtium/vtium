@@ -1079,7 +1079,7 @@ fn to_usize(n: u64) -> usize {
 
 /// The locale in `env`, found as locale(7) says: the first of `LC_ALL`,
 /// `LC_CTYPE` and `LANG` set and not empty, else `C`.
-pub(crate) fn locale(env: &[(OsString, OsString)]) -> String {
+pub fn locale(env: &[(OsString, OsString)]) -> String {
     ["LC_ALL", "LC_CTYPE", "LANG"]
         .iter()
         .find_map(|name| {
