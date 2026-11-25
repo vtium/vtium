@@ -660,8 +660,8 @@ pub fn slave_owner(master: BorrowedFd<'_>) -> io::Result<u32> {
     Ok(rustix::fs::fstat(&slave)?.st_uid)
 }
 
-/// A session that [`open`] started: the pty's master, and the child that
-/// leads a new session on the pty's slave, with its pidfd.
+/// A session that [`open_session`] started: the pty's master, and the
+/// child that leads a new session on the pty's slave, with its pidfd.
 pub struct Session {
     pub master: OwnedFd,
     pub child: Child,
