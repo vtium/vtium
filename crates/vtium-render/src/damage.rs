@@ -133,6 +133,10 @@ pub(crate) struct Cells {
     /// The piece of a joined syllable each cell drew, if any (ADR-1203).
     #[cfg(feature = "bidi")]
     pieces: Vec<Option<vtium_font::syllable::Piece>>,
+    /// The rows this frame draws whole into the buffer being drawn,
+    /// whatever their stamps, as a ring draws a row's stale second copy.
+    #[cfg(feature = "scroll-pan")]
+    forced: Vec<bool>,
 }
 
 impl Cells {
@@ -143,6 +147,8 @@ impl Cells {
             .serial
             .checked_sub(u64::from(age))
             .filter(|&held| age > 0 && held > 0);
+        #[cfg(feature = "scroll-pan")]
+        self.forced.fill(false);
     }
 
     /// A grid of `cols` by `rows` whose every cell, and the border, changed
@@ -169,6 +175,11 @@ impl Cells {
         }
         self.border = self.serial;
         self.border_areas.clear();
+        #[cfg(feature = "scroll-pan")]
+        {
+            self.forced.clear();
+            self.forced.resize(rows, false);
+        }
     }
 
     fn index(&self, col: usize, row: usize) -> Option<usize> {
@@ -284,7 +295,18 @@ impl Cells {
 
     /// Whether the buffer may lack a cell of `row`.
     pub(crate) fn row_stale(&self, row: usize) -> bool {
-        self.stale(self.row_stamps.get(row).copied().unwrap_or(u64::MAX))
+        self.forced(row) || self.stale(self.row_stamps.get(row).copied().unwrap_or(u64::MAX))
+    }
+
+    /// Whether this frame draws `row` whole into the buffer being drawn.
+    #[cfg(feature = "scroll-pan")]
+    fn forced(&self, row: usize) -> bool {
+        self.forced.get(row).copied().unwrap_or(false)
+    }
+
+    #[cfg(not(feature = "scroll-pan"))]
+    fn forced(&self, _: usize) -> bool {
+        false
     }
 
     /// The cell at `col`, `row` changed on this frame.
@@ -313,9 +335,10 @@ impl Cells {
 
     /// Whether the buffer lacks any of `n` cells from `col` in `row`.
     pub(crate) fn stale_cells(&self, col: usize, row: usize, n: usize) -> bool {
-        (col..col.saturating_add(n))
-            .filter_map(|c| self.index(c, row).and_then(|i| self.states.get(i)))
-            .any(|s| self.stale(s.stamp))
+        self.forced(row)
+            || (col..col.saturating_add(n))
+                .filter_map(|c| self.index(c, row).and_then(|i| self.states.get(i)))
+                .any(|s| self.stale(s.stamp))
     }
 
     /// `n` cells from `col` in `row` are drawn on this frame; returns
@@ -376,6 +399,158 @@ impl Cells {
             self.serial = self.serial.saturating_sub(1);
         }
         &self.damage
+    }
+}
+
+/// What a ring of drawn rows needs of the history: the buffer being
+/// drawn, the rows it draws whole, and the lines' history moved by a
+/// scroll.
+///
+/// References:
+/// - ADR-1310 D6: the ring, the pan and the copy that use this history.
+#[cfg(feature = "scroll-pan")]
+impl Cells {
+    /// The serial of the frame the buffer being drawn holds, `None` when
+    /// it is drawn whole.
+    pub(crate) fn held(&self) -> Option<u64> {
+        self.held
+    }
+
+    /// This frame's serial.
+    pub(crate) fn serial(&self) -> u64 {
+        self.serial
+    }
+
+    /// Whether the buffer being drawn lacks every cell of `row`, so that
+    /// this frame draws the row whole.
+    pub(crate) fn row_whole_stale(&self, row: usize) -> bool {
+        self.held.is_none()
+            || (0..self.cols)
+                .filter_map(|c| self.get(c, row))
+                .all(|s| self.stale(s.stamp))
+    }
+
+    /// Draws `row` whole into the buffer being drawn on this frame, and
+    /// leaves every stamp, and so every other buffer's history, as it was.
+    pub(crate) fn force_row(&mut self, row: usize) {
+        if let Some(f) = self.forced.get_mut(row) {
+            *f = true;
+        }
+    }
+
+    /// The damage of the frame collected last.
+    pub(crate) fn damage(&self) -> &[Rect] {
+        &self.damage
+    }
+
+    /// The grid's lines moved `n` rows up, or down when `n` is negative,
+    /// as a ring shows them without drawing them again. Each cell's
+    /// history moves with its line: its stamp, its cursor, its reach and
+    /// its blink phase. The rows that come in hold nothing yet, so they
+    /// change on this frame. Before the lines move, the cells that the ink
+    /// of a leaving row reached change, so each is drawn again without
+    /// that ink. The border's areas are left as they are:
+    /// [`Cells::move_border_areas`] moves them.
+    pub(crate) fn rotate(&mut self, n: i64) {
+        let (cols, rows) = (self.cols, self.rows);
+        let shift = usize::try_from(n.unsigned_abs())
+            .unwrap_or(usize::MAX)
+            .min(rows);
+        if shift == 0 {
+            return;
+        }
+        let leaving = if n > 0 {
+            0..shift
+        } else {
+            rows.saturating_sub(shift)..rows
+        };
+        for row in leaving {
+            for col in 0..cols {
+                let Some(s) = self.get(col, row) else {
+                    continue;
+                };
+                if s.reach.is_none() {
+                    continue;
+                }
+                let span = if s.flag(REACH_WIDE) { 2 } else { 1 };
+                let b = s.reach.block(col, row, span);
+                self.stamp_block((b.c0, b.r0), (b.c1, b.r1));
+            }
+        }
+        let fresh = CellState {
+            stamp: self.serial,
+            ..CellState::default()
+        };
+        let cells = shift.saturating_mul(cols);
+        let serial = self.serial;
+        if n > 0 {
+            refill_tail(&mut self.states, cells, fresh);
+            refill_tail(&mut self.row_stamps, shift, serial);
+            refill_tail(&mut self.row_reaching, shift, 0);
+            #[cfg(feature = "bidi")]
+            refill_tail(&mut self.pieces, cells, None);
+        } else {
+            refill_head(&mut self.states, cells, fresh);
+            refill_head(&mut self.row_stamps, shift, serial);
+            refill_head(&mut self.row_reaching, shift, 0);
+            #[cfg(feature = "bidi")]
+            refill_head(&mut self.pieces, cells, None);
+        }
+    }
+}
+
+#[cfg(feature = "scroll-pan")]
+impl Cells {
+    /// The display moved its pixels `dx` and `dy` along with the grid's
+    /// lines, as a window over a ring of drawn rows does on a scroll. Each
+    /// area of the border that the history keeps moves with them, cut to
+    /// the display `w` by `h`, so that a buffer drawn before the scroll
+    /// draws the area again where its old pixels now show. An area that
+    /// leaves the display is dropped: its pixels come back on the screen
+    /// only as part of a row that comes in, which is drawn again anyway.
+    pub(crate) fn move_border_areas(&mut self, (dx, dy): (i64, i64), (w, h): (u32, u32)) {
+        self.border_areas.retain_mut(|(_, r)| {
+            let span = |at: u32, len: u32, by: i64, end: u32| {
+                let a = i64::from(at).saturating_add(by);
+                let b = a.saturating_add(i64::from(len));
+                let (a, b) = (a.clamp(0, i64::from(end)), b.clamp(0, i64::from(end)));
+                let a = u32::try_from(a).unwrap_or(0);
+                let b = u32::try_from(b).unwrap_or(0);
+                (a, b.saturating_sub(a))
+            };
+            let (x, width) = span(r.x, r.width, dx, w);
+            let (y, height) = span(r.y, r.height, dy, h);
+            *r = Rect {
+                x,
+                y,
+                width,
+                height,
+            };
+            r.area() > 0
+        });
+    }
+}
+
+/// Moves `v` forward by `n` items, dropping its first `n`, and fills the
+/// `n` items at its end with `fill`.
+#[cfg(feature = "scroll-pan")]
+fn refill_tail<T: Clone>(v: &mut [T], n: usize, fill: T) {
+    let n = n.min(v.len());
+    v.rotate_left(n);
+    let start = v.len().saturating_sub(n);
+    if let Some(tail) = v.get_mut(start..) {
+        tail.fill(fill);
+    }
+}
+
+/// Moves `v` back by `n` items, dropping its last `n`, and fills the `n`
+/// items at its start with `fill`.
+#[cfg(feature = "scroll-pan")]
+fn refill_head<T: Clone>(v: &mut [T], n: usize, fill: T) {
+    let n = n.min(v.len());
+    v.rotate_right(n);
+    if let Some(head) = v.get_mut(..n) {
+        head.fill(fill);
     }
 }
 
