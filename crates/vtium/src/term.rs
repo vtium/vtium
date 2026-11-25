@@ -793,13 +793,14 @@ fn top_right(surface: Surface, grid: (usize, usize), cell: vtium_font::Cell) -> 
 pub enum ScrollDraw {
     /// Pan where the display allows it, and copy where it does not.
     Auto,
-    /// Pan, and copy where the display refuses the pan.
+    /// Pan where the display allows it, as `Auto` does, and log a warning
+    /// where the display refuses the pan and copies.
     Pan,
     /// Copy the window from a ring of drawn rows in system memory.
     Copy,
     /// Draw again every row that changed, the rows a scroll moved among
     /// them. A view draws this way until its head says otherwise, and a
-    /// head on the GPU path always does.
+    /// head that draws with the GPU, or can move to it, always does.
     #[default]
     Redraw,
 }
@@ -823,7 +824,7 @@ impl ScrollDraw {
             && !TOLD.swap(true, Ordering::Relaxed)
         {
             log::warn!(
-                "This build of vtium has no faster scrolling, so it ignores scroll-draw and draws every scroll again."
+                "This build of vtium has no faster scrolling, so it ignores scroll-draw and redraws every line a scroll moves."
             );
         }
         ScrollDraw::Redraw
@@ -1301,9 +1302,10 @@ pub struct View {
     /// within, one the screen's size.
     #[cfg(feature = "scroll-pan")]
     asked: Option<Option<vtium_platform::display::Tall>>,
-    /// The way of drawing a scroll the log last said this view takes.
+    /// The way of drawing a scroll the log last said this view takes, and
+    /// the way `scroll-draw` asked for then.
     #[cfg(feature = "scroll-pan")]
-    told: Option<ScrollDraw>,
+    told: Option<(ScrollDraw, ScrollDraw)>,
     /// The log said once that the GPU path failed one of the display's
     /// frames.
     pub gpu_failure_logged: bool,
@@ -1868,7 +1870,15 @@ impl View {
 
     /// Logs, once for each change, how the display shows a scroll under
     /// `auto`, `pan` or `copy`, as the buffer `token` lends says: by moving
-    /// its window over a buffer taller than the screen, or by copying.
+    /// its window over a buffer taller than the screen, or by copying. A
+    /// display that copies under `pan`, because its driver refused the pan,
+    /// logs a warning, since the key asked for the pan; under `auto` the
+    /// copy is one of the two ways the key allows, and the line is
+    /// information.
+    ///
+    /// References:
+    /// - ADR-1310 D6, "Where the driver allows it": vtium logs once when
+    ///   the driver refuses an asked-for pan, and copies.
     #[cfg(feature = "scroll-pan")]
     fn tell_way(&mut self, token: &Token, video: &dyn Video) {
         let way = match self.scroll {
@@ -1877,13 +1887,17 @@ impl View {
             ScrollDraw::Auto | ScrollDraw::Pan if token.size() != token.screen() => ScrollDraw::Pan,
             ScrollDraw::Auto | ScrollDraw::Pan => ScrollDraw::Copy,
         };
-        if self.told.replace(way) == Some(way) {
+        let told = (way, self.scroll);
+        if self.told.replace(told) == Some(told) {
             return;
         }
         let name = video.name(self.id);
-        match way {
-            ScrollDraw::Pan => log::info!(
+        match told {
+            (ScrollDraw::Pan, _) => log::info!(
                 "Display {name} scrolls by panning: its buffers are taller than the screen, and a scroll moves the part that the screen shows."
+            ),
+            (_, ScrollDraw::Pan) => log::warn!(
+                "Display {name} cannot pan, because its driver does not allow it. The display scrolls by copying instead."
             ),
             _ => log::info!(
                 "Display {name} scrolls by copying: vtium keeps the drawn lines in memory and copies the part that the screen shows."

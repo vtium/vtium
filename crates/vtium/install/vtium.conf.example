@@ -813,9 +813,10 @@
 ## How the displays of a head show text that scrolls.
 ##
 ## `auto` pans where the display's driver allows it, and copies where it does
-## not. `pan` and `copy` ask for one of the two ways. `redraw` draws again
-## every line that moved. A display drawn with the GPU always uses `redraw`,
-## and so does a build without the `scroll-pan` feature.
+## not. `pan` does the same, and logs a warning when the driver does not allow
+## the pan. `copy` always copies, and `redraw` redraws every line a scroll
+## moves. A head that draws with the GPU, or can move to it, always uses
+## `redraw`, and so does a build without the `scroll-pan` feature.
 
 #scroll-draw=auto
 
