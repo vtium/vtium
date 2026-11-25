@@ -241,9 +241,17 @@ const BIDI_PARAGRAPH_ROWS: Bound = Bound {
     cite: "ADR-1004 D3, after the Terminal Working Group's BiDi recommendation, which suggests 500 rows",
 };
 
+const SCROLL_LOG_BOUND: Bound = Bound {
+    name: "SCROLL_LOG",
+    value: 32,
+    what: "Checkpoints the scroll record remembers the count of moved rows at, one entry for each checkpoint taken after the count changed",
+    past: "The oldest entry goes; a display whose buffer is older than the oldest entry reads no count, and its frame marks every moved row changed, as without the record",
+    cite: "vtium's own: 32 entries hold the ages of several displays with three buffers each through a steady stream of short scrolls; ADR-1310 D2 asks for a log of fixed size",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 28] = [
+pub(crate) const BOUNDS: [Bound; 29] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -272,6 +280,7 @@ pub(crate) const BOUNDS: [Bound; 28] = [
     IMAGE_NOTE_REASONS,
     IMAGE_NOTE_BYTES,
     BIDI_PARAGRAPH_ROWS,
+    SCROLL_LOG_BOUND,
 ];
 
 /// Cells a line holds, and columns a screen and its damage have. The
@@ -386,6 +395,14 @@ pub(crate) const IMAGE_NOTE_BYTES_MAX: usize = IMAGE_NOTE_BYTES.value;
 /// (ADR-1004 D3).
 #[cfg_attr(not(feature = "bidi"), allow(dead_code))]
 pub(crate) const BIDI_PARAGRAPH_ROWS_MAX: usize = BIDI_PARAGRAPH_ROWS.value;
+
+/// The checkpoints the scroll record remembers the count at. A checkpoint
+/// takes an entry only when the count changed since the previous entry,
+/// so checkpoints taken while nothing scrolls cost none. 32 entries hold
+/// the ages of several displays with three buffers each through a steady
+/// stream of short scrolls. An age older than the oldest entry reads no
+/// count, and its display redraws every moved row, as without the record.
+pub(crate) const SCROLL_LOG: usize = SCROLL_LOG_BOUND.value;
 
 /// The most bytes of XTVERSION's text.
 pub const VERSION_MAX: usize = VERSION.value;
