@@ -490,12 +490,22 @@ impl Begun {
                 None
             }
         };
+        #[cfg(feature = "images")]
+        let images = match helpers::Images::configured(config, &self.env) {
+            Ok(images) => Some(images),
+            Err(why) => {
+                log::warn!(target: "broker", "{why}; vtium's root process starts no image helper");
+                None
+            }
+        };
+        #[cfg(not(feature = "images"))]
+        let images = None;
         let power =
             power::PowerKeys::new(config, Box::new(vtium::power::System), Some(lp.handle()));
         let conf = sessions::Conf::read(&self.loaded, self.vt, self.env);
         Processes::new(
             sessions::Sessions::new(conf, Box::new(self.store), wake(lp)),
-            helpers::Helpers::new(font, wake(lp)),
+            helpers::Helpers::new(font, images, wake(lp)),
             power,
         )
     }

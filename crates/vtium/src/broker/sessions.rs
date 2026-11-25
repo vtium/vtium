@@ -354,6 +354,15 @@ impl Sessions {
         self.open.get(console).map(|r| r.master.as_fd())
     }
 
+    /// The process id of the program the root process started for
+    /// `console`'s session, while it runs; `None` for a kept session.
+    pub fn child(&self, console: &ConsoleRef) -> Option<u32> {
+        self.open
+            .get(console)
+            .and_then(|r| r.child.as_ref())
+            .map(Child::id)
+    }
+
     /// Reaps each session whose process has exited, and gives the exits of
     /// those whose console is still open, in the consoles' order. The
     /// keeper drops each such session's master.
@@ -690,7 +699,7 @@ pub(super) mod tests {
         let (_, helper_wake) = watching();
         let processes = Processes::new(
             Sessions::new(conf, Box::new(Nowhere), wake),
-            Helpers::new(None, helper_wake),
+            Helpers::new(None, None, helper_wake),
             PowerKeys::new(&config(&[]), Box::new(vtium::power::System), None),
         );
         (Jobs { processes }, watched)

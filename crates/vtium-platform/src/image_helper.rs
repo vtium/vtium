@@ -71,10 +71,9 @@ pub use identity::{
     Account, Facts, LOGIN_CLASSES, LoginSession, Me, PRELOGIN_ACCOUNTS, Prelogin, Refusal, Session,
     System, holds_group_zero, resolve,
 };
-pub use start::{PROGRAM, Program, memory_cap, open_program};
+pub use start::{PROGRAM, Program, Started, memory_cap, open_program, start};
 
 use crate::bounds::IMAGE_CRASHES_MAX;
-use start::Started;
 
 /// The most descriptors a reply is read with, so every one a helper sends
 /// is received and closed, and one too many is seen.

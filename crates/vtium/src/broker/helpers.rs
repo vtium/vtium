@@ -17,8 +17,10 @@
 //!
 //! The image helper's account and its two caps depend on each request:
 //! whether it reads a file, and how many bytes the request needs, which
-//! the request to start it carries. The root process does not start an
-//! image helper yet, and answers `ENOSYS`.
+//! the request to start it carries. The root process chooses the account
+//! by the same rules as vtium in one process, from the owner of the
+//! console's pty and the session's logind session, and starts the helper
+//! from the program it opened once at its start.
 //!
 //! References:
 //! - ADR-1400 D4, "What the broker does": the broker starts and stops the
@@ -29,7 +31,7 @@
 
 use std::collections::BTreeMap;
 use std::os::fd::{AsFd, OwnedFd};
-use std::process::{Child, Stdio};
+use std::process::Stdio;
 
 use rustix::net::{AddressFamily, SocketFlags, SocketType};
 use rustix::process::{Pid, PidfdFlags, Signal, WaitId, WaitIdOptions};
@@ -42,11 +44,50 @@ use super::sessions::{Sessions, Wake, errno, status_of};
 /// uses, and one it starts while the last one goes.
 pub const FONT_HELPERS_MAX: usize = 2;
 
-/// A helper the root process started.
+/// The most image helpers that run at once for one console: the one
+/// that serves it, and one it starts while the last one goes.
+pub const IMAGE_HELPERS_MAX: usize = 2;
+
+/// A helper the root process started. The helper leads its own process
+/// group, so its process id names the group too.
 struct Running {
-    child: Child,
+    pid: Pid,
     pidfd: OwnedFd,
+    /// The console an image helper serves; `None` for a font helper.
+    console: Option<super::protocol::ConsoleRef>,
 }
+
+/// What the root process starts image helpers from: the program it opened
+/// once, the helpers' `TMPDIR`, and the pre-login account it looked up.
+#[cfg(feature = "images")]
+pub struct Images {
+    pub program: vtium_platform::image_helper::Program,
+    pub tmpdir: Option<std::path::PathBuf>,
+    prelogin: vtium_platform::image_helper::Prelogin,
+}
+
+#[cfg(feature = "images")]
+impl Images {
+    /// The image helper `config` names, opened and checked, or why the
+    /// root process starts none.
+    pub fn configured(
+        config: &vtium::config::Config,
+        env: &[(std::ffi::OsString, std::ffi::OsString)],
+    ) -> Result<Images, String> {
+        let program =
+            vtium_platform::image_helper::Program::open(&vtium::head::images::program(config))?
+                .sandboxed(vtium::helper::sandbox_on(config));
+        Ok(Images {
+            program,
+            tmpdir: vtium::head::images::tmpdir(env),
+            prelogin: vtium_platform::image_helper::Prelogin::default(),
+        })
+    }
+}
+
+/// Without pictures, the root process starts no image helper.
+#[cfg(not(feature = "images"))]
+pub struct Images;
 
 /// The helpers the root process runs, by the id the drawing process gave
 /// each.
@@ -54,14 +95,22 @@ pub struct Helpers {
     /// The font helper's program, opened once, and the account it runs
     /// as; `None` when vtium.conf's font helper cannot start.
     font: Option<Launcher>,
+    /// What image helpers start from; `None` when vtium.conf's image
+    /// helper cannot start, or vtium is built without pictures.
+    #[cfg_attr(
+        not(feature = "images"),
+        expect(dead_code, reason = "vtium without pictures starts no image helper")
+    )]
+    images: Option<Images>,
     wake: Wake,
     running: BTreeMap<u32, Running>,
 }
 
 impl Helpers {
-    pub fn new(font: Option<Launcher>, wake: Wake) -> Helpers {
+    pub fn new(font: Option<Launcher>, images: Option<Images>, wake: Wake) -> Helpers {
         Helpers {
             font,
+            images,
             wake,
             running: BTreeMap::new(),
         }
@@ -72,28 +121,119 @@ impl Helpers {
     ///
     /// - `EEXIST`: a helper with that id runs already.
     /// - `ENOENT`: an image helper's console has no session open.
-    /// - `ENOSYS`: an image helper, which the root process does not start
-    ///   yet.
-    /// - `EAGAIN`: [`FONT_HELPERS_MAX`] font helpers run already.
-    /// - `ENOEXEC`: vtium.conf's font helper cannot start.
+    /// - `EACCES`: no account may run the image helper for this request,
+    ///   such as a file asked for before anyone has logged in.
+    /// - `EAGAIN`: [`FONT_HELPERS_MAX`] font helpers, or
+    ///   [`IMAGE_HELPERS_MAX`] image helpers of one console, run already.
+    /// - `ENOEXEC`: vtium.conf's font or image helper cannot start.
     /// - any other error: the helper did not start.
     pub fn start(&mut self, id: u32, kind: &Helper, sessions: &Sessions) -> Result<OwnedFd, Errno> {
         if self.running.contains_key(&id) {
             return Err(errno(libc::EEXIST));
         }
         match kind {
-            Helper::Image { console, .. } => {
-                if sessions.master(console).is_none() {
+            Helper::Image {
+                console,
+                max_bytes,
+                largest_file,
+                file,
+            } => {
+                let Some(master) = sessions.master(console) else {
                     return Err(errno(libc::ENOENT));
+                };
+                let serving = self
+                    .running
+                    .values()
+                    .filter(|r| r.console.as_ref() == Some(console))
+                    .count();
+                if serving >= IMAGE_HELPERS_MAX {
+                    return Err(errno(libc::EAGAIN));
                 }
-                Err(errno(libc::ENOSYS))
+                let child = sessions.child(console);
+                let (started, pid, pidfd) =
+                    self.start_image(master, child, *max_bytes, *largest_file, *file)?;
+                (self.wake)(pidfd.as_fd());
+                self.running.insert(
+                    id,
+                    Running {
+                        pid,
+                        pidfd,
+                        console: Some(console.clone()),
+                    },
+                );
+                Ok(started)
             }
             Helper::Font => self.start_font(id),
         }
     }
 
+    /// Starts an image helper for one request of `session`'s console, as
+    /// the account the rules choose, and gives the drawing process's end
+    /// of its socket, its process id and its pidfd.
+    ///
+    /// References:
+    /// - ADR-1101 D2: the account, from the pty's owner and the session's
+    ///   logind session, and the refusal of a file before login.
+    #[cfg(feature = "images")]
+    fn start_image(
+        &mut self,
+        master: std::os::fd::BorrowedFd<'_>,
+        child: Option<u32>,
+        max_bytes: u64,
+        largest_file: u64,
+        file: bool,
+    ) -> Result<(OwnedFd, Pid, OwnedFd), Errno> {
+        use vtium_platform::image_helper::{Session, System, resolve, start};
+        let images = self.images.as_mut().ok_or(errno(libc::ENOEXEC))?;
+        let session = Session {
+            child,
+            pty_owner: vtium_platform::pty::slave_owner(master).map_err(|e| e.to_string()),
+        };
+        let (account, disagree) = resolve(&System, &mut images.prelogin, &session, file);
+        if let Some((owner, logind)) = disagree {
+            log::warn!(
+                target: "broker",
+                "the pty's owner, uid {owner}, is not the user of the session's logind session, uid {logind}; vtium starts the image helper as uid {logind}"
+            );
+        }
+        let account = account.map_err(|why| {
+            log::debug!(target: "broker", "vtium's root process starts no image helper: {why:?}");
+            errno(libc::EACCES)
+        })?;
+        let started = start(
+            &images.program,
+            &account,
+            max_bytes,
+            largest_file,
+            images.tmpdir.as_deref(),
+        )
+        .map_err(|why| {
+            log::warn!(target: "broker", "{why}");
+            errno(libc::EIO)
+        })?;
+        Ok((started.socket, started.pid, started.pidfd))
+    }
+
+    #[cfg(not(feature = "images"))]
+    fn start_image(
+        &mut self,
+        _: std::os::fd::BorrowedFd<'_>,
+        _: Option<u32>,
+        _: u64,
+        _: u64,
+        _: bool,
+    ) -> Result<(OwnedFd, Pid, OwnedFd), Errno> {
+        Err(errno(libc::ENOEXEC))
+    }
+
     fn start_font(&mut self, id: u32) -> Result<OwnedFd, Errno> {
-        if self.running.len() >= FONT_HELPERS_MAX {
+        if self
+            .running
+            .values()
+            .filter(|r| r.console.is_none())
+            .count()
+            >= FONT_HELPERS_MAX
+        {
             return Err(errno(libc::EAGAIN));
         }
         let launcher = self.font.as_ref().ok_or(errno(libc::ENOEXEC))?;
@@ -127,20 +267,28 @@ impl Helpers {
             let _ = child.wait();
             return Err(errno(libc::EPERM));
         }
-        let pidfd = match i32::try_from(child.id())
-            .ok()
-            .and_then(Pid::from_raw)
-            .map(|pid| rustix::process::pidfd_open(pid, PidfdFlags::empty()))
-        {
-            Some(Ok(pidfd)) => pidfd,
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(errno(libc::EIO));
-            }
-        };
+        let pid = i32::try_from(child.id()).ok().and_then(Pid::from_raw);
+        let pidfd =
+            match pid.map(|pid| (pid, rustix::process::pidfd_open(pid, PidfdFlags::empty()))) {
+                Some((pid, Ok(pidfd))) => (pid, pidfd),
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(errno(libc::EIO));
+                }
+            };
+        let (pid, pidfd) = pidfd;
+        // The child is reaped through its pidfd, so its handle goes.
+        drop(child);
         (self.wake)(pidfd.as_fd());
-        self.running.insert(id, Running { child, pidfd });
+        self.running.insert(
+            id,
+            Running {
+                pid,
+                pidfd,
+                console: None,
+            },
+        );
         Ok(ours)
     }
 
@@ -151,12 +299,7 @@ impl Helpers {
             // The helper leads its own process group; its pidfd still
             // names it, since nothing has reaped it.
             let _ = rustix::process::pidfd_send_signal(&running.pidfd, Signal::KILL);
-            if let Some(pid) = i32::try_from(running.child.id())
-                .ok()
-                .and_then(Pid::from_raw)
-            {
-                let _ = rustix::process::kill_process_group(pid, Signal::KILL);
-            }
+            let _ = rustix::process::kill_process_group(running.pid, Signal::KILL);
         }
     }
 
@@ -238,7 +381,7 @@ mod tests {
                     Box::new(Nowhere),
                     session_wake,
                 ),
-                Helpers::new(Some(sleeper()), helper_wake),
+                Helpers::new(Some(sleeper()), None, helper_wake),
                 PowerKeys::new(&config(&[]), Box::new(vtium::power::System), None),
             ),
         };
@@ -320,7 +463,7 @@ mod tests {
     #[test]
     fn an_image_helper_needs_an_open_session() {
         let (_, wake) = watching();
-        let mut helpers = Helpers::new(None, wake);
+        let mut helpers = Helpers::new(None, None, wake);
         let (_, session_wake) = watching();
         let sessions = Sessions::new(
             conf("sleep 1000", "exit 0", WIDE),
@@ -347,7 +490,7 @@ mod tests {
     #[test]
     fn at_most_two_font_helpers_run() {
         let (watched, wake) = watching();
-        let mut helpers = Helpers::new(Some(sleeper()), wake);
+        let mut helpers = Helpers::new(Some(sleeper()), None, wake);
         let (_, session_wake) = watching();
         let sessions = Sessions::new(
             conf("exit 0", "exit 0", WIDE),
@@ -380,7 +523,7 @@ mod tests {
                     Box::new(Nowhere),
                     session_wake,
                 ),
-                Helpers::new(None, helper_wake),
+                Helpers::new(None, None, helper_wake),
                 PowerKeys::new(&config(&[]), Box::new(vtium::power::System), None),
             ),
         };
@@ -407,5 +550,74 @@ mod tests {
             jobs.tick(&mut out);
         }
         assert_eq!(jobs.processes.unasked, [Order::Blank]);
+    }
+
+    /// An image helper starts as the account the rules choose: for a test
+    /// that runs without root, the test's own user, who owns the
+    /// session's pty. A third helper for one console waits.
+    #[cfg(feature = "images")]
+    #[test]
+    fn an_image_helper_starts_as_the_sessions_user() {
+        let (_, session_wake) = watching();
+        let mut sessions = Sessions::new(
+            conf("sleep 1000", "exit 0", WIDE),
+            Box::new(Nowhere),
+            session_wake,
+        );
+        let _master = sessions
+            .open(&console("left", 1), &GRID, Display::Kms, true)
+            .unwrap();
+        let program = vtium_platform::image_helper::Program::open_with(
+            "/bin/sleep".as_ref(),
+            vec!["1000".into()],
+        )
+        .unwrap();
+        let images = Images {
+            program,
+            tmpdir: None,
+            prelogin: vtium_platform::image_helper::Prelogin::default(),
+        };
+        let (watched, wake) = watching();
+        let mut helpers = Helpers::new(None, Some(images), wake);
+        let image = |id: u64| Helper::Image {
+            console: console("left", id),
+            max_bytes: 1 << 20,
+            largest_file: 1 << 20,
+            file: false,
+        };
+        assert_eq!(
+            helpers.start(1, &image(2), &sessions).err(),
+            Some(errno(libc::ENOENT))
+        );
+        let socket = helpers.start(1, &image(1), &sessions).unwrap();
+        assert_eq!(
+            rustix::net::sockopt::socket_type(&socket).unwrap(),
+            SocketType::SEQPACKET
+        );
+        let pid = helpers.running[&1].pid;
+        let status =
+            std::fs::read_to_string(format!("/proc/{}/status", pid.as_raw_nonzero())).unwrap();
+        let me = rustix::process::getuid().as_raw();
+        let uids: Vec<u32> = status
+            .lines()
+            .find_map(|l| l.strip_prefix("Uid:"))
+            .unwrap()
+            .split_whitespace()
+            .map(|u| u.parse().unwrap())
+            .collect();
+        assert_eq!(uids, [me; 4], "the helper runs as another account");
+        assert!(helpers.start(2, &image(1), &sessions).is_ok());
+        assert_eq!(
+            helpers.start(3, &image(1), &sessions).err(),
+            Some(errno(libc::EAGAIN))
+        );
+        for id in [1, 2] {
+            helpers.stop(id);
+        }
+        wait_for_exits(&watched);
+        let mut ended = helpers.reap();
+        ended.sort_by_key(|(id, _)| *id);
+        assert_eq!(ended, [(1, Status::Signal(9)), (2, Status::Signal(9))]);
+        sessions.close(&console("left", 1));
     }
 }
