@@ -1010,6 +1010,19 @@ It takes one of \fB1\fR, \fB2\fR, \fB3\fR. Default: unset.
 .IP
 Set it in the top level, or on vtium's command line with \fB\-\-display\-buffers=VALUE\fR.
 .TP
+\fBscroll-draw\fR
+How the displays of a head show text that scrolls.
+.IP
+\fBauto\fR pans where the display's driver allows it, and copies where it does not. \fBpan\fR does the same, and logs a warning when the driver does not allow the pan. \fBcopy\fR always copies, and \fBredraw\fR redraws every line a scroll moves. A head that draws with the GPU, or can move to it, always uses \fBredraw\fR, and so does a build without the \fBscroll\-pan\fR feature.
+.IP
+To pan, vtium keeps each display buffer taller than the screen. A scroll then moves the part of the buffer that the screen shows, so vtium draws only the new lines. To copy, vtium keeps the drawn lines in memory and copies the screen's part to the display.
+.IP
+A display buffer that pans holds about two screens, and the copy keeps about one screen of memory for each display, so \fBredraw\fR takes the least memory. A build without \fBscroll\-pan\fR logs once that it ignores \fBpan\fR and \fBcopy\fR.
+.IP
+It takes one of \fBauto\fR, \fBpan\fR, \fBcopy\fR, \fBredraw\fR. Default: \fBauto\fR.
+.IP
+Set it in the top level or a \fB[head NAME]\fR section, or on vtium's command line with \fB\-\-scroll\-draw=VALUE\fR.
+.TP
 \fBhwaccel\fR
 Draw with the GPU, in a build that supports it.
 .IP

@@ -353,8 +353,9 @@ impl Painter {
     }
 
     /// Whether the thread may hold a GL context: the head is on the GPU
-    /// path, or its set-up is not known yet.
-    fn may_hold_gpu(&self) -> bool {
+    /// path, held on the CPU path for now or not, or its set-up is not
+    /// known yet.
+    pub fn may_hold_gpu(&self) -> bool {
         self.path != Some(Path::Cpu)
     }
 
