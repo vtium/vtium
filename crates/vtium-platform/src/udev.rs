@@ -810,7 +810,7 @@ fn node_facts(path: &Path) -> io::Result<(NodeFacts, u64)> {
 }
 
 /// Opens the node at `path` for the drawer, read-write, non-blocking and
-/// close-on-exec, once [`admit`] allows it for `seat`. The broker reads
+/// close-on-exec, once the checks of `admit` allow it for `seat`. The broker reads
 /// the node without following a link before it opens it, so a refused
 /// node is never opened, and it checks after the open that the open file
 /// is the device it read. A refusal is logged with its reason and answers
