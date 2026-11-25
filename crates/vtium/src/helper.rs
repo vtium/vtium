@@ -320,6 +320,10 @@ pub struct Helper {
     /// processes under the privilege split; `None` when this process
     /// starts them itself.
     root: Option<Rc<dyn Root>>,
+    /// How many of the helper's frames [`Helper::poll`] has taken, for a
+    /// test that moves its clock only once the helper's frames are in.
+    #[cfg(test)]
+    taken: u64,
     /// The pointer ask the helper has not answered whole, its frames so
     /// far, and when it was sent.
     pointer: Option<(crate::pointer_file::Reply, Instant)>,
@@ -383,6 +387,8 @@ impl Helper {
             sandbox_noted: None,
             failed: None,
             root: None,
+            #[cfg(test)]
+            taken: 0,
             pointer: None,
             pointer_done: None,
             pointers_only: false,

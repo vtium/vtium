@@ -966,11 +966,38 @@ mod tests {
             "each helper has an id of its own"
         );
         assert!(first.exit.try_recv().is_err(), "no exit before the report");
-        app.take_orders();
+        // The stand-in sends the second report on its own thread, after
+        // its answer, so the loop takes the reports as they come.
+        let courier = Rc::clone(app.broker.as_ref().unwrap());
+        let mut statuses = [None, None];
+        for _ in 0..10 {
+            app.take_orders();
+            for (got, launched) in statuses.iter_mut().zip([&first, &second]) {
+                if got.is_none() {
+                    *got = launched.exit.try_recv().ok();
+                }
+            }
+            if statuses.iter().all(Option::is_some) {
+                break;
+            }
+            let mut fds = [rustix::event::PollFd::new(
+                &courier,
+                rustix::event::PollFlags::IN,
+            )];
+            let bound = rustix::event::Timespec {
+                tv_sec: 30,
+                tv_nsec: 0,
+            };
+            assert_eq!(rustix::event::poll(&mut fds, Some(&bound)).unwrap(), 1);
+        }
+        drop(courier);
         use std::os::unix::process::ExitStatusExt;
-        for launched in [&first, &second] {
-            let status = launched.exit.try_recv().unwrap();
-            assert_eq!(status.signal(), Some(9), "the root process's status");
+        for status in statuses {
+            assert_eq!(
+                status.and_then(|s| s.signal()),
+                Some(9),
+                "the root process's status"
+            );
         }
         root.stop(first.id);
         drop((root, app, lp));

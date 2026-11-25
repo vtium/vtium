@@ -2528,18 +2528,23 @@ fn a_crash_with_an_ask_and_a_fill_under_way_fails_one_source() {
     assert!(!s.helper.busy(), "the fill is done");
 }
 
-/// Polls `s` as the loop does, moving the clock 9 s each time the
-/// helper sends a frame, so no answer is ever past ANSWER_MS, until the
-/// helper has nothing outstanding or is given up.
+/// Polls `s` as the loop does, moving the clock 9 s after each poll that
+/// took one of the helper's frames, so no answer is ever past ANSWER_MS,
+/// until the helper has nothing outstanding or is given up. The clock
+/// follows the frames taken, not the reader's wake-ups: a poll can take a
+/// frame whose wake-up comes after it, and that wake-up then brings no
+/// frame.
 fn drive_slowly(s: &mut StandIn, now: &mut Instant) {
     for _ in 0..200 {
+        let taken = s.helper.taken;
         let _ = s.helper.poll(*now);
         if s.helper.failed().is_some() || !s.helper.busy() {
             break;
         }
-        while s.woke.try_recv().is_ok() {}
-        if s.woke.recv_timeout(Duration::from_secs(10)).is_ok() {
+        if s.helper.taken > taken {
             *now += Duration::from_secs(9);
+        } else {
+            let _ = s.woke.recv_timeout(Duration::from_secs(10));
         }
     }
 }
