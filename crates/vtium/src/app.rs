@@ -129,6 +129,7 @@ mod batch;
 #[cfg(test)]
 mod batch_login;
 mod blanking;
+pub mod broker;
 #[cfg(test)]
 mod colorterm;
 #[cfg(test)]
@@ -429,6 +430,10 @@ pub struct App {
     retaking: BTreeSet<PathBuf>,
     /// Devices a release waits on.
     releasing: Option<BTreeSet<PathBuf>>,
+    /// Under the privilege split, vtium's root process, which starts the
+    /// sessions and runs the power keys; `None` when vtium runs as one
+    /// process.
+    broker: Option<Rc<broker::Courier>>,
     /// Device events a test hands the next turn, as udev would.
     #[cfg(test)]
     queued_devices: Vec<DeviceEvent>,
@@ -696,6 +701,7 @@ impl App {
             retake_owed: false,
             retaking: BTreeSet::new(),
             releasing: None,
+            broker: None,
             #[cfg(test)]
             queued_devices: Vec::new(),
             wait,

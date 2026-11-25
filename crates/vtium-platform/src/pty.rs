@@ -120,6 +120,27 @@ pub struct Pty {
     /// Whether dropping the pty hangs its session up; [`Pty::release`]
     /// turns it off.
     hang_up: bool,
+    /// For a pty [`Pty::passed`] made, the process that started its
+    /// session, which hangs the session up and signals it in the pty's
+    /// place.
+    remote: Option<Box<dyn Remote>>,
+}
+
+/// The process that started a session whose pty master another process
+/// passed to vtium. Under the privilege split, vtium's root process starts
+/// each session as root, and the drawing process, which runs as another
+/// account, cannot signal the session's processes, so it asks the root
+/// process to.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the broker hangs a session up
+///   when the drawer closes its console, and sends `SIGWINCH` when the
+///   drawer asks.
+pub trait Remote {
+    /// Hangs the session up: the console it ran on closed.
+    fn hang_up(&self);
+    /// Sends `SIGWINCH` to the session's foreground process group.
+    fn winch(&self) -> io::Result<()>;
 }
 
 impl Pty {
@@ -186,6 +207,7 @@ impl Pty {
             size,
             link: None,
             hang_up: true,
+            remote: None,
         })
     }
 
@@ -231,7 +253,19 @@ impl Pty {
             size,
             link: None,
             hang_up: true,
+            remote: None,
         })
+    }
+
+    /// Makes a pty of `master`, which `remote` started a session on and
+    /// passed to vtium, at the size the kernel holds for it. The pty
+    /// watches the session's leader as [`Pty::adopt`] does. Dropping the
+    /// pty asks `remote` to hang the session up, and [`Pty::redraw`] asks
+    /// it for `SIGWINCH`, since vtium cannot signal the session itself.
+    pub fn passed(master: OwnedFd, remote: Box<dyn Remote>) -> io::Result<Pty> {
+        let mut pty = Pty::adopt(master)?;
+        pty.remote = Some(remote);
+        Ok(pty)
     }
 
     /// Puts the pty in the loop behind `handle`. `access` finds the pty
@@ -409,8 +443,10 @@ impl Pty {
             tcsetwinsize(&*self.master, wanted)?;
             return Ok(());
         }
-        kill_process_group(tcgetpgrp(&*self.master)?, Signal::WINCH)?;
-        Ok(())
+        match &self.remote {
+            Some(remote) => remote.winch(),
+            None => winch(self.master.as_fd()),
+        }
     }
 
     /// The child's process id, or `None` once it was reaped; for an
@@ -517,7 +553,10 @@ impl Drop for Pty {
         if !self.hang_up {
             return;
         }
-        self.signal_leader();
+        match &self.remote {
+            Some(remote) => remote.hang_up(),
+            None => self.signal_leader(),
+        }
         let link = self.link.take();
         let Some(child) = self.child.take() else {
             return;
@@ -922,7 +961,7 @@ impl<D: 'static, C, A> Drop for LoopLink<D, C, A> {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
     use std::collections::BTreeSet;
     use std::path::Path;
     use std::time::Duration;
@@ -1216,5 +1255,48 @@ mod tests {
         failing_at(Step::Reaper, || drop(pty));
         let left = left_unreaped(&before);
         assert_eq!(left, [], "children left unreaped");
+    }
+
+    /// Records what a passed pty asks of the process that started it.
+    struct Asked(Rc<RefCell<Vec<&'static str>>>);
+
+    impl Remote for Asked {
+        fn hang_up(&self) {
+            self.0.borrow_mut().push("hang up");
+        }
+        fn winch(&self) -> io::Result<()> {
+            self.0.borrow_mut().push("winch");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_passed_pty_asks_its_starter_to_signal_its_session() {
+        let started = open_session(sleeper(), SIZE, Erase::Delete).unwrap();
+        let asked: Rc<RefCell<Vec<&'static str>>> = Rc::default();
+        let passed = || {
+            Pty::passed(
+                started.master.try_clone().unwrap(),
+                Box::new(Asked(Rc::clone(&asked))),
+            )
+            .unwrap()
+        };
+        let mut pty = passed();
+        assert_eq!(pty.size, SIZE, "the pty takes the size the kernel holds");
+        // a new size reaches the kernel, which signals the session itself
+        let bigger = Size { cols: 90, ..SIZE };
+        pty.redraw(bigger).unwrap();
+        assert!(asked.borrow().is_empty());
+        // the same size again sends nothing through the kernel
+        pty.redraw(bigger).unwrap();
+        assert_eq!(*asked.borrow(), ["winch"]);
+        drop(pty);
+        assert_eq!(*asked.borrow(), ["winch", "hang up"]);
+        // a pty let go at vtium's exit leaves its session running
+        passed().release();
+        assert_eq!(*asked.borrow(), ["winch", "hang up"]);
+        let mut child = started.child;
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }

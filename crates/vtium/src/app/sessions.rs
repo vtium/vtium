@@ -142,7 +142,16 @@ impl App {
         if let Some(head) = self.heads.get_mut(h) {
             head.place_login_image(id);
         }
-        let spawned = if self.vt.logind_seat() {
+        let spawned = if let Some(courier) = self.broker.clone() {
+            // Under the privilege split, vtium's root process starts the
+            // session, with the command of its own reading of vtium.conf.
+            //
+            // References:
+            // - ADR-1400 D4, "What the broker does": the broker makes the
+            //   pty and starts `login` on it.
+            let place = self.place(h, id);
+            self.broker_session(&courier, h, id, size, place.display, truecolor)
+        } else if self.vt.logind_seat() {
             // ADR-1400 D3, its note on each login's own session: the child
             // waits before its exec until systemd has moved it into a scope
             // of its own, outside vtium's logind session.
