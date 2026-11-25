@@ -60,7 +60,7 @@ considered:
   - operator: aaronsb
     said: "we just need to be careful about not changing code yet. We should just consider the logical splits we have now. actually making it work more independent later is not in this set of split cards"
     via: in chat, 2026-11-25
-status: proposed
+status: accepted
 date: 2026-11-25
 deciders:
   - aaronsb
