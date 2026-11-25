@@ -934,6 +934,33 @@ const SHORT: (u32, u32) = (32, 2 * 16 + 2);
 /// 9 rows.
 const TALL: (u32, u32) = (32, 2 * 16 + 8 * 16 + 2);
 
+// A view tells the screen the reach its frames ask for before the
+// snapshot is taken, so a change of width rewraps at once only the rows
+// those frames hold, one past the farthest they ask for, and not every
+// row a frame could ask for.
+//
+// References:
+// - ADR-1310 D2, "What the capture holds under `scroll-pan`": the K+1 rows above the screen that each frame holds.
+#[test]
+fn a_view_tells_the_screen_the_rows_its_frames_ask_for() {
+    let mut term = term_with_history();
+    let (mut view, mut video) = display(SHORT);
+    assert_eq!(held(&pass(&mut term, &mut [(&mut view, &mut video)])), 5);
+    let palette = term.terminal.palette().clone();
+    term.terminal.screen_mut().resize(8, 2);
+    let more = vtium_term::Reach {
+        above: 10,
+        ..vtium_term::Reach::default()
+    };
+    let frame = term
+        .terminal
+        .screen()
+        .frame_reaching(&palette, Age::NEVER, more);
+    // the screen's 2 rows, which a taller screen would take back, and the
+    // 5 rows the frames hold: none past them is rewrapped yet
+    assert_eq!(frame.rows_above(), 2 + 5);
+}
+
 // One snapshot serves every view of a pass, and the first view to prepare
 // takes it. When a view that asks for more rows above the screen prepares
 // after it, that view draws its frame and is pending, and the next pass
