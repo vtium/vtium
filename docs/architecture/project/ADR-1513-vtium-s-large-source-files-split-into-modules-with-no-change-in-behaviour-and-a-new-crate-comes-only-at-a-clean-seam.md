@@ -157,7 +157,9 @@ The modules below are named from the code as it stands on 2026-11-25. Each split
   - `app/turn.rs`: the end of each turn and the timers. `turn`, `timers`, `animate`, `report`, `exiting`, `next_wake`.
   - `app/drawing.rs`: the render threads and the frames. `render_timer`, `measure`, `draw`, `osd`, `let_go_of_painters`, `painter`, `gpu_source`, `frames`, `draw_head`, `left_gpu`, `failed_gpu_frame`, `gpu_notes`, `refused_gpu_display`, `back_on_gpu`, `display_lines`, `display_line`, `power_down`, `render_timer_line`.
   - `app/tests.rs`: app.rs's unit tests, 4,188 lines, with the test helpers that app/rapid.rs and the other children import from `super::tests`.
+
 > Note 2026-11-25: the first split card named the module `app/key_order.rs` instead of `app/keys.rs`, because a child module named `keys` clashes with app.rs's import of `crate::config::keys`, and it moved `KeyShown` there from `app/input.rs`, because only `key` reads it. The bullet read: "`app/keys.rs`: the key order and the heads' chords. `key`, `chord`." D6's row for S1a named `keys.rs` as well.
+
 - **helper.rs** (3,680). helper.rs keeps the module's account of the helper, `Failures`, `Helper` and its public methods from `new` to `retain`, about 950 lines.
   - `helper/sandbox.rs`: what the console logs of the helper's sandbox and the options that turn it off. `failure`, `seccomp_reason`, `domain_reason`, `because`, `sandbox_notice`, `log_sandbox_once`, `sandbox_on`, `sandbox_args`.
   - `helper/launcher.rs`: how the console starts the helper and checks the account it runs as. `nobody`, `Command`, `Launcher`, `active_request`, `status_ids`, `holds_account`, `font_dirs`, `program`, `open_program`, `refusal`.
