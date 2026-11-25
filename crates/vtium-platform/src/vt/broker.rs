@@ -71,10 +71,8 @@ use crate::event_loop::Loop;
 use crate::input::{Evdev, EventDevice, KeyEvent, Open, Opening};
 
 /// How long the drawer waits for the broker's answer to a request that
-/// waits for one: a device's descriptor, or whether master was taken. The
-/// broker answers at once, so only a broker that has stopped serving makes
-/// the drawer wait this long.
-pub const ANSWER_BOUND: Duration = Duration::from_millis(5_000);
+/// waits for one: [`crate::bounds::ANSWER_BOUND_MS`].
+pub const ANSWER_BOUND: Duration = Duration::from_millis(crate::bounds::ANSWER_BOUND_MS as u64);
 
 /// Whether the VT is the drawer's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -44,14 +44,9 @@ use crate::vt::kernel::Reach;
 use crate::vt::{Console, KernelVt, Tty, Vt, VtEvent};
 
 /// How long the broker waits for the drawer to let its devices go after it
-/// tells the drawer the VT is asked for. A drawer that has not answered by
-/// then loses the devices all the same. The bound holds up a switch away
-/// from vtium's VT for at most this long.
-///
-/// References:
-/// - ADR-1400 D4, "What the broker does": the bound's value, a constant in
-///   the code and not a key of vtium.conf.
-pub const RELEASE_BOUND: Duration = Duration::from_millis(10_000);
+/// tells the drawer the VT is asked for: [`crate::bounds::RELEASE_BOUND_MS`].
+/// A drawer that has not answered by then loses the devices all the same.
+pub const RELEASE_BOUND: Duration = Duration::from_millis(crate::bounds::RELEASE_BOUND_MS as u64);
 
 /// The broker's calls on the device nodes, so the tests can record them.
 pub(crate) trait Nodes {
