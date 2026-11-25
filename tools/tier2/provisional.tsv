@@ -16,3 +16,6 @@ login-contain-right	moves under ADR-1310 D10 (the grid flush to the bottom), car
 login-contain-bottom	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
 login-scale-bottom-right	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
 login-banner-bottom-right	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet
+rows-above-alt	new under ADR-1310 D10 (the rows of history above the screen in the spare lines), card B8c-C1: the alternate screen, whose spare lines show the border's color
+rows-above-ink	new under ADR-1310 D10 (the rows of history above the screen in the spare lines), card B8c-C1: ink across the screen's top edge
+rows-above-dhl	new under ADR-1310 D10 (the rows of history above the screen in the spare lines), card B8c-C1: a double-height pair split at the top edge
