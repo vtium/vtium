@@ -494,12 +494,48 @@ fn pan_writes(
     out
 }
 
-/// With drawing ahead, no frame writes a row inside the window its flip
-/// shows or the window the flip before showed, once each buffer has been
-/// drawn: with one buffer, the display never scans out a row while the pan
-/// draws it. This holds at row and pixel steps, with one, two and three
-/// buffers, scrolling back and, on a screen without a strip, forward. The
-/// strip itself is the one write a frame makes inside its windows.
+/// Checks that a pan drawing ahead with `spare` spare rows writes no row
+/// inside the window its flip shows or the window the flip before showed,
+/// once each buffer has been drawn, scrolling back at `speed` in `unit`
+/// and, on a screen without a strip, forward. The strip itself is the one
+/// write a frame makes inside its windows.
+fn assert_no_row_inside_the_windows(
+    g: Geometry,
+    buffers: usize,
+    unit: Unit,
+    speed: u32,
+    spare: u32,
+) {
+    let step = unit.lines(speed, g);
+    let back = steps(g, step, 150);
+    let forward: Vec<i64> = back.iter().rev().copied().collect();
+    let scrolls = if g.strip() == 0 {
+        vec![back, forward]
+    } else {
+        vec![back]
+    };
+    for places in scrolls {
+        let frames = pan_writes(g, true, spare, buffers, unit, &places);
+        for f in 2 * buffers..frames.len() {
+            let (now, before) = (frames[f].0, frames[f - 1].0);
+            for w in frames[f].1.iter().filter(|w| !w.strip) {
+                assert!(
+                    !w.meets(now, g.height) && !w.meets(before, g.height),
+                    "{g:?}, {buffers} buffers, {speed} {} a frame, {spare} spare rows, frame {f}: \
+                     a row written at line {} lies in the window at {now} or {before}",
+                    unit.name(),
+                    w.line
+                );
+            }
+        }
+    }
+}
+
+/// With drawing ahead and 20 spare rows, no frame writes a row inside the
+/// window its flip shows or the window the flip before showed: with one
+/// buffer, the display never scans out a row while the pan draws it. This
+/// holds at row and pixel steps up to 2 rows or 7 pixel lines a frame,
+/// with one, two and three buffers.
 #[test]
 fn with_drawing_ahead_no_row_is_written_inside_the_windows_on_screen() {
     let cases = [
@@ -512,30 +548,81 @@ fn with_drawing_ahead_no_row_is_written_inside_the_windows_on_screen() {
     for g in [EVEN, STRIP] {
         for buffers in 1..=3 {
             for (unit, speed) in cases {
-                let step = unit.lines(speed, g);
-                let back = steps(g, step, 150);
-                let forward: Vec<i64> = back.iter().rev().copied().collect();
-                let scrolls = if g.strip() == 0 {
-                    vec![back, forward]
-                } else {
-                    vec![back]
-                };
-                for places in scrolls {
-                    let frames = pan_writes(g, true, 20, buffers, unit, &places);
-                    for f in 2 * buffers..frames.len() {
-                        let (now, before) = (frames[f].0, frames[f - 1].0);
-                        for w in frames[f].1.iter().filter(|w| !w.strip) {
-                            assert!(
-                                !w.meets(now, g.height) && !w.meets(before, g.height),
-                                "{g:?}, {buffers} buffers, {speed} {} a frame, frame {f}: \
-                                 a row written at line {} lies in the window at {now} or {before}",
-                                unit.name(),
-                                w.line
-                            );
-                        }
-                    }
-                }
+                assert_no_row_inside_the_windows(g, buffers, unit, speed, 20);
             }
+        }
+    }
+}
+
+/// In a ring with only 2 or 4 spare rows, the rows ahead wrap round into
+/// the slots of the window the flip before showed, and drawing ahead
+/// leaves them for later instead of writing into that window. Each case
+/// is one where the ring still has room for every row the view needs.
+#[test]
+fn with_drawing_ahead_a_small_ring_writes_nothing_inside_the_window_before() {
+    let cases = [
+        (1, Unit::Rows, 1, 4),
+        (1, Unit::Pixels, 4, 2),
+        (1, Unit::Pixels, 7, 4),
+        (2, Unit::Rows, 1, 4),
+        (2, Unit::Pixels, 1, 2),
+        (2, Unit::Pixels, 4, 4),
+        (3, Unit::Pixels, 1, 4),
+        (3, Unit::Pixels, 4, 4),
+    ];
+    for g in [EVEN, STRIP] {
+        for (buffers, unit, speed, spare) in cases {
+            assert_no_row_inside_the_windows(g, buffers, unit, speed, spare);
+        }
+    }
+}
+
+/// Drawing ahead keeps as many rows drawn ahead of the view as the view
+/// passes before the same buffer is drawn again, plus a margin of 4: at a
+/// speed of `s` rows a frame with `n` buffers, `s` × `n` + 4 rows. A step
+/// of 4 pixel lines in 6-line cells passes into at most one new row a
+/// frame, so it counts as 1 row a frame.
+#[test]
+fn drawing_ahead_keeps_the_rows_the_next_frames_need_plus_a_margin() {
+    // (buffers, unit, speed, rows ahead)
+    let cases = [
+        (1, Unit::Rows, 1, 5),
+        (2, Unit::Rows, 1, 6),
+        (3, Unit::Rows, 1, 7),
+        (1, Unit::Rows, 2, 6),
+        (2, Unit::Rows, 2, 8),
+        (3, Unit::Rows, 3, 13),
+        (2, Unit::Pixels, 4, 6),
+    ];
+    let ch = i64::from(EVEN.cell_height);
+    let pattern = Pattern::new(EVEN);
+    for (buffers, unit, speed, want) in cases {
+        let mut pan = Pan::with_ahead(EVEN, 40, unit, buffers, true);
+        let mut bufs: Vec<Vec<u8>> = (0..buffers)
+            .map(|_| buffer(pan.ring.buffer_height(EVEN)))
+            .collect();
+        let places = steps(EVEN, unit.lines(speed, EVEN), 40);
+        for (frame, &pos) in places.iter().enumerate() {
+            let b = frame % buffers;
+            pan.frame(&pattern, EVEN, b, &mut bufs[b], STRIDE, pos);
+            if frame < 2 * buffers {
+                continue;
+            }
+            // The rows above the view's top row, nearest first, that the
+            // buffer holds at their slots, up to the first it lacks.
+            let top = pos.div_euclid(ch);
+            let held = (1..)
+                .take_while(|k| {
+                    let row = top - k;
+                    pan.held(b)[pan.ring.slot(row) as usize] == Some(row)
+                })
+                .count();
+            assert_eq!(
+                held,
+                want,
+                "{buffers} buffers, {speed} {} a frame, frame {frame}: rows ahead",
+                unit.name()
+            );
         }
     }
 }
