@@ -14,6 +14,14 @@ use crate::bounds::{BLOB_MAX, ENCODERS_MAX, MODES_MAX, OBJECT_PROPERTIES_MAX, PL
 pub(crate) struct Resources {
     pub(crate) crtcs: Vec<u32>,
     pub(crate) connectors: Vec<u32>,
+    /// The widest and the tallest framebuffer the card makes, which the
+    /// kernel refuses to pass with EINVAL when a framebuffer is added
+    /// (`drm_internal_framebuffer_create`). A buffer taller than the screen
+    /// must fit inside them.
+    #[cfg(feature = "scroll-pan")]
+    pub(crate) max_width: u32,
+    #[cfg(feature = "scroll-pan")]
+    pub(crate) max_height: u32,
 }
 
 /// A connector as the kernel reports it.
