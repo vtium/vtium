@@ -1,8 +1,8 @@
-# vtium fuzz target
+# vtium-broker-protocol fuzz target
 
-A cargo-fuzz target in its own workspace, so the main workspace and CI never build it or pull `libfuzzer-sys`. The broker runs as root and reads every message the drawer sends, so the reader of those messages runs under fuzzing (ADR-1400 D4). The reader is `src/broker/protocol.rs`, a module of the vtium binary, and the target includes that file. Run the target on nightly from this directory: `cargo +nightly fuzz run protocol corpus/protocol seeds/protocol`. Your own corpus directory comes first and the seeds after it.
+A cargo-fuzz target in its own workspace, so the main workspace and CI never build it or pull `libfuzzer-sys`. The broker runs as root and reads every message the drawer sends, so the reader of those messages runs under fuzzing (ADR-1400 D4). The reader is this crate's `src/lib.rs`, and the target depends on the crate. Run the target on nightly from this directory: `cargo +nightly fuzz run protocol corpus/protocol seeds/protocol`. Your own corpus directory comes first and the seeds after it.
 
-From the repository's root, `make fuzz FUZZ_TARGETS=vtium:protocol` runs the target from a fresh corpus outside the repository, with the seeds copied in. It appends a row to `runs.tsv`, which records how long each run lasted, against which commit, and what it found.
+From the repository's root, `make fuzz FUZZ_TARGETS=vtium-broker-protocol:protocol` runs the target from a fresh corpus outside the repository, with the seeds copied in. It appends a row to `runs.tsv`, which records how long each run lasted, against which commit, and what it found.
 
 | Path | What it is |
 |---|---|
