@@ -5,7 +5,8 @@
 //! every pixel it writes; a twin is drawn only when a window shows it; a
 //! scroll draws only the border it shows anew; a frame drawn whole puts
 //! the window at rest; an overlay drawn over the window goes with its
-//! lines; and, at 1366×768, a one-line scroll draws only the rows that
+//! lines, also over a frame that changes nothing and in random runs; and,
+//! at 1366×768, a one-line scroll draws only the rows that
 //! came in while a screen rewritten in place writes no more than the
 //! redraw way.
 #![expect(
@@ -142,6 +143,8 @@ enum Step {
     /// A new picture two rows tall is placed on a row of the screen, from
     /// its fourth column; nothing in a build without `images`.
     Picture(usize),
+    /// Nothing changes.
+    Still,
 }
 
 fn line(n: usize) -> Line {
@@ -315,6 +318,7 @@ impl Term {
                 #[cfg(not(feature = "images"))]
                 let _ = row;
             }
+            Step::Still => {}
         }
         (0, false)
     }
@@ -1196,6 +1200,92 @@ fn draw_over(target: &mut impl Target, (w, h): (u32, u32), area: crate::Rect) {
     }
 }
 
+/// Runs `script` through a renderer that pans over `buffers` buffers and
+/// one that copies into as many, on a display of shape `s`, drawing the
+/// overlay over each frame whose flag is true. Checks each frame against
+/// the redraw with the overlay drawn over it, and that the pan's damage
+/// with the overlay's holds every pixel the pan wrote. Returns the first
+/// failure.
+fn overlay_run(
+    o: Orientation,
+    s: Shape,
+    buffers: usize,
+    script: &[(Step, bool)],
+) -> Result<(), String> {
+    let mut term = Term::new();
+    let size = display(o, s);
+    let mut pan = renderer(o, s);
+    let mut copy = renderer(o, s);
+    // draws each frame whole into a new buffer, keeping its glyphs
+    let mut redraw = renderer(o, s);
+    let mut pans = Buffers::new(buffers, pan.pan_buffer_size());
+    let mut copies = Buffers::new(buffers, size);
+    let mut since = Age::NEVER;
+    for (n, &(step, over)) in script.iter().enumerate() {
+        let mut d = Damage::new(COLS, ROWS);
+        if n > 0 {
+            since = d.checkpoint();
+        }
+        let (scrolled, whole) = term.apply(step, &mut d);
+        let frame = term.frame(&d, since);
+        let state = term.state();
+        let mut want = Canvas::new(size.0, size.1, UNDRAWN);
+        redraw.draw(&frame, &mut want, 0, &state);
+        if over {
+            draw_over(&mut want, size, OVER);
+        }
+        let what = format!("{o:?} {s:?}, {buffers} buffers, step {n} {step:?}");
+
+        let (i, age) = pans.take();
+        let mut recorded = Recorded {
+            canvas: &mut pans.canvases[i],
+            writes: Vec::new(),
+        };
+        let (drawn, src) = pan.draw_pan(&frame, &mut recorded, age, &state, scrolled, whole);
+        let mut damage = drawn.damage.to_vec();
+        if over {
+            draw_over(&mut pan.pan_overlay(&mut recorded), size, OVER);
+            pan.redraw_area(OVER);
+            damage.extend(pan.pan_damage(OVER));
+        }
+        if let Err(at) = inside_damage(&recorded.writes, &damage) {
+            return Err(format!("{what}: the pan wrote {at:?} outside its damage"));
+        }
+        // the display presents the frame when it or the overlay has damage
+        pans.drawn(i, !damage.is_empty());
+        let shown = window(&pans.canvases[i], o, s, src);
+        if shown != want {
+            return Err(format!(
+                "{what}: the pan at {src} in buffer {i} at age {age} differs: {:?}",
+                first_difference(&shown, &want)
+            ));
+        }
+
+        let (i, age) = copies.take();
+        let drawn = copy.draw_copy(
+            &frame,
+            &mut copies.canvases[i],
+            age,
+            &state,
+            scrolled,
+            whole,
+        );
+        let damaged = !drawn.damage.is_empty();
+        if over {
+            draw_over(&mut copies.canvases[i], size, OVER);
+            copy.redraw_area(OVER);
+        }
+        copies.drawn(i, damaged || over);
+        if copies.canvases[i] != want {
+            return Err(format!(
+                "{what}: the copy differs: {:?}",
+                first_difference(&copies.canvases[i], &want)
+            ));
+        }
+    }
+    Ok(())
+}
+
 // what vtium draws over the screen through the pan lands where the window
 // shows it and in the line's other copy, and the cells under it are drawn
 // again on the next frame wherever a scroll moved them, so no trace of it
@@ -1216,80 +1306,103 @@ fn an_overlay_drawn_over_the_pan_moves_with_its_lines_and_goes() {
         (Step::Scroll(1), false),
         (Step::Write(2, 2, 'y'), false),
     ]);
+    // a frame that changes nothing, then one that changes nothing under
+    // the overlay: the display presents the second for the overlay alone,
+    // so the buffer it drew counts as holding a frame of its own
+    let still: Vec<(Step, bool)> = [
+        Step::Whole,
+        Step::Scroll(1),
+        Step::Scroll(1),
+        Step::Scroll(2),
+        Step::Scroll(1),
+        Step::Scroll(1),
+        Step::Still,
+        Step::Still,
+        Step::Scroll(1),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(n, step)| (step, n == 7))
+    .collect();
     for o in TURNS {
         for s in [TIGHT, WIDE] {
             for buffers in 0..=3 {
-                let mut term = Term::new();
-                let size = display(o, s);
-                let mut pan = renderer(o, s);
-                let mut copy = renderer(o, s);
-                let mut pans = Buffers::new(buffers, pan.pan_buffer_size());
-                let mut copies = Buffers::new(buffers, size);
-                let mut since = Age::NEVER;
-                for (n, &(step, over)) in script.iter().enumerate() {
-                    let mut d = Damage::new(COLS, ROWS);
-                    if n > 0 {
-                        since = d.checkpoint();
-                    }
-                    let (scrolled, whole) = term.apply(step, &mut d);
-                    let frame = term.frame(&d, since);
-                    let state = term.state();
-                    let mut want = redrawn(o, s, &frame, &state);
-                    if over {
-                        draw_over(&mut want, size, OVER);
-                    }
-                    let what = format!("{o:?} {s:?}, {buffers} buffers, step {n} {step:?}");
-
-                    let (i, age) = pans.take();
-                    let mut recorded = Recorded {
-                        canvas: &mut pans.canvases[i],
-                        writes: Vec::new(),
-                    };
-                    let (drawn, src) =
-                        pan.draw_pan(&frame, &mut recorded, age, &state, scrolled, whole);
-                    let mut damage = drawn.damage.to_vec();
-                    if over {
-                        draw_over(&mut pan.pan_overlay(&mut recorded), size, OVER);
-                        pan.redraw_area(OVER);
-                        damage.extend(pan.pan_damage(OVER));
-                    }
-                    let outside = inside_damage(&recorded.writes, &damage);
-                    assert!(
-                        outside.is_ok(),
-                        "{what}: the pan wrote {outside:?} outside its damage"
-                    );
-                    pans.drawn(i, !damage.is_empty());
-                    let shown = window(&pans.canvases[i], o, s, src);
-                    assert!(
-                        shown == want,
-                        "{what}: the pan at {src} differs: {:?}",
-                        first_difference(&shown, &want)
-                    );
-
-                    let (i, age) = copies.take();
-                    let drawn = copy.draw_copy(
-                        &frame,
-                        &mut copies.canvases[i],
-                        age,
-                        &state,
-                        scrolled,
-                        whole,
-                    );
-                    let damaged = !drawn.damage.is_empty();
-                    if over {
-                        draw_over(&mut copies.canvases[i], size, OVER);
-                        copy.redraw_area(OVER);
-                    }
-                    copies.drawn(i, damaged || over);
-                    assert!(
-                        copies.canvases[i] == want,
-                        "{what}: the copy differs: {:?}",
-                        first_difference(&copies.canvases[i], &want)
-                    );
+                for script in [&script, &still] {
+                    let ran = overlay_run(o, s, buffers, script);
+                    assert!(ran.is_ok(), "{}", ran.err().unwrap_or_default());
                 }
             }
         }
     }
+}
+
+/// A random number from `seed`, which it moves on (xorshift64*).
+fn random(seed: &mut u64) -> u64 {
+    *seed ^= *seed >> 12;
+    *seed ^= *seed << 25;
+    *seed ^= *seed >> 27;
+    seed.wrapping_mul(0x2545_f491_4f6c_dd1d)
+}
+
+// random runs of scrolls, writes in place and frames that change nothing,
+// some under the overlay, in every orientation and on both displays with
+// one to four buffers: each frame shows what the redraw draws, with the
+// overlay where it shows
+#[test]
+fn random_frames_under_an_overlay_show_what_the_redraw_draws() {
+    const RUNS: u64 = 3000;
+    // the runs are shared out among threads; each run's seed is its number
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get().min(8)) as u64;
+    let failed: Vec<String> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|t| {
+                scope.spawn(move || {
+                    (t..RUNS)
+                        .step_by(threads as usize)
+                        .filter_map(|run| random_overlay_run(run).err())
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|w| w.join().expect("a run panicked"))
+            .collect()
+    });
+    assert!(
+        failed.is_empty(),
+        "{} of {RUNS} runs failed, the first: {}",
+        failed.len(),
+        failed.first().map_or("", String::as_str)
+    );
+}
+
+/// The run of [`random_frames_under_an_overlay_show_what_the_redraw_draws`]
+/// whose seed is `run`.
+fn random_overlay_run(run: u64) -> Result<(), String> {
+    let mut seed = run.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+    let o = TURNS[(random(&mut seed) % 4) as usize];
+    let s = [TIGHT, WIDE][(random(&mut seed) % 2) as usize];
+    let buffers = [1, 2, 2, 2, 3, 3, 4][(random(&mut seed) % 7) as usize];
+    let mut script = vec![(Step::Whole, false)];
+    for _ in 0..14 {
+        let over = random(&mut seed).is_multiple_of(4);
+        match random(&mut seed) % 20 {
+            0..=5 => script.push((Step::Scroll(1), over)),
+            6..=9 => script.push((Step::Scroll(-1), over)),
+            10 => script.push((Step::Scroll(2), over)),
+            11 => script.push((Step::Scroll(-2), over)),
+            12..=15 => {
+                let row = (random(&mut seed) % ROWS as u64) as usize;
+                let col = (random(&mut seed) % COLS as u64) as usize;
+                script.push((Step::Write(row, col, 'w'), over));
+            }
+            // a pause: a frame that changes nothing, then one that changes
+            // nothing under the overlay
+            _ => script.extend([(Step::Still, false), (Step::Still, true)]),
+        }
+    }
+    overlay_run(o, s, buffers, &script).map_err(|e| format!("run {run}: {e}"))
 }
 
 // a frame whose scroll record states another scroll than the one the

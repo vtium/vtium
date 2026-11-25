@@ -274,6 +274,11 @@ pub(crate) struct Ring {
     twins: Vec<(u64, Vec<u64>)>,
     /// The frame's damage in the pan's buffer.
     damage: Vec<Rect>,
+    /// The serial of the frame that the buffer the pan drew last holds,
+    /// when that frame drew nothing and so did not count. A display that
+    /// presents the frame anyway, for an overlay, makes it count
+    /// ([`Renderer::pan_damage`]).
+    uncounted: Option<u64>,
     /// The copy's ring in system memory, empty until the copy draws.
     pixels: Vec<u32>,
     /// The damage of the copy's last frames, the newest last.
@@ -639,6 +644,7 @@ impl<F: Face> Renderer<F> {
         #[cfg(feature = "gpu")]
         self.gpu.drew_on_cpu();
         self.ring.pending = Some((scrolled, whole));
+        self.ring.uncounted = None;
         let before = self.ring.base;
         let plan = self.plan(frame, age, state);
         let g = Geometry::new(&self.layout, &plan.grid);
@@ -665,8 +671,13 @@ impl<F: Face> Renderer<F> {
         for &r in self.cells.damage() {
             buffer_rects(&g, src, r, &mut self.ring.damage);
         }
-        let key = match self.ring.damage.is_empty() {
-            true => held,
+        // a frame that drew nothing does not count, and the buffer still
+        // holds the frame it held, unless the display presents it anyway
+        let key = match self.cells.damage().is_empty() {
+            true => {
+                self.ring.uncounted = held;
+                held
+            }
             false => Some(self.cells.serial()),
         };
         if let Some(key) = key {
@@ -715,8 +726,15 @@ impl<F: Face> Renderer<F> {
     /// The areas of the pan's buffer that drawing over the display area
     /// `area` through [`Renderer::pan_overlay`] writes: where the window
     /// shows it, and its other copy where it has one. A display presents
-    /// them as damage beside the frame's own.
-    pub fn pan_damage(&self, area: Rect) -> Vec<Rect> {
+    /// them as damage beside the frame's own, so call this for each area
+    /// drawn over a frame the display presents, and only then.
+    ///
+    /// When the frame drew nothing of its own, it does not count as a
+    /// frame: the buffer still holds the frame it held. The display then
+    /// presents it for the overlay alone, so this call makes the frame
+    /// count after all. The renderer's history and its record of the stale
+    /// copies then follow the buffers the display really presents.
+    pub fn pan_damage(&mut self, area: Rect) -> Vec<Rect> {
         let g = Geometry::new(&self.layout, &self.grid.unwrap_or_default());
         let (w, h) = (self.layout.width, self.layout.height);
         // only the part of the area on the display is written
@@ -730,6 +748,15 @@ impl<F: Face> Renderer<F> {
         let mut out = Vec::new();
         if area.area() > 0 {
             buffer_rects(&g, g.src(self.ring.base), area, &mut out);
+        }
+        if !out.is_empty()
+            && let Some(held) = self.ring.uncounted.take()
+        {
+            self.cells.count_presented();
+            let serial = self.cells.serial();
+            if let Some(entry) = self.ring.twins.iter_mut().find(|(k, _)| *k == held) {
+                entry.0 = serial;
+            }
         }
         out
     }
