@@ -16,10 +16,9 @@
 //! process, which reads and writes the helper through that one socket.
 //!
 //! The image helper's account and its two caps depend on each request:
-//! whether it reads a file, and how many bytes the request needs. The
-//! protocol's request to start a helper carries none of them yet, so the
-//! root process refuses to start an image helper with `ENOSYS` until it
-//! does.
+//! whether it reads a file, and how many bytes the request needs, which
+//! the request to start it carries. The root process does not start an
+//! image helper yet, and answers `ENOSYS`.
 //!
 //! References:
 //! - ADR-1400 D4, "What the broker does": the broker starts and stops the
@@ -83,7 +82,7 @@ impl Helpers {
             return Err(errno(libc::EEXIST));
         }
         match kind {
-            Helper::Image(console) => {
+            Helper::Image { console, .. } => {
                 if sessions.master(console).is_none() {
                     return Err(errno(libc::ENOENT));
                 }
@@ -328,7 +327,12 @@ mod tests {
             Box::new(Nowhere),
             session_wake,
         );
-        let image = Helper::Image(console("left", 1));
+        let image = Helper::Image {
+            console: console("left", 1),
+            max_bytes: 4096,
+            largest_file: 4096,
+            file: false,
+        };
         assert_eq!(
             helpers.start(1, &image, &sessions).err(),
             Some(errno(libc::ENOENT))

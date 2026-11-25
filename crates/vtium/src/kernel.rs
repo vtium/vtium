@@ -409,6 +409,16 @@ fn drain_with(
     Ok(out)
 }
 
+/// Opens `/dev/kmsg` at its end, without blocking, so that a reader of it
+/// sees only the messages that arrive from now on.
+pub fn open_kmsg() -> io::Result<OwnedFd> {
+    use rustix::fs::{Mode, OFlags, SeekFrom};
+    let flags = OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let kmsg = rustix::fs::open(KMSG, flags, Mode::empty())?;
+    rustix::fs::seek(&kmsg, SeekFrom::End(0))?;
+    Ok(kmsg)
+}
+
 /// The kernel as the binary reads it: `/dev/kmsg`, the console log level
 /// in `/proc/sys/kernel/printk`, and plymouthd's pid file.
 pub struct System {
@@ -422,16 +432,25 @@ impl System {
     /// Opens `/dev/kmsg` at its end, so that vtium reads only the messages
     /// that arrive from now on.
     pub fn open() -> io::Result<System> {
-        use rustix::fs::{Mode, OFlags, SeekFrom};
-        let flags = OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
-        let kmsg = rustix::fs::open(KMSG, flags, Mode::empty())?;
-        rustix::fs::seek(&kmsg, SeekFrom::End(0))?;
-        Ok(System {
+        open_kmsg().map(System::with_kmsg)
+    }
+
+    /// The kernel read through `kmsg`, a descriptor of `/dev/kmsg` that
+    /// another process opened: under the privilege split, vtium's root
+    /// process opens it and passes it to the drawing process, which
+    /// cannot open it under `kernel.dmesg_restrict`.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker opens `/dev/kmsg`
+    ///   and passes the descriptor; check 7 measured that a descriptor is
+    ///   enough.
+    pub fn with_kmsg(kmsg: OwnedFd) -> System {
+        System {
             kmsg,
             printk: PathBuf::from(PRINTK),
             plymouth: PathBuf::from(PLYMOUTH_PID),
             proc: PathBuf::from("/proc"),
-        })
+        }
     }
 
     /// The descriptor the loop watches: readable while a record waits.

@@ -178,6 +178,35 @@ impl App {
         true
     }
 
+    /// Reads the kernel's messages from `system` through the loop, for the
+    /// app to show, as vtium in one process reads them.
+    ///
+    /// References:
+    /// - ADR-1401 D15: the kernel's messages on the console.
+    fn watch_kernel(&mut self, system: crate::kernel::System) {
+        let watched = system.watched().and_then(|fd| {
+            self.handle
+                .insert_source(
+                    Generic::new(fd, Interest::READ, Mode::Level),
+                    |_, _, app: &mut App| {
+                        Ok(if app.kernel_ready() {
+                            PostAction::Continue
+                        } else {
+                            PostAction::Remove
+                        })
+                    },
+                )
+                .map_err(|e| io::Error::other(e.error))
+        });
+        match watched {
+            Ok(_) => self.set_kernel(Box::new(system)),
+            Err(e) => log::info!(
+                "vtium cannot read the kernel's messages from {}: {e}. It does not show them on screen.",
+                crate::kernel::KMSG
+            ),
+        }
+    }
+
     /// Takes each order the root process has sent.
     fn take_orders(&mut self) {
         let Some(courier) = self.broker.clone() else {
@@ -201,8 +230,35 @@ impl App {
     }
 
     /// Acts on one order from the root process.
-    fn broker_order(&mut self, order: Order, _fd: Option<OwnedFd>) {
+    fn broker_order(&mut self, order: Order, fd: Option<OwnedFd>) {
         match order {
+            Order::Kmsg => {
+                if let Some(kmsg) = fd {
+                    self.watch_kernel(crate::kernel::System::with_kmsg(kmsg));
+                }
+            }
+            Order::Font(font) => match fd.map(|file| font.read(&file)) {
+                Some(Ok((data, pairs))) => {
+                    self.set_console_font(vtium_platform::vt::font::ConsoleFont {
+                        width: u32::from(font.width),
+                        height: u32::from(font.height),
+                        charcount: u32::from(font.glyphs),
+                        data,
+                        unimap: pairs
+                            .into_iter()
+                            .map(|(unicode, fontpos)| vtium_platform::vt::font::UniPair {
+                                unicode,
+                                fontpos,
+                            })
+                            .collect(),
+                    });
+                }
+                Some(Err(e)) => log::warn!(
+                    target: "broker",
+                    "vtium's drawing process cannot read the kernel's font from its root process: {e}"
+                ),
+                None => {}
+            },
             Order::Blank => self.order(blank::Order::Blank),
             Order::Wake => self.order(blank::Order::Wake),
             Order::Stop => self.request_exit(Exit::Signal),
@@ -409,6 +465,37 @@ mod tests {
                 Request::CloseSession { console }
             ]
         );
+    }
+
+    #[test]
+    fn the_kernels_log_and_font_come_from_the_root_process() {
+        let (broker, theirs) = Link::pair().unwrap();
+        let (lp, mut app) = seat_with(&[], None, no_fonts());
+        app.set_broker(Link::passed(theirs).unwrap()).unwrap();
+        let glyphs = vec![0x5a; 16 * 256];
+        let (font, file) = vtium_broker_protocol::KernelFont::file(8, 16, &glyphs, &[(0x41, 65)])
+            .unwrap()
+            .unwrap();
+        broker
+            .order(&Order::Font(font), Some(file.as_fd()))
+            .unwrap();
+        // a pipe stands in for /dev/kmsg: readable once the kernel logs
+        let (kmsg, _log) = rustix::pipe::pipe().unwrap();
+        broker.order(&Order::Kmsg, Some(kmsg.as_fd())).unwrap();
+        assert!(app.kernel.is_none());
+        app.take_orders();
+        let got = app.console_font.as_ref().unwrap();
+        assert_eq!((got.width, got.height, got.charcount), (8, 16, 256));
+        assert_eq!(got.data, glyphs);
+        assert_eq!(
+            got.unimap,
+            [vtium_platform::vt::font::UniPair {
+                unicode: 0x41,
+                fontpos: 65
+            }]
+        );
+        assert!(app.kernel.is_some(), "the kernel's messages are not read");
+        drop((app, lp, broker));
     }
 
     #[test]

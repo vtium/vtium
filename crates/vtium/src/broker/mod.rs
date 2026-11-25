@@ -369,6 +369,9 @@ pub struct Begun {
     vt: Option<u16>,
     env: Vec<(OsString, OsString)>,
     store: store::Store,
+    /// The orders that pass the drawer `/dev/kmsg` and the kernel's font,
+    /// each with its descriptor.
+    kernel: Vec<(Order, std::os::fd::OwnedFd)>,
 }
 
 impl Begun {
@@ -394,6 +397,18 @@ impl Begun {
         {
             log::warn!(target: "broker", "vtium cannot make its run directory for tty{vt}: {e}");
         }
+        let mut kernel = Vec::new();
+        match vtium::kernel::open_kmsg() {
+            Ok(kmsg) => kernel.push((Order::Kmsg, kmsg)),
+            Err(e) => log::info!(
+                target: "broker",
+                "vtium cannot read the kernel's messages from {}: {e}. It does not show them on screen.",
+                vtium::kernel::KMSG
+            ),
+        }
+        if let Some(font) = tty.as_deref().and_then(kernel_font) {
+            kernel.push(font);
+        }
         let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
         let (keeper, kept) = vtium::survive::start(
             &env,
@@ -407,7 +422,14 @@ impl Begun {
             vt,
             env,
             store: store::Store::new(keeper, kept),
+            kernel,
         }
+    }
+
+    /// The orders that pass the drawer `/dev/kmsg` and the kernel's font,
+    /// which the broker sends first, before any answer.
+    pub fn kernel(&mut self) -> Vec<(Order, std::os::fd::OwnedFd)> {
+        std::mem::take(&mut self.kernel)
     }
 
     /// The process jobs, whose processes `lp` watches.
@@ -432,6 +454,40 @@ impl Begun {
             helpers::Helpers::new(font, wake(lp)),
             power,
         )
+    }
+}
+
+/// The kernel's font on the VT at `tty`, read while the VT is still in
+/// text mode, as the order that passes it and its sealed file. A VT in
+/// graphics mode, or a font past the protocol's bounds, gives none, logged
+/// at debug.
+///
+/// References:
+/// - ADR-1200 D8: the kernel's font, read once at start, which a frit's
+///   `console:` source draws from.
+fn kernel_font(tty: &std::path::Path) -> Option<(Order, std::os::fd::OwnedFd)> {
+    use vtium_platform::vt::font::{ConsoleTty, read};
+    let font = ConsoleTty::open(tty)
+        .map_err(|e| e.to_string())
+        .and_then(|t| read(&t).map_err(|e| e.to_string()));
+    let font = match font {
+        Ok(font) => font,
+        Err(e) => {
+            log::debug!(target: "broker", "the kernel's font is not read from {}: {e}", tty.display());
+            return None;
+        }
+    };
+    let pairs: Vec<(u16, u16)> = font.unimap.iter().map(|p| (p.unicode, p.fontpos)).collect();
+    match protocol::KernelFont::file(font.width, font.height, &font.data, &pairs) {
+        Ok(Some((shape, file))) => Some((Order::Font(shape), file)),
+        Ok(None) => {
+            log::debug!(target: "broker", "the kernel's font is past what vtium's drawing process takes");
+            None
+        }
+        Err(e) => {
+            log::debug!(target: "broker", "the kernel's font cannot be passed on: {e}");
+            None
+        }
     }
 }
 
@@ -480,7 +536,7 @@ fn now() -> Instant {
 fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     // Before the loop blocks any signal, since a holder of the pty masters
     // started here inherits the mask.
-    let begun = Begun::read(args);
+    let mut begun = Begun::read(args);
     let mut lp: Loop<Seen> = Loop::new()?;
     for signal in [Signal::SIGTERM, Signal::SIGINT] {
         lp.on_signal(signal, |seen: &mut Seen| seen.stop = true)?;
@@ -489,6 +545,7 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     // broker.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
     let env = begun.env.clone();
+    let kernel = begun.kernel();
     let processes = begun.processes(&lp);
     processes.listen(&lp)?;
     let (link, theirs) = Link::pair()?;
@@ -503,6 +560,12 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
         log::warn!(target: "broker", "vtium cannot tell systemd that it is ready: {e}");
     }
     let drawer = start::spawn(&Program::vtium(arg0, args), account, theirs, true)?;
+    // The socket is empty, so these first orders fit in it.
+    for (order, fd) in &kernel {
+        if let Err(e) = link.order(order, Some(fd.as_fd())) {
+            log::warn!(target: "broker", "vtium cannot pass its drawing process {order:?}: {e}");
+        }
+    }
     log::info!(
         target: "broker",
         "vtium runs as two processes: this root process, and drawing process {}, which runs everything else as the account {ACCOUNT}",
