@@ -1097,6 +1097,33 @@ fn the_fonts_tab_s_screens() {
     }
 }
 
+/// The Fonts tab's live trial in a vtium console with `allow-font-ops`
+/// on: DejaVu Sans Mono kept with `k`, and the sentence after the console
+/// refuses it, at 80×25 and at 100×30, as provisional goldens and `make
+/// tui-shots` pictures. The countdown itself is the scenarios' snapshot of
+/// the node `any.trial`.
+#[test]
+fn the_fonts_tab_s_trial_screens() {
+    for (name, takes, keys) in [
+        ("fonts-trial-kept", true, on_font(1, &[b"t", b"k"])),
+        ("fonts-trial-refused", false, on_font(1, &[b"t"])),
+    ] {
+        for (cols, rows) in [(80, 25), (100, 30)] {
+            let mut c = Console::vtium(cols, rows, true, "unifont")
+                .takes("unifont", (cols, rows))
+                .keys(&keys);
+            if takes {
+                c = c.takes(DEJAVU, (cols, rows));
+            }
+            let mut d = desk();
+            run_desk(&mut c, &mut d);
+            let screen = c.seen.clone().expect("the screen");
+            let bytes = c.written.get(..c.seen_at).unwrap_or_default().to_vec();
+            golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
+        }
+    }
+}
+
 /// The screen after `keys` at `cols` by `rows`, in a vtium console with
 /// `allow-font-ops` off and with the stand-in desk, from the Fonts tab,
 /// and the bytes the TUI wrote to draw it.
