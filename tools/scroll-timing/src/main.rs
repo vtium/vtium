@@ -7,7 +7,8 @@
 //! scroll-timing run [--device /dev/dri/card0] [--sizes preferred|WxH,...]
 //!                   [--cells 8x16,16x32] [--speeds 1,4,16|none]
 //!                   [--pixel-speeds 1,2,4,8|none] [--buffers 1,2,3]
-//!                   [--ways redraw,copy,move,pan] [--spare 0,screen]
+//!                   [--ways redraw,copy,move,pan,pan-ahead] [--spare 0,screen]
+//!                   [--look random|text]
 //!                   [--frames 120] [--warmup 10] [--tsv FILE]
 //! ```
 //!
@@ -32,6 +33,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use vtium_scroll_timing::memory;
+use vtium_scroll_timing::pattern::Look;
 use vtium_scroll_timing::ways::Way;
 use vtium_scroll_timing::{Geometry, Unit};
 
@@ -39,7 +41,7 @@ use run::{Facts, Measured, Plan};
 
 const USAGE: &str = "usage: scroll-timing memory [--sizes WxH,...] [--cells WxH,...] [--buffers 1,2,3] [--spare 0,screen]\n       \
 scroll-timing run [--device /dev/dri/cardN] [--sizes preferred|WxH,...] [--cells WxH,...] [--speeds N,...] \
-[--pixel-speeds N,...] [--buffers 1,2,3] [--ways redraw,copy,move,pan] [--spare N|screen,...] [--frames N] [--warmup N] [--tsv FILE]";
+[--pixel-speeds N,...] [--buffers 1,2,3] [--ways redraw,copy,move,pan,pan-ahead] [--spare N|screen,...] [--look random|text] [--frames N] [--warmup N] [--tsv FILE]";
 
 fn usage(problem: &str) -> ExitCode {
     eprintln!("scroll-timing: {problem}\n{USAGE}");
@@ -95,6 +97,7 @@ fn options(args: &[String]) -> Result<Options, String> {
             cells: vec![(8, 16), (16, 32)],
             speeds: vec![1, 4, 16],
             pixel_speeds: vec![1, 2, 4, 8],
+            look: Look::Random,
             buffers: vec![1, 2, 3],
             ways: Way::ALL.to_vec(),
             spares: vec![Some(0), None],
@@ -127,6 +130,7 @@ fn options(args: &[String]) -> Result<Options, String> {
                     .ok_or_else(bad)?
             }
             "--ways" => o.plan.ways = list(value, Way::parse).ok_or_else(bad)?,
+            "--look" => o.plan.look = Look::parse(value).ok_or_else(bad)?,
             "--spare" => {
                 o.plan.spares = list(value, |s| match s {
                     "screen" => Some(None),
@@ -162,7 +166,7 @@ fn memory_table(o: &Options) -> Vec<String> {
                 cell_height: ch,
             };
             for way in &o.plan.ways {
-                let spares: Vec<Option<u32>> = if *way == Way::Pan {
+                let spares: Vec<Option<u32>> = if way.pans() {
                     o.plan.spares.clone()
                 } else {
                     vec![Some(0)]
@@ -170,7 +174,7 @@ fn memory_table(o: &Options) -> Vec<String> {
                 // Only the pan's memory differs at pixel steps, so the
                 // other ways give one row for both units.
                 let units: &[(Unit, &str)] = match way {
-                    Way::Pan => &[(Unit::Rows, "rows"), (Unit::Pixels, "pixels")],
+                    Way::Pan | Way::PanAhead => &[(Unit::Rows, "rows"), (Unit::Pixels, "pixels")],
                     Way::Move => &[(Unit::Rows, "rows")],
                     _ => &[(Unit::Rows, "rows,pixels")],
                 };
@@ -179,7 +183,7 @@ fn memory_table(o: &Options) -> Vec<String> {
                     for &(unit, unit_text) in units {
                         for &b in &o.plan.buffers {
                             let m = memory::needs(g, *way, b, u64::from(w) * 4, spare, unit);
-                            let spare_text = if *way == Way::Pan {
+                            let spare_text = if way.pans() {
                                 spare.to_string()
                             } else {
                                 "-".to_owned()

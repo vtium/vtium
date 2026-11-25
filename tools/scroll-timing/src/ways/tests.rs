@@ -1,5 +1,5 @@
 use super::*;
-use crate::pattern::BORDER;
+use crate::pattern::{BORDER, Look};
 
 /// A screen of 5 rows of 4×6 cells with no strip under the grid: 160
 /// bytes a line, 960 a row.
@@ -30,7 +30,12 @@ fn buffer(lines: u32) -> Vec<u8> {
 /// time from whole rows that the pattern draws, so that the check does not
 /// lean on how a redraw splits rows at a pixel offset.
 fn expected(g: Geometry, pos: i64) -> Vec<u8> {
-    let pattern = Pattern::new(g);
+    expected_in(g, Look::Random, pos)
+}
+
+/// `expected` for the pattern of `look`.
+fn expected_in(g: Geometry, look: Look, pos: i64) -> Vec<u8> {
+    let pattern = Pattern::with_look(g, look);
     let mut row = vec![0u8; g.cell_height as usize * g.line_bytes()];
     let ch = i64::from(g.cell_height);
     (0..i64::from(g.rows() * g.cell_height))
@@ -89,10 +94,22 @@ fn steps(g: Geometry, step: i64, frames: usize) -> Vec<i64> {
 /// made for a scroll by `unit` with 3 spare rows. Checks every frame's
 /// picture against the expected view, and returns each frame's counts.
 fn run(way: Way, g: Geometry, buffers: usize, unit: Unit, places: &[i64]) -> Vec<Counts> {
-    let pattern = Pattern::new(g);
-    let mut pan = Pan::new(g, 3, unit, buffers);
+    run_in(Look::Random, way, g, buffers, unit, places)
+}
+
+/// `run` with the pattern of `look`.
+fn run_in(
+    look: Look,
+    way: Way,
+    g: Geometry,
+    buffers: usize,
+    unit: Unit,
+    places: &[i64],
+) -> Vec<Counts> {
+    let pattern = Pattern::with_look(g, look);
+    let mut pan = Pan::with_ahead(g, 3, unit, buffers, way == Way::PanAhead);
     let lines = match way {
-        Way::Pan => pan.ring.buffer_height(g),
+        Way::Pan | Way::PanAhead => pan.ring.buffer_height(g),
         _ => g.height,
     };
     let mut bufs: Vec<Vec<u8>> = (0..buffers).map(|_| buffer(lines)).collect();
@@ -112,14 +129,14 @@ fn run(way: Way, g: Geometry, buffers: usize, unit: Unit, places: &[i64]) -> Vec
                 assert_eq!(pos % ch, 0, "the move scrolls by whole rows");
                 (moves.frame(&pattern, g, buf, STRIDE, age, pos / ch), 0)
             }
-            Way::Pan => pan.frame(&pattern, g, b, buf, STRIDE, pos),
+            Way::Pan | Way::PanAhead => pan.frame(&pattern, g, b, buf, STRIDE, pos),
         };
         assert!(
-            grid_lines(g, buf, from) == expected(g, pos),
+            grid_lines(g, buf, from) == expected_in(g, look, pos),
             "{} with {buffers} buffers shows the wrong lines at frame {frame}, line {pos}",
             way.name()
         );
-        if way == Way::Pan {
+        if way.pans() {
             assert!(
                 strip_is_border(g, buf, from),
                 "the pan's strip at frame {frame}"
@@ -310,7 +327,7 @@ fn the_bytes_each_way_writes_and_reads() {
 #[test]
 fn every_way_shows_what_a_redraw_shows_at_pixel_steps() {
     for g in [EVEN, STRIP] {
-        for way in [Way::Redraw, Way::Copy, Way::Pan] {
+        for way in [Way::Redraw, Way::Copy, Way::Pan, Way::PanAhead] {
             for buffers in 1..=3 {
                 for step in [1, 2, 4, 5, 7, 13] {
                     run(way, g, buffers, Unit::Pixels, &steps(g, step, 130));
@@ -444,5 +461,148 @@ fn the_bytes_each_way_writes_at_pixel_steps() {
         let new = top != places[f - 1].div_euclid(6);
         let n = if new { twice(top) } else { 0 };
         assert_eq!(pan[f], c(n * 960, 0, n as u32), "pan frame {f}");
+    }
+}
+
+/// Runs a pan over the views from the pixel lines `places`, with
+/// `buffers` buffers taken in turn and `spare` spare rows, and checks each
+/// frame's picture. Returns, for each frame, the window's `SRC_Y` and the
+/// writes the frame made.
+fn pan_writes(
+    g: Geometry,
+    ahead: bool,
+    spare: u32,
+    buffers: usize,
+    unit: Unit,
+    places: &[i64],
+) -> Vec<(u32, Vec<Write>)> {
+    let pattern = Pattern::new(g);
+    let mut pan = Pan::with_ahead(g, spare, unit, buffers, ahead);
+    let mut bufs: Vec<Vec<u8>> = (0..buffers)
+        .map(|_| buffer(pan.ring.buffer_height(g)))
+        .collect();
+    let mut out = Vec::new();
+    for (frame, &pos) in places.iter().enumerate() {
+        let b = frame % buffers;
+        let (_, src_y) = pan.frame(&pattern, g, b, &mut bufs[b], STRIDE, pos);
+        assert!(
+            grid_lines(g, &bufs[b], src_y) == expected(g, pos),
+            "frame {frame}, line {pos}: the picture"
+        );
+        out.push((src_y, pan.writes().to_vec()));
+    }
+    out
+}
+
+/// With drawing ahead, no frame writes a row inside the window its flip
+/// shows or the window the flip before showed, once each buffer has been
+/// drawn: with one buffer, the display never scans out a row while the pan
+/// draws it. This holds at row and pixel steps, with one, two and three
+/// buffers, scrolling back and, on a screen without a strip, forward. The
+/// strip itself is the one write a frame makes inside its windows.
+#[test]
+fn with_drawing_ahead_no_row_is_written_inside_the_windows_on_screen() {
+    let cases = [
+        (Unit::Rows, 1),
+        (Unit::Rows, 2),
+        (Unit::Pixels, 1),
+        (Unit::Pixels, 4),
+        (Unit::Pixels, 7),
+    ];
+    for g in [EVEN, STRIP] {
+        for buffers in 1..=3 {
+            for (unit, speed) in cases {
+                let step = unit.lines(speed, g);
+                let back = steps(g, step, 150);
+                let forward: Vec<i64> = back.iter().rev().copied().collect();
+                let scrolls = if g.strip() == 0 {
+                    vec![back, forward]
+                } else {
+                    vec![back]
+                };
+                for places in scrolls {
+                    let frames = pan_writes(g, true, 20, buffers, unit, &places);
+                    for f in 2 * buffers..frames.len() {
+                        let (now, before) = (frames[f].0, frames[f - 1].0);
+                        for w in frames[f].1.iter().filter(|w| !w.strip) {
+                            assert!(
+                                !w.meets(now, g.height) && !w.meets(before, g.height),
+                                "{g:?}, {buffers} buffers, {speed} {} a frame, frame {f}: \
+                                 a row written at line {} lies in the window at {now} or {before}",
+                                unit.name(),
+                                w.line
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Drawing ahead draws the same rows as drawing each row as it comes into
+/// view, only earlier: over a long scroll the two differ by no more than
+/// the rows each buffer holds ahead of the view at the end, at their slots
+/// and their twins'. This holds while a buffer's view moves less than a
+/// screen between two of its frames. A faster scroll skips rows in each
+/// buffer that drawing ahead still draws there.
+#[test]
+fn drawing_ahead_draws_no_more_rows_than_drawing_on_entry() {
+    for buffers in 1..=3 {
+        for (unit, speed) in [(Unit::Rows, 1), (Unit::Rows, 2), (Unit::Pixels, 4)] {
+            let places = steps(EVEN, unit.lines(speed, EVEN), 300);
+            let rows = |ahead| -> usize {
+                pan_writes(EVEN, ahead, 20, buffers, unit, &places)
+                    .iter()
+                    .map(|(_, w)| w.len())
+                    .sum()
+            };
+            let (on_entry, ahead) = (rows(false), rows(true));
+            let per_frame = (unit.lines(speed, EVEN) as usize).div_ceil(6);
+            if buffers * per_frame >= EVEN.rows() as usize {
+                continue;
+            }
+            let start = buffers * 2 * (buffers * per_frame + MARGIN as usize);
+            assert!(
+                ahead <= on_entry + start,
+                "{buffers} buffers, {speed} {}: {ahead} rows drawn ahead against {on_entry}",
+                unit.name()
+            );
+        }
+    }
+}
+
+/// The text look draws a row a person can follow, and every way shows with
+/// it what a redraw shows, at row and pixel steps. Two rows differ, and a
+/// row drawn twice comes out the same.
+#[test]
+fn every_way_shows_what_a_redraw_shows_with_the_text_look() {
+    let text = Pattern::with_look(STRIP, Look::Text);
+    let random = Pattern::new(STRIP);
+    let row = |p: &Pattern, r: i64| {
+        let mut b = vec![0u8; 6 * STRIP.line_bytes()];
+        p.draw_row(&mut b, STRIP.line_bytes(), r);
+        b
+    };
+    assert_eq!(row(&text, 41), row(&text, 41));
+    assert_ne!(row(&text, 41), row(&text, 42));
+    assert_ne!(row(&text, 41), row(&random, 41));
+    for g in [EVEN, STRIP] {
+        for way in Way::ALL {
+            for buffers in 1..=3 {
+                let ch = i64::from(g.cell_height);
+                run_in(
+                    Look::Text,
+                    way,
+                    g,
+                    buffers,
+                    Unit::Rows,
+                    &steps(g, 2 * ch, 30),
+                );
+                if way != Way::Move {
+                    run_in(Look::Text, way, g, buffers, Unit::Pixels, &steps(g, 5, 60));
+                }
+            }
+        }
     }
 }

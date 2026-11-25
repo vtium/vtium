@@ -31,10 +31,12 @@ pub enum Way {
     Copy,
     Move,
     Pan,
+    /// The pan with rows drawn ahead of the view.
+    PanAhead,
 }
 
 impl Way {
-    pub const ALL: [Way; 4] = [Way::Redraw, Way::Copy, Way::Move, Way::Pan];
+    pub const ALL: [Way; 5] = [Way::Redraw, Way::Copy, Way::Move, Way::Pan, Way::PanAhead];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -42,7 +44,13 @@ impl Way {
             Way::Copy => "copy",
             Way::Move => "move",
             Way::Pan => "pan",
+            Way::PanAhead => "pan-ahead",
         }
+    }
+
+    /// Whether the way pans over a tall buffer.
+    pub fn pans(self) -> bool {
+        matches!(self, Way::Pan | Way::PanAhead)
     }
 
     pub fn parse(name: &str) -> Option<Way> {
@@ -262,20 +270,69 @@ impl Ring {
     }
 }
 
+/// The rows the pan keeps drawn beyond the rows its buffers need for the
+/// next frames, as margin: the K rows of overscan that ADR-1310 D2 fixes.
+pub const MARGIN: u32 = 4;
+
+/// One write a pan frame made into its buffer: `lines` pixel lines from
+/// line `line`, a text row's slot or the border's strip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Write {
+    pub line: u32,
+    pub lines: u32,
+    pub strip: bool,
+}
+
+impl Write {
+    /// Whether the write touches the window of `height` lines from `src_y`.
+    pub fn meets(&self, src_y: u32, height: u32) -> bool {
+        self.line < src_y + height && src_y < self.line + self.lines
+    }
+}
+
 /// The pan, with what each of the display's buffers holds: the row in each
-/// slot of its ring and twins, `None` where nothing known is drawn.
+/// slot of its ring and twins, `None` where nothing known is drawn, and how
+/// many of the slot's lines, from its top, still show that row.
+///
+/// Without drawing ahead, the pan draws each row when it comes into view,
+/// at its slot and at its twin's. With drawing ahead, it draws rows before
+/// they come into view, in the scroll's direction: as many as the view
+/// passes before this buffer is drawn again, plus [`MARGIN`]. A frame then
+/// writes rows only outside the window it shows and outside the window the
+/// flip before it showed, so that a display with one buffer never draws
+/// into the lines it is scanning out. Only a row the frame needs and does
+/// not hold yet is drawn inside its window, as at the first frame or when
+/// the ring has no room for the rows ahead.
 pub struct Pan {
     pub ring: Ring,
+    ahead: bool,
     held: Vec<Vec<Option<i64>>>,
+    clean: Vec<Vec<u32>>,
+    /// The view's line and the window's `SRC_Y` at the frame before.
+    last: Option<(i64, u32)>,
+    /// The view's last move, in pixel lines: negative when it scrolled back.
+    step: i64,
+    writes: Vec<Write>,
 }
 
 impl Pan {
+    /// The pan that draws each row as it comes into view.
     pub fn new(g: Geometry, spare: u32, unit: Unit, buffers: usize) -> Pan {
+        Pan::with_ahead(g, spare, unit, buffers, false)
+    }
+
+    /// The pan that draws rows ahead of the view where `ahead`.
+    pub fn with_ahead(g: Geometry, spare: u32, unit: Unit, buffers: usize, ahead: bool) -> Pan {
         let ring = Ring::new(g, spare, unit);
         let slots = (ring.rows + ring.twins) as usize;
         Pan {
             ring,
+            ahead,
             held: vec![vec![None; slots]; buffers],
+            clean: vec![vec![0; slots]; buffers],
+            last: None,
+            step: -1,
+            writes: Vec::new(),
         }
     }
 
@@ -284,34 +341,50 @@ impl Pan {
         &self.held[buffer]
     }
 
+    /// The writes the last frame made.
+    pub fn writes(&self) -> &[Write] {
+        &self.writes
+    }
+
     /// Forgets what every buffer holds, as after a modeset.
     pub fn forget(&mut self) {
         for held in &mut self.held {
             held.fill(None);
         }
+        self.last = None;
+        self.step = -1;
     }
 
-    /// Draws row `row` at its slot and at its twin's slot, each where
-    /// buffer `buffer` does not hold it already.
-    fn enter(
+    /// Whether buffer `buffer` holds row `row` at slot `slot` in its first
+    /// `need` lines.
+    fn holds(&self, buffer: usize, slot: u32, row: i64, need: u32) -> bool {
+        let s = slot as usize;
+        self.held[buffer][s] == Some(row) && self.clean[buffer][s] >= need
+    }
+
+    /// Draws row `row` whole at slot `slot` of buffer `buffer`.
+    #[allow(clippy::too_many_arguments)]
+    fn draw(
         &mut self,
         pattern: &Pattern,
         g: Geometry,
         buffer: usize,
         buf: &mut [u8],
         stride: usize,
+        slot: u32,
         row: i64,
     ) -> Counts {
+        let line = slot * g.cell_height;
         let mut c = Counts::default();
-        let (slot, twin) = self.ring.places(row);
-        for s in std::iter::once(slot).chain(twin) {
-            if self.held[buffer][s as usize] != Some(row) {
-                let dst = &mut buf[at(s * g.cell_height, stride)..];
-                c.written += pattern.draw_row(dst, stride, row);
-                c.rows_drawn += 1;
-                self.held[buffer][s as usize] = Some(row);
-            }
-        }
+        c.written += pattern.draw_row(&mut buf[at(line, stride)..], stride, row);
+        c.rows_drawn += 1;
+        self.held[buffer][slot as usize] = Some(row);
+        self.clean[buffer][slot as usize] = g.cell_height;
+        self.writes.push(Write {
+            line,
+            lines: g.cell_height,
+            strip: false,
+        });
         c
     }
 
@@ -319,14 +392,12 @@ impl Pan {
     /// what the view from pixel line `pos` needs, and returns what that
     /// cost and the pixel line the plane's window starts at, its `SRC_Y`.
     ///
-    /// Each row the view shows, in whole or in part, is drawn whole at its
-    /// slot and at its twin's, each where the buffer lacks it there. The
-    /// window starts at the slot of the view's top row, as far down it as
-    /// the view stands inside that row, so each of its slots is either a
+    /// The window starts at the slot of the view's top row, as far down it
+    /// as the view stands inside that row, so each of its slots is either a
     /// row's slot or its twin's, and the window shows the view's lines in
-    /// order. The strip under the grid is then drawn at the window's
-    /// bottom, over whatever slots lie there, and those slots hold no row
-    /// afterwards.
+    /// order. A row is always drawn whole. The strip under the grid is
+    /// drawn last at the window's bottom, over whatever slots lie there,
+    /// and each of those slots keeps only the lines above the strip.
     pub fn frame(
         &mut self,
         pattern: &Pattern,
@@ -337,6 +408,8 @@ impl Pan {
         pos: i64,
     ) -> (Counts, u32) {
         let mut c = Counts::default();
+        self.writes.clear();
+        let ch = g.cell_height;
         let (top, offset) = row_of(pos, g);
         assert!(
             offset == 0 || self.ring.rows > g.rows(),
@@ -344,19 +417,85 @@ impl Pan {
         );
         let start = self.ring.slot(top);
         let shown = g.rows() + u32::from(offset > 0);
-        for i in 0..shown {
-            c += self.enter(pattern, g, buffer, buf, stride, top + i64::from(i));
+        let src_y = start * ch + offset;
+        if let Some((last, _)) = self.last
+            && last != pos
+        {
+            self.step = pos - last;
         }
-        let src_y = start * g.cell_height + offset;
-        let strip = g.strip();
-        if strip > 0 {
-            let from = src_y + g.rows() * g.cell_height;
-            let dst = &mut buf[at(from, stride)..];
-            c.written += pattern.draw_border(dst, stride, strip);
-            for s in from / g.cell_height..=(from + strip - 1) / g.cell_height {
-                self.held[buffer][s as usize] = None;
+        let before = self.last.map(|(_, y)| y);
+
+        // The rows the window shows, each at the place the window shows it
+        // from. The row shown in part at the bottom needs only its first
+        // `offset` lines.
+        for i in 0..shown {
+            let (row, slot) = (top + i64::from(i), start + i);
+            let need = if i == g.rows() { offset } else { ch };
+            if !self.holds(buffer, slot, row, need) {
+                c += self.draw(pattern, g, buffer, buf, stride, slot, row);
             }
         }
+
+        // The rows' other places, and with drawing ahead the rows ahead,
+        // nearest first. Without drawing ahead, every place of a row in
+        // view is drawn now; with it, only the places outside this window
+        // and the window before.
+        let rows_ahead = if self.ahead {
+            let per_frame = self.step.unsigned_abs().div_ceil(u64::from(ch)) as u32;
+            per_frame * self.held.len() as u32 + MARGIN
+        } else {
+            0
+        };
+        let back = self.step < 0;
+        let order = (0..shown)
+            .map(|i| top + i64::from(i))
+            .chain((1..=rows_ahead).map(|k| {
+                if back {
+                    top - i64::from(k)
+                } else {
+                    top + i64::from(shown) - 1 + i64::from(k)
+                }
+            }));
+        for row in order.collect::<Vec<_>>() {
+            let (slot, twin) = self.ring.places(row);
+            for place in std::iter::once(slot).chain(twin) {
+                if self.holds(buffer, place, row, ch) {
+                    continue;
+                }
+                let lines = Write {
+                    line: place * ch,
+                    lines: ch,
+                    strip: false,
+                };
+                let in_view = lines.meets(src_y, g.height)
+                    || before.is_some_and(|y| lines.meets(y, g.height));
+                if self.ahead && in_view {
+                    continue;
+                }
+                c += self.draw(pattern, g, buffer, buf, stride, place, row);
+            }
+        }
+
+        let strip = g.strip();
+        if strip > 0 {
+            let from = src_y + g.rows() * ch;
+            let dst = &mut buf[at(from, stride)..];
+            c.written += pattern.draw_border(dst, stride, strip);
+            self.writes.push(Write {
+                line: from,
+                lines: strip,
+                strip: true,
+            });
+            for s in from / ch..=(from + strip - 1) / ch {
+                let kept = from.saturating_sub(s * ch);
+                let clean = &mut self.clean[buffer][s as usize];
+                *clean = (*clean).min(kept);
+                if *clean == 0 {
+                    self.held[buffer][s as usize] = None;
+                }
+            }
+        }
+        self.last = Some((pos, src_y));
         (c, src_y)
     }
 }

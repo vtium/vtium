@@ -29,7 +29,7 @@ pub fn needs(g: Geometry, way: Way, buffers: u32, pitch: u64, spare: u32, unit: 
     let (display, system) = match way {
         Way::Redraw | Way::Move => (screen, 0),
         Way::Copy => (screen, Copy::memory(g)),
-        Way::Pan => (
+        Way::Pan | Way::PanAhead => (
             u64::from(buffers) * pitch * u64::from(Ring::new(g, spare, unit).buffer_height(g)),
             0,
         ),

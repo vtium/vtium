@@ -19,7 +19,7 @@ use vtium_platform::display::{
     Buffers, Card, DisplayId, Drm2d, Event, MappedDumb, ModePolicy, Rect, SwapError, Wanted,
 };
 use vtium_scroll_timing::memory;
-use vtium_scroll_timing::pattern::Pattern;
+use vtium_scroll_timing::pattern::{Look, Pattern};
 use vtium_scroll_timing::stats::{Summary, summarize};
 use vtium_scroll_timing::ways::{Copy, Move, Pan, Way, redraw};
 use vtium_scroll_timing::{Counts, Geometry, Unit};
@@ -69,6 +69,8 @@ pub struct Plan {
     pub speeds: Vec<u32>,
     /// The speeds in pixel lines a frame, as a smooth scroll moves.
     pub pixel_speeds: Vec<u32>,
+    /// What the rows show. The look changes what is drawn, not its cost.
+    pub look: Look,
     pub buffers: Vec<u32>,
     pub ways: Vec<Way>,
     /// The pan's spare rows, each `None` for a screen of them.
@@ -173,12 +175,7 @@ pub fn drm2d_ways(
     facts: &mut Facts,
 ) -> io::Result<Vec<Measured>> {
     let mut out = Vec::new();
-    let ways: Vec<Way> = plan
-        .ways
-        .iter()
-        .copied()
-        .filter(|w| *w != Way::Pan)
-        .collect();
+    let ways: Vec<Way> = plan.ways.iter().copied().filter(|w| !w.pans()).collect();
     if ways.is_empty() {
         return Ok(out);
     }
@@ -207,7 +204,7 @@ pub fn drm2d_ways(
                 cell_width: cell.0,
                 cell_height: cell.1,
             };
-            let pattern = Pattern::new(g);
+            let pattern = Pattern::with_look(g, plan.look);
             for (unit, speed) in plan.steps() {
                 // The move scrolls only by whole rows: padnoir's figures
                 // at whole rows already rule it out, since its read-back
@@ -288,7 +285,7 @@ fn measure_drm2d(
                     Way::Move => {
                         moves.frame(pattern, g, canvas.pixels, stride, canvas.age, pos / ch)
                     }
-                    Way::Pan => Counts::default(),
+                    Way::Pan | Way::PanAhead => Counts::default(),
                 };
                 (c, cpu_ms() - d0)
             })
@@ -506,23 +503,23 @@ pub fn pan_way(
             cell_width: cell.0,
             cell_height: cell.1,
         };
-        let pattern = Pattern::new(g);
+        let pattern = Pattern::with_look(g, plan.look);
         let stride = screen.pitch() as usize;
         let samples = row_costs(&pattern, g, screen.as_mut(), stride, 400);
         out.push(row_measured("row-display", g, &samples, refresh));
         let mut system = vec![0u8; g.line_bytes() * g.height as usize];
         let samples = row_costs(&pattern, g, &mut system, g.line_bytes(), 400);
         out.push(row_measured("row-system", g, &samples, refresh));
-        if !plan.ways.contains(&Way::Pan) {
-            continue;
-        }
-        for &spare in &plan.spares {
-            let spare = spare.unwrap_or(g.rows());
-            for &count in &plan.buffers {
-                for unit in plan.units() {
-                    out.extend(measure_pan(
-                        &mut kms, screen_fb, g, &pattern, spare, count, unit, plan, refresh, facts,
-                    )?);
+        for way in plan.ways.iter().copied().filter(|w| w.pans()) {
+            for &spare in &plan.spares {
+                let spare = spare.unwrap_or(g.rows());
+                for &count in &plan.buffers {
+                    for unit in plan.units() {
+                        out.extend(measure_pan(
+                            &mut kms, screen_fb, g, &pattern, way, spare, count, unit, plan,
+                            refresh, facts,
+                        )?);
+                    }
                 }
             }
         }
@@ -540,6 +537,7 @@ fn measure_pan(
     screen_fb: u32,
     g: Geometry,
     pattern: &Pattern,
+    way: Way,
     spare: u32,
     count: u32,
     unit: Unit,
@@ -547,7 +545,7 @@ fn measure_pan(
     refresh: f64,
     facts: &mut Facts,
 ) -> io::Result<Vec<Measured>> {
-    let mut pan = Pan::new(g, spare, unit, count as usize);
+    let mut pan = Pan::with_ahead(g, spare, unit, count as usize, way == Way::PanAhead);
     let height = pan.ring.buffer_height(g);
     let mut dumbs = Vec::new();
     for _ in 0..count {
@@ -602,8 +600,12 @@ fn measure_pan(
             }
             let c0 = cpu_ms();
             // With two buffers, a frame is drawn once the flip before it
-            // completes, as drm2d draws; with one or three, while it flips.
-            if count == 2 {
+            // completes, as drm2d draws, and with three while it flips. With
+            // one buffer, the frame waits for that flip too: the buffer is
+            // the one being scanned out, and until the flip lands the
+            // screen may still show the window of the frame before it, so a
+            // frame drawn early writes into a window nobody accounts for.
+            if count != 3 {
                 kms.wait_flip(BOUND)?;
             }
             let d0 = cpu_ms();
@@ -632,7 +634,7 @@ fn measure_pan(
         kms.wait_flip(BOUND)?;
         let elapsed = started.map_or(0.0, |s| s.elapsed().as_secs_f64());
         let m = Measured {
-            way: Way::Pan.name(),
+            way: way.name(),
             size: (g.width, g.height),
             cell: (g.cell_width, g.cell_height),
             speed,
@@ -645,13 +647,14 @@ fn measure_pan(
             fps: plan.frames as f64 / elapsed.max(1e-9),
             refresh,
             counts: mean_counts(&counts),
-            memory: memory::needs(g, Way::Pan, count, u64::from(pitch), spare, unit),
+            memory: memory::needs(g, way, count, u64::from(pitch), spare, unit),
             commits,
             busy,
             refused,
         };
         eprintln!(
-            "scroll-timing: pan {}x{} {}x{} {speed} {} a frame, {count} buffers, {spare} spare: {:.3} ms",
+            "scroll-timing: {} {}x{} {}x{} {speed} {} a frame, {count} buffers, {spare} spare: {:.3} ms",
+            way.name(),
             g.width,
             g.height,
             g.cell_width,

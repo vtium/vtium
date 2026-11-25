@@ -4,6 +4,13 @@
 //! drawn twice comes out the same and two rows differ. A cell's shape is a
 //! bitmask a line, as a bitmap font's glyph is, so drawing a row costs
 //! about what drawing a row of text from a glyph store costs.
+//!
+//! The text look draws a row a person can follow by eye instead: the row's
+//! number in digits at its start, then a run of letters that repeats along
+//! the row, shifted by one cell from each row to the next. The digits and
+//! letters are bitmask glyphs of the tool's own, drawn the same way as the
+//! random shapes, so the look changes what a row shows and not what drawing
+//! it costs.
 
 use crate::Geometry;
 
@@ -20,14 +27,96 @@ const FOREGROUNDS: [u32; 6] = [
     0x00e0_c050,
     0x00c0_60c0,
 ];
-/// The shapes a cell can hold, the first a blank cell.
+/// The random shapes a cell can hold, the first a blank cell.
 const SHAPES: usize = 8;
+
+/// The glyphs of the text look, 5 columns by 7 lines, each line a string
+/// in which `#` lights a pixel: the digits 0 to 9, then the letters of
+/// [`LETTERS`].
+const GLYPHS: [[&str; 7]; 15] = [
+    [
+        ".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###.",
+    ],
+    [
+        "..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###.",
+    ],
+    [
+        ".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####",
+    ],
+    [
+        "####.", "....#", "....#", ".###.", "....#", "....#", "####.",
+    ],
+    [
+        "...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#.",
+    ],
+    [
+        "#####", "#....", "####.", "....#", "....#", "#...#", ".###.",
+    ],
+    [
+        ".###.", "#....", "#....", "####.", "#...#", "#...#", ".###.",
+    ],
+    [
+        "#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#...",
+    ],
+    [
+        ".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###.",
+    ],
+    [
+        ".###.", "#...#", "#...#", ".####", "....#", "....#", ".###.",
+    ],
+    [
+        "#...#", "#...#", "#...#", ".#.#.", ".#.#.", "..#..", "..#..",
+    ],
+    [
+        "#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#..",
+    ],
+    [
+        ".###.", "..#..", "..#..", "..#..", "..#..", "..#..", ".###.",
+    ],
+    [
+        "#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###.",
+    ],
+    [
+        "#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#",
+    ],
+];
+/// The letters of the text look's repeating run, after the digits in
+/// [`GLYPHS`], and a blank cell between runs.
+const LETTERS: usize = 5;
+/// The digits of the row number at the start of each row of the text look.
+const DIGITS: u32 = 6;
+
+/// What the pattern draws in each row.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Look {
+    /// Random shapes and colors, the timings' default.
+    #[default]
+    Random,
+    /// The row's number, then a run of letters that repeats along the row.
+    Text,
+}
+
+impl Look {
+    pub fn name(self) -> &'static str {
+        match self {
+            Look::Random => "random",
+            Look::Text => "text",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Look> {
+        [Look::Random, Look::Text]
+            .into_iter()
+            .find(|l| l.name() == name)
+    }
+}
 
 /// The pattern for one cell size: its shapes, a bitmask for each line.
 pub struct Pattern {
     geometry: Geometry,
-    /// `SHAPES` shapes of `cell_height` lines each; bit x of a line lights
-    /// column x of the cell.
+    look: Look,
+    /// `SHAPES` random shapes, then the text look's glyphs, each of
+    /// `cell_height` lines; bit x of a line lights column x of the cell.
     shapes: Vec<u64>,
 }
 
@@ -42,11 +131,22 @@ fn mix(row: i64, col: u32) -> u64 {
 }
 
 impl Pattern {
-    /// The pattern for `geometry`'s cell, which is at most 64 pixels wide.
+    /// The random pattern for `geometry`'s cell, which is at most 64 pixels
+    /// wide.
     pub fn new(geometry: Geometry) -> Pattern {
+        Pattern::with_look(geometry, Look::Random)
+    }
+
+    /// The pattern of `look` for `geometry`'s cell.
+    pub fn with_look(geometry: Geometry, look: Look) -> Pattern {
         let (w, h) = (geometry.cell_width.min(64), geometry.cell_height);
-        let mut shapes = vec![0u64; SHAPES * h as usize];
-        for (shape, lines) in shapes.chunks_mut(h as usize).enumerate().skip(1) {
+        let mut shapes = vec![0u64; (SHAPES + GLYPHS.len()) * h as usize];
+        for (shape, lines) in shapes
+            .chunks_mut(h as usize)
+            .enumerate()
+            .take(SHAPES)
+            .skip(1)
+        {
             for (y, line) in lines.iter_mut().enumerate() {
                 let y = y as u32;
                 let (top, bottom) = (h / 5, h - h / 5);
@@ -69,7 +169,58 @@ impl Pattern {
                 }
             }
         }
-        Pattern { geometry, shapes }
+        // Each glyph's 5 by 7 grid, scaled into the cell's inner box, the
+        // same box the random shapes use.
+        let (left, right) = (w / 8, w - w / 8);
+        let (top, bottom) = (h / 5, h - h / 5);
+        for (g, glyph) in GLYPHS.iter().enumerate() {
+            let lines = &mut shapes[(SHAPES + g) * h as usize..][..h as usize];
+            for y in top..bottom {
+                let gy = ((y - top) * 7 / (bottom - top).max(1)) as usize;
+                for x in left..right {
+                    let gx = ((x - left) * 5 / (right - left).max(1)) as usize;
+                    if glyph[gy].as_bytes()[gx] == b'#' {
+                        lines[y as usize] |= 1 << x;
+                    }
+                }
+            }
+        }
+        Pattern {
+            geometry,
+            look,
+            shapes,
+        }
+    }
+
+    /// The background, the foreground and the shape of column `col` of row
+    /// `row`.
+    fn cell(&self, row: i64, col: u32) -> (u32, u32, usize) {
+        match self.look {
+            Look::Random => {
+                let h = mix(row, col);
+                let bg = BACKGROUNDS[(h & 1) as usize];
+                let fg = FOREGROUNDS[((h >> 1) % FOREGROUNDS.len() as u64) as usize];
+                let shape = ((h >> 8) % SHAPES as u64) as usize;
+                (bg, fg, shape)
+            }
+            Look::Text => {
+                // Rows alternate between the two backgrounds, so the eye
+                // sees where one row ends and the next begins.
+                let bg = BACKGROUNDS[row.rem_euclid(2) as usize];
+                if col < DIGITS {
+                    let place = 10_i64.pow(DIGITS - 1 - col);
+                    let digit = row.rem_euclid(10_i64.pow(DIGITS)) / place % 10;
+                    (bg, FOREGROUNDS[4], SHAPES + digit as usize)
+                } else if col == DIGITS {
+                    (bg, FOREGROUNDS[0], 0)
+                } else {
+                    let run = LETTERS as i64 + 1;
+                    let at = (i64::from(col - DIGITS - 1) + row).rem_euclid(run) as usize;
+                    let shape = if at == LETTERS { 0 } else { SHAPES + 10 + at };
+                    (bg, FOREGROUNDS[0], shape)
+                }
+            }
+        }
     }
 
     /// Draws text row `row` into `dst`, whose first byte is the row's top
@@ -97,15 +248,7 @@ impl Pattern {
         let cols = g.cols();
         let line_bytes = g.line_bytes();
         // The colors and shape of each cell, chosen once for the row.
-        let cells: Vec<(u32, u32, usize)> = (0..cols)
-            .map(|col| {
-                let h = mix(row, col);
-                let bg = BACKGROUNDS[(h & 1) as usize];
-                let fg = FOREGROUNDS[((h >> 1) % FOREGROUNDS.len() as u64) as usize];
-                let shape = ((h >> 8) % SHAPES as u64) as usize;
-                (bg, fg, shape)
-            })
-            .collect();
+        let cells: Vec<(u32, u32, usize)> = (0..cols).map(|col| self.cell(row, col)).collect();
         let first = first as usize;
         let end = (first + count as usize).min(ch);
         let mut written = 0;
