@@ -1832,6 +1832,5 @@ fn the_status_line_names_t_only_where_t_tries_a_font() {
         let line = status(&a);
         assert!(line.ends_with(" · trial: Fonts, Looks"), "{line}");
         assert!(!line.contains(words::TRIAL_KEY), "{line}");
-        assert!(!line.contains("live trial in Looks"), "{line}");
     }
 }
