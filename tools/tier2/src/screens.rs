@@ -69,8 +69,10 @@ const EDGES_DESC: &str = "A grid of 12 by 4 cells on a display that holds 11 and
 columns and 4 rows and 3 pixel rows: text and colored cells reach the last whole column and \
 row, and two wide characters start in the last whole column, an underlined one in the first \
 row and a reversed one in the third, with a cell of the default background between them. \
-Correct: the grid centred, with the 5 spare pixel columns and 3 spare pixel rows around it in \
-the default background; each wide character's left half, with its underline or reverse, in \
+Correct: the grid's last row on the text's bottom edge, with the 3 spare pixel rows above its \
+first row, and the grid centred across, with 2 spare pixel columns on one side and 3 on the \
+other, the odd one toward the display's right or bottom; the spare pixels in the default \
+background; each wide character's left half, with its underline or reverse, in \
 the last whole column, cut at the margin";
 
 /// The `vs16` screen.
@@ -4746,9 +4748,9 @@ const LOGIN_COVER_DESC: &str = concat!(
 );
 
 const LOGIN_CONTAIN_DESC: &str = concat!(
-    "A login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels: the picture scaled until it fits inside the display, keeping its shape, and centered. The renderer centers the grid on the display, with 5 spare pixel columns on each side, 2 spare pixel rows above it and 3 below. ",
+    "A login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels: the picture scaled until it fits inside the display, keeping its shape, and centered. The renderer centers the grid across the display, with 5 spare pixel columns on each side, and puts its last row on the display's bottom edge, so the 5 spare pixel rows lie above it. ",
     "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
-    "Correct: the picture 296 by 197 pixels, centered across the display, its frame at the left and right; its first 2 and last 3 pixel rows, part of its top and bottom frame, fall in the strips above and below the grid, with bands of the default background left and right; the strip outside the grid shows the default background; the disc is round; the text draws over the picture and the bands alike."
+    "Correct: the picture 296 by 197 pixels, centered on the display, its frame at the left and right, with bands of the default background beside it; the grid shows the picture's last 192 pixel rows, its bottom frame on the display's bottom row; its first 5 pixel rows, part of its top frame, fall in the strip above the grid, which shows the default background, as do the spare pixel columns beside the grid; the disc is round; the text draws over the picture and the bands alike."
 );
 
 const LOGIN_ROTATED_DESC: &str = concat!(
