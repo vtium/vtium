@@ -323,7 +323,7 @@ impl Helper {
             match state.fill {
                 Fill::Active => {}
                 Fill::Stopped | Fill::Done => return Ok(None),
-                Fill::None => return Err(not_asked()),
+                Fill::None | Fill::Held => return Err(not_asked()),
             }
             for c in codepoints(&runs) {
                 let Some(c) = c.filter(|&c| !state.brought.has(c)) else {

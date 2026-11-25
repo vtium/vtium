@@ -11,6 +11,7 @@ use vtium_font::{Doubled, Variant};
 
 use crate::deferred::Text;
 
+use super::Helper;
 use super::wire::Kind;
 
 /// An answer the console takes: glyphs now in the store at `cell`, drawn
@@ -107,6 +108,9 @@ pub(super) fn codepoints(runs: &[(u32, u32)]) -> impl Iterator<Item = Option<u32
 pub(super) enum Fill {
     /// Never started.
     None,
+    /// Not started yet: the console holds the fill until it knows that the
+    /// cell is the one the frit draws in ([`Helper::hold_fill`]).
+    Held,
     Active,
     /// Ended at the store's limit or by a display gone.
     Stopped,
@@ -216,4 +220,61 @@ pub(super) struct Ask {
     pub(super) want: BTreeSet<u32>,
     pub(super) clusters: BTreeSet<Text>,
     pub(super) sent: Instant,
+}
+
+impl Helper {
+    /// Keeps the fill of `at`'s coverage, `first` first, without sending
+    /// it, until [`Helper::start_held_fills`] starts it. The console holds
+    /// the fill at a cell it draws in while it waits for the frit's own
+    /// cell. A bitmap font may give no glyph at that cell, and the helper
+    /// refuses a fill that brings no glyph, which would make the console
+    /// give the font up although the font's own cell is about to come.
+    /// The asks still go, so the frit draws what it can at the cell and the
+    /// built-in font draws the rest.
+    ///
+    /// References:
+    /// - ADR-1200 D17: no answer in time leaves the display's cell in use,
+    ///   and an answer that comes after the wait is used from the next
+    ///   frame.
+    /// - ADR-1200 D18: the fill brings the frit's coverage at a cell while
+    ///   nothing is asked.
+    pub fn hold_fill(&mut self, at: SpacedCell, first: &[char]) {
+        if self.failed.is_some() {
+            return;
+        }
+        let Some(state) = self.state(at, Variant::default()) else {
+            return;
+        };
+        if state.fill == Fill::None {
+            state.fill = Fill::Held;
+            state.first = first.iter().map(|&c| u32::from(c)).collect();
+        }
+    }
+
+    /// Whether a fill waits for [`Helper::start_held_fills`].
+    pub fn holds_fills(&self) -> bool {
+        self.cells.iter().any(|c| c.fill == Fill::Held)
+    }
+
+    /// Starts each fill [`Helper::hold_fill`] kept, but at the cells of
+    /// `waiting`, where the console still waits for the frit's own cell.
+    /// A cell no display draws at any more was dropped with its fill
+    /// ([`Helper::retain`]), so a fill held at the cell drawn while the
+    /// console waited never starts once the frit's own cell replaced it.
+    pub fn start_held_fills(&mut self, waiting: &[SpacedCell], now: Instant) {
+        let held: Vec<(SpacedCell, Vec<char>)> = self
+            .cells
+            .iter()
+            .filter(|c| c.fill == Fill::Held && !waiting.contains(&c.at))
+            .map(|c| {
+                (
+                    c.at,
+                    c.first.iter().filter_map(|&u| char::from_u32(u)).collect(),
+                )
+            })
+            .collect();
+        for (at, first) in held {
+            self.fill(at.cell, at.band, &first, now);
+        }
+    }
 }

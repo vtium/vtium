@@ -117,7 +117,9 @@ fn a_stand_in_ended_by_a_signal_leaves_no_core_dump() {
 /// `outline:` as the real helper does. With
 /// `go`, a FIFO, its first answer waits until the test opens `go` to
 /// write, and the kind of each frame it sends is appended to `kinds`, one
-/// line each. The module is included as `stand_in`, the name the test
+/// line each. The bytes of each request it reads are appended to
+/// [`requests_of`]`(kinds)`, so a test can read back what the console
+/// asked. The module is included as `stand_in`, the name the test
 /// harness is asked to run. The test harness writes
 /// to standard output, so the frames go out through descriptor 3, which
 /// the shell points at the console's pipe.
@@ -141,6 +143,29 @@ pub fn real_helper(kinds: &Path, go: Option<&Path>) -> vtium::helper::Command {
         .chain([exe.into_os_string(), OsString::from(mode)])
         .collect(),
         account: None,
+    }
+}
+
+/// The file to which the stand-in that [`real_helper`] starts with
+/// `kinds` appends the bytes of each request it reads.
+pub fn requests_of(kinds: &Path) -> PathBuf {
+    let mut name = kinds.as_os_str().to_owned();
+    name.push(".requests");
+    PathBuf::from(name)
+}
+
+/// What the stand-in reads from the console: its standard input, each
+/// byte also appended to a file.
+struct Teed {
+    input: std::io::Stdin,
+    copy: std::fs::File,
+}
+
+impl std::io::Read for Teed {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.input.read(buf)?;
+        std::io::Write::write_all(&mut self.copy, buf.get(..n).unwrap_or_default())?;
+        Ok(n)
     }
 }
 
@@ -202,8 +227,17 @@ fn the_helper_stand_in() {
         go: (!go.is_empty()).then(|| PathBuf::from(go)),
         pending: Vec::new(),
     };
+    let copy = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(requests_of(Path::new(kinds)))
+        .expect("the copy of the requests");
+    let input = Teed {
+        input: std::io::stdin(),
+        copy,
+    };
     let status = vtium_config::serve::serve(
-        std::io::stdin(),
+        input,
         &mut out,
         &vtium_config::serve::Paths::default(),
         Duration::from_secs(5),

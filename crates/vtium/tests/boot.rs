@@ -7469,12 +7469,15 @@ fn osc_50_names_a_path_and_a_family_and_switches_back_to_each() {
 /// scratch folder. The batch is read on this thread before the console
 /// starts, so the console keeps it. The real font helper serves the
 /// console, and the kind of each frame it sends goes to the kinds file.
-/// The result is the scratch folder, the sources, the `--font-paths`
-/// argument that names `fonts`, the copy's path and the kinds file.
+/// When `held`, the helper's answers wait until the test opens the FIFO
+/// `go` in the scratch folder ([`go_fifo`]). The result is the scratch
+/// folder, the sources, the `--font-paths` argument that names `fonts`,
+/// the copy's path and the kinds file.
 fn a_qualifying_font(
     scratch: &str,
     fixture: &Path,
     name: &str,
+    held: bool,
 ) -> (Scratch, Sources, String, String, PathBuf) {
     use std::os::unix::fs::PermissionsExt;
     let dir = Scratch::new(&format!("boot-qualifying-{scratch}"));
@@ -7501,9 +7504,10 @@ fn a_qualifying_font(
         vtium_settings::cullet::Rule::new(vtium_settings::Trust::owner(me)).below(&dir),
     );
     let kinds = dir.join("kinds");
+    let go = held.then(|| go_fifo(&dir));
     let fonts = Sources {
         frits: dir.join("frits"),
-        helper: Some(real_helper(&kinds, None)),
+        helper: Some(real_helper(&kinds, go.as_deref())),
         ..no_fonts()
     };
     let paths = format!("--font-paths={}", dir.join("fonts").display());
@@ -7532,7 +7536,7 @@ fn terminus_psf() -> PathBuf {
 #[test]
 fn osc_50_switches_to_an_outline_font_by_its_path_and_draws_from_it() {
     let _wait = vtium::helper::CellWait::new(IN_TIME);
-    let (_dir, fonts, paths, path, kinds) = a_qualifying_font("ttf", &dejavu(), "a.ttf");
+    let (_dir, fonts, paths, path, kinds) = a_qualifying_font("ttf", &dejavu(), "a.ttf", false);
     logged();
     let h = osc50(
         &["--font-name=unifont", "--font-size=16", &paths],
@@ -7565,7 +7569,7 @@ fn osc_50_switches_to_an_outline_font_by_its_path_and_draws_from_it() {
 #[test]
 fn osc_50_switches_to_a_console_font_by_its_path_and_draws_from_it() {
     let (_dir, fonts, paths, path, _kinds) =
-        a_qualifying_font("psf", &terminus_psf(), "ter-v32n.psf.gz");
+        a_qualifying_font("psf", &terminus_psf(), "ter-v32n.psf.gz", false);
     logged();
     let mut h = osc50(
         &["--font-name=unifont", "--font-size=0", &paths],
@@ -7595,6 +7599,216 @@ fn osc_50_switches_to_a_console_font_by_its_path_and_draws_from_it() {
         [Ok(vtium::helper::OwnCell::Bitmap(cell))],
         "{lines:?}"
     );
+    assert!(
+        !lines.iter().any(|l| l.contains("could not draw the font")),
+        "{lines:?}"
+    );
+}
+
+/// The FIFO `go` in `dir`, which holds the answers of a helper that
+/// [`real_helper`] starts with it until the test opens it to write.
+fn go_fifo(dir: &Path) -> PathBuf {
+    let go = dir.join("go");
+    rustix::fs::mknodat(
+        rustix::fs::CWD,
+        &go,
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        0,
+    )
+    .expect("the go FIFO");
+    go
+}
+
+/// The cell of each fill the console asked the helper that [`real_helper`]
+/// started with `kinds` for, in the order the helper read them.
+fn fills_asked(kinds: &Path) -> Vec<(u32, u32)> {
+    let bytes = std::fs::read(stand_in::requests_of(kinds)).unwrap_or_default();
+    let mut input = bytes.as_slice();
+    let mut fills = Vec::new();
+    while let Ok(Some(request)) = vtium_config::serve::read_request(&mut input) {
+        if let vtium_config::serve::Request::Serve(r) = request
+            && r.kind == vtium_config::serve::FILL
+        {
+            fills.push((r.cell.width, r.cell.height));
+        }
+    }
+    fills
+}
+
+/// Opens the go FIFO of a held helper, which lets its answers go, and turns
+/// the console's loop until it draws a console font in its own 16×32 cell
+/// and the helper has filled that cell. Then it checks what a console font
+/// whose cell came late must leave behind. The console knows the font's
+/// cell, and the helper still draws the font, so no line says that vtium
+/// gave the font up. The console asked for a fill at 16×32 alone, and none
+/// at the display's 8×8 cell while it waited, because the font gives no
+/// glyph at 8×8 and the helper refuses a fill that brings none.
+fn takes_the_late_console_font_cell(h: &mut Harness, go: &Path, kinds: &Path, font: &str) {
+    let _go = std::fs::OpenOptions::new()
+        .write(true)
+        .open(go)
+        .expect("the go FIFO");
+    let filled = vtium_config::serve::FRAME_FILLED;
+    assert!(
+        h.until(BOUND, |a| a.cells() == vec![(16, 32)]
+            && kinds_sent(kinds).contains(&filled)),
+        "the late cell is drawn and filled: {:?}, frames {:?}, fills {:?}, {:?}",
+        h.app.cells(),
+        kinds_sent(kinds),
+        fills_asked(kinds),
+        logged()
+    );
+    let lines = logged();
+    let cell = vtium_font::Cell {
+        width: 16,
+        height: 32,
+    };
+    let known: Vec<_> = h.app.frit_cells(font).into_iter().map(|(_, a)| a).collect();
+    assert_eq!(
+        known,
+        [Ok(vtium::helper::OwnCell::Bitmap(cell))],
+        "{lines:?}"
+    );
+    assert!(
+        !lines.iter().any(|l| l.contains("could not draw the font")),
+        "{lines:?}"
+    );
+    assert_eq!(fills_asked(kinds), [(16, 32)], "{lines:?}");
+}
+
+// A program switches to a PSF console font by its path, and the font
+// helper's answer about the font's own 16×32 cell comes after vtium's
+// wait. The stand-in holds every answer until the test opens its go FIFO,
+// so the answer comes late on any machine. Until it comes, vtium draws in
+// the display's 8×8 cell, and the built-in font draws the characters,
+// since a 16×32 font gives no glyph at 8×8. Once the answer comes, vtium
+// draws in the font's own cell, and the helper fills that cell.
+//
+// References:
+// - ADR-1200 D17: no answer in time leaves the display's cell in use, and
+//   an answer that comes after the wait is kept and used from the next
+//   frame.
+// - ADR-1200 D7: a character the frit has not sent draws in the built-in
+//   font.
+// covers: text.font-change
+#[test]
+fn osc_50_to_a_console_font_whose_cell_comes_late_draws_in_that_cell() {
+    let (dir, fonts, paths, path, kinds) =
+        a_qualifying_font("psf-late", &terminus_psf(), "ter-v32n.psf.gz", true);
+    logged();
+    let mut h = osc50(
+        &["--font-name=unifont", "--font-size=0", &paths],
+        &format!("\\033]50;{path}\\007"),
+        fonts,
+    );
+    assert_eq!(h.app.cells(), vec![(8, 8)], "the display's cell");
+    let lines = logged();
+    assert!(
+        lines.iter().any(|l| l.starts_with(&format!(
+            "the frit {path}'s own cell is not known (the helper gave no answer in"
+        ))),
+        "{lines:?}"
+    );
+    assert_eq!(switches(&lines), [path.as_str()], "{lines:?}");
+    takes_the_late_console_font_cell(&mut h, &dir.join("go"), &kinds, &path);
+}
+
+// The same late answer at the start: `font-name` names the PSF console
+// font by its path, and the helper's answer about its own 16×32 cell comes
+// after the first frame's wait. vtium draws the first frames in the
+// display's 8×8 cell, then in the font's own cell once the answer comes.
+//
+// References:
+// - ADR-1200 D9: a path at the start becomes a one-source frit.
+// - ADR-1200 D17: an answer that comes after the wait is kept and used.
+#[test]
+fn a_console_font_named_at_the_start_whose_cell_comes_late_draws_in_that_cell() {
+    let dir = Scratch::new("boot-psf-late-start");
+    let kinds = dir.join("kinds");
+    let go = go_fifo(&dir);
+    let fonts = Sources {
+        frits: dir.join("frits"),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    let path = std::fs::canonicalize(terminus_psf()).expect("the fixture");
+    let path = path.to_str().expect("a UTF-8 path");
+    let name = format!("--font-name={path}");
+    logged();
+    let mut h = with_fonts(&[name.as_str(), "--font-size=0"], fonts);
+    assert_eq!(h.app.cells(), vec![(8, 8)], "the display's cell");
+    let lines = logged();
+    assert!(
+        lines.iter().any(|l| l.starts_with(&format!(
+            "the frit {path}'s own cell is not known (the helper gave no answer in"
+        ))),
+        "{lines:?}"
+    );
+    takes_the_late_console_font_cell(&mut h, &go, &kinds, path);
+}
+
+// A font set of two bitmap fonts whose second font, Terminus at 16×32,
+// does not fit inside the first, unifont's 8×16. The font helper refuses
+// the question about the set's own cell, and its refusal comes after
+// vtium's wait. vtium holds its fill at the display's 8×16 cell while it
+// waits. Once the refusal comes, the head keeps drawing in that cell,
+// where unifont fits, and vtium starts the fill there.
+//
+// References:
+// - ADR-1200 D17: the helper refuses the cell of a bitmap set whose later
+//   source does not fit its first, a refusal leaves the display's cell in
+//   use, and a refusal after the wait is kept as one in time is.
+#[test]
+fn a_cell_refused_after_the_wait_fills_the_cell_the_head_draws_in() {
+    let dir = Scratch::new("boot-refused-late");
+    let kinds = dir.join("kinds");
+    let go = go_fifo(&dir);
+    std::fs::create_dir_all(dir.join("frits")).expect("the frits folder");
+    std::fs::write(
+        dir.join("frits/t.vtfrit"),
+        format!(
+            "source=builtin:unifont\nsource=file:{}\n",
+            terminus_psf().display()
+        ),
+    )
+    .expect("the frit");
+    let fonts = Sources {
+        frits: dir.join("frits"),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    let args = [
+        "--font-name=t",
+        "--font-size=0",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "read x",
+    ];
+    logged();
+    let mut h = Harness::fonts(&args, Memory::sized(640, 480), fonts);
+    assert_eq!(h.app.cells(), vec![(8, 16)], "the display's cell");
+    let _go = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&go)
+        .expect("the go FIFO");
+    let refused = vtium_config::serve::FRAME_NO_OWN_CELL;
+    let filling = vtium_config::serve::FRAME_FILL;
+    assert!(
+        h.until(BOUND, |_| {
+            let sent = kinds_sent(&kinds);
+            sent.contains(&refused) && sent.contains(&filling)
+        }),
+        "the refusal comes and the fill brings glyphs: frames {:?}, fills {:?}, {:?}",
+        kinds_sent(&kinds),
+        fills_asked(&kinds),
+        logged()
+    );
+    let lines = logged();
+    assert_eq!(h.app.cells(), vec![(8, 16)], "{lines:?}");
+    assert_eq!(fills_asked(&kinds), [(8, 16)], "{lines:?}");
     assert!(
         !lines.iter().any(|l| l.contains("could not draw the font")),
         "{lines:?}"

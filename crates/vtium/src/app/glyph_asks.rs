@@ -20,7 +20,10 @@ impl App {
     /// head drawing that frit draws at and that was not filled yet, the
     /// screen's characters first, and asks for the screen's characters
     /// there; drops the glyphs of cells no display draws at any more
-    /// (ADR-1301 D2, the operator's fill model).
+    /// (ADR-1301 D2, the operator's fill model). At a cell drawn while the
+    /// head waits for the frit's own cell, the asks go and the fill waits
+    /// until the wait ends ([`App::start_held_fills`]), since the frit may
+    /// give no glyph at that cell.
     pub(super) fn ask_glyphs(&mut self, h: usize) {
         let Some(name) = self.heads.get(h).and_then(Head::frit).map(str::to_owned) else {
             return;
@@ -60,6 +63,7 @@ impl App {
         if new.is_empty() {
             return;
         }
+        let waiting = self.cells_waiting(&name);
         let Some(helper) = self.helper(&name) else {
             return;
         };
@@ -72,7 +76,11 @@ impl App {
                 .first()
                 .map(|s| s.chars.as_slice())
                 .unwrap_or_default();
-            helper.fill(at.cell, at.band, first, now);
+            if waiting.contains(at) {
+                helper.hold_fill(*at, first);
+            } else {
+                helper.fill(at.cell, at.band, first, now);
+            }
         }
         if let Some(frit) = self.frits.get_mut(&name) {
             frit.asked.extend(new.into_iter().map(|(at, _)| at));
@@ -240,6 +248,45 @@ impl App {
             self.late_cell(&name, height, answer);
         }
         self.end_cell_waits();
+        self.start_held_fills(now);
+    }
+
+    /// The cells the displays of each head drawing frit `name` draw at
+    /// while the head waits for the frit's own cell ([`App::waits_for_cell`]).
+    fn cells_waiting(&self, name: &str) -> Vec<SpacedCell> {
+        let mut cells = Vec::new();
+        for (h, head) in self.heads.iter().enumerate() {
+            if head.frit() == Some(name) && self.waits_for_cell(h) {
+                cells.extend(head.views.values().map(View::spaced));
+            }
+        }
+        cells
+    }
+
+    /// Starts each fill that a frit's helper holds at a cell where no head
+    /// waits for the frit's own cell any more. The wait ends with the
+    /// helper's late answer: a cell that lays the head out in the frit's
+    /// own cell drops the cell drawn while it waited, and its fill with it,
+    /// and a refusal leaves the head in the cell it draws in, whose fill
+    /// then starts. A failed helper ends the wait too, and fills nothing.
+    /// The state alone ends the hold, never a timer.
+    ///
+    /// References:
+    /// - ADR-1200 D17: a refusal leaves the display's cell in use, and an
+    ///   answer that comes after the wait is used from the next frame.
+    fn start_held_fills(&mut self, now: Instant) {
+        let holding: Vec<String> = self
+            .frits
+            .iter()
+            .filter(|(_, f)| f.helper.as_ref().is_some_and(Helper::holds_fills))
+            .map(|(name, _)| name.clone())
+            .collect();
+        for name in holding {
+            let waiting = self.cells_waiting(&name);
+            if let Some(helper) = self.frits.get_mut(&name).and_then(|f| f.helper.as_mut()) {
+                helper.start_held_fills(&waiting, now);
+            }
+        }
     }
 
     /// Whether head `h` draws a font set whose cell at the head's height
