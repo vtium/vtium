@@ -1,5 +1,5 @@
  Fonts  Effects  Looks  Flow  Settings  Help
- draft workstation · 1 change · no problems                      text preview · live trial in Looks
+ draft workstation · 1 change · no problems                      text preview · trial: Fonts, Looks
 ----------------------------------------------------------------------------------------------------
  The Fonts tab: a line of filters, then the fonts found on this system, each with its active mark
  and trust mark, with a preview of the highlighted font

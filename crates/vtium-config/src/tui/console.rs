@@ -39,6 +39,13 @@ impl Shared {
         self.live == Live::On
     }
 
+    /// Why `t` cannot try a font on the console, `None` where it can: in
+    /// a vtium console with `allow-font-ops` on. The Fonts and Looks tabs
+    /// both say this before anything else.
+    pub fn trial_off(&self) -> Option<&'static str> {
+        (self.live != Live::On).then_some(super::words::TRIAL_OFF)
+    }
+
     /// The console's head in `flow`, by `VTIUM_HEAD`, and the look it
     /// draws with where that look names a font of its own.
     fn head_look<'f>(&self, flow: &'f Flow) -> Option<(&'f str, &'f Look)> {

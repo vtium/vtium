@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "flow.restore at 80×25, keys: 4 o"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help   View file Save Install Revert New
- draft mine · no changes · no problems · not watch…  text · live trial in Looks
+ draft mine · no changes · no problems · not watch…  text · trial: Fonts, Looks
 
 
  Restore an earlier vtium.conf, newest first
