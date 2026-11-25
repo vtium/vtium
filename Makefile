@@ -1342,13 +1342,17 @@ endef
 GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),8)
 GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
 GATES_SIZE_LOG = $(GATES_DIR)/logs/minspec-size.log
+# The recipe names make through this variable rather than as $(MAKE): make
+# runs a recipe line that names $(MAKE) even under make -n, and make -n gates
+# must print the gates' line without running the gates.
+GATES_SIZE_BUILD = CARGO_TARGET_DIR=$(GATES_DIR)/minspec-size $(MAKE) --no-print-directory minspec
 
 .PHONY: gates
 gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed; then report the minspec binary's size against tier 3's budget
 	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR); code=$$?; \
 	[ $$code -ne 130 ] || exit $$code; \
 	echo; echo "==> make minspec, for the size of the binary tier 3 measures (log: $(GATES_SIZE_LOG))"; \
-	if CARGO_TARGET_DIR=$(GATES_DIR)/minspec-size $(MAKE) --no-print-directory minspec >$(GATES_SIZE_LOG) 2>&1 </dev/null; then \
+	if $(GATES_SIZE_BUILD) >$(GATES_SIZE_LOG) 2>&1 </dev/null; then \
 		python3 -I -B tools/gates/minspec-size $(GATES_DIR)/minspec-size/$(X86_TARGET)/minspec/vtium; \
 	else \
 		echo "warning: make minspec failed, so make gates cannot report the minspec binary's size. Its log is $(GATES_SIZE_LOG)."; \
