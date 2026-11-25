@@ -736,9 +736,9 @@ fn lazy_and_eager_agree(seed: u64) {
 }
 
 // Seed 18815 found a row in the scrollback that kept the mark of a
-// right-to-left character it no longer held when it waited through a
-// narrower width, where a rewrap at each resize made the row anew and
-// cleared the mark.
+// right-to-left character it no longer held, because it waited through a
+// narrower width. A rewrap at each resize made the row anew at that
+// width, which cleared the mark.
 #[test]
 fn the_property_at_seed_18815() {
     lazy_and_eager_agree(18815);

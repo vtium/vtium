@@ -162,7 +162,7 @@ impl LineFlags {
     pub const PARAGRAPH: Self =
         Self(Self::EXPLICIT.0 | Self::RTL.0 | Self::DETECT.0 | Self::BOX_MIRROR.0);
     /// The line has held a right-to-left or joining character since it was
-    /// written, or since a rewrap made it, in a build with the bidi
+    /// written, or since a rewrap made or kept it, in a build with the bidi
     /// feature. A frame draws its paragraph through the paragraph's order
     /// and redraws all of the paragraph's rows when any of them changes,
     /// so a row whose last right-to-left character was erased is redrawn
@@ -975,8 +975,8 @@ impl Line {
     /// clears the mark when none of them reorders. A rewrap does this for a
     /// row it keeps as it is, as it does for each row it makes, so the mark
     /// after a rewrap depends only on the row's characters. A row that
-    /// waited through several widths then ends with the same mark as one
-    /// rewrapped at each of them, which may have made it anew.
+    /// waited through several widths ends with the same mark it would have
+    /// after a rewrap at each width.
     ///
     /// References:
     /// - ADR-1004 D8: what the mark records and why a frame reads it.
