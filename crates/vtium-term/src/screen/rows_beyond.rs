@@ -362,18 +362,20 @@ mod capture {
         assert!(frame.row_changed_at(-1));
     }
 
-    /// A terminal of 4 columns by 3 rows whose link ABCDEFG wraps from row
-    /// -1, which shows ABCD, onto row 0, which shows EFG, at rest.
+    /// A terminal of 4 columns by 3 rows that shows one link on row -1, AB,
+    /// and on row 0, EF, at rest. The two are separate lines, so no
+    /// paragraph joins row -1 to row 0, and only the link ties them.
     fn link_across_the_top_edge() -> Terminal {
         let mut t = Terminal::new(4, 3, 1000);
         t.screen_mut().set_scrollback_max(100);
-        t.input(b"a\r\nb\r\nc\r\n\x1b]8;;http://x/\x1b\\ABCDEFG\x1b]8;;\x1b\\\r\n\r\n");
+        let link = |text: &str| format!("\x1b]8;;http://x/\x1b\\{text}\x1b]8;;\x1b\\");
+        t.input(format!("a\r\nb\r\nc\r\n{}\r\n{}\r\n\r\n", link("AB"), link("EF")).as_bytes());
         t
     }
 
     // A row above the screen whose look changes reads as changed. Hovering a
-    // link that wraps from row -1 onto row 0 underlines row -1 too, and
-    // moving the pointer off the link takes the underline away again.
+    // link on row 0 underlines its cells on row -1 too, and moving the
+    // pointer off the link takes the underline away again.
     #[test]
     fn a_hover_that_reaches_a_row_above_the_screen_reads_as_changed() {
         let mut t = link_across_the_top_edge();
