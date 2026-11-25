@@ -610,10 +610,11 @@ impl Overlay {
         if self.notice.is_none() && self.mark.is_none() {
             return Vec::new();
         }
+        let cell = self.mark_cell(renderer, grid);
         self.draw_in(
             renderer.font(),
             renderer.depth(),
-            grid,
+            cell,
             orientation,
             size,
             target,
@@ -638,8 +639,20 @@ impl Overlay {
         if self.notice.is_none() && self.mark.is_none() {
             return Vec::new();
         }
+        let cell = self.mark_cell(renderer, grid);
         let (font, depth, mut colored) = renderer.colored_with_font(target);
-        self.draw_in(font, depth, grid, orientation, size, &mut colored)
+        self.draw_in(font, depth, cell, orientation, size, &mut colored)
+    }
+
+    /// The display rectangle the focus mark takes, when the overlay shows
+    /// it: the top-right cell of the `grid` that `renderer` draws, where
+    /// the renderer places and turns that cell.
+    fn mark_cell<F: Face>(
+        &self,
+        renderer: &Renderer<F>,
+        grid: (usize, usize),
+    ) -> Option<RenderRect> {
+        self.mark.and_then(|_| top_right(renderer, grid))
     }
 
     /// Draws the overlay into `target`, a display of `size`, as a frame of
@@ -661,12 +674,13 @@ impl Overlay {
     }
 
     /// Draws the overlay into `target` with vtium's built-in font in the
-    /// cell of `own`, the renderer's font, under `own`'s sprite policy.
+    /// cell of `own`, the renderer's font, under `own`'s sprite policy, the
+    /// focus mark in the display rectangle `cell`.
     fn draw_in<F: Face>(
         &self,
         own: &Font<F>,
         depth: Depth,
-        grid: (usize, usize),
+        cell: Option<RenderRect>,
         orientation: Orientation,
         size: (u32, u32),
         target: &mut impl Target,
@@ -674,9 +688,9 @@ impl Overlay {
         match crate::font::own_face(own.face().cell()) {
             Some(face) => {
                 let font = Font::new(face).with_policy(own.policy());
-                self.draw_with(&font, depth, grid, orientation, size, target)
+                self.draw_with(&font, depth, cell, orientation, size, target)
             }
-            None => self.draw_with(own, depth, grid, orientation, size, target),
+            None => self.draw_with(own, depth, cell, orientation, size, target),
         }
     }
 
@@ -686,7 +700,7 @@ impl Overlay {
         &self,
         font: &Font<F>,
         depth: Depth,
-        grid: (usize, usize),
+        cell: Option<RenderRect>,
         orientation: Orientation,
         (width, height): (u32, u32),
         target: &mut impl Target,
@@ -697,9 +711,6 @@ impl Overlay {
             orientation,
             depth,
         };
-        let cell = self
-            .mark
-            .and_then(|_| top_right(surface, grid, font.cell()));
         let OverlayColors {
             notice: problem,
             osd,
@@ -747,39 +758,11 @@ fn display_rect(r: &RenderRect) -> DisplayRect {
     }
 }
 
-/// The display rectangle of the top-right cell of a `grid` of `cell`s,
-/// centred on `surface` and turned with it as the renderer places it.
-fn top_right(surface: Surface, grid: (usize, usize), cell: vtium_font::Cell) -> Option<RenderRect> {
-    let n = |v: usize| u32::try_from(v).unwrap_or(u32::MAX);
-    let (cols, rows) = (n(grid.0), n(grid.1));
-    let (cw, ch) = (cell.width, cell.height);
-    if cols == 0 || rows == 0 || cw == 0 || ch == 0 {
-        return None;
-    }
-    let turned = matches!(surface.orientation, Orientation::Right | Orientation::Left);
-    let (gw, gh) = (cols.saturating_mul(cw), rows.saturating_mul(ch));
-    let (across, down) = if turned { (gh, gw) } else { (gw, gh) };
-    let off_x = surface.width.saturating_sub(across) / 2;
-    let off_y = surface.height.saturating_sub(down) / 2;
-    let (max_x, max_y) = (off_x.saturating_add(across), off_y.saturating_add(down));
-    // the cell's left edge, along the grid's rows
-    let lx = cols.saturating_sub(1).saturating_mul(cw);
-    let (x, y) = match surface.orientation {
-        Orientation::Normal => (off_x.saturating_add(lx), off_y),
-        Orientation::UpsideDown => (
-            max_x.saturating_sub(lx.saturating_add(cw)),
-            max_y.saturating_sub(ch),
-        ),
-        Orientation::Right => (max_x.saturating_sub(ch), off_y.saturating_add(lx)),
-        Orientation::Left => (off_x, max_y.saturating_sub(lx.saturating_add(cw))),
-    };
-    let (width, height) = if turned { (ch, cw) } else { (cw, ch) };
-    Some(RenderRect {
-        x,
-        y,
-        width,
-        height,
-    })
+/// The display rectangle of the top-right cell of a `grid` of columns and
+/// rows, as `renderer` places and turns that cell, or `None` for an empty
+/// grid.
+fn top_right<F: Face>(renderer: &Renderer<F>, grid: (usize, usize)) -> Option<RenderRect> {
+    renderer.cell_rect(grid, grid.0.checked_sub(1)?, 0)
 }
 
 /// How a display draws a scroll, as vtium.conf's `scroll-draw` asks for
@@ -2545,8 +2528,9 @@ mod tests {
     }
 
     // The focus mark's cell is where the renderer draws the grid's top-right
-    // cell, in each orientation: a full block there, drawn, lights exactly
-    // the rectangle `top_right` gives.
+    // cell, in each orientation, with spare lines and columns even and odd:
+    // a full block there, drawn, lights exactly the rectangle `top_right`
+    // gives.
     #[test]
     fn top_right_is_the_cell_the_renderer_draws_top_right() {
         for (o, w, h) in [
@@ -2554,6 +2538,10 @@ mod tests {
             (Orientation::UpsideDown, 100, 60),
             (Orientation::Right, 60, 100),
             (Orientation::Left, 60, 100),
+            (Orientation::Normal, 101, 61),
+            (Orientation::UpsideDown, 101, 61),
+            (Orientation::Right, 61, 101),
+            (Orientation::Left, 61, 101),
         ] {
             let mut terminal = Terminal::new(10, 3, 0);
             terminal.input("\x1b[1;10H\u{2588}".as_bytes());
@@ -2584,26 +2572,9 @@ mod tests {
                 width: x1.unwrap() - x0.unwrap() + 1,
                 height: y1.unwrap() - y0.unwrap() + 1,
             };
-            let surface = Surface {
-                width: w,
-                height: h,
-                orientation: o,
-                depth: renderer.depth(),
-            };
-            let cell = renderer.font().cell();
-            assert_eq!(top_right(surface, (10, 3), cell), Some(drawn), "{o:?}");
+            assert_eq!(top_right(&renderer, (10, 3)), Some(drawn), "{o:?} {w}x{h}");
+            assert_eq!(top_right(&renderer, (0, 3)), None, "an empty grid");
         }
-        let surface = Surface {
-            width: 100,
-            height: 60,
-            orientation: Orientation::Normal,
-            depth: Depth::Color,
-        };
-        let cell = vtium_font::Cell {
-            width: 8,
-            height: 16,
-        };
-        assert_eq!(top_right(surface, (0, 3), cell), None, "an empty grid");
     }
 
     /// A terminal of 4 by 2 cells and its view on a display of 36 by 34,
