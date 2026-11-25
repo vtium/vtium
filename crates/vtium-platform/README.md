@@ -230,6 +230,7 @@ A video device is one DRM card (`Drm2d`) or one fbdev node (`Fbdev`), which the 
   Without a modeset owed, `unblank` powers each display on through its DPMS. Where any display refuses, vtium still powers the rest on, and a modeset is owed, retried in the same way, with every display on. While asleep, `unblank` does nothing, as the wake-up brings every display on. vtium therefore commits no modeset while the displays are blanked, apart from a wake-up's, which ends the blank. The recorded DPMS always matches what the hardware shows. A display just bound is set on.
 
   `Blank` powers the displays down after `dpms-timeout` with no key press or pointer action (600 s by default, `DPMS_TIMEOUT`), and up at the next one. The owner wires input and wake-ups to it, and also a program's timeout and wake (vtium/vtium#79). A timeout change restarts the countdown and keeps a blank in force. `Blank::deadline` follows the countdown, and is none while blanking is off.
+- **A dumb buffer for a measuring tool.** `MappedDumb` makes a dumb buffer of any size on a card that the caller opened, maps it, and frees it when dropped. It does nothing else: the framebuffer over it, the plane and the commits stay the caller's. The scroll timing tool (`tools/scroll-timing`) draws into it to measure the pan over a buffer taller than the screen (ADR-1310 D6). drm2d makes its own buffers at the display's mode and does not use it.
 
 ### The frame contract
 
@@ -374,6 +375,7 @@ The stand-in card follows the kernel where drm2d depends on it. Only a real KMS 
 - the modeset checks that the stand-in copies from the kernel (`drm_atomic_helper_check_modeset`, `drm_atomic_helper_check_plane_state`);
 - the flip event of a CRTC turned off, and the connector's encoder naming the CRTC another master left it on;
 - the real fbdev ioctls and mapping.
+- `MappedDumb`'s buffer, made taller than the screen and shown from a moving `SRC_Y`, through the scroll timing tool's run in the guest (`make scroll-timing`).
 
 No tier yet proves the wait for a CRTC's next vblank on a real CRTC, nor its event. Tier 3 has no commit refused as busy, and `a_render_node_through_the_real_ioctls` reaches `WAIT_VBLANK` only as far as a render node's refusal.
 

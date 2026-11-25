@@ -32,6 +32,7 @@ mod depth;
 #[cfg(feature = "gpu")]
 mod dma_buf;
 mod drm2d;
+mod dumb;
 mod edid;
 #[cfg(test)]
 pub(crate) mod fake;
@@ -47,6 +48,7 @@ pub use density::{DPI_ASSUMED, DPI_MAX, DPI_MIN, Density};
 #[cfg(feature = "gpu")]
 pub use dma_buf::{DmaBuf, MODIFIER_INVALID, Plane};
 pub use drm2d::{CURSOR_MAX, Drm2d};
+pub use dumb::MappedDumb;
 pub use edid::{Edid, EdidId, Serial};
 pub use fbdev::{Fb, Fbdev};
 pub use mode::{Mode, ModeLookup, ModePolicy, Wanted};

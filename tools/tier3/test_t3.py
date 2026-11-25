@@ -57,6 +57,7 @@ import t3_pictures  # noqa: E402
 import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
 import t3_rootchecks  # noqa: E402
+import t3_scrolltiming  # noqa: E402
 import t3_seat  # noqa: E402
 import t3_handover  # noqa: E402
 import t3_keyecho  # noqa: E402
@@ -8587,6 +8588,67 @@ class RootChecksTest(unittest.TestCase):
                              ["VERSION", "libseat.so.1"])
             with open(os.path.join(disc, "builtin", "VERSION")) as f:
                 self.assertEqual(f.read(), "seatd 0.9.3\n")
+
+
+class ScrollTimingTest(unittest.TestCase):
+    """The driver of the scroll timing tool's run (t3_scrolltiming.py),
+    without a guest."""
+
+    def test_rows_are_taken_after_their_prefix(self):
+        with tempfile.TemporaryDirectory() as d:
+            events = os.path.join(d, "events.log")
+            with open(events, "w") as f:
+                f.write("SCROLLTIMING-BEGIN\n"
+                        "SCROLLTIMING-ROW # kernel\t7.2.11\r\n"
+                        "a line of the kernel's SCROLLTIMING-ROW way\tsize\n"
+                        "SCROLLTIMING-EXIT 0\n")
+            self.assertEqual(t3_scrolltiming.rows(events, "SCROLLTIMING-ROW "),
+                             ["# kernel\t7.2.11", "way\tsize"])
+            self.assertEqual(t3_scrolltiming.rows(events, "SCROLLTIMING-EXIT "), ["0"])
+
+    def test_disc_holds_the_script_the_tool_and_its_arguments(self):
+        with tempfile.TemporaryDirectory() as d:
+            tool = os.path.join(d, "scroll-timing")
+            with open(tool, "w") as f:
+                f.write("tool")
+            disc = os.path.join(d, "disc")
+            t3_scrolltiming.stage(tool, disc, ["--sizes", "1366x768", "--frames", "60"])
+            self.assertEqual(sorted(os.listdir(disc)), ["args", "scroll-timing", "setup"])
+            with open(os.path.join(disc, "args")) as f:
+                self.assertEqual(f.read(), "--sizes\n1366x768\n--frames\n60\n")
+            with open(os.path.join(disc, "setup")) as f:
+                self.assertIn("SCROLLTIMING-END", f.read())
+
+    def test_the_guest_is_the_minspec_machine_with_the_size_as_its_edid(self):
+        self.assertEqual((t3_scrolltiming.CPUS, t3_scrolltiming.MEMORY_MB), (1, 512))
+        self.assertEqual(t3_scrolltiming.device((1366, 768)),
+                         "virtio-vga,xres=1366,yres=768,edid=on,max_hostmem=1G")
+
+    def test_each_size_boots_the_minspec_machine(self):
+        # run_size hands the machine's vCPUs, memory and device to Qemu. The
+        # stand-in for Qemu records what it was given and stops the run
+        # there, before any guest would boot.
+        given = []
+
+        class Stop(Exception):
+            pass
+
+        def qemu(workdir, disks, device, log, **kw):
+            given.append((device, kw.get("cpus"), kw.get("memory_mb")))
+            raise Stop()
+
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(t3_scrolltiming, "WORK", d), \
+                mock.patch.object(t3_scrolltiming, "Qemu", qemu), \
+                mock.patch.object(t3_scrolltiming, "make_iso"), \
+                mock.patch.object(t3_scrolltiming.subprocess, "run"):
+            tool = os.path.join(d, "scroll-timing")
+            with open(tool, "w") as f:
+                f.write("tool")
+            with self.assertRaises(Stop):
+                t3_scrolltiming.run_size(tool, (1366, 768), [], lambda *a: None)
+        self.assertEqual(given, [("virtio-vga,xres=1366,yres=768,edid=on,max_hostmem=1G",
+                                  1, 512)])
 
 
 class FontSourcesTest(unittest.TestCase):
