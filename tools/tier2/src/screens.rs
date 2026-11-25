@@ -4774,7 +4774,7 @@ const LOGIN_CONTAIN_TOP_LEFT_DESC: &str = concat!(
 const LOGIN_CONTAIN_RIGHT_DESC: &str = concat!(
     "login-contain with login-image-position=right: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's right edge and centered down the display (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels. ",
     "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
-    "Correct: the picture ends at the grid's last pixel column, its frame along the grid's right edge, and starts 280 pixels into the grid; down the screen it is placed as in login-contain, its first 2 and last 3 pixel rows in the strips outside the grid; the default background shows to its left; the disc is round; the text draws over the picture and the background alike."
+    "Correct: the picture ends at the grid's last pixel column, its frame along the grid's right edge, and starts 280 pixels into the grid; down the screen it is placed as in login-contain, centered on the display, so its first 5 pixel rows fall in the strip above the grid, which shows the default background; the default background shows to its left; the disc is round; the text draws over the picture and the background alike."
 );
 
 const LOGIN_CONTAIN_BOTTOM_DESC: &str = concat!(
