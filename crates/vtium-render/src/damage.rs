@@ -421,6 +421,15 @@ impl Cells {
         self.serial
     }
 
+    /// The frame collected last drew nothing, so it gave its serial back,
+    /// but the display presents it anyway, as it does for an overlay drawn
+    /// over an unchanged frame. The frame takes its serial again, so the
+    /// buffer it was drawn into holds a frame of its own and the next
+    /// buffer's age points at the frame that buffer really holds.
+    pub(crate) fn count_presented(&mut self) {
+        self.serial = self.serial.saturating_add(1);
+    }
+
     /// Whether the buffer being drawn lacks every cell of `row`, so that
     /// this frame draws the row whole.
     pub(crate) fn row_whole_stale(&self, row: usize) -> bool {

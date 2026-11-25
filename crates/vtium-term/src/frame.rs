@@ -521,7 +521,7 @@ impl<'a> Frame<'a> {
     /// The cell drawn at `row`, column `col` from the left, resolved;
     /// `None` outside the frame. A row drawn in another order than it was
     /// written shows there the cell of another logical column
-    /// ([`FrameCell::col`] in a build with the bidi feature).
+    /// (`FrameCell::col` in a build with the bidi feature).
     pub fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'a>> {
         let line = self.line(row)?;
         if col >= self.cols() {

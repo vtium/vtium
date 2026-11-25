@@ -3,8 +3,13 @@
 //! window, across the ring's end, at buffer ages 0 to 6, in all four
 //! orientations and with narrow and wide borders; the pan's damage holds
 //! every pixel it writes; a twin is drawn only when a window shows it; a
-//! scroll draws only the border it shows anew; and a frame drawn whole
-//! puts the window at rest.
+//! scroll draws only the border it shows anew; a frame drawn whole puts
+//! the window at rest; an overlay drawn over the window goes with its
+//! lines, also over a frame that changes nothing and in random runs; a
+//! joined syllable changed in one cell during a scroll draws every piece;
+//! and, at 1366×768, a one-line scroll draws only the rows that
+//! came in while a screen rewritten in place writes no more than the
+//! redraw way.
 #![expect(
     clippy::arithmetic_side_effects,
     clippy::cast_possible_truncation,
@@ -139,6 +144,8 @@ enum Step {
     /// A new picture two rows tall is placed on a row of the screen, from
     /// its fourth column; nothing in a build without `images`.
     Picture(usize),
+    /// Nothing changes.
+    Still,
 }
 
 fn line(n: usize) -> Line {
@@ -277,10 +284,12 @@ impl Term {
                 while self.lines.len() < self.top + ROWS {
                     self.lines.push((self.make)(self.lines.len()));
                 }
+                // the scroll record moves the view's ages with its lines
+                // and marks the rows that came in, as the screen's view does
                 let k = n.unsigned_abs() as usize;
                 match n > 0 {
-                    true => d.mark_rows(ROWS.saturating_sub(k)..ROWS),
-                    false => d.mark_rows(0..k),
+                    true => d.scroll_up(k),
+                    false => d.scroll_down(k),
                 }
                 return (n, false);
             }
@@ -310,6 +319,7 @@ impl Term {
                 #[cfg(not(feature = "images"))]
                 let _ = row;
             }
+            Step::Still => {}
         }
         (0, false)
     }
@@ -893,5 +903,889 @@ impl<F: vtium_font::Face> Renderer<F> {
     /// The ring's shape for this renderer's display.
     fn ring_geometry(&self) -> super::Geometry {
         super::Geometry::new(&self.layout, &super::Grid::default())
+    }
+}
+
+/// A console of `cols` by `rows` cells on a display of 1366×768 or
+/// 1920×1080, for the tests and figures that measure a frame at a real
+/// screen's size.
+struct Big {
+    lines: Vec<Line>,
+    cols: usize,
+    rows: usize,
+    top: usize,
+    palette: Palette,
+}
+
+impl Big {
+    fn new(cols: usize, rows: usize) -> Big {
+        let mut b = Big {
+            lines: Vec::new(),
+            cols,
+            rows,
+            top: 0,
+            palette: Palette::new(
+                [Rgb::default(); 256],
+                Rgb::new(0xc0, 0xc0, 0xc0),
+                Rgb::new(0, 0, 0x30),
+            ),
+        };
+        b.fill();
+        b
+    }
+
+    /// A line of letters in a color of its own.
+    fn line(&self, n: usize) -> Line {
+        let mut l = Line::new(LineId::new(n as u64 + 1), self.cols);
+        let style = Style {
+            fg: Color::Rgb(Rgb::new(0xc0, (n * 40) as u8, 0x40)),
+            bg: Color::Rgb(Rgb::new((n * 23) as u8, 0x10, 0x20)),
+            ..Style::DEFAULT
+        };
+        for col in 0..self.cols {
+            let c = (b'a' + ((n + col) % 26) as u8) as char;
+            l.write(col, Glyph::Char(c), Width::Narrow, &style, None);
+        }
+        l
+    }
+
+    fn fill(&mut self) {
+        while self.lines.len() < self.top + self.rows {
+            let l = self.line(self.lines.len());
+            self.lines.push(l);
+        }
+    }
+
+    /// The view moves a line down the output, as a line feed on the
+    /// bottom row moves it, or with `up` false a line back up the output,
+    /// as a reverse index on the top row moves it.
+    fn scroll(&mut self, d: &mut Damage, up: bool) {
+        if up {
+            self.top += 1;
+            self.fill();
+            d.scroll_up(1);
+        } else {
+            self.top -= 1;
+            d.scroll_down(1);
+        }
+    }
+
+    /// Writes every cell of the screen again in place with letters that
+    /// differ from the ones there, as a program that redraws its screen
+    /// does, all but the last `keep` rows.
+    fn rewrite(&mut self, d: &mut Damage, step: usize, keep: usize) {
+        for row in 0..self.rows.saturating_sub(keep) {
+            self.rewrite_row(d, step, row);
+        }
+    }
+
+    /// Writes every cell of `row` again in place, as [`Big::rewrite`]
+    /// does.
+    fn rewrite_row(&mut self, d: &mut Damage, step: usize, row: usize) {
+        let style = Style {
+            fg: Color::Rgb(Rgb::new(0xff, 0xff, (step * 50) as u8)),
+            bg: Color::Rgb(Rgb::new(0x40, (step * 30) as u8, 0)),
+            ..Style::DEFAULT
+        };
+        let l = &mut self.lines[self.top + row];
+        for col in 0..self.cols {
+            let c = (b'A' + ((row + col + step) % 26) as u8) as char;
+            l.write(col, Glyph::Char(c), Width::Narrow, &style, None);
+        }
+        d.mark_cells(row, 0..self.cols);
+    }
+
+    fn frame<'a>(&'a self, d: &'a Damage, since: Age) -> Frame<'a> {
+        let lines = self.lines[self.top..self.top + self.rows].iter().collect();
+        let cursor = Cursor {
+            visible: false,
+            ..Cursor::default()
+        };
+        Frame::new(lines, d, &self.palette, since, cursor, false)
+    }
+
+    fn state(&self) -> DrawState {
+        DrawState {
+            cursor_on: true,
+            background: self.palette.bg(),
+            pointer: None,
+            ..DrawState::default()
+        }
+    }
+}
+
+/// How a test or a figure draws a frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Way {
+    Redraw,
+    Pan,
+    Copy,
+}
+
+/// A renderer at 8×16 cells on a display `w` by `h`, upright.
+fn big_renderer(w: u32, h: u32) -> Renderer<Unifont> {
+    Renderer::new(Font::new(Unifont::new(16)), w, h, Config::default())
+}
+
+/// Draws `frame` the way `way` says into buffer `i` of `bufs`, at `age`,
+/// and returns the pixels written into the buffer and the cells drawn.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a test helper that names each input"
+)]
+fn draw_way(
+    way: Way,
+    r: &mut Renderer<Unifont>,
+    bufs: &mut [Canvas],
+    i: usize,
+    age: u32,
+    frame: &Frame<'_>,
+    state: &DrawState,
+    scrolled: i64,
+) -> (u64, u32) {
+    let mut counted = Counted {
+        canvas: &mut bufs[i],
+        pixels: 0,
+    };
+    let cells = match way {
+        Way::Redraw => r.draw(frame, &mut counted, age, state).stats.cells,
+        Way::Pan => {
+            r.draw_pan(frame, &mut counted, age, state, scrolled, false)
+                .0
+                .stats
+                .cells
+        }
+        Way::Copy => {
+            r.draw_copy(frame, &mut counted, age, state, scrolled, false)
+                .stats
+                .cells
+        }
+    };
+    (counted.pixels, cells)
+}
+
+/// What each measured frame does to the console.
+#[derive(Clone, Copy, Debug)]
+struct Load {
+    /// The view moves a line down the output.
+    scroll: bool,
+    /// The view moves a line back up the output instead, from a view that
+    /// starts 400 lines down it.
+    back: bool,
+    /// The bottom row is written again in place, as a pager writes its
+    /// prompt line.
+    status: bool,
+    /// Every row but the last `keep` is written again in place.
+    rewrite: Option<usize>,
+    /// Lines the view moves before the frames measured, so that the pan's
+    /// window stands that many rows past the ring's start.
+    moved: usize,
+}
+
+/// A one-line scroll each frame.
+const SCROLL: Load = Load {
+    scroll: true,
+    back: false,
+    status: false,
+    rewrite: None,
+    moved: 0,
+};
+
+/// A one-line scroll back up the output each frame.
+const SCROLL_BACK: Load = Load {
+    back: true,
+    ..SCROLL
+};
+
+/// What `frames` frames of a console of `cols` by `rows` cells write on a
+/// display `w` by `h` drawn `way` with two buffers: the pixels written and
+/// the time taken and the cells drawn, per frame, and the most pixels one
+/// frame wrote, each frame doing what `load` says. Two
+/// frames drawn whole and two frames of the same kind come first and are
+/// not counted, since each buffer then still lacks what the other buffer's
+/// whole frame drew.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the figures time each frame's draw"
+)]
+fn measure(
+    way: Way,
+    (w, h): (u32, u32),
+    (cols, rows): (usize, usize),
+    frames: usize,
+    load: Load,
+) -> (u64, std::time::Duration, u64, u64) {
+    let mut big = Big::new(cols, rows);
+    if load.back {
+        big.top = 400;
+        big.fill();
+    }
+    let mut r = big_renderer(w, h);
+    let size = match way {
+        Way::Pan => r.pan_buffer_size(),
+        Way::Redraw | Way::Copy => (w, h),
+    };
+    let mut bufs: Vec<Canvas> = (0..2)
+        .map(|_| Canvas::new(size.0, size.1, UNDRAWN))
+        .collect();
+    let state = big.state();
+    // the first two frames draw each buffer whole
+    for i in 0..2 {
+        let d = Damage::new(cols, rows);
+        let frame = big.frame(&d, Age::NEVER);
+        draw_way(way, &mut r, &mut bufs, i, 0, &frame, &state, 0);
+    }
+    let (mut pixels, mut peak, mut drawn) = (0, 0, 0);
+    let mut time = std::time::Duration::ZERO;
+    let warm = 2 + load.moved;
+    for n in 0..frames + warm {
+        if n == warm {
+            (pixels, time, peak, drawn) = (0, std::time::Duration::ZERO, 0, 0);
+        }
+        let mut d = Damage::new(cols, rows);
+        let since = d.checkpoint();
+        let scroll = load.scroll || n < load.moved;
+        if scroll {
+            big.scroll(&mut d, !load.back);
+        }
+        if let Some(keep) = load.rewrite.filter(|_| n >= load.moved) {
+            big.rewrite(&mut d, n, keep);
+        }
+        if load.status {
+            big.rewrite_row(&mut d, n, rows - 1);
+        }
+        let frame = big.frame(&d, since);
+        let start = std::time::Instant::now();
+        let (px, cells) = draw_way(
+            way,
+            &mut r,
+            &mut bufs,
+            n % 2,
+            2,
+            &frame,
+            &state,
+            match (scroll, load.back) {
+                (false, _) => 0,
+                (true, false) => 1,
+                (true, true) => -1,
+            },
+        );
+        time += start.elapsed();
+        pixels += px;
+        peak = peak.max(px);
+        drawn += u64::from(cells);
+    }
+    let n = frames as u64;
+    (pixels / n, time / frames as u32, peak, drawn / n)
+}
+
+// a one-line scroll drawn through the ring writes the rows the buffer
+// lacks, the row that came in and the row the other buffer drew, and the
+// border those scrolls show anew, where the redraw way draws every row the
+// scroll moved
+#[test]
+fn a_one_line_scroll_draws_the_rows_that_came_in() {
+    let line = 1366 * 16;
+    // the redraw way draws every row of the grid, 1360 pixels across on
+    // the full screen and 640 on the 80×25 grid
+    let redraw = measure(Way::Redraw, (1366, 768), (170, 48), 4, SCROLL).0;
+    assert_eq!(redraw, 48 * 1360 * 16, "the full screen drawn again");
+    let redraw_small = measure(Way::Redraw, (1366, 768), (80, 25), 4, SCROLL).0;
+    assert_eq!(redraw_small, 25 * 640 * 16, "the 80×25 grid drawn again");
+    // the full-screen grid leaves no border strip above or below it and
+    // three pixels each side: the pan writes two rows with their margins,
+    // each into both copies while the window shows the twins
+    let pan = measure(Way::Pan, (1366, 768), (170, 48), 4, SCROLL).0;
+    assert_eq!(pan, 2 * 2 * line, "the full screen through the pan");
+    // and so it stays across the ring's end, where the window shows the
+    // first copies again all at once: no frame draws the screen again
+    let (_, _, peak, _) = measure(Way::Pan, (1366, 768), (170, 48), 120, SCROLL);
+    assert_eq!(
+        peak,
+        2 * 2 * line,
+        "the most one frame writes, past the ring's end"
+    );
+    // around the 80×25 grid the leaving rows' lines and the lines the
+    // window shows anew are border across the whole display, two bands of
+    // a row for each of the two frames the buffer lacks, written into both
+    // copies, and the two rows the buffer lacks are written once
+    let pan_small = measure(Way::Pan, (1366, 768), (80, 25), 4, SCROLL).0;
+    assert_eq!(
+        pan_small,
+        2 * 2 * 2 * line + 2 * 640 * 16,
+        "the 80×25 grid through the pan"
+    );
+}
+
+// a one-line scroll down moves the window toward the ring's start, past
+// which it shows every twin at once, so the rows that come in at the top
+// are written into both copies, and a row written in place where the
+// window shows its twin is written into the twin alone
+#[test]
+fn a_one_line_scroll_down_writes_the_copies_the_window_heads_for() {
+    let line = 1366 * 16;
+    // the window shows twins below its first rows, and the two rows the
+    // buffer lacks come in at the top, each with its margins, into both
+    // copies
+    let pan = measure(Way::Pan, (1366, 768), (170, 48), 4, SCROLL_BACK).0;
+    assert_eq!(pan, 2 * 2 * line, "a scroll down through the pan");
+    // and so it stays across the ring's start: no frame draws the screen
+    // again
+    let (_, _, peak, _) = measure(Way::Pan, (1366, 768), (170, 48), 120, SCROLL_BACK);
+    assert_eq!(
+        peak,
+        2 * 2 * line,
+        "the most one frame writes, past the ring's start"
+    );
+    // a prompt line on the bottom row, written again in place on each
+    // frame, lies where the window shows twins, so only the twin is
+    // written: the window shows its first copy only once the row has left
+    // the screen
+    let load = Load {
+        status: true,
+        ..SCROLL_BACK
+    };
+    let pan = measure(Way::Pan, (1366, 768), (170, 48), 4, load).0;
+    assert_eq!(
+        pan,
+        2 * 2 * line + 1360 * 16,
+        "a scroll down with a prompt line through the pan"
+    );
+}
+
+// a frame that changes nothing, presented for an overlay alone, counts as
+// a frame, and the buffer it was drawn into keeps its record of stale
+// copies under that frame: the frames after it, into either buffer, find
+// their record and draw only what they lack, not the whole screen, as
+// they would for a buffer the pan does not remember
+#[test]
+fn a_frame_presented_for_an_overlay_alone_keeps_the_buffers_records() {
+    let (cols, rows) = (170, 48);
+    let mut big = Big::new(cols, rows);
+    let mut r = big_renderer(1366, 768);
+    let mut bufs = Buffers::new(2, r.pan_buffer_size());
+    let state = big.state();
+    let over = crate::Rect {
+        x: 600,
+        y: 300,
+        width: 160,
+        height: 48,
+    };
+    let mut since = Age::NEVER;
+    // scrolls that move the window off the ring's start, then a frame
+    // that changes nothing, then one that changes nothing under the
+    // overlay, then scrolls again
+    let script = [1, 1, 1, 1, 0, 0, 1, 1, 1, 1];
+    let mut written = Vec::new();
+    for (n, &scroll) in [0].iter().chain(&script).enumerate() {
+        let mut d = Damage::new(cols, rows);
+        if n > 0 {
+            since = d.checkpoint();
+        }
+        if scroll > 0 {
+            big.scroll(&mut d, true);
+        }
+        let frame = big.frame(&d, since);
+        let (i, age) = bufs.take();
+        let mut counted = Counted {
+            canvas: &mut bufs.canvases[i],
+            pixels: 0,
+        };
+        let whole = n == 0;
+        let (drawn, _) = r.draw_pan(&frame, &mut counted, age, &state, scroll, whole);
+        let mut damaged = !drawn.damage.is_empty();
+        if n == 6 {
+            assert!(!damaged, "the frame before the overlay changes nothing");
+            draw_over(&mut r.pan_overlay(&mut counted), (1366, 768), over);
+            r.redraw_area(over);
+            damaged = !r.pan_damage(over).is_empty();
+        }
+        written.push(counted.pixels);
+        bufs.drawn(i, damaged);
+    }
+    // each scroll after the overlay draws the rows its buffer lacks, the
+    // cells under the overlay and the border: far less than the screen
+    for (n, &px) in written.iter().enumerate().skip(7) {
+        assert!(
+            px < 200_000,
+            "frame {n} after the overlay writes {px} pixels: {written:?}"
+        );
+    }
+}
+
+/// The display area the overlay test draws over: across the grid's edge
+/// and into the border on both displays, three rows tall.
+const OVER: crate::Rect = crate::Rect {
+    x: 3,
+    y: 9,
+    width: 30,
+    height: 40,
+};
+
+/// The overlay's color.
+const OVER_COLOR: u32 = 0x00ff_00ff;
+
+/// Fills `area` of `target` with the overlay's color, as a notice does.
+fn draw_over(target: &mut impl Target, (w, h): (u32, u32), area: crate::Rect) {
+    let x1 = (area.x + area.width).min(w);
+    let row = vec![OVER_COLOR; x1.saturating_sub(area.x) as usize];
+    for y in area.y..(area.y + area.height).min(h) {
+        target.write(area.x, y, &row);
+    }
+}
+
+/// Runs `script` through a renderer that pans over `buffers` buffers and
+/// one that copies into as many, on a display of shape `s`, drawing the
+/// overlay over each frame whose flag is true. Checks each frame against
+/// the redraw with the overlay drawn over it, and that the pan's damage
+/// with the overlay's holds every pixel the pan wrote. Returns the first
+/// failure.
+fn overlay_run(
+    o: Orientation,
+    s: Shape,
+    buffers: usize,
+    script: &[(Step, bool)],
+) -> Result<(), String> {
+    let mut term = Term::new();
+    let size = display(o, s);
+    let mut pan = renderer(o, s);
+    let mut copy = renderer(o, s);
+    // draws each frame whole into a new buffer, keeping its glyphs
+    let mut redraw = renderer(o, s);
+    let mut pans = Buffers::new(buffers, pan.pan_buffer_size());
+    let mut copies = Buffers::new(buffers, size);
+    let mut since = Age::NEVER;
+    for (n, &(step, over)) in script.iter().enumerate() {
+        let mut d = Damage::new(COLS, ROWS);
+        if n > 0 {
+            since = d.checkpoint();
+        }
+        let (scrolled, whole) = term.apply(step, &mut d);
+        let frame = term.frame(&d, since);
+        let state = term.state();
+        let mut want = Canvas::new(size.0, size.1, UNDRAWN);
+        redraw.draw(&frame, &mut want, 0, &state);
+        if over {
+            draw_over(&mut want, size, OVER);
+        }
+        let what = format!("{o:?} {s:?}, {buffers} buffers, step {n} {step:?}");
+
+        let (i, age) = pans.take();
+        let mut recorded = Recorded {
+            canvas: &mut pans.canvases[i],
+            writes: Vec::new(),
+        };
+        let (drawn, src) = pan.draw_pan(&frame, &mut recorded, age, &state, scrolled, whole);
+        let mut damage = drawn.damage.to_vec();
+        if over {
+            draw_over(&mut pan.pan_overlay(&mut recorded), size, OVER);
+            pan.redraw_area(OVER);
+            damage.extend(pan.pan_damage(OVER));
+        }
+        if let Err(at) = inside_damage(&recorded.writes, &damage) {
+            return Err(format!("{what}: the pan wrote {at:?} outside its damage"));
+        }
+        // the display presents the frame when it or the overlay has damage
+        pans.drawn(i, !damage.is_empty());
+        let shown = window(&pans.canvases[i], o, s, src);
+        if shown != want {
+            return Err(format!(
+                "{what}: the pan at {src} in buffer {i} at age {age} differs: {:?}",
+                first_difference(&shown, &want)
+            ));
+        }
+
+        let (i, age) = copies.take();
+        let drawn = copy.draw_copy(
+            &frame,
+            &mut copies.canvases[i],
+            age,
+            &state,
+            scrolled,
+            whole,
+        );
+        let damaged = !drawn.damage.is_empty();
+        if over {
+            draw_over(&mut copies.canvases[i], size, OVER);
+            copy.redraw_area(OVER);
+        }
+        copies.drawn(i, damaged || over);
+        if copies.canvases[i] != want {
+            return Err(format!(
+                "{what}: the copy differs: {:?}",
+                first_difference(&copies.canvases[i], &want)
+            ));
+        }
+    }
+    Ok(())
+}
+
+// what vtium draws over the screen through the pan lands where the window
+// shows it and in the line's other copy, and the cells under it are drawn
+// again on the next frame wherever a scroll moved them, so no trace of it
+// stays once it goes; over the copy it is drawn into the display's buffer
+#[test]
+fn an_overlay_drawn_over_the_pan_moves_with_its_lines_and_goes() {
+    // the overlay shows over the frames that are true, before and after
+    // scrolls both ways, while the window crosses the ring's end
+    let mut script: Vec<(Step, bool)> = vec![(Step::Whole, true), (Step::Write(1, 2, 'q'), true)];
+    for i in 0..7 {
+        script.push((Step::Scroll(1), i % 3 != 2));
+    }
+    for i in 0..7 {
+        script.push((Step::Scroll(-1), i % 2 == 0));
+    }
+    script.extend([
+        (Step::Write(0, 0, 'z'), true),
+        (Step::Scroll(1), false),
+        (Step::Write(2, 2, 'y'), false),
+    ]);
+    // a frame that changes nothing, then one that changes nothing under
+    // the overlay: the display presents the second for the overlay alone,
+    // so the buffer it drew counts as holding a frame of its own
+    let still: Vec<(Step, bool)> = [
+        Step::Whole,
+        Step::Scroll(1),
+        Step::Scroll(1),
+        Step::Scroll(2),
+        Step::Scroll(1),
+        Step::Scroll(1),
+        Step::Still,
+        Step::Still,
+        Step::Scroll(1),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(n, step)| (step, n == 7))
+    .collect();
+    for o in TURNS {
+        for s in [TIGHT, WIDE] {
+            for buffers in 0..=3 {
+                for script in [&script, &still] {
+                    let ran = overlay_run(o, s, buffers, script);
+                    assert!(ran.is_ok(), "{}", ran.err().unwrap_or_default());
+                }
+            }
+        }
+    }
+}
+
+/// A random number from `seed`, which it moves on (xorshift64*).
+fn random(seed: &mut u64) -> u64 {
+    *seed ^= *seed >> 12;
+    *seed ^= *seed << 25;
+    *seed ^= *seed >> 27;
+    seed.wrapping_mul(0x2545_f491_4f6c_dd1d)
+}
+
+// random runs of scrolls, writes in place and frames that change nothing,
+// some under the overlay, in every orientation and on both displays with
+// one to four buffers: each frame shows what the redraw draws, with the
+// overlay where it shows
+#[test]
+fn random_frames_under_an_overlay_show_what_the_redraw_draws() {
+    const RUNS: u64 = 3000;
+    // the runs are shared out among threads; each run's seed is its number
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get().min(8)) as u64;
+    let failed: Vec<String> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|t| {
+                scope.spawn(move || {
+                    (t..RUNS)
+                        .step_by(threads as usize)
+                        .filter_map(|run| random_overlay_run(run).err())
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|w| w.join().expect("a run panicked"))
+            .collect()
+    });
+    assert!(
+        failed.is_empty(),
+        "{} of {RUNS} runs failed, the first: {}",
+        failed.len(),
+        failed.first().map_or("", String::as_str)
+    );
+}
+
+/// The run of [`random_frames_under_an_overlay_show_what_the_redraw_draws`]
+/// whose seed is `run`.
+fn random_overlay_run(run: u64) -> Result<(), String> {
+    let mut seed = run.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+    let o = TURNS[(random(&mut seed) % 4) as usize];
+    let s = [TIGHT, WIDE][(random(&mut seed) % 2) as usize];
+    let buffers = [1, 2, 2, 2, 3, 3, 4][(random(&mut seed) % 7) as usize];
+    let mut script = vec![(Step::Whole, false)];
+    for _ in 0..14 {
+        let over = random(&mut seed).is_multiple_of(4);
+        match random(&mut seed) % 20 {
+            0..=5 => script.push((Step::Scroll(1), over)),
+            6..=9 => script.push((Step::Scroll(-1), over)),
+            10 => script.push((Step::Scroll(2), over)),
+            11 => script.push((Step::Scroll(-2), over)),
+            12..=15 => {
+                let row = (random(&mut seed) % ROWS as u64) as usize;
+                let col = (random(&mut seed) % COLS as u64) as usize;
+                script.push((Step::Write(row, col, 'w'), over));
+            }
+            // a pause: a frame that changes nothing, then one that changes
+            // nothing under the overlay
+            _ => script.extend([(Step::Still, false), (Step::Still, true)]),
+        }
+    }
+    overlay_run(o, s, buffers, &script).map_err(|e| format!("run {run}: {e}"))
+}
+
+// a frame whose scroll record states another scroll than the one the
+// ring is told, or cannot say how far the lines moved, rests the window
+// and is drawn whole, so a caller that passes the wrong count costs a
+// redraw and never shows a wrong picture
+#[test]
+fn a_scroll_the_record_states_otherwise_draws_the_frame_whole() {
+    // the lines the view moves, the rows the ring is told, and whether
+    // the frame reads its changes since a frame the record knows
+    let cases = [
+        (2, 1, true),
+        (0, 1, true),
+        (0, -1, true),
+        (1, 2, true),
+        (1, 1, false),
+    ];
+    for o in TURNS {
+        for (lines, told, known) in cases {
+            let mut term = Term::with(plain_line);
+            let mut pan = renderer(o, WIDE);
+            let rest = pan.ring_geometry().src(0);
+            let (w, h) = pan.pan_buffer_size();
+            let mut buf = Canvas::new(w, h, UNDRAWN);
+            let state = term.state();
+            // the view starts a few lines down, and a scroll moves the
+            // window off the ring's start
+            for (n, step) in [Step::Scroll(3), Step::Whole, Step::Scroll(1)]
+                .into_iter()
+                .enumerate()
+            {
+                let mut d = Damage::new(COLS, ROWS);
+                let since = d.checkpoint();
+                let (scrolled, whole) = term.apply(step, &mut d);
+                let frame = term.frame(&d, since);
+                pan.draw_pan(&frame, &mut buf, u32::from(n > 0), &state, scrolled, whole);
+            }
+            let mut d = Damage::new(COLS, ROWS);
+            let since = match known {
+                true => d.checkpoint(),
+                false => Age::NEVER,
+            };
+            term.apply(Step::Scroll(lines), &mut d);
+            let frame = term.frame(&d, since);
+            let what = format!("{o:?}: the lines moved {lines}, the ring told {told}");
+            assert_eq!(frame.scrolled(), known.then_some(lines as isize), "{what}");
+            let (_, src) = pan.draw_pan(&frame, &mut buf, 1, &state, told, false);
+            assert_eq!(src, rest, "{what}: the window rests");
+            let shown = window(&buf, o, WIDE, src);
+            let want = redrawn(o, WIDE, &frame, &state);
+            assert!(
+                shown == want,
+                "{what}: the window at {src} differs: {:?}",
+                first_difference(&shown, &want)
+            );
+        }
+    }
+}
+
+// a screen that writes most of its cells again in place, as a program
+// that redraws its whole screen does, writes no more through the pan than
+// the redraw way writes, wherever the pan's window stands
+#[test]
+fn a_screen_rewritten_in_place_writes_no_more_through_the_pan() {
+    let grid = (170, 48);
+    for moved in [0, 24] {
+        let load = Load {
+            scroll: false,
+            back: false,
+            status: false,
+            rewrite: Some(1),
+            moved,
+        };
+        let redraw = measure(Way::Redraw, (1366, 768), grid, 2, load).0;
+        assert_eq!(redraw, 47 * 1360 * 16, "47 rows drawn again");
+        let pan = measure(Way::Pan, (1366, 768), grid, 2, load).0;
+        assert!(
+            pan <= redraw,
+            "the window {moved} rows on: the pan writes {pan}, the redraw {redraw}"
+        );
+    }
+}
+
+// The figures the scroll's record asks for: pixels written and time per
+// frame for a one-line scroll up and down and for a screen rewritten in
+// place, drawn
+// the redraw way, through the pan and through the copy, with two buffers
+// and 8×16 cells. `cargo test --release -p vtium-render --features
+// scroll-pan --lib scroll_figures -- --ignored --nocapture` prints them.
+#[test]
+#[ignore = "prints figures; run in a release build"]
+fn scroll_figures() {
+    let screens = [((1366, 768), (170, 48)), ((1920, 1080), (240, 67))];
+    let loads = [
+        ("one-line scroll", SCROLL),
+        ("one-line scroll down", SCROLL_BACK),
+        (
+            "in place, window at rest",
+            Load {
+                scroll: false,
+                back: false,
+                status: false,
+                rewrite: Some(1),
+                moved: 0,
+            },
+        ),
+        (
+            "in place, window moved",
+            Load {
+                scroll: false,
+                back: false,
+                status: false,
+                rewrite: Some(1),
+                moved: 30,
+            },
+        ),
+    ];
+    // the pixels are those written into the display's buffer; the copy
+    // also writes each cell it draws into its ring in system memory
+    println!("| Display | Frame | Way | Pixels | Cells drawn | Time |\n|---|---|---|---|---|---|");
+    for (display, grid) in screens {
+        for (name, load) in loads {
+            for way in [Way::Redraw, Way::Pan, Way::Copy] {
+                let (px, t, _, cells) = measure(way, display, grid, 200, load);
+                println!(
+                    "| {}×{} | {name} | {way:?} | {px} | {cells} | {:.0} µs |",
+                    display.0,
+                    display.1,
+                    t.as_secs_f64() * 1e6
+                );
+            }
+        }
+    }
+}
+
+/// Unifont, holding each piece of a syllable and drawing it as a band of
+/// ink whose height comes from the syllable's text, so that a piece of
+/// another syllable draws other pixels.
+#[cfg(feature = "bidi")]
+struct TextPieces(Unifont);
+
+#[cfg(feature = "bidi")]
+impl vtium_font::Face for TextPieces {
+    fn cell(&self) -> vtium_font::Cell {
+        self.0.cell()
+    }
+
+    fn size_step(&self) -> u32 {
+        self.0.size_step()
+    }
+
+    fn has_glyph(&self, c: char) -> bool {
+        self.0.has_glyph(c)
+    }
+
+    fn draw(&self, cluster: &[char], style: vtium_font::Style) -> Option<vtium_font::Glyph> {
+        let Some((text, piece)) = vtium_font::syllable::piece_of_chars(cluster) else {
+            return self.0.draw(&cluster[..1], style);
+        };
+        let inked = 1 + text.iter().map(|&c| c as u32).sum::<u32>() % 15;
+        let w = 8 * u32::from(piece.cells);
+        let pixels = (0..16)
+            .flat_map(|y| (0..w).map(move |_| if y < inked { 255 } else { 0 }))
+            .collect();
+        let cells = match piece.cells {
+            2 => vtium_font::Width::Wide,
+            _ => vtium_font::Width::Narrow,
+        };
+        Some(
+            vtium_font::Glyph::from_pixels(w, 16, vtium_font::Format::Mask, pixels)?
+                .with_cells(cells),
+        )
+    }
+
+    fn holds(&self, cluster: &[char], _variant: vtium_font::Variant) -> bool {
+        vtium_font::syllable::piece_of_chars(cluster).is_some()
+    }
+}
+
+/// A line of [`plain_line`]'s letters whose first two cells hold the
+/// Kannada syllable ka, virama and ra, two clusters that draw joined.
+#[cfg(feature = "bidi")]
+fn syllable_line(n: usize) -> Line {
+    let mut l = plain_line(n);
+    let style = Style {
+        fg: Color::Rgb(Rgb::new(0xc0, 0xc0, 0x40)),
+        bg: Color::Rgb(Rgb::new(0x10, 0x20, 0x30)),
+        ..Style::DEFAULT
+    };
+    l.write(
+        0,
+        Glyph::Cluster("\u{c95}\u{ccd}"),
+        Width::Narrow,
+        &style,
+        None,
+    );
+    l.write(1, Glyph::Char('\u{cb0}'), Width::Narrow, &style, None);
+    l
+}
+
+// a joined syllable whose second cell alone changes in place while the
+// lines scroll draws its first cell again too, since every piece of a
+// syllable is keyed by the whole syllable's text
+#[cfg(feature = "bidi")]
+#[test]
+fn a_syllable_changed_in_one_cell_during_a_scroll_draws_every_piece() {
+    let font = || Font::new(TextPieces(Unifont::new(16)));
+    for o in TURNS {
+        let (w, h) = display(o, WIDE);
+        let config = Config {
+            orientation: o,
+            ..Config::default()
+        };
+        let mut term = Term::with(syllable_line);
+        term.cursor.visible = false;
+        term.pointer = None;
+        let state = term.state();
+        let mut pan = Renderer::new(font(), w, h, config);
+        let (bw, bh) = pan.pan_buffer_size();
+        let mut buf = Canvas::new(bw, bh, UNDRAWN);
+        let d = Damage::new(COLS, ROWS);
+        let frame = term.frame(&d, Age::NEVER);
+        pan.draw_pan(&frame, &mut buf, 0, &state, 0, true);
+        // the lines move a row up, and ra becomes ka on the second row:
+        // ka, virama and ka are a syllable still, of other text
+        let mut d = Damage::new(COLS, ROWS);
+        let since = d.checkpoint();
+        let (scrolled, _) = term.apply(Step::Scroll(1), &mut d);
+        let top = term.top;
+        let style = Style {
+            fg: Color::Rgb(Rgb::new(0xc0, 0xc0, 0x40)),
+            bg: Color::Rgb(Rgb::new(0x10, 0x20, 0x30)),
+            ..Style::DEFAULT
+        };
+        term.lines[top + 1].write(1, Glyph::Char('\u{c95}'), Width::Narrow, &style, None);
+        d.mark_cell(1, 1);
+        let frame = term.frame(&d, since);
+        assert!(
+            frame.changed_in_place(1, 1) && !frame.changed_in_place(1, 0),
+            "only the second cell changed in place"
+        );
+        let (_, src) = pan.draw_pan(&frame, &mut buf, 1, &state, scrolled, false);
+        let shown = window(&buf, o, WIDE, src);
+        let mut want = Canvas::new(w, h, UNDRAWN);
+        Renderer::new(font(), w, h, config).draw(&frame, &mut want, 0, &state);
+        assert!(
+            shown == want,
+            "{o:?}: the window at {src} differs: {:?}",
+            first_difference(&shown, &want)
+        );
     }
 }

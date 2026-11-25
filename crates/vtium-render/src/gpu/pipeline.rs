@@ -349,7 +349,9 @@ pub struct Pipeline {
     /// pipeline set up with the color step starts from.
     table: Option<(Texture, Option<u64>)>,
     /// The id of the last table that failed to go in, which the pipeline
-    /// does not try again.
+    /// does not try again. Only the color filters hand a pipeline a table,
+    /// so the field exists only with them.
+    #[cfg(feature = "filters")]
     failed: Option<u64>,
     spatial: Spatial,
     present: Present,
@@ -400,6 +402,7 @@ impl Pipeline {
             composition,
             color: config.color,
             table: table.map(|t| (t, None)),
+            #[cfg(feature = "filters")]
             failed: None,
             spatial: config.spatial,
             present,

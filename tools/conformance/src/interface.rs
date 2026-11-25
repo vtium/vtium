@@ -213,7 +213,7 @@ pub fn check_output(
 /// 0 after the last row; checkpoints not decreasing. Each block is
 /// printed at its `size` line's size, which a `resize` changes; `cols` by
 /// `rows`, the command line's, holds until the first `size` line.
-/// INTERFACE-vtium.md's `anim` lines keep their own rules ([`AnimLines`]).
+/// INTERFACE-vtium.md's `anim` lines keep their own rules (`AnimLines`).
 pub fn numbering(lines: &[&str], cols: usize, rows: usize) -> Option<String> {
     let mut anim = AnimLines::default();
     for (n, line) in lines.iter().enumerate() {

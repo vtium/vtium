@@ -388,7 +388,7 @@ impl Terminal {
     /// queued for the host are dropped, since the program that asked for
     /// them is being reset, and so are the replies the host holds, which
     /// it goes on holding. A request out to the image helper is
-    /// abandoned, as [`abandon_image_request`](Self::abandon_image_request)
+    /// abandoned, as `abandon_image_request`
     /// abandons it, so the terminal takes the program's output again at
     /// once; the host drops the helper's answer. The parser returns to its
     /// ground state, so a sequence the program had half written is

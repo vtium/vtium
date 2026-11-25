@@ -2,7 +2,7 @@
 //!
 //! A seat has one [`Vt`] backend, chosen at start: with the `libseat`
 //! feature, the seat manager's when one answers
-//! ([`crate::seat::LibseatVt`]), otherwise the kernel's VT ([`KernelVt`]),
+//! (`seat::LibseatVt`), otherwise the kernel's VT ([`KernelVt`]),
 //! otherwise a fake VT that is the seat's only session ([`FakeVt`]). The backend reports through
 //! [`VtEvent`]s the owner drains once a turn, as the displays do:
 //!
