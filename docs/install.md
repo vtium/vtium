@@ -24,7 +24,7 @@ Each of those six depends on a terminfo package. A build from the release tag de
 
 Sessions in vtium run with `TERM=xterm-vtium`, the entry that the terminfo package installs. ssh passes `TERM` on to the remote host, and most hosts have no `xterm-vtium` entry, so programs there misbehave. [ssh from vtium](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#ssh-from-vtium) gives two fixes: a wrapper that makes ssh send `xterm-256color`, or the entry installed on a host you own.
 
-A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's environment. There are six features:
+A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's environment. There are seven features:
 
 - The `images` feature renders sixel, kitty graphics and iTerm2 inline images.
 - The `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine.
@@ -32,8 +32,9 @@ A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's
 - The `bidi` feature lays out right-to-left text, such as Arabic and Hebrew.
 - The `filters` feature builds in the frame filters, the effects that a vtlook chooses, such as an amber tint. See [Looks and effects](concepts/looks.md) for details.
 - The `libseat` feature lets vtium get the screen, the keyboards and VT switching through libseat, the seat management library. In direct mode, vtium gets them from seatd where seatd runs. Seat mode, which gets them from logind, needs both `libseat` and `logind`. [Direct mode and seat mode](#direct-mode-and-seat-mode) describes both modes.
+- When vtium renders on the CPU, the `scroll-pan` feature lets it move the picture of a scrolled screen instead of redrawing every line. Each display buffer is then about two screens tall, which takes about 24 MiB more memory at 1920×1080 with three buffers, as the packages use. See [config.md](config.md) for the `scroll-draw` key.
 
-When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build the features of the packages that the AUR carries, for an ordinary desktop or laptop. These are all six features. The packages build `filters`, and so draw effects, from 0.1.0-alpha.10 on, the first release that has the feature. To build another set of features, name them in `VTIUM_FEATURES`, as in `VTIUM_FEATURES='images logind gpu bidi libseat' makepkg -si` for a build without effects. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
+When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build the features of the packages that the AUR carries, for an ordinary desktop or laptop. These are all seven features. The packages build `filters`, and so draw effects, from 0.1.0-alpha.10 on, the first release that has the feature. They build `scroll-pan` from the release after 0.1.0-alpha.11 on. To build another set of features, name them in `VTIUM_FEATURES`, as in `VTIUM_FEATURES='images logind gpu bidi libseat' makepkg -si` for a build without effects. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
 
 From v0.1.0-alpha.6 on, the `vtium` and `vtium-git` recipes build with `HWACCEL=on DISPLAY_BUFFERS=3`. These settings compile in two defaults: `hwaccel` is on, and each display gets three buffers. See [config.md](config.md) for both keys. vtium therefore renders through the GPU path. vtium renders a head on the CPU when the GPU set-up for that head fails. A head is a terminal for one or more displays. A line `no-hwaccel` in `/etc/vtium/vtium.conf` turns the GPU path off.
 

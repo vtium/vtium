@@ -168,9 +168,9 @@ minspec install-tree vt-dev-console config-release image-release clipboard-relea
 # FEATURES exported in the shell builds nothing different.
 FEATURES :=
 # The acceptance pass shows every page by default (ADR-1501 D5): make
-# vt-accept builds the console with images and bidi unless make's command
-# line names FEATURES, so make vt-accept FEATURES= is a pass of the minspec
-# build. A binary named with VTIUM_BIN is run as it is, so its features are
+# vt-accept builds the console with images, bidi, filters and scroll-pan,
+# the features of the packaged console, unless make's command line names
+# FEATURES, so make vt-accept FEATURES= is a pass of the minspec build. A binary named with VTIUM_BIN is run as it is, so its features are
 # the ones it was built with: images when it carries the line only a build
 # with images carries (VT_IMAGES_MARKER), else none, and the run gives it
 # the image helper only when it has pictures.
@@ -197,7 +197,7 @@ ifneq ($(origin FEATURES),command line)
 ifeq ($(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),)
 FEATURES := $(if $(shell grep -qaF -- '$(VT_IMAGES_MARKER)' '$(VTIUM_BIN)' 2>/dev/null && echo images),images)
 else
-FEATURES := images bidi filters$(if $(filter gpu,$(RENDER_PATH)), gpu)
+FEATURES := images bidi filters scroll-pan$(if $(filter gpu,$(RENDER_PATH)), gpu)
 endif
 else ifeq ($(RENDER_PATH),gpu)
 ifeq ($(filter gpu,$(subst $(comma), ,$(FEATURES))),)
