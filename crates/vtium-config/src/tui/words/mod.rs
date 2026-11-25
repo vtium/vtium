@@ -56,9 +56,11 @@ pub const TRIAL_AFTER_INSTALL: &str = "t: after install";
 
 pub const TRIAL_NONE: &str = "no live trial";
 
-/// The status line's trial words on a tab other than the Looks tab, which
-/// is where `t` tries a font set.
-pub const TRIAL_IN_LOOKS: &str = "live trial in Looks";
+/// The status line's trial words on a tab other than the Fonts and the
+/// Looks tab, the two tabs where `t` tries a font: a font file in Fonts
+/// and a font set in Looks. The words are as short as the words they
+/// replaced, so a status line that fitted 80 columns before still fits.
+pub const TRIAL_ELSEWHERE: &str = "trial: Fonts, Looks";
 
 /// The status line's trial words in the Looks tab where `t` does nothing:
 /// among the color schemes and the pointer themes, and in a detail.

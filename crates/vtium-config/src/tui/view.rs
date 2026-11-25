@@ -150,7 +150,8 @@ fn status(app: &App) -> String {
             // the line says t can try it after the install; elsewhere in
             // the Looks tab t does nothing. t tries a font in the Fonts
             // tab's list, and does nothing in its filters or a font's
-            // detail. The other tabs say where the trial is
+            // detail. The other tabs say where the trial is: in the
+            // Fonts and the Looks tab
             match (*live == Live::On, app.nav.view) {
                 (true, View::Fonts) if trial_node == "fonts" => words::TRIAL_KEY,
                 (true, View::Fonts) => words::TRIAL_ON_FONTS,
@@ -162,7 +163,7 @@ fn status(app: &App) -> String {
                     }
                 }
                 (true, View::Looks) => words::TRIAL_ON_FONT_SETS,
-                (true, _) => words::TRIAL_IN_LOOKS,
+                (true, _) => words::TRIAL_ELSEWHERE,
                 (false, _) => words::TRIAL_NONE,
             }
         ),

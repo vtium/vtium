@@ -1783,7 +1783,8 @@ mod list_window {
 /// font set in the Looks tab, in a look's card, and in the Fonts tab's
 /// list. Among the Looks tab's color schemes and pointer themes, in their
 /// details, and in the Fonts tab's filters, `t` does nothing, so the
-/// status line says where the live trial works instead.
+/// status line says where the live trial works instead. Every other tab
+/// names both tabs where `t` tries a font: Fonts and Looks.
 ///
 /// References:
 /// - ADR-1201 D4: the live trial of a font set.
@@ -1821,8 +1822,16 @@ fn the_status_line_names_t_only_where_t_tries_a_font() {
     assert_eq!(nav::node(&a), "fonts.filter");
     assert!(!status(&a).contains(words::TRIAL_KEY), "{}", status(&a));
     assert!(status(&a).contains(words::TRIAL_ON_FONTS), "{}", status(&a));
-    // another tab says where the trial is
+    // every other tab says where the trial is: in Fonts and in Looks.
+    // This draft's Flow tab fills the status line with its tags, so the
+    // scenarios' snapshots of the Flow nodes show its trial words
     press(&mut a, Key::Escape);
-    press(&mut a, Key::Char('2'));
-    assert!(status(&a).contains(words::TRIAL_IN_LOOKS), "{}", status(&a));
+    for (tab, node) in [('2', "effects"), ('5', "settings"), ('6', "help")] {
+        press(&mut a, Key::Char(tab));
+        assert_eq!(nav::node(&a), node);
+        let line = status(&a);
+        assert!(line.ends_with(" · trial: Fonts, Looks"), "{line}");
+        assert!(!line.contains(words::TRIAL_KEY), "{line}");
+        assert!(!line.contains("live trial in Looks"), "{line}");
+    }
 }
