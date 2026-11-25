@@ -650,7 +650,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"$$/\1/p' Cargo.toml)
 # the same way on every machine.
 DENY_VERSION   = 0.20.2
 DENY_INSTALL   = cargo install --locked cargo-deny --version $(DENY_VERSION)
-DENY_MANIFESTS = Cargo.toml tools/shader-timing/Cargo.toml $(sort $(wildcard crates/*/fuzz/Cargo.toml crates/*/gen-*/Cargo.toml))
+DENY_MANIFESTS = Cargo.toml tools/shader-timing/Cargo.toml tools/scroll-timing/Cargo.toml $(sort $(wildcard crates/*/fuzz/Cargo.toml crates/*/gen-*/Cargo.toml))
 define deny-version
 @v=$$(cargo deny --version 2>/dev/null) || v=; [ "$$v" = "cargo-deny $(DENY_VERSION)" ] || { echo "$@ needs cargo-deny $(DENY_VERSION), and this machine has $${v:-no cargo-deny}. Install it with: $(DENY_INSTALL)" >&2; exit 1; }
 endef
@@ -754,7 +754,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the locale mode scripts with the real vtium-config, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the release files' check, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the locale mode scripts with the real vtium-config, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the release files' check, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the scroll timing tool's ways and its frame loop on a counted display without a KMS device, the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I tools/vt/tests/test_typepad.py
@@ -781,6 +781,7 @@ test-tools: ## Test the VT review tools, the locale mode scripts with the real v
 	cargo test -q -p vtium-site
 	cargo test -q --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool
 	cargo test -q --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/shader-timing-tool
+	cargo test -q --locked --manifest-path tools/scroll-timing/Cargo.toml --target-dir $(SCROLL_TIMING_TARGET)
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
