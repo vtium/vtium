@@ -1,6 +1,5 @@
-//! The three ways to scroll that ADR-1310 D6 measures, and the redraw that
-//! vtium does today, as code that draws into any buffer of XRGB8888
-//! pixels. The binary runs them on a KMS device; the tests run them on
+//! Three ways to scroll the CPU path's display, and the redraw that vtium
+//! does today, as code that draws into any buffer of XRGB8888 pixels. The binary runs them on a KMS device; the tests run them on
 //! buffers in memory and check every picture against a redraw.
 //!
 //! The view scrolls back through a scrollback with no end, and new rows

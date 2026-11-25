@@ -1,10 +1,14 @@
 # Measures three ways to scroll on the CPU path before smooth scrolling's
-# CPU half is built (ADR-1310 D6, "The measurement"): the copy of the
-# visible window from a ring in system memory, the move of rows within the
-# display's buffer, and the pan over a buffer taller than the screen. It
-# runs on a KMS device as DRM master, so it runs by hand through make
-# scroll-timing, in tier 3's guest or on a console nobody else draws on. It
-# is its own workspace, so the main workspace and CI do not build it.
+# CPU half is built: the copy of the visible window from a ring in system
+# memory, the move of rows within the display's buffer, and the pan over a
+# buffer taller than the screen. The tool runs on a KMS device as DRM
+# master, so it runs by hand through make scroll-timing, in tier 3's guest
+# or on a console nobody else draws on. It is its own workspace, so the
+# main workspace does not build it; make test-tools runs its tests, which
+# need no device.
+#
+# References:
+# - ADR-1310 D6, "The measurement": the three ways and what to record.
 [package]
 name = "vtium-scroll-timing"
 description = "Times three ways to scroll the CPU path's display on a KMS device"

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """The scroll timing tool in the tier 3 guest: `make scroll-timing`.
 
-ADR-1310 D6 asks that, before smooth scrolling's CPU half is built, three
-ways to scroll are measured in tier 3's 1-vCPU guest: the copy from a ring
-in system memory, the move of rows within the display's buffer, and the pan
-over a buffer taller than the screen. This driver builds tools/scroll-timing,
+Before smooth scrolling's CPU half is built, three ways to scroll are
+measured in tier 3's 1-vCPU guest: the copy from a ring in system memory,
+the move of rows within the display's buffer, and the pan over a buffer
+taller than the screen. This driver builds tools/scroll-timing,
 puts it on a disc with guest/scrolltiming as the disc's setup, and boots a
 throwaway overlay of the tier 3 base image with that disc on the minspec
 machine, 1 vCPU and 512 MB, once for each display size. The guest runs the
@@ -16,6 +16,10 @@ target/tier3/scroll-timing/WxH.tsv, and the guest's serial console and event
 port to the same directory.
 
 Stdlib only, like the rest of tier 3.
+
+References:
+- ADR-1310 D6, "The measurement": the three ways, and the 1-vCPU guest
+  they are measured in.
 """
 
 import argparse

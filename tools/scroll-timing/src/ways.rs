@@ -271,7 +271,11 @@ impl Ring {
 }
 
 /// The rows the pan keeps drawn beyond the rows its buffers need for the
-/// next frames, as margin: the K rows of overscan that ADR-1310 D2 fixes.
+/// next frames, as a margin: the 4 rows that smooth scrolling keeps drawn
+/// beyond each side of the screen, its overscan.
+///
+/// References:
+/// - ADR-1310 D2: the overscan of 4 rows on each side, fixed.
 pub const MARGIN: u32 = 4;
 
 /// One write a pan frame made into its buffer: `lines` pixel lines from

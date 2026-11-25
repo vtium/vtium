@@ -6,10 +6,9 @@
 # /run/scrolltiming and starts itself again as the unit t3-scrolltiming,
 # once the boot has reached getty.target. The guest has no network, so the
 # boot does not reach multi-user.target, which waits for the network. The
-# tool takes DRM master
-# of the virtio-gpu card, which no other program holds: the getty on tty1
-# draws through the kernel's console, which stops drawing while a program
-# holds master. Every line of the tool's results goes to the event port,
+# tool takes DRM master of the virtio-gpu card, which no other program
+# holds: the getty on tty1 draws through the kernel's console, which stops
+# drawing while a program holds master. Every line of the tool's results goes to the event port,
 # ttyS1, as "SCROLLTIMING-ROW <line>", and SCROLLTIMING-END ends the run,
 # after which the guest powers off.
 set -u
