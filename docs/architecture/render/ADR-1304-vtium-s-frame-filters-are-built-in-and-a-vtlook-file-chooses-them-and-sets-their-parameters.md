@@ -302,6 +302,9 @@ considered:
   - operator: aaronsb
     said: "I agree with this. let's amend. it's a better path than the somewhat sophmoric approach I suggested at first"
     via: the maintainer, in the steering session, 2026-11-24, after reading the amendment of that day on a reading page
+  - operator: aaronsb
+    said: "Accept it"
+    via: the question tool, 2026-11-25, after the reading page of the D20 amendment
 status: accepted
 date: 2026-11-03
 deciders:
@@ -335,6 +338,8 @@ related: [ADR-1205]
 > Note 2026-11-19: the maintainer decided three things after looking at the amber and deuteranopia looks (`basis`). vtium plans a brightness floor, which D21 proposes as a setting of `tint`, with the probe above. vtium ships preset vtlooks beside the template, and vtium-config's Effects tab lists the built-in vtlook first, as "No filter" (D4's note). The maintainer also decided that a palette is a resource of its own, apart from the filters, which ADR-1205 D10 proposes. D2's note places the palette before the filters.
 
 > Note 2026-11-24: the maintainer decided seven things about shaders written for Ghostty (`considered`). A Ghostty shader loads as its author wrote it, as a `.glsl` file with no header, and vtium translates it at every load, with no cache of translations. vtium virtualizes the shader's environment, not its code: the translation puts vtium's prelude and a `main()` around the author's code, and only the GPU driver's compiler parses the shader. What vtium does not support is ignored, and each thing ignored is a line of a translation report, which is how support grows. A shader in Ghostty's dialect is never refused for its read count, and the frame-rate floor decides. How desktop GL syntax reaches the GPU waited on research, and two spikes have measured it. D20 proposes their answer. Where the GPU offers desktop OpenGL, vtium compiles the shader as desktop GLSL in a second, desktop OpenGL context. On a GPU that offers OpenGL ES alone, naga translates it in the checker's process. The GPU driver caches the compiled shader, in a folder that systemd gives the service or that vtium makes where systemd is absent. The shader pages people read cover all of this, and D20 holds their outline. D20 sets these out and marks the parts the maintainer has not decided as proposed.
+
+> Note 2026-11-25: the maintainer read D20, as amended on 2026-11-24, and accepted it on this date (`considered`). The parts of D20 that the note above calls proposed now decide what they say, and D20's own note of this date lists them.
 
 ## Context
 
@@ -1324,6 +1329,8 @@ The styles are numbered as Ghostty numbers them (`basis`), so Ghostty's dialect 
 
 ### D20: shaders written in Ghostty's dialect
 
+> Accepted 2026-11-25: the maintainer read the amendment of 2026-11-24 on a reading page and accepted it on this date (`considered`). Each paragraph of D20 marked proposed now decides what it says: among them the translation, the translation report, desktop GL syntax compiled in a second, desktop OpenGL context or through naga, and the cache folder. The notes of 2026-11-17 and 2026-11-24 elsewhere in this record that call these parts proposed tell their history. The question on `iFocus` stays open, so `iFocus` reads 1, as the table says, until the maintainer answers it.
+
 **Decided by the maintainer (2026-11-16):** the spatial slot runs Ghostty's custom shaders with as little change as possible. A shader file whose header says `#pragma vtium dialect ghostty` gets Ghostty's names from vtium. `mainImage` is wrapped as the filter's function, and `iChannel0` reads the frame. `iResolution`, `iTime`, `iTimeDelta` and `iFrame` map onto vtium's values, and the inputs Ghostty leaves at 0 are 0. The file must still be GLSL ES 3.00, because the GPU path is OpenGL ES 3.0 so that it runs on small hardware. 11 of the 37 surveyed shaders need small fixes for that: int literals, `{}` initializers and one `mod()` overload. Root installs a Ghostty shader as any shader file (D15): the shader goes into `/etc/vtium/shaders`, copied there by root or by vtium-config. A shader runs in the console's own process, and one that hangs the GPU can disturb every session on the card.
 
 **Decided by the maintainer (2026-11-24):** a Ghostty shader loads without modification, as its author wrote it. What the shader uses that vtium does not support is ignored, "at the risk of breaking the shader", in the maintainer's words (`considered`). vtium translates the shader as it loads the file. Translation takes milliseconds a shader, so vtium translates at every load and keeps no cache of translations.
@@ -1569,6 +1576,8 @@ None remain. The maintainer answered every open question of the drafts on 2026-1
 > Note 2026-11-18: the maintainer's decisions of this date leave three questions open, which the Summary's probes ask with this record's leans. They are whether a smooth read counts as 1 read, whether the cap of 25 reads holds each pass, and whether Ghostty's dialect reads an sRGB copy of its input. The maintainer answered all three on the same day, each as leaned (`considered`).
 
 > Note 2026-11-24: the maintainer's decisions of this date opened one question again, on how desktop GL syntax reaches the GPU, and had it wait on research (`considered`). Two spikes have run, and D20 proposes their answer for the maintainer to decide. Where the GPU offers desktop OpenGL, a second, desktop OpenGL context compiles the shader, and elsewhere naga translates it in the checker's process. One question is new. A Ghostty shader may hang the GPU in the second context, and the driver then resets the GPU. The second spike could not test whether that reset takes the renderer's OpenGL ES context with it. Until a test on a machine that can risk a GPU reset answers it, ADR-1303 D9's guard is what holds: a lost context moves the head to the CPU path. This record proposes that vtium treats a lost second context as a lost context of the head, so the guard covers both. The second question of the note of 2026-11-17 is answered: the palette and the theme colors read as 0, and each one that a shader's linked program lists as active is a line of its translation report (D20). The first, on `iFocus`, stays open.
+
+> Note 2026-11-25: the maintainer accepted D20 on this date (`considered`). How desktop GL syntax reaches the GPU is now decided as D20 says. The question on a GPU reset in the second context stays open until a test on a machine that can risk a reset answers it, and ADR-1303 D9's guard holds until then. The question on `iFocus` stays open too.
 
 ## Consequences
 
