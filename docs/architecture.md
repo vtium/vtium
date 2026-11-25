@@ -4,6 +4,7 @@ vtium is a Cargo workspace. Each crate owns one responsibility. The dependencies
 
 ```text
 vtium (binary)
+├── vtium-broker-protocol   the messages between the broker and the drawer, and their socket (std and rustix only)
 ├── vtium-platform   displays (KMS/DRM, fbdev), VT, seat, input, pty, event loop
 ├── vtium-settings   the key table, vtium.conf's line syntax and editor, and vtium.conf's sections: their reader, parser, rules, guards, complete-route check and one writer
 │   ├── vtium-font   the cell's largest side, for font-size's bound (constants only)
