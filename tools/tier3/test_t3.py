@@ -8624,6 +8624,32 @@ class ScrollTimingTest(unittest.TestCase):
         self.assertEqual(t3_scrolltiming.device((1366, 768)),
                          "virtio-vga,xres=1366,yres=768,edid=on,max_hostmem=1G")
 
+    def test_each_size_boots_the_minspec_machine(self):
+        # run_size hands the machine's vCPUs, memory and device to Qemu. The
+        # stand-in for Qemu records what it was given and stops the run
+        # there, before any guest would boot.
+        given = []
+
+        class Stop(Exception):
+            pass
+
+        def qemu(workdir, disks, device, log, **kw):
+            given.append((device, kw.get("cpus"), kw.get("memory_mb")))
+            raise Stop()
+
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(t3_scrolltiming, "WORK", d), \
+                mock.patch.object(t3_scrolltiming, "Qemu", qemu), \
+                mock.patch.object(t3_scrolltiming, "make_iso"), \
+                mock.patch.object(t3_scrolltiming.subprocess, "run"):
+            tool = os.path.join(d, "scroll-timing")
+            with open(tool, "w") as f:
+                f.write("tool")
+            with self.assertRaises(Stop):
+                t3_scrolltiming.run_size(tool, (1366, 768), [], lambda *a: None)
+        self.assertEqual(given, [("virtio-vga,xres=1366,yres=768,edid=on,max_hostmem=1G",
+                                  1, 512)])
+
 
 class FontSourcesTest(unittest.TestCase):
     """The case of the two font sets every build installs (t3_fonts,
