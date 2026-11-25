@@ -2736,6 +2736,22 @@ class PointerTest(unittest.TestCase):
         # a 64-pixel cell: a hotspot of 3, the grid 1344x768 at 11,0
         self.assertEqual(t3_pointer.corner((0, 0), self.DISPLAY, (32, 64)), (11 - 3, -3))
 
+    def test_the_corner_counts_the_spare_lines_above_the_grid(self):
+        # 640x480 in 6x9 cells: a grid of 636x477, centred across with 2
+        # spare columns on each side, its last row on the display's bottom
+        # edge and the 3 spare lines above it, so at 2,3; a hotspot of 1
+        display, cell = (640, 480), (6, 9)
+        self.assertEqual(t3_pointer.origin(display, cell), (2, 3))
+        self.assertEqual(t3_pointer.corner((0, 0), display, cell), (2 - 1, 3 - 1))
+        self.assertEqual(t3_pointer.corner((t3_pointer.ABS_MAX,) * 2, display, cell),
+                         (2 + 635 - 1, 3 + 476 - 1))
+        # 1280x800 in 10x19 cells: 798 lines of grid, 2 spare lines above
+        self.assertEqual(t3_pointer.origin((1280, 800), (10, 19)), (0, 2))
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 19)), (3, 8))
+        # 1366 across in 9-pixel cells leaves 7 spare columns: 3 on the
+        # left and the odd one with the other 3 on the right
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (9, 16)), (3, 0))
+
     def test_the_planes_are_read_from_the_dump(self):
         planes = t3_pointer.planes(self.STATE)
         self.assertEqual([(p["name"], p["crtc"], p["fb"], p["pos"]) for p in planes],
@@ -2778,12 +2794,15 @@ class PointerTest(unittest.TestCase):
         for display, cell, target in (((1920, 1080), (16, 40), (24, 4)),
                                       ((1920, 1080), (16, 40), (119, 26)),
                                       (self.DISPLAY, (8, 16), (0, 0)),
-                                      (self.DISPLAY, (8, 16), (100, 30))):
+                                      (self.DISPLAY, (8, 16), (100, 30)),
+                                      ((640, 480), (6, 9), (10, 20))):
             with self.subTest(display=display, cell=cell, target=target):
                 at = t3_pointer.aim(target, display, cell)
                 self.assertTrue(all(0 <= v <= t3_pointer.ABS_MAX for v in at), at)
                 hot = t3_pointer.hotspot(cell[1])
-                off = [(side - side // c * c) // 2 for side, c in zip(display, cell)]
+                # centred across, and the spare lines above the grid
+                (w, h), (cw, ch) = display, cell
+                off = [(w - w // cw * cw) // 2, h - h // ch * ch]
                 want = tuple(o + n * c + c // 2 - hot
                              for o, n, c in zip(off, target, cell))
                 self.assertEqual(t3_pointer.corner(at, display, cell), want)
@@ -8985,6 +9004,139 @@ class FontSourcesTest(unittest.TestCase):
                                                  "cullet-alone did not switch the console: "
                                                  "T3-USE-FRIT vtium-config: no font set "
                                                  "cullet-alone "})
+
+    # vtium's log lines about the cell, as the serial log holds them
+    # (crates/vtium/src/app/drawing.rs, fonts.rs and glyph_asks.rs).
+    DISPLAY = ("[    7.81] vtium[769]: Display Virtual-1 with backend [drm2d] text renderer "
+               "[cpu], cell size %dx%d\n")
+    OUTLINE = ("[    7.80] vtium[769]: the frit %s draws in its outline font's %dx%d cell "
+               "at %d pixels\n")
+    WAITED = ("[    7.79] vtium[769]: the frit %s's cell at %d pixels is not known (the helper "
+              "gave no answer in 100 ms): it draws as wide as the built-in font\n")
+    LATE = ("[    8.20] vtium[769]: the frit %s's %dx%d cell at %d pixels came after the "
+            "wait: it draws in it from the next frame\n")
+
+    def test_the_cell_is_the_one_the_console_draws_in_at_the_capture(self):
+        cell = t3_fonts.console_cell
+        # an answer in time names the cell, as the display line does
+        log = self.OUTLINE % ("cullet-mono", 18, 40, 40) + self.DISPLAY % (18, 40)
+        self.assertEqual(cell(log, "cullet-mono", "font-probe"), (18, 40))
+        # a late answer moves the console from the fallback cell to the
+        # set's own, and logs no display line
+        log = (self.WAITED % ("cullet-mono", 40) + self.DISPLAY % (16, 40)
+               + self.LATE % ("cullet-mono", 18, 40, 40))
+        self.assertEqual(cell(log, "cullet-mono", "font-probe"), (18, 40))
+        # until the late answer comes, the capture shows the fallback cell
+        log = self.WAITED % ("cullet-mono", 40) + self.DISPLAY % (16, 40)
+        with self.assertRaisesRegex(RuntimeError, "^the console drew font-probe before vtium "
+                                    "knew the font set cullet-mono's cell, so the capture shows "
+                                    "a fallback cell. vtium logged: \\[    7.79\\] vtium\\[769\\]: "
+                                    "the frit cullet-mono's cell at 40 pixels is not known"):
+            cell(log, "cullet-mono", "font-probe")
+        # another set's warning and cell lines are not the set's
+        log = (self.OUTLINE % ("cullet-mono", 18, 40, 40) + self.DISPLAY % (18, 40)
+               + self.WAITED % ("cullet-alone", 40) + self.LATE % ("cullet-alone", 20, 40, 40))
+        self.assertEqual(cell(log, "cullet-mono", "font-probe"), (18, 40))
+        self.assertEqual(cell(log, "cullet-alone", "font-probe-alone"), (20, 40))
+        # the reference set's cell comes from its own line after the switch
+        log = self.DISPLAY % (18, 40) + self.OUTLINE % ("cullet-alone", 17, 40, 40)
+        self.assertEqual(cell(log, "cullet-alone", "font-probe-alone"), (17, 40))
+        # a late strike names no display cell, until a display line does
+        late_strike = ("vtium[7]: the frit terminus's own 16x32 cell came after the wait: it "
+                       "draws in it from the next frame\n")
+        log = self.WAITED % ("terminus", 40) + self.DISPLAY % (8, 40) + late_strike
+        with self.assertRaisesRegex(RuntimeError, "^the console drew font-probe after the font "
+                                    "set terminus's cell changed, and no line names the cell it "
+                                    "draws in now. vtium logged: vtium\\[7\\]: the frit terminus's "
+                                    "own 16x32 cell came after the wait"):
+            cell(log, "terminus", "font-probe")
+        self.assertEqual(cell(log + self.DISPLAY % (16, 40), "terminus", "font-probe"), (16, 40))
+        strike = "vtium[7]: the font set terminus draws its 16x32 strike at 40 pixels\n"
+        self.assertEqual(cell(strike + self.DISPLAY % (16, 40), "terminus", "font-probe"),
+                         (16, 40))
+        with self.assertRaisesRegex(RuntimeError, "^the console logged no cell size$"):
+            cell("", "terminus", "font-probe")
+
+    def late_check(self, variant, cell, captures, events=()):
+        """(caps, errors) of the check on a console whose serial log starts
+        with vtium's warning that the set's cell is not known and a display
+        line in the fallback cell `cell`. `captures` is each screen the
+        check captures, the screen before the probes first, with the lines
+        vtium logs before that capture."""
+        glyphs = self.sources()
+        with tempfile.TemporaryDirectory() as d:
+            vm = self.FakeVm(d, cell, events)
+            with open(vm.serial, "w") as f:
+                f.write(self.WAITED % (t3_scenario.VARIANTS[variant]["font_set"], cell[1])
+                        + self.DISPLAY % cell)
+            shots = iter(captures)
+
+            def capture(*_, **__):
+                shot, lines = next(shots)
+                with open(vm.serial, "a") as f:
+                    f.write(lines)
+                return shot
+            caps, errors = {}, {}
+            with mock.patch.object(t3_fonts, "wait_stable", side_effect=capture), \
+                    mock.patch.object(t3_fonts, "source_glyphs", return_value=glyphs):
+                t3_fonts.run(t3_scenario.VARIANTS[variant], vm, d, caps, errors, LOG)
+            return caps, errors
+
+    def test_a_late_cell_is_the_cell_the_capture_is_judged_in(self):
+        # The font helper's answer came after vtium stopped waiting: the
+        # console opened the display in the built-in font's 12x24 cell and
+        # moved to cullet-mono's 13x24 cell before the capture.
+        glyphs = self.sources()
+        fallback, own = (12, 24), (13, 24)
+        img, reference = self.cullet_screens(own, glyphs)
+        switch = ["T3-USE-FRIT set\tcullet-alone "]
+        late = self.LATE % ("cullet-mono", 13, 24, 24)
+        alone = self.OUTLINE % ("cullet-alone", 13, 24, 24)
+        caps, errors = self.late_check("cullet-mono-24", fallback, [
+            (self.screen(fallback), ""), (img, late), (reference, alone)], switch)
+        self.assertEqual((list(caps), errors), ([t3_fonts.CASE], {}))
+
+    def test_a_capture_in_a_fallback_cell_fails(self):
+        # The late answer comes after the capture: the probes were drawn
+        # in the fallback cell, and the case fails naming vtium's warning,
+        # though the capture would pass in the fallback cell.
+        glyphs = self.sources()
+        fallback, own = (12, 24), (13, 24)
+        switch = ["T3-USE-FRIT set\tcullet-alone "]
+        late = self.LATE % ("cullet-mono", 13, 24, 24)
+        alone = self.OUTLINE % ("cullet-alone", 13, 24, 24)
+        img, reference = self.cullet_screens(fallback, glyphs)
+        caps, errors = self.late_check("cullet-mono-24", fallback, [
+            (self.screen(fallback), ""), (img, ""), (reference, late + alone)], switch)
+        self.assertEqual(caps, {})
+        self.assertEqual(errors, {t3_fonts.CASE: "RuntimeError: the console drew font-probe "
+                                  "before vtium knew the font set cullet-mono's cell, so the "
+                                  "capture shows a fallback cell. vtium logged: "
+                                  + (self.WAITED % ("cullet-mono", 24)).strip()})
+        # the reference set's cell must be the probes' cell
+        img, reference = self.cullet_screens(own, glyphs)
+        caps, errors = self.late_check("cullet-mono-24", fallback, [
+            (self.screen(fallback), ""), (img, late),
+            (reference, self.WAITED % ("cullet-alone", 24))], switch)
+        self.assertEqual(caps, {})
+        self.assertRegex(errors[t3_fonts.CASE], "^RuntimeError: the console drew "
+                         "font-probe-alone before vtium knew the font set cullet-alone's cell")
+        caps, errors = self.late_check("cullet-mono-24", fallback, [
+            (self.screen(fallback), ""), (img, late),
+            (reference, self.OUTLINE % ("cullet-alone", 14, 24, 24))], switch)
+        self.assertEqual(errors, {t3_fonts.CASE: "RuntimeError: the console drew font-probe "
+                                  "in a 13x24 cell and font-probe-alone in a 14x24 cell"})
+
+    def test_a_line_vtium_is_still_writing_is_left_out(self):
+        # the cell a half-written line names is not read
+        with tempfile.TemporaryDirectory() as d:
+            vm = self.FakeVm(d, (18, 40))
+            with open(vm.serial, "a") as f:
+                f.write("vtium[7]: Display Virtual-2 with backend [drm2d] text renderer [cpu], "
+                        "cell size 18x4")
+            with mock.patch.object(t3_fonts, "wait_stable", return_value=self.screen((8, 16))):
+                _, _, text = t3_fonts.draw(vm, d, "font-probe", self.screen((8, 8)), LOG)
+            self.assertEqual(t3_fonts.console_cell(text, "cullet-mono", "font-probe"), (18, 40))
 
     def test_the_sources_are_read_from_the_install_tree(self):
         glyph = "0067:" + "80" + "00" * 15 + "\n"

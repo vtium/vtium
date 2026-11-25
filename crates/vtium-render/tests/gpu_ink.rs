@@ -160,8 +160,9 @@ fn plain() -> vtium_term::Style {
     style(rgb(FG), rgb(BG))
 }
 
-/// The display for `s` turned as `o` says: its grid inside a border of 2
-/// pixels across and 1 down, upright.
+/// The display for `s` turned as `o` says: upright, its grid inside a
+/// border of 2 pixels at each side, and its 2 spare lines above the grid,
+/// whose last row touches the display's bottom edge.
 fn display(s: &Screen, o: Orientation) -> Size {
     let (w, h) = (s.cols as u32 * CW + 4, s.rows as u32 * CH + 2);
     match o {
@@ -337,11 +338,11 @@ fn assert_same(g: &Gpu, cpu: &Canvas, what: &str) {
     );
 }
 
-/// The display rectangle of the cell at `col`, `row`.
+/// The display rectangle of the cell at `col`, `row`, upright.
 fn cell(col: u32, row: u32) -> Rect {
     Rect {
         x: 2 + col * CW,
-        y: 1 + row * CH,
+        y: 2 + row * CH,
         width: CW,
         height: CH,
     }

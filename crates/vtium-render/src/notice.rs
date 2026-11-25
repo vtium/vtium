@@ -2181,8 +2181,8 @@ mod tests {
         (canvas, rect)
     }
 
-    // the mark takes the cell it is given, wherever the renderer centred
-    // the grid, and touches nothing beside it
+    // the mark takes the cell it is given, wherever the renderer placed the
+    // grid, and touches nothing beside it
     #[test]
     fn the_mark_fills_the_grid_cell_it_is_given() {
         for (name, ch, w, h, o) in [
@@ -2229,7 +2229,8 @@ mod tests {
     }
 
     // widths at which the notice's text could run under the mark, and a
-    // height whose centred grid puts the mark across the second line
+    // height whose 31 spare lines above the grid put the mark across the
+    // notice's first and second lines
     #[test]
     fn the_notice_keeps_its_text_clear_of_the_mark() {
         let filler = "m".repeat(400);

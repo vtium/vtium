@@ -160,10 +160,11 @@ fn a_row_too_tall_for_the_scratch_is_composed_in_bands() {
 
 // The pointer on a display turned right: the arrow turned a quarter, so
 // that it points at the text's top left. Six columns and two rows on a
-// display 36 by 54 put the grid at 2,3 to 34,51; the grid's pixel 20,9
-// lands at 24,23, where the turned arrow's hotspot, 14,1, goes, so the
-// arrow, 16 wide and 11 high, spans 10 to 26 across and 22 to 33 down,
-// and the upright arrow's pixel ax,ay lands at 10 + 15 - ay, 22 + ax.
+// display 36 by 54 put the grid at 0,3 to 32,51, its last row against the
+// display's left edge, which is the text's bottom; the grid's pixel 20,9
+// lands at 22,23, where the turned arrow's hotspot, 14,1, goes, so the
+// arrow, 16 wide and 11 high, spans 8 to 24 across and 22 to 33 down,
+// and the upright arrow's pixel ax,ay lands at 8 + 15 - ay, 22 + ax.
 // covers: platform.compositor
 #[test]
 fn the_pointer_turns_with_the_display() {
@@ -181,7 +182,7 @@ fn the_pointer_turns_with_the_display() {
         ..DrawState::default()
     };
     r.draw(&s.frame(Age::NEVER), &mut c, 0, &st);
-    assert_eq!(r.pointer_at((20, 9)), Some((24, 23)));
+    assert_eq!(r.pointer_at((20, 9)), Some((22, 23)));
     let turned = r.arrow();
     assert_eq!(
         (turned.width(), turned.height(), turned.hot()),
@@ -193,8 +194,8 @@ fn the_pointer_turns_with_the_display() {
     let mut lit = 0;
     for y in 0..54 {
         for x in 0..36 {
-            let want = if (10..26).contains(&x) && (22..33).contains(&y) {
-                let (ax, ay) = (y - 22, 15 - (x - 10));
+            let want = if (8..24).contains(&x) && (22..33).contains(&y) {
+                let (ax, ay) = (y - 22, 15 - (x - 8));
                 match upright.pixels()[(ay * 11 + ax) as usize] {
                     0 => bg,
                     src => {
@@ -211,13 +212,18 @@ fn the_pointer_turns_with_the_display() {
     assert!(lit > 10, "the arrow has pixels");
 }
 
-// An odd remainder is split rounding down in the display's own
-// coordinates in every orientation, as tier 2's `edges` goldens show it:
-// 5 pixels across and 3 down leave 2 left, 3 right, 1 above and
-// 2 below unturned and upside down; a turned display, 3 across and 5
-// down, leaves 1, 2, 2 and 3.
+// Along the rows, the grid's last row touches the text's bottom edge, so
+// all the spare lines lie above its first row. Across the rows, an odd
+// remainder is split rounding down in the display's own coordinates, as
+// tier 2's `edges` goldens show it. 5 pixels across and 3 down leave 2
+// left, 3 right, and 3 above unturned or 3 below upside down. A turned
+// display, 3 across and 5 down, leaves 2 above and 3 below, and 3 right
+// turned right or 3 left turned left.
+//
+// References:
+// - ADR-1310 D10: the grid flush along its rows, and centred across them.
 #[test]
-fn an_odd_border_rounds_down_in_display_coordinates() {
+fn the_border_is_flush_along_the_rows_and_rounds_down_across_them() {
     let (cols, rows) = (6usize, 2usize);
     let mut s = Screen::new(cols, rows, rgb("c0c0c0"), rgb("101010"));
     for row in 0..rows {
@@ -226,10 +232,10 @@ fn an_odd_border_rounds_down_in_display_coordinates() {
     let (gw, gh) = (cols as u32 * 8, rows as u32 * 16);
     let border = 0x10_10_10;
     for (o, (w, h), want) in [
-        (Orientation::Normal, (gw + 5, gh + 3), [2, 3, 1, 2]),
-        (Orientation::UpsideDown, (gw + 5, gh + 3), [2, 3, 1, 2]),
-        (Orientation::Right, (gh + 3, gw + 5), [1, 2, 2, 3]),
-        (Orientation::Left, (gh + 3, gw + 5), [1, 2, 2, 3]),
+        (Orientation::Normal, (gw + 5, gh + 3), [2, 3, 3, 0]),
+        (Orientation::UpsideDown, (gw + 5, gh + 3), [2, 3, 0, 3]),
+        (Orientation::Right, (gh + 3, gw + 5), [0, 3, 2, 3]),
+        (Orientation::Left, (gh + 3, gw + 5), [3, 0, 2, 3]),
     ] {
         let config = Config {
             orientation: o,
