@@ -1340,13 +1340,12 @@ class VtiumGoldenTest(unittest.TestCase):
         # - ADR-1204 D1: the built-in font.
         # - ADR-1510 D2: vtium ignores an unknown key in a section alone.
         # - 2026-11-25: ADR-1310 D10 puts the grid flush to the bottom, which
-        #   moves every golden of the six variants whose screen is not a
+        #   moves every golden of the five variants whose screen is not a
         #   whole number of rows tall. They are provisional until the B8c
         #   cards have moved them all and the maintainer has reviewed the one
         #   redraw; that golden commit empties MOVING again.
         moving = ("2d-1280x800", "2d-1366x768-potato", "2d-7680x2160",
-                  "2d-7680x2160-font32", "2d-640x480-frit",
-                  "2d-640x480-frit-held")
+                  "2d-7680x2160-font32", "2d-potato-min")
         expected = sorted(
             "%s/%s" % (v, os.path.splitext(n)[0]) for v in moving
             for n in os.listdir(os.path.join(t3_evaluate.GOLDEN, v))
