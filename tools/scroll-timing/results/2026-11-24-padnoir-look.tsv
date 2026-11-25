@@ -1,0 +1,26 @@
+# scroll-look-keys 2026-11-24T21:10:51-06:00
+1	redraw	1	8x16	on the very first test, the first 4-5 rows at the top almost appear to visually have a bit more space between each row (like, black space). It is difficult to see it because it's moving very quickly and almost easier to see out of the corner of my eye. I'll call it a tear, of sorts, since the row was actually visible
+2	redraw	1	16x32	the top and bottom visually seemed to have slightly more gap between the rows. I'm not convinced it's just a n optical illusion. aslso backspace isnt working again
+3	copy	1	8x16	looked ok. same sort of visual row agaps on top and bottom. less convinced its a problem. might need to record on camera with high framerate
+4	copy	1	16x32	clean
+5	move	1	8x16	slowest movvvemnt seemed to have a tiny bit of stutter
+6	move	1	16x32	clean
+7	pan	1	8x16	slow had two abdark bands at the bottom of the rows the last couple. they were spaced relatively close together and showed dim random pixels in them. medium speed the bands moved up about half way to middle and were spaced further apart. fastede - fastest mode had the bands about in the middle of the screen and spread the widest from each other so garbage of a sort
+8	pan	1	16x32	two bands where the bottom row of pixels was filled in but the rest of the cell was ghosted where the pixels were there but not quite. on the fastsest mode there was wone band in the middle with the same sort of defect look of one row of pixels on the bottom of the cell and ghosted filld in the rest of the cell
+9	redraw	2	8x16	clean
+10	redraw	2	16x32	clean
+11	copy	2	8x16	clean
+12	copy	2	16x32	clean
+13	move	2	8x16	clean
+14	move	2	16x32	clean
+15	pan	2	8x16	clean
+16	pan	2	16x32	clean
+17	redraw	3	8x16	clean
+18	redraw	3	16x32	clean
+19	copy	3	8x16	clean
+20	copy	3	16x32	clean
+21	move	3	8x16	clean
+22	move	3	16x32	clean
+23	pan	3	8x16	clean
+24	pan	3	16x32	clean
+done
