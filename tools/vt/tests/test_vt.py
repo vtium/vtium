@@ -372,10 +372,10 @@ while True:
 DISPLAY_LINES = (
     ("crates/vtium-platform/src/display/drm2d.rs", "display {name} at {}x{}", ("HDMI-A-2", "800", "480"), "came"),
     ("crates/vtium-platform/src/display/drm2d.rs", "display {} is gone", ("HDMI-A-2",), "went"),
-    ("crates/vtium/src/app.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
+    ("crates/vtium/src/app/guard.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
      (" of head panel", "100", "30"), "came"),
     ("crates/vtium-platform/src/display/drm2d.rs", "display {}, left dark, is gone", ("DP-8",), "went"),
-    ("crates/vtium/src/app.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
+    ("crates/vtium/src/app/guard.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
      ("", "100", "30"), "came"),
     ("crates/vtium-platform/src/display/drm2d.rs", "display {}: the first flip after its modeset is done",
      ("HDMI-A-2",), "modeset"),
@@ -2072,15 +2072,15 @@ class Make(Case):
     def test_the_default_binary_is_the_minspec_build(self):
         # VTIUM_MINSPEC points the default at the stand-in, which the stand-in
         # cargo "builds".
-        # The acceptance pass builds it with pictures and bidirectional text
+        # The acceptance pass builds it with the packaged console's features
         # unless FEATURES is named on make's command line (ADR-1501 D5).
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.s.calls_of("cargo"), [f"rustc --profile minspec {remap_paths(self.s.env())} -p vtium --bin vtium "
-                                                   f"--target x86_64-unknown-linux-gnu --features images bidi filters {MINSPEC_LINK}"])
+                                                   f"--target x86_64-unknown-linux-gnu --features images bidi filters scroll-pan {MINSPEC_LINK}"])
         self.assertIn(f"--bin={self.s.bin} ", p.stdout)
         self.assertIn(f"--helper={self.s.helper} ", p.stdout)
-        self.assertIn(" --features=images\\ bidi\\ filters ", p.stdout)
+        self.assertIn(" --features=images\\ bidi\\ filters\\ scroll-pan ", p.stdout)
         open(self.s.calls, "w").close()
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}", "FEATURES=")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -2262,9 +2262,10 @@ class Make(Case):
     def test_vt_accept_chooses_the_render_path(self):
         # RENDER_PATH=gpu or cpu, cpu unless named, reaches vtium as --hwaccel
         # or --no-hwaccel and the pass as ACCEPT_RENDER_PATH (ADR-1501 D5).
-        # Unnamed, FEATURES is images and bidi, and gpu with them for the GPU
-        # path.
-        for path, opt, features in (("cpu", "--no-hwaccel", "images bidi filters"), ("gpu", "--hwaccel", "images bidi filters gpu")):
+        # Unnamed, FEATURES is images, bidi, filters, and scroll-pan, and gpu
+        # with them for the GPU path.
+        for path, opt, features in (("cpu", "--no-hwaccel", "images bidi filters scroll-pan"),
+                                    ("gpu", "--hwaccel", "images bidi filters scroll-pan gpu")):
             with self.subTest(path=path):
                 open(self.s.calls, "w").close()
                 named = () if path == "cpu" else ("RENDER_PATH=gpu",)

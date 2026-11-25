@@ -65,11 +65,11 @@ CHECKS = {
 # console's check, and for stopping and starting vtium's unit.
 APPLY_TIMEOUT = 180
 # The line the new vtium logs once it has chosen the installed set
-# (crates/vtium/src/app.rs).
+# (crates/vtium/src/app/fonts.rs).
 FONT_LINE = "the font is the frit t3-apply"
 # The line the new vtium logs once the font helper has generated the set's
 # glyphs in the set's own 8x8 cell (crates/vtium/src/helper/answers.rs), and the
-# cell its display line names (crates/vtium/src/app.rs).
+# cell its display line names (crates/vtium/src/app/drawing.rs).
 GLYPHS_LINE = "the font's glyphs at 8x8 are generated"
 CELL = "cell size 8x8"
 # The start of the line vtium logs when the font helper cannot draw the set

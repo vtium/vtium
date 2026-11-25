@@ -6,7 +6,7 @@ vtium's test card, drawn by vtium's renderer in memory for each display profile,
 |---|---|---|---|---|---|---|---|
 | [320x240-1bit](320x240-1bit/) | 1-bit | 8×8 | 40×30 | `unscii-8` | 7 | accepted | [<img src="320x240-1bit/collage.png" width="160">](320x240-1bit/collage.png) |
 | [320x240](320x240/) | 24-bit color | 8×8 | 40×30 | `unscii-8` | 7 | accepted | [<img src="320x240/collage.png" width="160">](320x240/collage.png) |
-| [320x240-tiny5](320x240-tiny5/) | 24-bit color | 6×9 | 53×26 | `tiny5` | 12 | accepted | [<img src="320x240-tiny5/collage.png" width="160">](320x240-tiny5/collage.png) |
+| [320x240-tiny5](320x240-tiny5/) | 24-bit color | 6×9 | 53×26 | `tiny5` | 12 | provisional | [<img src="320x240-tiny5/collage.png" width="160">](320x240-tiny5/collage.png) |
 | [480x320](480x320/) | 24-bit color | 8×8 | 60×40 | `unscii-8` | 6 | accepted | [<img src="480x320/collage.png" width="160">](480x320/collage.png) |
 | [640x480](640x480/) | 24-bit color | 8×16 | 80×30 | `unifont` | 4 | accepted | [<img src="640x480/collage.png" width="160">](640x480/collage.png) |
 | [800x480](800x480/) | 24-bit color | 8×16 | 100×30 | `unifont` | 4 | accepted | [<img src="800x480/collage.png" width="160">](800x480/collage.png) |

@@ -171,8 +171,9 @@ impl Helper {
         })
     }
 
-    /// Gives the helper up for the boot: ends it, drops what was asked
-    /// and logs `why` once.
+    /// Gives the helper up for the boot: ends it, drops what was asked,
+    /// stops each fill under way or held, and logs `why` once. A held fill
+    /// stops too, so the console's turns no longer look for it to start.
     pub(super) fn fail(&mut self, why: &str) {
         self.stop();
         self.lose_pointer(why);
@@ -181,7 +182,7 @@ impl Helper {
         self.deferred.clear();
         self.asks.clear();
         for c in &mut self.cells {
-            if c.fill == Fill::Active {
+            if matches!(c.fill, Fill::Active | Fill::Held) {
                 c.fill = Fill::Stopped;
             }
         }
@@ -242,4 +243,55 @@ fn reap(mut child: Child) -> Option<ExitStatus> {
         }
     }
     child.wait().ok()
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+mod tests {
+    use std::sync::Arc;
+
+    use vtium_font::Cell;
+    use vtium_font::spacing::SpacedCell;
+
+    use super::super::{Command, FritText, Helper, Launcher, stand_in_shell};
+
+    /// The tests' fixed instant.
+    #[expect(clippy::disallowed_methods, reason = "the tests' fixed instant")]
+    fn t0() -> std::time::Instant {
+        std::time::Instant::now()
+    }
+
+    // A helper that vtium gives up holds no fill. The console held this
+    // fill while it waited for the frit's own cell, and it stops with the
+    // helper as a fill under way does. Otherwise the console's every turn
+    // would look for a held fill to start, and the given-up helper would
+    // never start it.
+    #[test]
+    fn a_failed_helper_holds_no_fill() {
+        let command = Command {
+            program: stand_in_shell().to_path_buf(),
+            args: vec!["-c".into(), "exec cat >/dev/null".into()],
+            account: None,
+        };
+        let mut helper = Helper::new(
+            Launcher::open(command).unwrap(),
+            Arc::new(|| {}),
+            t0(),
+            FritText {
+                name: "t".to_owned(),
+                text: "source=builtin:unscii-8\n".to_owned(),
+            },
+            None,
+            crate::deferred::Shared::default(),
+            64 << 20,
+        );
+        let at = SpacedCell::plain(Cell {
+            width: 8,
+            height: 16,
+        });
+        helper.hold_fill(at, &['a']);
+        assert!(helper.holds_fills(), "the fill is held");
+        helper.fail("the helper failed");
+        assert!(!helper.holds_fills(), "a failed helper holds no fill");
+    }
 }

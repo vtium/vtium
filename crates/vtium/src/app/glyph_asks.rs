@@ -19,8 +19,15 @@ impl App {
     /// While head `h`'s font is a frit, fills each cell a display of a
     /// head drawing that frit draws at and that was not filled yet, the
     /// screen's characters first, and asks for the screen's characters
-    /// there; drops the glyphs of cells no display draws at any more
-    /// (ADR-1301 D2, the operator's fill model).
+    /// there; drops the glyphs of cells no display draws at any more. At a
+    /// cell drawn while the head waits for the frit's own cell, the asks go
+    /// and the fill waits until the wait ends ([`App::start_held_fills`]),
+    /// since the frit may give no glyph at that cell.
+    ///
+    /// References:
+    /// - ADR-1301 D2, the operator's fill model: the helper draws the
+    ///   characters the screen shows first, then the rest of the frit's
+    ///   coverage, for each cell the displays draw at.
     pub(super) fn ask_glyphs(&mut self, h: usize) {
         let Some(name) = self.heads.get(h).and_then(Head::frit).map(str::to_owned) else {
             return;
@@ -60,6 +67,7 @@ impl App {
         if new.is_empty() {
             return;
         }
+        let waiting = self.cells_waiting(&name);
         let Some(helper) = self.helper(&name) else {
             return;
         };
@@ -72,7 +80,11 @@ impl App {
                 .first()
                 .map(|s| s.chars.as_slice())
                 .unwrap_or_default();
-            helper.fill(at.cell, at.band, first, now);
+            if waiting.contains(at) {
+                helper.hold_fill(*at, first);
+            } else {
+                helper.fill(at.cell, at.band, first, now);
+            }
         }
         if let Some(frit) = self.frits.get_mut(&name) {
             frit.asked.extend(new.into_iter().map(|(at, _)| at));
@@ -240,12 +252,54 @@ impl App {
             self.late_cell(&name, height, answer);
         }
         self.end_cell_waits();
+        self.start_held_fills(now);
+    }
+
+    /// The cells the displays of each head drawing frit `name` draw at
+    /// while the head waits for the frit's own cell ([`App::waits_for_cell`]).
+    fn cells_waiting(&self, name: &str) -> Vec<SpacedCell> {
+        let mut cells = Vec::new();
+        for (h, head) in self.heads.iter().enumerate() {
+            if head.frit() == Some(name) && self.waits_for_cell(h) {
+                cells.extend(head.views.values().map(View::spaced));
+            }
+        }
+        cells
+    }
+
+    /// Starts each fill that a frit's helper holds at a cell where no head
+    /// waits for the frit's own cell any more. The wait ends with the
+    /// helper's late answer: a cell that lays the head out in the frit's
+    /// own cell drops the cell drawn while it waited, and its fill with it,
+    /// and a refusal leaves the head in the cell it draws in, whose fill
+    /// then starts. A failed helper ends the wait too, and fills nothing.
+    /// The state alone ends the hold, never a timer.
+    ///
+    /// References:
+    /// - ADR-1200 D17: a refusal leaves the display's cell in use, and an
+    ///   answer that comes after the wait is used from the next frame.
+    fn start_held_fills(&mut self, now: Instant) {
+        let holding: Vec<String> = self
+            .frits
+            .iter()
+            .filter(|(_, f)| f.helper.as_ref().is_some_and(Helper::holds_fills))
+            .map(|(name, _)| name.clone())
+            .collect();
+        for name in holding {
+            let waiting = self.cells_waiting(&name);
+            if let Some(helper) = self.frits.get_mut(&name).and_then(|f| f.helper.as_mut()) {
+                helper.start_held_fills(&waiting, now);
+            }
+        }
     }
 
     /// Whether head `h` draws a font set whose cell at the head's height
     /// the font helper has yet to give: the helper gave no answer in time,
     /// it still runs or starts again, and no later answer has come. The
-    /// head draws in the cell it kept until the answer comes.
+    /// head draws in the cell it kept until the answer comes. A cell that
+    /// vtium forgot and asked for again, after it left out a font that
+    /// made the helper fail ([`App::ask_cells_again`]), is waited for in
+    /// the same way until its answer comes.
     pub(super) fn waits_for_cell(&self, h: usize) -> bool {
         let Some(head) = self.heads.get(h) else {
             return false;
@@ -258,15 +312,24 @@ impl App {
         let Some(frit) = head.frit().and_then(|name| self.frits.get(name)) else {
             return false;
         };
-        if !wants || frit.helper.as_ref().is_none_or(|h| h.failed().is_some()) {
+        let Some(helper) = frit.helper.as_ref().filter(|h| h.failed().is_none()) else {
+            return false;
+        };
+        if !wants {
             return false;
         }
-        let known = if head.chosen().struck() {
+        let (struck, outline) = (head.chosen().struck(), head.chosen().outline());
+        let known = if struck {
             frit.own.get(&at).cloned()
         } else {
-            frit.answer_at(at, head.chosen().outline())
+            frit.answer_at(at, outline)
         };
-        known.is_some_and(|k| k.is_err_and(|no| no.late))
+        match known {
+            Some(known) => known.is_err_and(|no| no.late),
+            // A bitmap font set's cell holds at every height, so a query at
+            // any height may bring it.
+            None => helper.asks_cell((struck || outline).then_some(at)),
+        }
     }
 
     /// Sends the shown console of each head the replies it held since its

@@ -473,6 +473,119 @@ mod with {
             out
         }
 
+        /// The placements with a row in `lines`, which are the lines at
+        /// places `top` onward in reading order, in draw order. Each
+        /// placement's row is its box's top row, counted from the view's top
+        /// row, `above` lines below `top`, so a row above the view is
+        /// negative. `order` is the drawing order of
+        /// each of `lines`, top to bottom, in a build with the bidi
+        /// feature. The frame's capture of the rows beyond the screen reads
+        /// its pictures through this, the way
+        /// [`placements`](Self::placements) reads the view's.
+        ///
+        /// References:
+        /// - ADR-1310 D2, "What a row beyond the screen carries": the
+        ///   pictures placed on each row.
+        #[cfg(feature = "rows-beyond")]
+        pub(in crate::screen) fn placements_over(
+            &self,
+            lines: &[&Line],
+            top: usize,
+            above: usize,
+            #[cfg(feature = "bidi")] order: &crate::order::Order,
+        ) -> Vec<FramePlacement> {
+            if !self.images.has_placements() || lines.is_empty() {
+                return Vec::new();
+            }
+            let screen: Vec<LineKey> = lines.iter().map(|l| key(l)).collect();
+            let keys_above: Vec<LineKey> = if self.flags.alternate {
+                Vec::new()
+            } else {
+                (0..top)
+                    .rev()
+                    .take(self.images.reach())
+                    .filter_map(|i| self.scrollback.get(i).map(key))
+                    .collect()
+            };
+            let rows = Rows {
+                screen: &screen,
+                above: &keys_above,
+            };
+            // the lines below the last of `lines`, as far as a relative
+            // placement's root can reach
+            let end = top.saturating_add(lines.len());
+            let below: Vec<LineKey> = if self.flags.alternate {
+                Vec::new()
+            } else {
+                (end..)
+                    .map_while(|place| self.line_at(place))
+                    .take(self.images.reach_below())
+                    .map(key)
+                    .collect()
+            };
+            let mut runs = Vec::new();
+            if self.images.has_virtual(self.flags.alternate) {
+                let from = if self.flags.alternate { 0 } else { top };
+                let (mut carry, _) = placeholder::carry_from(self.rows_above(from), self.cols);
+                for line in lines {
+                    placeholder::runs(line, key(line), self.cols, &mut carry, &mut |r| {
+                        runs.push(r);
+                    });
+                }
+            }
+            #[cfg(feature = "bidi")]
+            {
+                let rows_of: std::collections::BTreeMap<LineKey, usize> =
+                    lines.iter().enumerate().map(|(y, l)| (key(l), y)).collect();
+                for run in &mut runs {
+                    let Some(r) = rows_of.get(&run.line).and_then(|&y| order.row(y)) else {
+                        continue;
+                    };
+                    let first = usize::try_from(run.col).unwrap_or(usize::MAX);
+                    let last = first.saturating_add(usize::try_from(run.cells).unwrap_or(0));
+                    if let Some(v) = (first..last).map(|c| r.visual_at(c)).min() {
+                        run.col = u32::try_from(v).unwrap_or(run.col);
+                    }
+                }
+            }
+            let drawn = Drawn {
+                screen: self,
+                view: lines,
+                top,
+                #[cfg(feature = "bidi")]
+                order: Some(order),
+            };
+            let mut out = self
+                .images
+                .frame_drawn(rows, &below, &runs, self.cols, &drawn);
+            out.retain_mut(|p| {
+                // an entry made from a placeholder run is placed by the
+                // runs above, and the store places a relative placement
+                // from where its root is drawn
+                if p.from_placeholder_run() || p.relative {
+                    return true;
+                }
+                let size = self.size_at(lines, top, p.row);
+                #[cfg(feature = "bidi")]
+                {
+                    if size.is_double() && !shown(p.col, size, self.cols) {
+                        return false;
+                    }
+                    if let Some(r) = self.order_at(order, lines.len(), top, p.row)
+                        && r.rtl
+                    {
+                        return mirror(p, &r, size);
+                    }
+                }
+                to_screen(p, size, self.cols)
+            });
+            let shift = i64::try_from(above).unwrap_or(i64::MAX);
+            for p in &mut out {
+                p.row = p.row.saturating_sub(shift);
+            }
+            out
+        }
+
         /// The runs a frame hands the store: those on the rows the view
         /// shows, read only while the shown buffer holds a virtual
         /// placement, since only a virtual placement draws through them.
@@ -570,6 +683,11 @@ mod with {
                 return;
             }
             let runs = self.screen_runs(alt);
+            #[cfg(feature = "rows-beyond")]
+            if !alt && self.changes_above(images, floating, &runs) {
+                self.damage.mark_all();
+                return;
+            }
             for (y, run) in &runs {
                 if !images.contains(&run.image) {
                     continue;
@@ -604,6 +722,56 @@ mod with {
             (0..top).rev().filter_map(|i| self.scrollback.get(i))
         }
 
+        /// Whether a changed picture draws on a row that a frame can capture
+        /// above the main screen, one of the ROWS_MAX + 1 newest lines of
+        /// the scrollback: through placeholder cells of one of `images` on
+        /// such a row, or in one of the `floating` boxes that reaches such a
+        /// row. `screen` holds the screen's runs, each with its row. A row
+        /// above the screen keeps no damage of its own, and a display keeps
+        /// its pixels by line id, so such a change has the whole frame read
+        /// as drawn whole.
+        ///
+        /// References:
+        /// - ADR-1310 D2, "What the capture holds under `scroll-pan`": a row
+        ///   beyond the screen reads as changed only in a frame drawn whole.
+        #[cfg(feature = "rows-beyond")]
+        fn changes_above(
+            &self,
+            images: &BTreeSet<u32>,
+            floating: &[FloatingRegion],
+            screen: &[(usize, PlaceholderRun)],
+        ) -> bool {
+            let side = crate::bounds::ROWS_MAX.saturating_add(1);
+            let top = self.scrollback.len();
+            let from = top.saturating_sub(side);
+            let (mut carry, _) = placeholder::carry_from(self.rows_above(from), self.cols);
+            let mut above: Vec<(i64, PlaceholderRun)> = Vec::new();
+            for place in from..top {
+                let Some(line) = self.scrollback.get(place) else {
+                    continue;
+                };
+                let back = i64::try_from(top.saturating_sub(place)).unwrap_or(i64::MAX);
+                placeholder::runs(line, key(line), self.cols, &mut carry, &mut |r| {
+                    above.push((back.saturating_neg(), r));
+                });
+            }
+            if above.iter().any(|(_, r)| images.contains(&r.image)) {
+                return true;
+            }
+            let reach = i64::try_from(side).unwrap_or(i64::MAX).saturating_neg();
+            let rows = || {
+                let screen = screen
+                    .iter()
+                    .map(|(y, run)| (i64::try_from(*y).unwrap_or(i64::MAX), run));
+                above.iter().map(|(y, run)| (*y, run)).chain(screen)
+            };
+            floating.iter().any(|region| {
+                region.top_left(rows()).is_some_and(|(top, _)| {
+                    top < 0 && top.saturating_add(i64::from(region.rows)) > reach
+                })
+            })
+        }
+
         /// The runs on the screen's own lines of a buffer, each with its
         /// screen row, counting the cells read as input work, those of the
         /// rows above the screen whose wraps reach its first row included.
@@ -629,12 +797,18 @@ mod with {
         /// screen rows, and above the main screen the scrollback's newest
         /// rows, as many as the main buffer's tallest placement reaches.
         pub(crate) fn keys(&self, alt: bool) -> Keys {
+            self.keys_reaching(alt, self.images.main_reach())
+        }
+
+        /// The keys of the main (`alt` false) or the alternate buffer's
+        /// screen rows, and above the main screen the scrollback's newest
+        /// `reach` rows.
+        fn keys_reaching(&self, alt: bool, reach: usize) -> Keys {
             let lines = if alt { &self.alt } else { &self.main };
             let screen = lines.iter().take(self.rows).map(key).collect();
             let above = if alt {
                 Vec::new()
             } else {
-                let reach = self.images.main_reach();
                 let len = self.scrollback.len();
                 (0..len)
                     .rev()
@@ -926,7 +1100,26 @@ mod with {
                 self.damage.mark_all();
                 return;
             }
-            let keys = self.active_keys();
+            // A box anchored on a line of the scrollback can reach down
+            // onto the screen: a box `row` rows below its line and `rows`
+            // tall, from at most `row + rows` lines above the screen. The
+            // store keeps no reach for a buffer whose last placement has
+            // just gone, so the walk up the scrollback is sized from the
+            // changed boxes themselves.
+            let reach = changed
+                .iter()
+                .map(|r| {
+                    let below = u64::try_from(r.row.max(0)).unwrap_or(0);
+                    let rows = below.saturating_add(u64::from(r.rows));
+                    usize::try_from(rows).unwrap_or(usize::MAX)
+                })
+                .max()
+                .unwrap_or(0);
+            // A frame captures up to ROWS_MAX + 1 rows above the screen, so
+            // the walk also finds each box that reaches one of those rows.
+            #[cfg(feature = "rows-beyond")]
+            let reach = reach.saturating_add(crate::bounds::ROWS_MAX.saturating_add(1));
+            let keys = self.keys_reaching(self.flags.alternate, reach);
             let rows = keys.rows();
             let row_of = |line: LineKey| -> Option<i64> {
                 if let Some(y) = rows.screen.iter().position(|&k| k == line) {
@@ -941,6 +1134,21 @@ mod with {
                 let Some(top) = row_of(region.line).map(|y| y.saturating_add(region.row)) else {
                     continue;
                 };
+                // A row above the screen that a frame captures keeps no
+                // damage of its own, and a display keeps its pixels by line
+                // id, so a box that changes on such a row has every row
+                // read as changed.
+                #[cfg(feature = "rows-beyond")]
+                {
+                    let captured = i64::try_from(crate::bounds::ROWS_MAX)
+                        .unwrap_or(i64::MAX)
+                        .saturating_add(1);
+                    let bottom = top.saturating_add(i64::from(region.rows));
+                    if top < 0 && bottom > captured.saturating_neg() {
+                        self.damage.mark_all();
+                        return;
+                    }
+                }
                 let first = usize::try_from(top.max(0)).unwrap_or(0);
                 let end = top.saturating_add(i64::from(region.rows));
                 let end = usize::try_from(end.max(0)).unwrap_or(0).min(self.rows);
@@ -996,6 +1204,53 @@ mod with {
                 t.screen().frame_runs().is_empty(),
                 "the alternate buffer holds none"
             );
+        }
+
+        /// A terminal of 12 columns by 4 rows with a scrollback, cells of
+        /// 8×16 pixels and the kitty handler, after a picture three rows tall
+        /// with id 7 is shown at the left of row 1 and two lines scrolled, so
+        /// the picture's rows are -1, 0 and 1.
+        fn picture_across_the_top_edge() -> Terminal {
+            let mut t = Terminal::new(12, 4, 100);
+            t.screen_mut().set_scrollback_max(10);
+            t.screen_mut().set_image_limit(1 << 30);
+            t.screen_mut().set_image_cell(8, 16).unwrap();
+            t.set_image_switches(Switches {
+                sixel: false,
+                kitty: true,
+                iterm2: false,
+            });
+            t.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+            let mut s = b"\x1b[2;1H\x1b_Ga=T,f=24,s=8,v=48,i=7,C=1,q=2;".to_vec();
+            s.extend(b"////".repeat(384));
+            s.extend(b"\x1b\\");
+            t.input(&s);
+            t.input(b"\x1b[4;1H\n\n");
+            t
+        }
+
+        // A kitty delete takes the picture off every cell its box covered,
+        // so the screen's rows of that box are marked changed, also when
+        // the box's top row has scrolled above the screen and the store
+        // holds no other placement. A build with the rows beyond the screen
+        // marks everything, since the box reaches row -1.
+        //
+        // References:
+        // - ADR-1100 D8: the store reports each changed box, and the screen
+        //   marks the cells under it.
+        // covers: image.kitty
+        #[test]
+        fn a_kitty_delete_marks_the_screen_rows_of_a_box_whose_top_scrolled_off() {
+            let mut t = picture_across_the_top_edge();
+            assert_eq!(t.screen().placements().len(), 1);
+            let age = t.screen_mut().checkpoint();
+            t.input(b"\x1b_Ga=d,d=i,i=7,q=2\x1b\\");
+            assert!(t.screen().placements().is_empty(), "deleted");
+            for row in 0..2 {
+                assert!(t.screen().damage().changed(row, 0, age), "row {row}");
+            }
+            #[cfg(not(feature = "rows-beyond"))]
+            assert!(!t.screen().damage().row_changed(2, age), "past the box");
         }
     }
 }

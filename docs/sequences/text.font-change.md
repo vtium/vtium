@@ -40,6 +40,7 @@ These tests check what vtium does with the sequences on this page.
 - `osc_50_switches_to_a_console_font_by_its_path_and_draws_from_it` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
 - `osc_50_switches_to_a_frit_and_its_helper_is_asked` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
 - `osc_50_switches_to_an_outline_font_by_its_path_and_draws_from_it` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
+- `osc_50_to_a_console_font_whose_cell_comes_late_draws_in_that_cell` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
 - `a_hidden_consoles_query_names_the_font_it_last_drew_in_until_shown` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `a_sessions_end_returns_its_switch_to_the_configured_font` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `a_sessions_end_undoes_its_zoom` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
