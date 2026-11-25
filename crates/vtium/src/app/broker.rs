@@ -354,6 +354,32 @@ impl image_helper::Process for RootImage {
     }
 }
 
+/// What makes each console's image host under the privilege split: a
+/// host whose helpers vtium's root process at `root` starts for the
+/// console, so this process never starts one as its own account. A head
+/// whose name the protocol cannot carry gets a host that answers as with
+/// no helper.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the broker starts each image
+///   helper at the drawer's request and chooses its user.
+#[cfg(feature = "images")]
+fn images_through_root(root: Rc<RootHelpers>) -> crate::head::images::Helpers {
+    Rc::new(move |head, id| {
+        let host = match console_ref(head, id) {
+            Ok(console) => image_helper::ImageHost::launched(Box::new(ImagesThroughRoot::new(
+                Rc::clone(&root),
+                console,
+            ))),
+            Err(e) => {
+                log::warn!(target: "broker", "head {head}: console {id}: vtium starts no image helper: {e}");
+                image_helper::ImageHost::new(None, None)
+            }
+        };
+        Box::new(host)
+    })
+}
+
 /// The protocol's name of head `head`'s console `id`, or an error for a
 /// head name the protocol cannot carry, which vtium.conf never gives.
 fn console_ref(head: &str, id: u64) -> io::Result<ConsoleRef> {
@@ -402,6 +428,8 @@ impl App {
         courier.on_queued(Box::new(move || ping.ping()));
         let root = Rc::new(RootHelpers::new(Rc::clone(&courier)));
         self.font_root = Some(Rc::clone(&root) as Rc<dyn crate::helper::Root>);
+        #[cfg(feature = "images")]
+        self.set_image_helpers(Some(images_through_root(Rc::clone(&root))));
         self.root_helpers = Some(root);
         // The font helper runs as `nobody` for the root process, so the
         // files of root, which vtium runs as, pass its trust rule beside
@@ -410,14 +438,6 @@ impl App {
             .launcher
             .clone()
             .map(|l| l.with_active(0, &crate::font::gate().batch));
-        // A console's image host is made without the console's name, which
-        // the root process needs to choose the helper's account, so under
-        // the split no console starts an image helper until the hosts are
-        // made for a named console. Until then every terminal is told that
-        // no helper runs, and this process never starts one as its own
-        // account.
-        #[cfg(feature = "images")]
-        self.set_image_helpers(None);
         self.broker = Some(courier);
         Ok(())
     }
@@ -1049,6 +1069,87 @@ mod tests {
             },
         };
         assert_eq!(kinds, [image(1, true), image(2, false), image(3, false)]);
+    }
+
+    /// Under the split, the hosts the app makes for its consoles start
+    /// each image helper through the root process, for the head and the
+    /// console the host was made for, and never as this process's account.
+    #[cfg(feature = "images")]
+    #[test]
+    fn under_the_split_a_consoles_image_helper_starts_through_the_root_process() {
+        use vtium_image::decode::{Medium, Request as Picture};
+        use vtium_platform::image_helper::Session;
+        let (broker, theirs) = Link::pair().unwrap();
+        let seen = helper_root(broker, vec![Ok(())], Status::Code(0));
+        let (lp, mut app) = seat_with(&[], None, no_fonts());
+        app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
+            .unwrap();
+        let make = app.image_helpers.clone().unwrap();
+        let mut host = make("main", 3);
+        let picture = Picture {
+            medium: Medium::Direct(vec![1, 2, 3]),
+            offset: 0,
+            max: 0,
+            min: 0,
+            inflate: false,
+            png: true,
+            exact: false,
+            discard: false,
+            any_image: false,
+            frames: None,
+            pixels: None,
+            largest: (100, 100),
+            largest_bytes: 1 << 20,
+            fit: None,
+        };
+        let session = Session {
+            child: None,
+            pty_owner: Ok(1000),
+        };
+        assert!(
+            host.send(&picture, &session).is_ok(),
+            "the request went out"
+        );
+        // the root process's report of the helper's end, read before the
+        // socket closes, so the stand-in reads no reset
+        let courier = Rc::clone(app.broker.as_ref().unwrap());
+        loop {
+            match courier.next().unwrap() {
+                Got::Message(Ok((Order::HelperExit { .. }, _))) => break,
+                Got::Message(other) => panic!("{other:?}"),
+                Got::Closed => panic!("the root process closed"),
+                Got::Nothing => {
+                    let mut fds = [rustix::event::PollFd::new(
+                        &courier,
+                        rustix::event::PollFlags::IN,
+                    )];
+                    let bound = rustix::event::Timespec {
+                        tv_sec: 30,
+                        tv_nsec: 0,
+                    };
+                    assert_eq!(rustix::event::poll(&mut fds, Some(&bound)).unwrap(), 1);
+                }
+            }
+        }
+        drop((host, make, courier, app, lp));
+        let console = console_ref("main", 3).unwrap();
+        let seen: Vec<Request> = seen.join().unwrap();
+        // the host's drop stops the helper through the root process too
+        assert_eq!(
+            seen,
+            [
+                Request::StartHelper {
+                    helper: 1,
+                    kind: Helper::Image {
+                        console,
+                        max_bytes: 1 << 20,
+                        largest_file: 1 << 20,
+                        file: false,
+                    },
+                },
+                Request::StopHelper { helper: 1 },
+            ]
+        );
     }
 
     #[test]
