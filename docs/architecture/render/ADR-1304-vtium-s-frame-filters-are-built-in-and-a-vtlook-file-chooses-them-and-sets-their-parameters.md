@@ -304,7 +304,8 @@ considered:
     via: the maintainer, in the steering session, 2026-11-24, after reading the amendment of that day on a reading page
   - operator: aaronsb
     said: "Accept it"
-    via: the question tool, 2026-11-25, after the reading page of the D20 amendment
+    via: "through the question tool, 2026-11-25, on the reading page of the D20 amendment of 2026-11-24, choosing the option \"Accept it\" (record the answer, merge the amendment and add the pointer notes in ADR-1305 D2 and ADR-1400 D3 and D4); the option's wording is the steering session's"
+    paraphrase: true
 status: accepted
 date: 2026-11-03
 deciders:
