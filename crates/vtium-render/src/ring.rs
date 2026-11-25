@@ -627,10 +627,13 @@ impl<F: Face> Renderer<F> {
     /// The screen's lines moved `scrolled` rows up since the frame drawn
     /// last, or down when `scrolled` is negative. A line keeps its pixels
     /// where they lie in the ring, so only the rows that came in and the
-    /// cells that changed are drawn. When `whole` says the frame changes
-    /// every cell, as a switch between the main and the alternate screen
-    /// or a clear does, the window moves back to the ring's start, where
-    /// it holds no twin. A jump past the screen's rows does too.
+    /// cells that changed are drawn. Pass the count the frame's
+    /// [`Frame::scrolled`] states. A frame whose record states another
+    /// count, or cannot say, is drawn whole. When `whole` says the frame
+    /// changes every cell, as a switch between the main and the alternate
+    /// screen or a clear does, the window moves back to the ring's start,
+    /// where it holds no twin. A jump past the screen's rows and a frame
+    /// drawn whole for another reason do too.
     ///
     /// Returns what the frame drew, its damage in the buffer's own
     /// coordinates, and where the window starts in the buffer along the
@@ -879,11 +882,15 @@ impl<F: Face> Renderer<F> {
     /// by those rows, so it reads which cells changed in place, as the
     /// frame's scroll record states them once the lines moved: the rows
     /// that came in and the cells written in place. A one-line scroll then
-    /// draws one row, not every row that moved. It reads them so only
-    /// while the record states the same scroll the ring moves by. Every
-    /// other frame reads the changes at their places on the screen, which
-    /// mark every row a scroll moved, and a frame drawn whole draws every
-    /// cell anyway.
+    /// draws one row, not every row that moved.
+    ///
+    /// That holds only while the record states the scroll the ring moves
+    /// by. When it states another, or cannot say, the lines' pixels would
+    /// stand where the record does not put them, and neither the changes
+    /// in place nor those at the cells' places on the screen would say
+    /// which rows to draw. Such a frame rests the window and draws whole,
+    /// so a caller that passes the wrong count costs a redraw and never
+    /// shows a wrong picture.
     ///
     /// References:
     /// - ADR-1310 D2: the scroll record, and the changes it states in place.
@@ -893,7 +900,7 @@ impl<F: Face> Renderer<F> {
         let Some((n, whole)) = self.ring.pending.take() else {
             return (false, 0);
         };
-        self.ring.in_place = frame
+        let agrees = frame
             .scrolled()
             .is_some_and(|s| i64::try_from(s).is_ok_and(|s| s == n));
         // the hovered link's row and the link labels stand at places on
@@ -902,7 +909,8 @@ impl<F: Face> Renderer<F> {
         let was = core::mem::replace(&mut self.ring.decorated, decorated);
         let rows = u64::try_from(grid.rows).unwrap_or(u64::MAX);
         let moved = n != 0;
-        let rest = whole || (moved && (n.unsigned_abs() >= rows || decorated || was));
+        let rest = whole || !agrees || (moved && (n.unsigned_abs() >= rows || decorated || was));
+        self.ring.in_place = !rest;
         (rest, n)
     }
 

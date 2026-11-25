@@ -1479,33 +1479,59 @@ fn random_overlay_run(run: u64) -> Result<(), String> {
 }
 
 // a frame whose scroll record states another scroll than the one the
-// ring moves by is drawn from the changes at their places on the screen,
-// which mark every row the scroll moved, so it still shows the frame
+// ring is told, or cannot say how far the lines moved, rests the window
+// and is drawn whole, so a caller that passes the wrong count costs a
+// redraw and never shows a wrong picture
 #[test]
-fn a_scroll_the_record_states_otherwise_draws_every_moved_row() {
+fn a_scroll_the_record_states_otherwise_draws_the_frame_whole() {
+    // the lines the view moves, the rows the ring is told, and whether
+    // the frame reads its changes since a frame the record knows
+    let cases = [
+        (2, 1, true),
+        (0, 1, true),
+        (0, -1, true),
+        (1, 2, true),
+        (1, 1, false),
+    ];
     for o in TURNS {
-        let mut term = Term::with(plain_line);
-        let mut pan = renderer(o, WIDE);
-        let (w, h) = pan.pan_buffer_size();
-        let mut buf = Canvas::new(w, h, UNDRAWN);
-        let state = term.state();
-        let d = Damage::new(COLS, ROWS);
-        let frame = term.frame(&d, Age::NEVER);
-        pan.draw_pan(&frame, &mut buf, 0, &state, 0, true);
-        // the lines move two rows up, and the ring is told one
-        let mut d = Damage::new(COLS, ROWS);
-        let since = d.checkpoint();
-        term.apply(Step::Scroll(2), &mut d);
-        let frame = term.frame(&d, since);
-        assert_eq!(frame.scrolled(), Some(2));
-        let (_, src) = pan.draw_pan(&frame, &mut buf, 1, &state, 1, false);
-        let shown = window(&buf, o, WIDE, src);
-        let want = redrawn(o, WIDE, &frame, &state);
-        assert!(
-            shown == want,
-            "{o:?}: the window at {src} differs: {:?}",
-            first_difference(&shown, &want)
-        );
+        for (lines, told, known) in cases {
+            let mut term = Term::with(plain_line);
+            let mut pan = renderer(o, WIDE);
+            let rest = pan.ring_geometry().src(0);
+            let (w, h) = pan.pan_buffer_size();
+            let mut buf = Canvas::new(w, h, UNDRAWN);
+            let state = term.state();
+            // the view starts a few lines down, and a scroll moves the
+            // window off the ring's start
+            for (n, step) in [Step::Scroll(3), Step::Whole, Step::Scroll(1)]
+                .into_iter()
+                .enumerate()
+            {
+                let mut d = Damage::new(COLS, ROWS);
+                let since = d.checkpoint();
+                let (scrolled, whole) = term.apply(step, &mut d);
+                let frame = term.frame(&d, since);
+                pan.draw_pan(&frame, &mut buf, u32::from(n > 0), &state, scrolled, whole);
+            }
+            let mut d = Damage::new(COLS, ROWS);
+            let since = match known {
+                true => d.checkpoint(),
+                false => Age::NEVER,
+            };
+            term.apply(Step::Scroll(lines), &mut d);
+            let frame = term.frame(&d, since);
+            let what = format!("{o:?}: the lines moved {lines}, the ring told {told}");
+            assert_eq!(frame.scrolled(), known.then_some(lines as isize), "{what}");
+            let (_, src) = pan.draw_pan(&frame, &mut buf, 1, &state, told, false);
+            assert_eq!(src, rest, "{what}: the window rests");
+            let shown = window(&buf, o, WIDE, src);
+            let want = redrawn(o, WIDE, &frame, &state);
+            assert!(
+                shown == want,
+                "{what}: the window at {src} differs: {:?}",
+                first_difference(&shown, &want)
+            );
+        }
     }
 }
 
