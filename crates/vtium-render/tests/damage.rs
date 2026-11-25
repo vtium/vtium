@@ -485,6 +485,38 @@ fn a_move_in_the_bottom_row_damages_only_its_cells_and_the_arrow() {
     assert!(d.draw(&mut s, &moved).is_empty(), "idle after the move");
 }
 
+// The arrow past the grid's last column redraws only the cells it
+// covered and covers and its own area clipped to the display, never the
+// whole border: at 156,20 and then 156,40 in the grid, its corner at
+// 158,23 and then 158,43 on the display, each arrow keeps 8 of its 11
+// columns, reaching through the 3-pixel right border to the display's
+// right edge.
+#[test]
+fn a_move_in_the_last_column_damages_only_its_cells_and_the_arrow() {
+    let mut s = prompt();
+    let (w, h) = PROMPT;
+    let mut d = Display::new(2, w, h);
+    let base = state(&s);
+    let at = |p: Option<(u32, u32)>| DrawState { pointer: p, ..base };
+    let (shown, moved) = (at(Some((156, 20))), at(Some((156, 40))));
+    for st in [&shown, &shown] {
+        assert_eq!(d.draw(&mut s, st), whole(w, h));
+    }
+    assert!(d.draw(&mut s, &shown).is_empty(), "idle at the edge");
+    let last = |row: u32| cell(19, row, w, h, 20, 4);
+    let arrow = |y: u32| Rect {
+        x: 158,
+        y,
+        width: 8,
+        height: 16,
+    };
+    let want = [last(1), last(2), last(3), arrow(23), arrow(43)];
+    for buffer in ["moved", "the other buffer"] {
+        assert_eq!(d.draw(&mut s, &moved), want, "{buffer}");
+    }
+    assert!(d.draw(&mut s, &moved).is_empty(), "idle after the move");
+}
+
 #[test]
 fn damage_merges_cells_up_to_three_apart() {
     let mut s = Screen::new(20, 2, rgb(FG), rgb(BG));
