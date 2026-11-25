@@ -28,7 +28,7 @@ the drawer is not dumpable and has no new privileges	docs/architecture/platform/
 the drawer parses every byte the sessions print	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	The *drawer* is everything else that vtium does today
 the drawer holds every console's pty master	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	Until session processes exist, the drawer holds every session's pty master.
 the drawer draws through its copies of the cards	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	That the drawer draws through its copy of a card's descriptor
-the font helper, which runs as nobody	crates/vtium/src/helper.rs	nobody
+the font helper, which runs as nobody	crates/vtium/src/helper/launcher.rs	nobody
 the image helper, as the session's user and never root	crates/vtium-platform/src/image_helper/start.rs	drop_bounding_set
 each helper's socket: the broker starts the helper and passes the socket	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	passes the helper's socket to the drawer
 the session, as the user who logged in, joined by its pty	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	A session is what runs on one console

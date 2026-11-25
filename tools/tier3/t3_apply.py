@@ -68,12 +68,12 @@ APPLY_TIMEOUT = 180
 # (crates/vtium/src/app.rs).
 FONT_LINE = "the font is the frit t3-apply"
 # The line the new vtium logs once the font helper has generated the set's
-# glyphs in the set's own 8x8 cell (crates/vtium/src/helper.rs), and the
+# glyphs in the set's own 8x8 cell (crates/vtium/src/helper/answers.rs), and the
 # cell its display line names (crates/vtium/src/app.rs).
 GLYPHS_LINE = "the font's glyphs at 8x8 are generated"
 CELL = "cell size 8x8"
 # The start of the line vtium logs when the font helper cannot draw the set
-# and vtium falls back to its built-in font (crates/vtium/src/helper.rs).
+# and vtium falls back to its built-in font (crates/vtium/src/helper/process.rs).
 HELPER_FAILED = "the font helper could not draw the font"
 # A copy of the set that apply's check reads: its path, and the owner and
 # mode of the folder that holds it, as the agent's program writes them down.

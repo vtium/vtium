@@ -13,24 +13,24 @@ the frit: NAME.vtfrit	crates/vtium/src/font.rs	frit
 the frit names the sources in order	crates/vtium-config/src/frit.rs	Frit
 the frit: root owns it, and vtium reads it only after the ownership check	crates/vtium/src/font.rs	trust
 vtium reads the frit, once the frit passes the ownership check that vtium.conf passes	crates/vtium/src/font.rs	frit_text
-vtium, the console, as root, starts the font helper	crates/vtium/src/helper.rs	Launcher::process
+vtium, the console, as root, starts the font helper	crates/vtium/src/helper/launcher.rs	Launcher::process
 the built-in fonts, Unifont and Unscii-8, compiled into vtium	crates/vtium-font/src/set/builtin.rs	builtin
 Unscii-8 draws character cells under 16 pixels high	crates/vtium-font/src/set/builtin.rs	builtin_name
 the built-in fonts draw the first frame, and each character the store lacks	crates/vtium/src/deferred.rs	DeferredFace
 the glyph store, in vtium's memory; nothing goes to disk	crates/vtium/src/deferred.rs	Generated
 the glyph store's limit, set by the machine's memory	crates/vtium/src/deferred.rs	store_limit
 a full store makes room only for a request for characters on the screen	crates/vtium/src/deferred.rs	Generated::make_room
-transition the frit's text goes to the font helper in each request	crates/vtium/src/helper.rs	encode
+transition the frit's text goes to the font helper in each request	crates/vtium/src/helper/wire.rs	encode
 transition the characters to draw: the screen's, asked first	crates/vtium/src/helper.rs	Helper::ask
 transition the characters to draw: the fill, while nothing is asked	crates/vtium/src/helper.rs	Helper::fill
-transition glyphs at the character cell's size; vtium checks each one	crates/vtium/src/helper.rs	Helper::glyphs
+transition glyphs at the character cell's size; vtium checks each one	crates/vtium/src/helper/answers.rs	Helper::glyphs
 transition vtium checks each answer's length before it reads it	crates/vtium/src/helper.rs	FRAME_BYTES_MAX
 vtium-config serve, the font helper	crates/vtium-config/src/serve.rs	SERVE_ARG
-the font helper runs as nobody	crates/vtium/src/helper.rs	nobody
+the font helper runs as nobody	crates/vtium/src/helper/launcher.rs	nobody
 the font helper runs in a sandbox	crates/vtium-config/src/serve.rs	lock_out
 the font helper exits when it has nothing to do	crates/vtium-config/src/serve.rs	HELPER_IDLE_MS
 vtium starts a crashed font helper again a limited number of times per boot	crates/vtium/src/helper.rs	RESTARTS_MAX
-font files: the directories where the font helper finds installed fonts	crates/vtium/src/helper.rs	font_dirs
+font files: the directories where the font helper finds installed fonts	crates/vtium/src/helper/launcher.rs	font_dirs
 your session: vtium config use-frit NAME	crates/vtium-config/src/switch.rs	command
 use-frit switches to another font set or to a built-in font	crates/vtium-config/src/switch.rs	known
 transition OSC 50, through the pty	crates/vtium-config/src/switch.rs	switch
