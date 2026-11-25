@@ -23,7 +23,8 @@ A card's path runs the tool on that card and writes `target/scroll-timing/cardN.
 |---|---|
 | `--sizes preferred,1920x1080` | The display modes. `preferred` is each display's preferred mode, the default. |
 | `--cells 8x16,16x32` | The character cell sizes, these two by default. |
-| `--speeds 1,4,16` | The text rows the view scrolls back each frame: a slow, a medium and a fast scroll. |
+| `--speeds 1,4,16` | The text rows the view scrolls back each frame: a slow, a medium and a fast scroll. `none` runs no speed in text rows. |
+| `--pixel-speeds 1,2,4,8` | The pixel lines the view scrolls back each frame, as a smooth scroll moves. `none` runs no speed in pixel lines. |
 | `--buffers 1,2,3` | The display buffers each way keeps, all three counts by default. |
 | `--ways redraw,copy,move,pan` | The ways to time, all four by default. |
 | `--spare 0,screen` | The pan's spare rows beyond the grid's: none, and a screen of them, as ADR-1310 D6 proposes. |
@@ -33,12 +34,14 @@ A card's path runs the tool on that card and writes `target/scroll-timing/cardN.
 
 Each way draws the same view at each frame. The view scrolls back through a scrollback with no end, so new rows come in at the top. Each way's tests check every frame's picture against a redraw of the same view.
 
-- **redraw** draws every row of the grid at every frame, as vtium does today when the whole screen moves.
-- **copy** keeps the grid's rows in a ring in system memory, as wide as the screen. It draws each row into the ring once, and copies the visible window into the display's buffer at every frame.
-- **move** moves the rows already in the display's buffer by the rows the view moved since that buffer was drawn, then draws the rows that came in. A buffer drm2d lends n frames old has missed n frames of scrolling. The move reads the buffer back, which is slow where the driver maps it write-combined.
-- **pan** keeps the ring inside a display buffer taller than the screen, and the primary plane shows a window of it. A scroll sets the plane's `SRC_Y` at the next flip, so no pixel moves. Each frame draws only the rows that came in, into each buffer that lacks them.
+A speed in text rows moves the view by whole character cells, as vtium scrolls today. A speed in pixel lines moves it as a smooth scroll does, so the view often stands inside a row. The grid then shows the bottom part of its top row, the full rows below it, and the top part of one more row at the bottom. The redraw, the copy and the pan run at both kinds of speed. The move runs only at whole rows, because padnoir's figures at whole rows already rule it out. On padnoir's i915 the move reads rows back from write-combined memory, which takes 13 to 23 ms a frame.
 
-The pan's buffer holds the ring and, below it, a second drawing of the ring's first screen-height. A row whose slot lies in that first screen-height is drawn twice, so a window that starts anywhere in the ring shows its rows in order. With no spare rows, every row is drawn twice. The pixel rows under the grid's last full row are the border's strip. The pan draws the strip at each window's bottom, over whatever slot lies there, and that slot is drawn again when a window shows it.
+- **redraw** draws every row of the grid at every frame, as vtium does today when the whole screen moves.
+- **copy** keeps the grid's pixel lines in a ring in system memory, as wide as the screen. It draws each line into the ring once, and copies the visible window into the display's buffer at every frame. At a pixel step it draws only the lines that came into view, which can lie in two rows when the step crosses a row's edge.
+- **move** moves the rows already in the display's buffer by the rows the view moved since that buffer was drawn, then draws the rows that came in. A buffer drm2d lends n frames old has missed n frames of scrolling. The move reads the buffer back, which is slow where the driver maps it write-combined.
+- **pan** keeps the ring inside a display buffer taller than the screen, and the primary plane shows a window of it. A scroll sets the plane's `SRC_Y` at the next flip, so no pixel moves. Each frame draws only the rows that came in, into each buffer that lacks them. At a pixel step, `SRC_Y` points as many lines into the top row's slot as the view stands inside that row. A row is drawn whole when any of its lines comes into view.
+
+The pan's buffer holds the ring and, below it, a second drawing of the ring's first screen-height. A row whose slot lies in that first screen-height is drawn twice, so a window that starts anywhere in the ring shows its rows in order. With no spare rows, every row is drawn twice. At pixel steps the ring holds one row more than at whole rows, the row shown in part at the bottom. Without that row, the first and last rows on the screen would need the same slot. The pixel rows under the grid's last full row are the border's strip. The pan draws the strip at each window's bottom, over whatever slots lie there, and those slots are drawn again when a window shows them. At a pixel step the strip covers the slot of the row shown in part at the bottom, so the pan draws that row again at the next frame.
 
 The tool's rows stand in for text. Each character cell gets two colors and one of eight bitmap shapes, chosen from the row's id and the cell's column. A row then costs about what a row of text from a glyph store costs. The tool never runs the font helper, so the figures measure scrolling and not glyphs.
 
@@ -56,6 +59,7 @@ Each run prints a header, then one row for each way, size, cell, speed, buffer c
 
 | Column | What it holds |
 |---|---|
+| `rows_a_frame` | The speed, in the unit that `speed_unit` names. |
 | `cpu_median_ms`, `cpu_p95_ms`, `cpu_max_ms` | A frame's CPU time: its median, its 95th percentile and the largest. |
 | `draw_median_ms` | The median of the way's own drawing. |
 | `fps`, `refresh_hz` | The frames shown a second, and the display's refresh rate. |
@@ -65,8 +69,11 @@ Each run prints a header, then one row for each way, size, cell, speed, buffer c
 | `display_memory`, `system_memory` | The display's buffers together, as the way makes them, and the memory the way keeps outside them, the copy's ring. |
 | `added_memory` | What the way adds to today's buffers at the screen's size. |
 | `commits`, `busy`, `refused` | The swaps or flips asked for, those held back behind a flip, and those the driver refused. |
+| `speed_unit` | `rows` for a speed in text rows a frame, `pixels` for one in pixel lines a frame. Results files written before this column existed have no `speed_unit`, and their speeds are all in text rows. |
 
 Two rows a cell, `row-display` and `row-system`, give the cost of drawing one text row into a display buffer and into system memory. The pan pays that cost for each row that comes in, twice where the row's slot has a second drawing.
+
+`memory` gives the same column. Only the pan's memory differs between the units: at pixel steps each of its buffers is one text row taller.
 
 The dated files in `results/` hold the runs reported to the maintainer.
 
@@ -80,5 +87,7 @@ The dated files in `results/` hold the runs reported to the maintainer.
 ## Its tests
 
 `cargo test --manifest-path tools/scroll-timing/Cargo.toml` runs the tests, which need no device. They check that every way shows what a redraw shows, with one, two and three buffers, at several speeds, and across a scroll that turns. They check that the pan's window shows its rows in order at every start in the ring, across the ring's end too. Each frame of the pan draws only the row that came in. They also check the bytes each way writes and reads, and the memory figures at 1920×1080.
+
+At pixel steps, the tests check that the redraw, the copy and the pan show what a redraw shows. The steps pass every offset inside a row, cross a row's edge, cross two edges at once, and run past each ring's end. The expected picture is built a line at a time from whole rows, so it does not depend on how the redraw splits a row. The pan's window is checked at every slot and every offset. Each pan frame draws only rows that the view shows, and a frame without a strip draws a row only when the view crosses into a new top row. The tests also check the bytes each way writes at a pixel step, and that each row of the results file ends with its speed's unit.
 
 The tool is not a gate: its numbers belong to the machine that runs it. It is a workspace of its own, with its own `Cargo.lock`, so the main workspace and CI do not build it.
