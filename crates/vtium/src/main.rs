@@ -186,13 +186,8 @@ fn main() -> ExitCode {
         None => path.as_deref().and_then(vtium::getty::vt_number),
     };
     let heads = vtium::head::rules(&loaded.path, &loaded.file).on_vt(vt);
-    // The root process marks the VT, keeps the sessions through a restart
-    // and tells systemd that vtium is ready, so the drawing process does
-    // none of those jobs.
     if let Some((link, vt)) = drawer {
-        let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
-        let role = Role::Drawer { link, vt };
-        return leave(status_of(run(config, reread, start, heads, env, role)));
+        return leave(run_drawer(config, reread, start, heads, link, vt));
     }
     // Before the loop and the VT, so a failure opening either under a
     // closed policy still leaves the marker that keeps the getty off.
@@ -243,6 +238,24 @@ fn main() -> ExitCode {
         ),
     };
     leave(status_of(status))
+}
+
+/// Runs the drawing process under the privilege split, on VT `vt`, which
+/// its root process at the other end of `link` holds, and returns its
+/// exit status. The root process writes the getty marker before it opens
+/// the VT, keeps the sessions through a restart and tells systemd that
+/// vtium is ready, so the drawing process does none of those jobs.
+fn run_drawer(
+    config: config::Config,
+    reread: vtium::app::Reread,
+    start: Start,
+    heads: vtium::head::Start,
+    link: vtium_broker_protocol::Link,
+    vt: u16,
+) -> u8 {
+    let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    let role = Role::Drawer { link, vt };
+    status_of(run(config, reread, start, heads, env, role))
 }
 
 /// The exit status of a run that returned `status`, its error logged.
