@@ -8,10 +8,10 @@
 //! `vtium wake`, and stop.
 //!
 //! The drawing process has one socket to the root process, so one reader
-//! takes every order from it: the [`Courier`]. A request that waits for
-//! its answer blocks until that answer comes, and the courier keeps each
-//! other order it reads meanwhile for the loop, which takes them in the
-//! order they came.
+//! takes every order from it: the protocol crate's [`Courier`], which the
+//! VT's backend shares. A request that waits for its answer blocks until
+//! that answer comes, and the courier keeps each other order it reads
+//! meanwhile for the loop, which takes them in the order they came.
 //!
 //! References:
 //! - ADR-1400 D4, "What the broker does": the requests and the orders of
@@ -19,14 +19,15 @@
 //! - ADR-1400 D4, "The device protocol": one socket, fixed-size messages
 //!   and descriptors passed with them.
 
-use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::io;
-use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::os::fd::{AsFd, OwnedFd};
 use std::rc::Rc;
 
-use vtium_broker_protocol::{ConsoleRef, Display, Got, Grid, Head, Link, Order, PowerKey, Request};
+use vtium_broker_protocol::{
+    ConsoleRef, Courier, Display, Got, Grid, Head, Link, Order, PowerKey, Request,
+};
 use vtium_platform::calloop::generic::Generic;
+use vtium_platform::calloop::ping::make_ping;
 use vtium_platform::calloop::{Interest, Mode, PostAction};
 use vtium_platform::pty::{Pty, Remote, Size};
 
@@ -34,137 +35,41 @@ use super::{App, Exit};
 use crate::blank;
 use crate::child::Display as SessionDisplay;
 
-/// An order and the descriptor that came with it.
-pub type Received = (Order, Option<OwnedFd>);
-
-/// The drawing process's end of its socket to the root process, and the
-/// orders read while a request waited for its answer.
-pub struct Courier {
-    link: Link,
-    waiting: RefCell<VecDeque<Received>>,
-}
-
-impl AsFd for Courier {
-    fn as_fd(&self) -> BorrowedFd<'_> {
-        self.link.as_fd()
-    }
-}
-
-impl Courier {
-    pub fn new(link: Link) -> Courier {
-        Courier {
-            link,
-            waiting: RefCell::new(VecDeque::new()),
-        }
-    }
-
-    /// Sends `request`, which waits for no answer.
-    pub fn send(&self, request: &Request) -> io::Result<()> {
-        self.link.request(request)
-    }
-
-    /// Sends `request` and waits for the order that `answers` accepts.
-    /// Every other order read meanwhile waits for [`Courier::next`]. The
-    /// root process answers each such request once, and its socket's close
-    /// ends the wait with an error.
-    pub fn call(
-        &self,
-        request: &Request,
-        answers: impl Fn(&Order) -> bool,
-    ) -> io::Result<Received> {
-        self.link.request(request)?;
-        loop {
-            match self.link.next_order()? {
-                Got::Message(Ok((order, fd))) if answers(&order) => return Ok((order, fd)),
-                Got::Message(Ok(other)) => self.waiting.borrow_mut().push_back(other),
-                Got::Message(Err(why)) => {
-                    log::warn!(target: "broker", "vtium's drawing process ignores a message from vtium's root process: {why}");
-                }
-                Got::Nothing => wait_readable(self.link.as_fd())?,
-                Got::Closed => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        "vtium's root process has closed its socket",
-                    ));
-                }
-            }
-        }
-    }
-
-    /// The next order, the oldest that waited first, or `None` when no
-    /// order is there now. The socket's close is an error.
-    pub fn next(&self) -> io::Result<Option<Received>> {
-        if let Some(waited) = self.waiting.borrow_mut().pop_front() {
-            return Ok(Some(waited));
-        }
-        loop {
-            match self.link.next_order()? {
-                Got::Message(Ok(order)) => return Ok(Some(order)),
-                Got::Message(Err(why)) => {
-                    log::warn!(target: "broker", "vtium's drawing process ignores a message from vtium's root process: {why}");
-                }
-                Got::Nothing => return Ok(None),
-                Got::Closed => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        "vtium's root process has closed its socket",
-                    ));
-                }
-            }
-        }
-    }
-
-    /// Asks the root process for the session of `head`'s console
-    /// `console` at `size`, with the two hints, and gives the pty's master.
-    pub fn open_session(
-        &self,
-        console: &ConsoleRef,
-        size: Size,
-        display: SessionDisplay,
-        truecolor: bool,
-    ) -> io::Result<OwnedFd> {
-        let request = Request::OpenSession {
-            console: console.clone(),
-            grid: Grid {
-                cols: size.cols,
-                rows: size.rows,
-                cell_width: size.cell_width,
-                cell_height: size.cell_height,
+/// Asks the root process behind `courier` for the session of `console`
+/// at `size`, with the two hints, and gives the pty's master.
+pub fn open_session(
+    courier: &Courier,
+    console: &ConsoleRef,
+    size: Size,
+    display: SessionDisplay,
+    truecolor: bool,
+) -> io::Result<OwnedFd> {
+    let request = Request::OpenSession {
+        console: console.clone(),
+        grid: Grid {
+            cols: size.cols,
+            rows: size.rows,
+            cell_width: size.cell_width,
+            cell_height: size.cell_height,
+        },
+        display: match display {
+            SessionDisplay::Kms => Display::Kms,
+            SessionDisplay::Fbdev => Display::Fbdev,
+        },
+        truecolor,
+    };
+    let answers = |o: &Order| matches!(o, Order::Pty { console: c, .. } if c == console);
+    match courier.call(&request, answers)? {
+        (Order::Pty { opened: Ok(()), .. }, Some(master)) => Ok(master),
+        (
+            Order::Pty {
+                opened: Err(errno), ..
             },
-            display: match display {
-                SessionDisplay::Kms => Display::Kms,
-                SessionDisplay::Fbdev => Display::Fbdev,
-            },
-            truecolor,
-        };
-        let answers = |o: &Order| matches!(o, Order::Pty { console: c, .. } if c == console);
-        match self.call(&request, answers)? {
-            (Order::Pty { opened: Ok(()), .. }, Some(master)) => Ok(master),
-            (
-                Order::Pty {
-                    opened: Err(errno), ..
-                },
-                _,
-            ) => Err(io::Error::from_raw_os_error(i32::from(errno.0))),
-            _ => Err(io::Error::other(
-                "vtium's root process answered without the pty's master",
-            )),
-        }
-    }
-}
-
-/// Waits until `fd` has something to read, or has hung up.
-fn wait_readable(fd: BorrowedFd<'_>) -> io::Result<()> {
-    let mut fds = [rustix::event::PollFd::new(
-        &fd,
-        rustix::event::PollFlags::IN,
-    )];
-    loop {
-        match rustix::event::poll(&mut fds, None) {
-            Ok(_) => return Ok(()),
-            Err(rustix::io::Errno::INTR) => {}
-            Err(e) => return Err(e.into()),
-        }
+            _,
+        ) => Err(io::Error::from_raw_os_error(i32::from(errno.0))),
+        _ => Err(io::Error::other(
+            "vtium's root process answered without the pty's master",
+        )),
     }
 }
 
@@ -210,7 +115,7 @@ impl App {
     /// process's orders through the loop.
     pub fn set_broker(&mut self, link: Link) -> io::Result<()> {
         let courier = Rc::new(Courier::new(link));
-        let watched = courier.link.as_fd().try_clone_to_owned()?;
+        let watched = courier.as_fd().try_clone_to_owned()?;
         self.handle
             .insert_source(
                 Generic::new(watched, Interest::READ, Mode::Level),
@@ -220,6 +125,13 @@ impl App {
                 },
             )
             .map_err(|e| io::Error::other(e.error))?;
+        // Orders a call left in the courier's queue do not make the socket
+        // readable, so the courier pings the loop for them.
+        let (ping, queued) = make_ping()?;
+        self.handle
+            .insert_source(queued, |(), &mut (), app: &mut App| app.take_orders())
+            .map_err(|e| io::Error::other(e.error))?;
+        courier.on_queued(Box::new(move || ping.ping()));
         self.broker = Some(courier);
         Ok(())
     }
@@ -241,7 +153,7 @@ impl App {
             .map(|head| head.name())
             .unwrap_or_default();
         let console = console_ref(head, id)?;
-        let master = courier.open_session(&console, size, display, truecolor)?;
+        let master = open_session(courier, &console, size, display, truecolor)?;
         let starter = Starter {
             courier: Rc::clone(courier),
             console,
@@ -273,10 +185,14 @@ impl App {
         };
         loop {
             match courier.next() {
-                Ok(Some((order, fd))) => self.broker_order(order, fd),
-                Ok(None) => return,
-                Err(e) => {
-                    log::error!(target: "broker", "vtium's drawing process lost its root process, so it stops: {e}");
+                Ok(Got::Message(Ok((order, fd)))) => self.broker_order(order, fd),
+                Ok(Got::Message(Err(why))) => log::warn!(
+                    target: "broker",
+                    "vtium's drawing process ignores a message from vtium's root process: {why}"
+                ),
+                Ok(Got::Nothing) => return,
+                Ok(Got::Closed) | Err(_) => {
+                    log::error!(target: "broker", "vtium's drawing process lost its root process, so it stops");
                     self.request_exit(Exit::Signal);
                     return;
                 }
@@ -327,7 +243,7 @@ mod tests {
     use std::path::PathBuf;
 
     use vtium_broker_protocol::{CELL_MAX, Errno, Status};
-    use vtium_platform::pty::{Erase, open_session};
+    use vtium_platform::pty::{Erase, open_session as start_on_pty};
 
     use crate::app::tests::{Still, no_fonts, seat_with, shown};
 
@@ -375,7 +291,7 @@ mod tests {
                                     cell_width: grid.cell_width,
                                     cell_height: grid.cell_height,
                                 };
-                                Ok(open_session(command, size, Erase::Delete).unwrap())
+                                Ok(start_on_pty(command, size, Erase::Delete).unwrap())
                             };
                             match opened {
                                 Ok(session) => {
@@ -414,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn a_call_keeps_the_other_orders_for_the_loop() {
+    fn a_session_s_call_keeps_the_other_orders_for_the_loop() {
         let (broker, theirs) = Link::pair().unwrap();
         let courier = Courier::new(Link::passed(theirs).unwrap());
         let console = console_ref("console", 1).unwrap();
@@ -435,29 +351,28 @@ mod tests {
             cell_width: 8,
             cell_height: 16,
         };
-        let e = courier
-            .open_session(&console, size, SessionDisplay::Kms, true)
-            .unwrap_err();
+        let e = open_session(&courier, &console, size, SessionDisplay::Kms, true).unwrap_err();
         assert_eq!(e.raw_os_error(), Some(24), "the root process's error");
         assert!(matches!(
             broker.next_request().unwrap(),
             Got::Message(Ok(Request::OpenSession { .. }))
         ));
-        assert_eq!(courier.next().unwrap().map(|o| o.0), Some(Order::Blank));
-        assert_eq!(courier.next().unwrap().map(|o| o.0), Some(exit));
-        assert!(courier.next().unwrap().is_none());
-        drop(broker);
-        assert!(
-            courier.next().is_err(),
-            "the root process's close is an error"
-        );
+        let order = |got| match got {
+            Got::Message(Ok((order, _))) => Some(order),
+            _ => None,
+        };
+        assert_eq!(order(courier.next().unwrap()), Some(Order::Blank));
+        assert_eq!(order(courier.next().unwrap()), Some(exit));
+        assert!(matches!(courier.next().unwrap(), Got::Nothing));
     }
 
     #[test]
     fn under_the_split_the_root_process_starts_and_hangs_up_the_session() {
         let (broker, theirs) = Link::pair().unwrap();
-        let seen = stand_in(broker, Vec::new());
-        let (lp, mut app) = seat_with(&[], None, no_fonts());
+        // The blank reaches the socket before the session's answer, so the
+        // session's call leaves it queued.
+        let seen = stand_in(broker, vec![Order::Blank]);
+        let (mut lp, mut app) = seat_with(&[], None, no_fonts());
         app.set_broker(Link::passed(theirs).unwrap()).unwrap();
         app.add_video(
             PathBuf::from("/dev/mem0"),
@@ -468,6 +383,11 @@ mod tests {
         let id = app.heads.first().unwrap().console.id;
         let pty = app.heads.first().unwrap().console.pty.as_ref().unwrap();
         assert!(pty.adopted(), "the session is not the root process's");
+        assert_eq!(app.order, None);
+        // The courier pings the loop for the order its call queued.
+        lp.dispatch(Some(std::time::Duration::ZERO), &mut app)
+            .unwrap();
+        assert_eq!(app.order, Some(blank::Order::Blank));
         assert!(app.broker_power(crate::power::PowerKey::Reboot));
         // the loop holds its own copy of the socket
         drop((app, lp));

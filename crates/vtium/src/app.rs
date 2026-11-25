@@ -433,7 +433,7 @@ pub struct App {
     /// Under the privilege split, vtium's root process, which starts the
     /// sessions and runs the power keys; `None` when vtium runs as one
     /// process.
-    broker: Option<Rc<broker::Courier>>,
+    broker: Option<Rc<vtium_broker_protocol::Courier>>,
     /// Device events a test hands the next turn, as udev would.
     #[cfg(test)]
     queued_devices: Vec<DeviceEvent>,
