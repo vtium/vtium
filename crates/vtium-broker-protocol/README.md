@@ -23,7 +23,7 @@ The feature `test-support` adds `Link::wait_for_close`, which the broker's tests
 | `SIGNAL_MAX` | signal 64, Linux's highest | The order is refused. |
 | `ERRNO_MAX` | error 4095, Linux's highest | The order is refused. |
 
-A console's grid takes 1 to 65535 columns and rows. `cargo test -p vtium-broker-protocol` runs the crate's tests, and the broker's tests in the vtium crate run it over a real socket against stand-in drawers.
+A console's grid takes 1 to 65535 columns and rows. `cargo test -p vtium-broker-protocol` runs the crate's tests, and the broker's tests in the vtium crate exercise the protocol over a real socket against stand-in drawers.
 
 References:
 - ADR-1400 D4, "The device protocol": the requests and orders, the fixed size, the checks before the broker acts, and `SCM_RIGHTS`.

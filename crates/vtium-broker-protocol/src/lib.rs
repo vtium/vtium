@@ -1067,6 +1067,8 @@ impl Link {
     /// closes one end waits for this, because a child that another test
     /// forks holds a copy of every descriptor until it runs its program.
     /// The wait is bounded only so that a test fails instead of hanging.
+    /// Only tests have this method: the crate's own, and those of a crate
+    /// that turns on the `test-support` feature, as vtium's tests do.
     #[cfg(any(test, feature = "test-support"))]
     pub fn wait_for_close(&self) {
         assert!(
