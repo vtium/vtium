@@ -1141,6 +1141,7 @@ mod tests {
 
     /// Reads the root process's report of a helper's end, before the
     /// socket closes, so the stand-in reads no reset.
+    #[cfg(feature = "images")]
     fn until_helper_exit(courier: &Courier) {
         loop {
             match courier.next().unwrap() {

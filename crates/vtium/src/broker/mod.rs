@@ -37,6 +37,7 @@
 )]
 
 pub mod devices;
+pub mod kmsg;
 pub mod outbox;
 pub mod refusals;
 pub mod start;
@@ -418,9 +419,11 @@ pub struct Begun {
     vt: Option<u16>,
     env: Vec<(OsString, OsString)>,
     store: store::Store,
-    /// The orders that pass the drawer `/dev/kmsg` and the kernel's font,
-    /// each with its descriptor.
+    /// The orders that pass the drawer its end of the kernel's messages
+    /// and the kernel's font, each with its descriptor.
     kernel: Vec<(Order, std::os::fd::OwnedFd)>,
+    /// What relays the kernel's messages to the drawer.
+    relay: Option<kmsg::Relay>,
 }
 
 impl Begun {
@@ -447,8 +450,12 @@ impl Begun {
             log::warn!(target: "broker", "vtium cannot make its run directory for tty{vt}: {e}");
         }
         let mut kernel = Vec::new();
-        match vtium::kernel::open_kmsg() {
-            Ok(kmsg) => kernel.push((Order::Kmsg, kmsg)),
+        let mut relay = None;
+        match vtium::kernel::open_kmsg().and_then(kmsg::relay) {
+            Ok((ours, theirs)) => {
+                kernel.push((Order::Kmsg, theirs));
+                relay = Some(ours);
+            }
             Err(e) => log::info!(
                 target: "broker",
                 "vtium cannot read the kernel's messages from {}: {e}. It does not show them on screen.",
@@ -472,12 +479,19 @@ impl Begun {
             env,
             store: store::Store::new(keeper, kept),
             kernel,
+            relay,
         }
     }
 
-    /// The orders that pass the drawer `/dev/kmsg` and the kernel's font,
-    /// which the broker sends first, before any answer.
-    pub fn kernel(&mut self) -> Vec<(Order, std::os::fd::OwnedFd)> {
+    /// The orders that pass the drawer its end of the kernel's messages
+    /// and the kernel's font, which the broker sends first, before any
+    /// answer. The kernel's messages are relayed through `lp` from now on.
+    pub fn kernel(&mut self, lp: &Loop<Seen>) -> Vec<(Order, std::os::fd::OwnedFd)> {
+        if let Some(relay) = self.relay.take()
+            && let Err(e) = relay.listen(lp)
+        {
+            log::info!(target: "broker", "vtium cannot relay the kernel's messages to its drawing process: {e}. It does not show them on screen.");
+        }
         std::mem::take(&mut self.kernel)
     }
 
@@ -622,7 +636,7 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     // broker.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
     let env = begun.env.clone();
-    let kernel = begun.kernel();
+    let kernel = begun.kernel(&lp);
     let processes = begun.processes(&lp);
     processes.listen(&lp)?;
     // The broker holds the VT before it says it is ready and before the

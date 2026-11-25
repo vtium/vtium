@@ -30,7 +30,7 @@
 
 use std::ffi::OsString;
 use std::io;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::path::{Path, PathBuf};
 
 use vtium_settings::Policy;
@@ -409,8 +409,22 @@ fn drain_with(
     Ok(out)
 }
 
-/// Opens `/dev/kmsg` at its end, without blocking, so that a reader of it
-/// sees only the messages that arrive from now on.
+/// The records waiting in `kmsg`, read as [`System`] reads them: one
+/// record a read, at most [`RECORDS_PER_TURN`] of them.
+pub fn drain(kmsg: std::os::fd::BorrowedFd<'_>) -> io::Result<Vec<Vec<u8>>> {
+    drain_with(|buf| rustix::io::read(kmsg, buf))
+}
+
+/// Opens `/dev/kmsg` at its end, without blocking, so that its reads start
+/// with the messages that arrive from now on. A process that holds the
+/// descriptor can still seek back to the oldest record the kernel keeps,
+/// whatever `kernel.dmesg_restrict` says. So vtium passes this descriptor
+/// to no process without root: under the privilege split, vtium's root
+/// process reads it and relays each new record to the drawing process.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the broker relays the kernel's
+///   messages instead of passing its descriptor of `/dev/kmsg`.
 pub fn open_kmsg() -> io::Result<OwnedFd> {
     use rustix::fs::{Mode, OFlags, SeekFrom};
     let flags = OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
@@ -435,15 +449,15 @@ impl System {
         open_kmsg().map(System::with_kmsg)
     }
 
-    /// The kernel read through `kmsg`, a descriptor of `/dev/kmsg` that
-    /// another process opened: under the privilege split, vtium's root
-    /// process opens it and passes it to the drawing process, which
-    /// cannot open it under `kernel.dmesg_restrict`.
+    /// The kernel read through `kmsg`, a descriptor from which each read
+    /// gives one record, as a read of `/dev/kmsg` does. Under the privilege
+    /// split it is the drawing process's end of the socket over which
+    /// vtium's root process relays each new record, since the drawing
+    /// process cannot open `/dev/kmsg` under `kernel.dmesg_restrict`.
     ///
     /// References:
-    /// - ADR-1400 D4, "What the broker does": the broker opens `/dev/kmsg`
-    ///   and passes the descriptor; check 7 measured that a descriptor is
-    ///   enough.
+    /// - ADR-1400 D4, "What the broker does": the broker relays the kernel's
+    ///   messages instead of passing its descriptor of `/dev/kmsg`.
     pub fn with_kmsg(kmsg: OwnedFd) -> System {
         System {
             kmsg,
@@ -461,8 +475,7 @@ impl System {
 
 impl Kernel for System {
     fn drain(&mut self) -> io::Result<Vec<Vec<u8>>> {
-        let kmsg = &self.kmsg;
-        drain_with(|buf| rustix::io::read(kmsg, buf))
+        drain(self.kmsg.as_fd())
     }
 
     fn console_level(&self) -> u8 {

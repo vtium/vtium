@@ -476,8 +476,9 @@ pub enum Order {
     Wake,
     /// Stop: the unit is stopping.
     Stop,
-    /// The broker's descriptor of `/dev/kmsg`, opened at its end, from
-    /// which the drawer reads the kernel's messages.
+    /// The drawer's end of the socket over which the broker relays each
+    /// new record of `/dev/kmsg`, one record a message, from which the
+    /// drawer reads the kernel's messages.
     Kmsg,
     /// The kernel's font, with the sealed memory file that holds it.
     Font(KernelFont),
