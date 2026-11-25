@@ -19,13 +19,30 @@
 //! laid out in the order of its fields below, and the rest of the message
 //! is zero.
 //!
-//! This file depends on std and rustix only, so the fuzz target includes
-//! it as it is.
+//! The broker in the vtium crate and the drawer both speak this protocol,
+//! so it is a crate of its own, which depends on std and rustix only.
 //!
 //! References:
 //! - ADR-1400 D4, "The device protocol": the requests and orders, the
 //!   fixed size, the checks before the broker acts, and `SCM_RIGHTS`.
+//! - ADR-1513 D4: why the protocol is a crate of its own.
 
+#![forbid(unsafe_code)]
+// Determinism under hostile input (docs/architecture.md, "Determinism"):
+// the broker runs as root and reads what the drawer sends, so nothing the
+// drawer sends can panic it.
+#![deny(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo
+)]
 // The drawer's side of the orders and statuses is wired by the split's
 // later cards; until then only the tests and the fuzz target read them.
 #![cfg_attr(
@@ -1050,7 +1067,7 @@ impl Link {
     /// closes one end waits for this, because a child that another test
     /// forks holds a copy of every descriptor until it runs its program.
     /// The wait is bounded only so that a test fails instead of hanging.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn wait_for_close(&self) {
         assert!(
             matches!(self.hung_up_within(30), Ok(true)),

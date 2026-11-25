@@ -7,10 +7,7 @@
 
 use libfuzzer_sys::fuzz_target;
 
-#[path = "../../src/broker/protocol.rs"]
-mod protocol;
-
-use protocol::{Order, Request};
+use vtium_broker_protocol::{Order, Request};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(request) = Request::decode(data) {

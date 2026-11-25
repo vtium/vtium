@@ -1670,6 +1670,7 @@ dependencies = [
  "libc",
  "log",
  "rustix",
+ "vtium-broker-protocol",
  "vtium-config",
  "vtium-devices",
  "vtium-font",
@@ -1680,6 +1681,14 @@ dependencies = [
  "vtium-term",
  "vtium-testscript",
  "xkbcommon",
+]
+
+[[package]]
+name = "vtium-broker-protocol"
+version = "0.1.0-alpha.11"
+dependencies = [
+ "libc",
+ "rustix",
 ]
 
 [[package]]
