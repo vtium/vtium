@@ -2745,10 +2745,12 @@ class PointerTest(unittest.TestCase):
         self.assertEqual(t3_pointer.corner((0, 0), display, cell), (2 - 1, 3 - 1))
         self.assertEqual(t3_pointer.corner((t3_pointer.ABS_MAX,) * 2, display, cell),
                          (2 + 635 - 1, 3 + 476 - 1))
-        # 1280x800 in 10x19 cells: 798 lines of grid, 2 spare lines above;
-        # an odd spare column, as at 1366 across in 8-pixel cells, goes right
+        # 1280x800 in 10x19 cells: 798 lines of grid, 2 spare lines above
         self.assertEqual(t3_pointer.origin((1280, 800), (10, 19)), (0, 2))
         self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 19)), (3, 8))
+        # 1366 across in 9-pixel cells leaves 7 spare columns: 3 on the
+        # left and the odd one with the other 3 on the right
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (9, 16)), (3, 0))
 
     def test_the_planes_are_read_from_the_dump(self):
         planes = t3_pointer.planes(self.STATE)

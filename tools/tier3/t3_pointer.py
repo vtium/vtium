@@ -13,8 +13,9 @@ after its last move, the plane shows nothing.
 
 The position is worked out as vtium works it out (vtium-platform's absolute
 axis, vtium's grid and the renderer's arrow): the mouse's axis scaled to the
-grid's pixels, the grid centred on the display, and the arrow's corner its
-hotspot up and left of the pointer.
+grid's pixels, the grid centred across the display with its last row on the
+display's bottom edge, and the arrow's corner its hotspot up and left of the
+pointer.
 
 The showcase draws the pointer into a scene's picture the same way the
 display shows it. A scene asks for the pointer on a cell (`pointed`), and the
