@@ -24,7 +24,7 @@
 //! evicted glyph is asked for again when the screen shows it. Once the
 //! helper has answered a cell's first asks, the console asks once for bold
 //! printable ASCII there while the store is under its limit, because the
-//! fill brings no bold glyph ([`Helper::ask_bold_early`]).
+//! fill brings no bold glyph ([`BOLD_EARLY`]).
 //!
 //! The helper runs with an empty environment in `/`, in its own process
 //! group, holding only its pipes, as `nobody` when the console is root
@@ -179,7 +179,7 @@ pub const ASKS_MAX: usize = 64;
 /// U+007E. A program's interface shows its bold text in these characters
 /// most often, and the background fill draws regular glyphs alone, so
 /// without this ask each bold character would wait for the screen to show
-/// it ([`Helper::ask_bold_early`]).
+/// it.
 pub const BOLD_EARLY: (char, char) = ('!', '~');
 /// The most warnings about a frit logged a boot: those its text gives,
 /// each source the helper refuses, and each font it needs that is missing.
