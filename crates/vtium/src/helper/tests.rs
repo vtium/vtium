@@ -1,4 +1,23 @@
+use super::launcher::{active_request, holds_account, refusal, status_ids};
+use super::sandbox::{
+    SANDBOX_DOMAIN, SANDBOX_DOMAIN_SHIFT, SANDBOX_FALLBACK, SANDBOX_SECCOMP_SHIFT, SANDBOX_SOCKETS,
+    log_sandbox_once, sandbox_notice,
+};
+use super::search::leave_out_request;
+use super::wire::{
+    ACTIVE, ACTIVE_BYTES_MAX, FRAME_COVERAGE, FRAME_DONE, FRAME_DRAWS_NOTHING, FRAME_FAILED,
+    FRAME_FILL, FRAME_FILLED, FRAME_GLYPHS, FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL,
+    FRAME_SANDBOX, FRAME_SOURCES, FRAME_STOPPED, FRAME_WARNING, OTHER_BUILD, encode, len32,
+};
 use super::*;
+use crate::pointer_file::FRAME_POINTER;
+use rustix::fs::{FileType, Mode};
+use std::process::Command as Process;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc;
+use vtium_font::Doubled;
+use vtium_font::set::Set;
+use vtium_settings::batch::{Batch, Entry};
 
 /// Not a test of the helper: run by a trap of [`undumpable`] with
 /// [`DIE_BY`] set, it turns off this process's core dumps and ends the
