@@ -523,6 +523,10 @@ When a session process dies, only its console loses its screen and scrollback. T
 - A drawer that crafted output has taken over can ask for anything the broker offers. It can switch VTs, open and close consoles within the caps, start helpers, and run the power keys that vtium.conf binds, which reboot or power off the machine. Anyone at a keyboard that reaches the console can do these already.
 - Every session can put text into the selection, and the user may paste that text into another session, as `clipboard-write` allows today. The selection stays one for the whole of vtium (open question 6, answered).
 - The unit still sets no sandboxing directive, because the login session would inherit it (D3).
+- A framebuffer's descriptor cannot be revoked, so the broker cannot take `/dev/fbN` back from the drawer at a release. On a machine with only fbdev, a drawer that crafted output has taken over can go on writing to the framebuffer after a switch, over the next VT's screen.
+- The broker looks up the image helper's account, with `getpwuid_r` and `getgrouplist`, in its loop. Where the user database is on the network, as with LDAP or SSSD, a slow answer stalls the broker's loop. The release bound stalls with it, so a switch away from vtium's VT can wait for the answer.
+
+> Added 2026-11-25: the privilege split's review found the last two limits in the first slice's code. A framebuffer has no call like `EVIOCREVOKE`, so the broker lets `/dev/fbN` go at a release without touching the drawer's copy. The account lookup runs at each start of an image helper.
 
 #### The checks the build makes first
 
