@@ -990,6 +990,17 @@ impl<F: Face> Renderer<F> {
                     self.cells.stamp(col, row);
                 }
             }
+            // the rows of the spare lines that exist in this frame and took
+            // the pixels of rows that did not exist in the last, since the
+            // line between the rows that exist and the border above them
+            // stays where it is as the rows move down
+            let before = g.above.saturating_sub(self.ring.existed.unwrap_or(0));
+            let now = g.above.saturating_sub(self.existing_above(g));
+            for row in now..before.saturating_add(k).min(g.above) {
+                for col in 0..g.cols {
+                    self.cells.stamp(col, row);
+                }
+            }
         }
         self.scroll_border(g, n);
         let shift = usize::try_from(n.unsigned_abs()).unwrap_or(usize::MAX);
@@ -1144,7 +1155,7 @@ impl<F: Face> Renderer<F> {
     /// Readies the grid's rows above the screen for the frame being
     /// planned. A row the frame does not hold sends no ink, as no row does
     /// where none exists, so the cells its ink reached are drawn again
-    /// without it. When the frame holds more or fewer of the rows the
+    /// without it, and its reach is read again when it comes back. When the frame holds more or fewer of the rows the
     /// spare lines show than the frame planned last, those rows and the
     /// spare lines above them are stamped, so each buffer draws the rows
     /// that came and the border where rows went. A frame that `reset` the
@@ -1157,6 +1168,11 @@ impl<F: Face> Renderer<F> {
             }
             for col in 0..g.cols {
                 self.reach_to(col, row, 1, (true, crate::reach::Reach::NONE));
+                // a missing row sends no ink, but its line's glyphs still
+                // reach as far as they did: when the row comes back, the
+                // frame that draws it reads that reach again and draws the
+                // ink into its neighbours
+                self.cells.reread_reach(col, row);
             }
         }
         let existing = self.existing_above(g);

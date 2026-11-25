@@ -154,6 +154,10 @@ enum Step {
     /// A new picture two rows tall is placed on a row of the screen, from
     /// its fourth column; nothing in a build without `images`.
     Picture(usize),
+    /// The frame holds this many rows of history above the screen from
+    /// now on, as after `CSI 3 J` clears the scrollback, with no change
+    /// to the screen's cells.
+    Held(usize),
     /// Nothing changes.
     Still,
 }
@@ -330,6 +334,7 @@ impl Term {
                 #[cfg(not(feature = "images"))]
                 let _ = row;
             }
+            Step::Held(n) => self.above = n,
             Step::Still => {}
         }
         (0, false)
@@ -686,7 +691,22 @@ fn the_pan_and_the_copy_show_the_rows_above_as_the_redraw_does() {
 /// Runs [`steps`] in every turn, shape and count of buffers, with the
 /// frames holding `above` rows of history above the screen.
 fn the_ways_match(above: usize) {
-    let steps = steps();
+    let mut steps = steps();
+    if above > 0 {
+        // the frames hold fewer rows above than the spare lines show, also
+        // across scrolls both ways, then none, as the scrollback is
+        // cleared, then the rows come back
+        steps.extend([
+            Step::Held(1),
+            Step::Write(0, 2, 'Q'),
+            Step::Scroll(-1),
+            Step::Scroll(1),
+            Step::Held(0),
+            Step::Scroll(1),
+            Step::Held(above),
+            Step::Scroll(-1),
+        ]);
+    }
     let shapes: &[Shape] = match above {
         0 => &[TIGHT, WIDE],
         _ => &[TIGHT, WIDE, FULL],

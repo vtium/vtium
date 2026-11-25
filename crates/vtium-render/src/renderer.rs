@@ -3947,4 +3947,62 @@ mod tests {
             );
         }
     }
+
+    // When the scrollback is cleared, the rows of history above the screen
+    // go, and the next frame drawn into the same buffer puts the border's
+    // color back where they were, as a frame drawn afresh shows: on a
+    // display whose spare lines are taller than a row, no history pixel
+    // stays in them.
+    //
+    // References:
+    // - ADR-1310 D10, "A strip taller than a row": the border's color shows only above the oldest line.
+    #[cfg(feature = "scroll-pan")]
+    #[test]
+    fn clearing_the_scrollback_puts_the_border_back_in_the_spare_lines() {
+        let mut t = vtium_term::Terminal::new(6, 4, 1000);
+        t.screen_mut().set_scrollback_max(100);
+        for i in 0..20 {
+            t.input(format!("\x1b[4{}m{i:02}xxxx\x1b[0m\r\n", 1 + i % 6).as_bytes());
+        }
+        // 4 rows and 7 lines of spare lines above the grid's 4 rows
+        let (w, h) = (6 * 8, 8 * 16 + 7);
+        let strip = h - 4 * 16;
+        let palette = t.palette().clone();
+        let state = DrawState {
+            background: palette.bg(),
+            ..DrawState::default()
+        };
+        let draw =
+            |t: &vtium_term::Terminal, r: &mut Renderer<Unifont>, c: &mut Canvas, since, age| {
+                let reach = vtium_term::Reach {
+                    above: r.rows_above_asked((6, 4)),
+                    ..vtium_term::Reach::default()
+                };
+                let frame = t.screen().frame_reaching(&palette, since, reach);
+                r.draw(&frame, c, age, &state);
+            };
+        let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, Config::default());
+        let mut kept = Canvas::new(w, h, 0x00ab_cdef);
+        draw(&t, &mut r, &mut kept, Age::NEVER, 0);
+        let border = crate::blend::pixel(palette.bg());
+        let lit = |c: &Canvas| {
+            (0..strip)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .filter(|&(x, y)| c.pixel(x, y) != Some(border))
+                .count()
+        };
+        assert!(lit(&kept) > 0, "the spare lines show the history");
+        let since = t.screen_mut().checkpoint();
+        t.input(b"\x1b[3J");
+        draw(&t, &mut r, &mut kept, since, 1);
+        let mut fresh = Canvas::new(w, h, 0x00ab_cdef);
+        let mut afresh = Renderer::new(Font::new(Unifont::new(16)), w, h, Config::default());
+        draw(&t, &mut afresh, &mut fresh, Age::NEVER, 0);
+        assert_eq!(lit(&fresh), 0, "a frame drawn afresh shows the border");
+        assert_eq!(lit(&kept), 0, "no history pixel stays in the spare lines");
+        assert!(
+            kept == fresh,
+            "the buffer shows what a frame drawn afresh shows"
+        );
+    }
 }
