@@ -12,6 +12,8 @@ use crate::notice::check_config;
 
 use super::conf::{HeadCheck, Settings, Squeeze};
 use super::resources::{font_files, font_needs};
+#[cfg(doc)]
+use super::{WITH_FRIT, WITHOUT_FRIT};
 
 /// The font sets a draft adds, replaces and removes, as the subcommand's
 /// [`WITH_FRIT`] and [`WITHOUT_FRIT`] give them. vtium-config keeps a

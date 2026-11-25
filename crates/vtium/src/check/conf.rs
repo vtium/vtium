@@ -10,6 +10,8 @@ use vtium_settings::{
 };
 
 use crate::config::{Config, keys};
+#[cfg(doc)]
+use crate::font;
 use crate::helper;
 use crate::notice::check_config;
 
