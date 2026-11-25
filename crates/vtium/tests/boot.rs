@@ -7560,7 +7560,8 @@ fn osc_50_switches_to_an_outline_font_by_its_path_and_draws_from_it() {
 
 // The same switch by the path of a PSF console font compressed with gzip
 // makes a font set whose source reads a console font. The helper draws it
-// in the font's own 16×32 cell.
+// in the font's own 16×32 cell, and the display line is logged again with
+// that cell.
 //
 // References:
 // - ADR-1200 D5, "A qualifying font".
@@ -7584,6 +7585,11 @@ fn osc_50_switches_to_a_console_font_by_its_path_and_draws_from_it() {
     let lines = logged();
     assert_eq!(switches(&lines), [path.as_str()], "{lines:?}");
     assert_eq!(h.app.font_name(), path);
+    assert_eq!(
+        last_display_cell(&lines),
+        Some("16x32"),
+        "a display line names the new cell: {lines:?}"
+    );
     let cell = vtium_font::Cell {
         width: 16,
         height: 32,
@@ -7643,8 +7649,10 @@ fn fills_asked(kinds: &Path) -> Vec<(u32, u32)> {
 /// cell, and the helper still draws the font, so no line says that vtium
 /// gave the font up. The console asked for a fill at 16×32 alone, and none
 /// at the display's 8×8 cell while it waited, because the font gives no
-/// glyph at 8×8 and the helper refuses a fill that brings none. The
-/// result is the lines logged since the go FIFO opened.
+/// glyph at 8×8 and the helper refuses a fill that brings none. After the
+/// line about the late cell, a display line names the 16×32 cell, so the
+/// log says which cell the console draws in now. The result is the lines
+/// logged since the go FIFO opened.
 fn takes_the_late_console_font_cell(
     h: &mut Harness,
     go: &Path,
@@ -7681,7 +7689,30 @@ fn takes_the_late_console_font_cell(
         "{lines:?}"
     );
     assert_eq!(fills_asked(kinds), [(16, 32)], "{lines:?}");
+    let late = lines
+        .iter()
+        .position(|l| {
+            l.starts_with(&format!(
+                "the frit {font}'s own 16x32 cell came after the wait"
+            ))
+        })
+        .unwrap_or_else(|| panic!("the late cell's line: {lines:?}"));
+    assert_eq!(
+        last_display_cell(lines.get(late..).unwrap_or_default()),
+        Some("16x32"),
+        "a display line after the late cell names it: {lines:?}"
+    );
     lines
+}
+
+/// The cell, as `WxH`, that the last display line of `lines` names: the
+/// line vtium logs for each display it draws, ending `cell size WxH`.
+fn last_display_cell(lines: &[String]) -> Option<&str> {
+    lines
+        .iter()
+        .rev()
+        .filter(|l| l.starts_with("Display "))
+        .find_map(|l| l.rsplit_once("cell size ").map(|(_, cell)| cell))
 }
 
 // A program switches to a PSF console font by its path, and the font
