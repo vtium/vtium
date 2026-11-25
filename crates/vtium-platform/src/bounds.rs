@@ -186,14 +186,6 @@ const RELEASE: Bound = Bound {
     cite: "ADR-1400 D4, which sets the bound at 10 s, a constant in the code and not a key of vtium.conf. A hung drawer holds up a switch away from vtium's VT for at most this long",
 };
 
-const ANSWER: Bound = Bound {
-    name: "ANSWER_BOUND_MS",
-    value: 5_000,
-    what: "Under the privilege split: milliseconds the drawer waits for the broker's answer to a request that waits for one, a device's descriptor or whether DRM master was taken",
-    past: "The request fails with `TimedOut`: the card or input device does not open, or the wake-up fails and is tried again",
-    cite: "The broker answers at once from its loop, so only a broker that has stopped serving makes the drawer wait this long. Half `RELEASE_BOUND_MS`, so a wait ends before the broker's release bound",
-};
-
 const RESOURCE_READS: Bound = Bound {
     name: "RESOURCE_READS",
     value: 8,
@@ -276,7 +268,7 @@ const IMAGE_BASE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 32] = [
+pub(crate) const BOUNDS: [Bound; 31] = [
     READ,
     READS,
     BUDGET,
@@ -298,7 +290,6 @@ pub(crate) const BOUNDS: [Bound; 32] = [
     DEVICE_OPENS,
     SCOPE_JOB,
     RELEASE,
-    ANSWER,
     RESOURCE_READS,
     BLOB,
     MODES,
@@ -324,10 +315,6 @@ const _: () = assert!(RETRIES.value * WAKE_RETRY.value >= 2 * FLIP_WAIT.value);
 
 // The slow tries come after the fast ones, further apart.
 const _: () = assert!(WAKE_RETRY_SLOW.value > WAKE_RETRY.value);
-
-// The drawer stops waiting for an answer before the broker's release bound
-// takes its devices.
-const _: () = assert!(ANSWER.value < RELEASE.value);
 
 /// Bytes one read takes from the pty.
 pub const READ_MAX: usize = READ.value;
@@ -407,9 +394,6 @@ pub(crate) const SCOPE_JOB_MS: usize = SCOPE_JOB.value;
 /// Milliseconds the broker waits for the drawer to let its devices go at a
 /// release.
 pub const RELEASE_BOUND_MS: usize = RELEASE.value;
-
-/// Milliseconds the drawer waits for the broker's answer to a request.
-pub const ANSWER_BOUND_MS: usize = ANSWER.value;
 
 /// Reads of a DRM card's CRTC and connector lists before one fails.
 pub const RESOURCE_READS_MAX: usize = RESOURCE_READS.value;

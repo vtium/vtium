@@ -275,3 +275,86 @@ impl StandIn {
             .collect()
     }
 }
+
+/// A job the stand-in broker's thread runs on the stand-in.
+type Job = Box<dyn FnOnce(&mut StandIn) + Send>;
+
+/// The stand-in broker on a thread of its own, as the real broker is a
+/// process of its own: it serves the drawer's requests while the drawer
+/// waits in [`vtium_broker_protocol::Courier::call`]. Between the test's
+/// jobs the thread serves every few milliseconds.
+pub(crate) struct Remote {
+    jobs: RefCell<Option<std::sync::mpsc::Sender<Job>>>,
+    thread: RefCell<Option<std::thread::JoinHandle<()>>>,
+}
+
+impl Remote {
+    /// The stand-in broker of [`StandIn::new`] on its thread, and the
+    /// drawer's end of the socket. The stand-in's first turn has run, so its
+    /// first orders wait on the socket.
+    pub(crate) fn start(num: u16, on_screen: u16, keyboard: KbMode) -> (Remote, Link) {
+        let (jobs, inbox) = std::sync::mpsc::channel::<Job>();
+        let (give, drawer) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let (mut s, link) = StandIn::new(num, on_screen, keyboard);
+            s.pump();
+            let _ = give.send(link);
+            loop {
+                match inbox.recv_timeout(std::time::Duration::from_millis(2)) {
+                    Ok(job) => job(&mut s),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+                s.pump();
+            }
+        });
+        let link = drawer
+            .recv()
+            .unwrap_or_else(|e| panic!("the stand-in broker starts: {e}"));
+        (
+            Remote {
+                jobs: RefCell::new(Some(jobs)),
+                thread: RefCell::new(Some(thread)),
+            },
+            link,
+        )
+    }
+
+    /// Serves the requests the drawer has sent, runs `f` on the stand-in,
+    /// then a turn of the stand-in's loop, and returns what `f` gave. The
+    /// orders the turn sends are on the socket when this returns.
+    pub(crate) fn with<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut StandIn) -> R + Send + 'static,
+    ) -> R {
+        let (give, take) = std::sync::mpsc::channel();
+        let job: Job = Box::new(move |s| {
+            s.pump();
+            let r = f(s);
+            s.pump();
+            let _ = give.send(r);
+        });
+        self.jobs
+            .borrow()
+            .as_ref()
+            .unwrap_or_else(|| panic!("the stand-in broker runs"))
+            .send(job)
+            .unwrap_or_else(|e| panic!("the stand-in broker takes a job: {e}"));
+        take.recv_timeout(std::time::Duration::from_secs(30))
+            .unwrap_or_else(|e| panic!("the stand-in broker answers: {e}"))
+    }
+
+    /// Ends the stand-in broker, which closes its end of the socket.
+    pub(crate) fn stop(&self) {
+        self.jobs.borrow_mut().take();
+        if let Some(thread) = self.thread.borrow_mut().take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for Remote {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}

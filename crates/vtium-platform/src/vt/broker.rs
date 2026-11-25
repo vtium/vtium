@@ -4,9 +4,13 @@
 //! The broker runs as root. It holds the VT, opens the devices, holds DRM
 //! master and revokes the input devices at a switch ([`Holder`]). The
 //! drawer runs as the account `vtium` and reaches all of that through
-//! [`BrokerVt`], which speaks the protocol of the crate
-//! `vtium-broker-protocol` over the socket the broker passed it. It works
-//! the way `LibseatVt` works with a seat manager:
+//! [`BrokerVt`], over the drawer's one socket to the broker. The drawer
+//! reads that socket in one place, its [`Courier`]: the backend sends its
+//! requests through the courier and never reads the socket itself. The
+//! owner reads every order through the courier and hands the VT's orders
+//! (`Device`, `Master`, `Release` and `Back`) to [`BrokerVt::take`], and
+//! the socket's close to [`BrokerVt::closed`]. The backend works the way
+//! `LibseatVt` works with a seat manager:
 //!
 //! - **Devices.** [`Vt::open_device`] asks the broker to open a card or a
 //!   framebuffer and waits for the answer, which carries the broker's
@@ -31,16 +35,11 @@
 //!   the broker with [`Request::SwitchVt`], and [`Vt::restore`] with
 //!   [`Request::RestoreVt`]. The drawer reads the VT shown from tty0's
 //!   `active` attribute, which every user may read.
-//! - **The broker's end.** A closed socket reports [`VtEvent::Hangup`].
-//!
-//! The broker also sends orders that are not the VT's: a session's pty, a
-//! helper's socket, a process's exit, blank, wake and stop.
-//! [`BrokerVt::orders`] hands those to the owner, and
-//! [`BrokerVt::request`] sends the owner's own requests.
+//! - **The broker's end.** The socket's close reports [`VtEvent::Hangup`].
 //!
 //! References:
-//! - ADR-1400 D4, "The device protocol": the requests and orders, and
-//!   `LibseatVt` as the model of the broker's backend.
+//! - ADR-1400 D4, "The device protocol": the requests and orders, one
+//!   socket, and `LibseatVt` as the model of the broker's backend.
 //! - ADR-1400 D4, "What the drawer can no longer do": the drawer asks the
 //!   broker for master and switches.
 
@@ -55,24 +54,15 @@ pub use holder::{Holder, Kernel, Orders, RELEASE_BOUND};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::io;
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::{Duration, Instant};
 
-use calloop::generic::Generic;
-use calloop::ping::{Ping, make_ping};
-use calloop::{Interest, Mode, PostAction};
 use rustix::io::Errno;
-use vtium_broker_protocol::{DevicePath, Got, Link, Order, Request};
+use vtium_broker_protocol::{Courier, DevicePath, Order, Request};
 
 use super::{MasterKeeper, Switch, Vt, VtEvent, switch_target};
-use crate::event_loop::Loop;
 use crate::input::{Evdev, EventDevice, KeyEvent, Open, Opening};
-
-/// How long the drawer waits for the broker's answer to a request that
-/// waits for one: [`crate::bounds::ANSWER_BOUND_MS`].
-pub const ANSWER_BOUND: Duration = Duration::from_millis(crate::bounds::ANSWER_BOUND_MS as u64);
 
 /// Whether the VT is the drawer's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,7 +80,7 @@ type Shown = Box<dyn Fn() -> io::Result<u16>>;
 /// What the VT shares with the keyboards and pointers and the cards'
 /// master keepers.
 struct Shared {
-    link: Link,
+    courier: Rc<Courier>,
     state: State,
     /// A `Back` that came while a release waited, reported once the owner
     /// acknowledged the release.
@@ -104,15 +94,6 @@ struct Shared {
     /// The input devices' new descriptors, which the broker sent at an
     /// acquire, by id, until the input opens them.
     fresh: BTreeMap<u32, OwnedFd>,
-    /// The orders that are not the VT's, for the owner.
-    others: Vec<(Order, Option<OwnedFd>)>,
-    /// Wakes the loop when a wait for an answer read orders the loop has
-    /// not seen, so the owner acts on them at the next turn.
-    ping: Option<Ping>,
-    bound: Duration,
-    /// The test's stand-in broker, which answers while the drawer waits.
-    #[cfg(test)]
-    pump: Option<Rc<dyn Fn()>>,
 }
 
 impl Shared {
@@ -132,11 +113,19 @@ impl Shared {
         if self.gone {
             return Err(io::Error::from(Errno::PIPE));
         }
-        self.link.request(request)
+        self.courier.send(request)
     }
 
-    /// Acts on one order: the VT's are taken here, and the others wait for
-    /// the owner.
+    /// The broker's socket closed: reported once as a hangup.
+    fn closed(&mut self) {
+        if !self.gone {
+            log::error!(target: "vt", "vtium's root process has closed its socket");
+            self.gone = true;
+            self.events.push(VtEvent::Hangup);
+        }
+    }
+
+    /// Acts on one of the VT's orders.
     fn take(&mut self, order: Order, fd: Option<OwnedFd>) {
         match order {
             Order::Release => match self.state {
@@ -172,82 +161,25 @@ impl Shared {
             Order::Master { device, .. } => {
                 log::debug!(target: "vt", "an answer about device {device}'s DRM master came late");
             }
-            other => self.others.push((other, fd)),
+            other => log::debug!(target: "vt", "the VT takes no {other:?}"),
         }
     }
 
-    /// Reads every order waiting, and reports a closed socket once.
-    fn read(&mut self) {
-        loop {
-            match self.link.next_order() {
-                Ok(Got::Message(Ok((order, fd)))) => self.take(order, fd),
-                Ok(Got::Message(Err(why))) => {
-                    log::warn!(target: "vt", "vtium ignores a message from its root process: {why}");
-                }
-                Ok(Got::Nothing) => return,
-                Ok(Got::Closed) | Err(_) => {
-                    if !self.gone {
-                        log::error!(target: "vt", "vtium's root process has closed its socket");
-                        self.gone = true;
-                        self.events.push(VtEvent::Hangup);
-                    }
-                    return;
-                }
-            }
-        }
-    }
-
-    /// Sends `request` and waits up to [`ANSWER_BOUND`] for the order that
-    /// `answers` picks. Each other order read meanwhile is acted on, and the
-    /// loop is woken to see it.
+    /// Sends `request` through the courier and waits for the order that
+    /// `answers` picks. A closed socket is a hangup.
     fn ask(
         &mut self,
         request: &Request,
         answers: impl Fn(&Order) -> bool,
     ) -> io::Result<(Order, Option<OwnedFd>)> {
-        self.send(request)?;
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the bound on a wait for the broker's answer reads the clock"
-        )]
-        let start = Instant::now();
-        let by = start.checked_add(self.bound).unwrap_or(start);
-        let seen = (self.events.len(), self.others.len());
-        let answer = loop {
-            #[cfg(test)]
-            if let Some(pump) = self.pump.clone() {
-                pump();
-            }
-            match self.link.next_order() {
-                Ok(Got::Message(Ok((order, fd)))) if answers(&order) => break Ok((order, fd)),
-                Ok(Got::Message(Ok((order, fd)))) => self.take(order, fd),
-                Ok(Got::Message(Err(why))) => {
-                    log::warn!(target: "vt", "vtium ignores a message from its root process: {why}");
-                }
-                Ok(Got::Nothing) => {
-                    #[expect(
-                        clippy::disallowed_methods,
-                        reason = "the bound on a wait for the broker's answer reads the clock"
-                    )]
-                    let left = by.saturating_duration_since(Instant::now());
-                    if left.is_zero() {
-                        break Err(io::Error::from(io::ErrorKind::TimedOut));
-                    }
-                    wait_readable(&self.link, left)?;
-                }
-                Ok(Got::Closed) | Err(_) => {
-                    if !self.gone {
-                        self.gone = true;
-                        self.events.push(VtEvent::Hangup);
-                    }
-                    break Err(io::Error::from(Errno::PIPE));
-                }
-            }
-        };
-        if (self.events.len(), self.others.len()) != seen
-            && let Some(ping) = &self.ping
+        if self.gone {
+            return Err(io::Error::from(Errno::PIPE));
+        }
+        let answer = self.courier.call(request, answers);
+        if let Err(e) = &answer
+            && e.kind() == io::ErrorKind::BrokenPipe
         {
-            ping.ping();
+            self.closed();
         }
         answer
     }
@@ -290,7 +222,7 @@ impl Shared {
     }
 }
 
-/// The VT through vtium's broker, held from [`BrokerVt::start`] until
+/// The VT through vtium's broker, held from [`BrokerVt::new`] until
 /// dropped.
 pub struct BrokerVt {
     shared: Rc<RefCell<Shared>>,
@@ -326,66 +258,19 @@ fn tty0_active() -> io::Result<u16> {
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
 }
 
-/// Waits until the socket is readable, or `left` has passed.
-fn wait_readable(link: &Link, left: Duration) -> io::Result<()> {
-    use rustix::event::{PollFd, PollFlags, Timespec};
-    let mut fds = [PollFd::new(link, PollFlags::IN)];
-    let bound = Timespec::try_from(left).unwrap_or(Timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    });
-    match rustix::event::poll(&mut fds, Some(&bound)) {
-        Ok(_) | Err(Errno::INTR) => Ok(()),
-        Err(e) => Err(e.into()),
-    }
-}
-
 impl BrokerVt {
-    /// The VT `num` through the broker at the other end of `link`, in the
-    /// loop. Store the VT where `access` finds it before the loop
-    /// dispatches again.
-    pub fn start<D, A>(lp: &mut Loop<D>, link: Link, num: u16, access: A) -> io::Result<BrokerVt>
-    where
-        D: 'static,
-        A: Fn(&mut D) -> Option<&mut BrokerVt> + Clone + 'static,
-    {
-        let vt = BrokerVt::with(link, num, Box::new(tty0_active));
-        let fd = vt.shared.borrow().link.as_fd().try_clone_to_owned()?;
-        let read = access.clone();
-        lp.handle()
-            .insert_source(
-                Generic::new(fd, Interest::READ, Mode::Level),
-                move |_, _, data: &mut D| {
-                    let Some(vt) = read(data) else {
-                        return Ok(PostAction::Remove);
-                    };
-                    vt.readable();
-                    Ok(if vt.shared.borrow().gone {
-                        PostAction::Remove
-                    } else {
-                        PostAction::Continue
-                    })
-                },
-            )
-            .map_err(|e| io::Error::from(e.error))?;
-        let (ping, source) = make_ping()?;
-        lp.handle()
-            .insert_source(source, move |(), (), data: &mut D| {
-                // The orders were read already; the turn that follows lets
-                // the owner see them.
-                let _ = access(data);
-            })
-            .map_err(|e| io::Error::from(e.error))?;
-        vt.shared.borrow_mut().ping = Some(ping);
-        Ok(vt)
+    /// The VT `num` through the broker that `courier` reaches. The owner
+    /// hands the VT's orders to [`BrokerVt::take`] as the courier reads
+    /// them, and the socket's close to [`BrokerVt::closed`].
+    pub fn new(courier: Rc<Courier>, num: u16) -> BrokerVt {
+        BrokerVt::with(courier, num, Box::new(tty0_active))
     }
 
-    /// The VT `num` through the broker at the other end of `link`, reading
-    /// the VT shown through `shown`, outside any loop.
-    pub(crate) fn with(link: Link, num: u16, shown: Shown) -> BrokerVt {
+    /// [`BrokerVt::new`], reading the VT shown through `shown`.
+    pub(crate) fn with(courier: Rc<Courier>, num: u16, shown: Shown) -> BrokerVt {
         BrokerVt {
             shared: Rc::new(RefCell::new(Shared {
-                link,
+                courier,
                 state: State::Inactive,
                 back_owed: false,
                 gone: false,
@@ -393,11 +278,6 @@ impl BrokerVt {
                 ids: BTreeMap::new(),
                 next_id: 1,
                 fresh: BTreeMap::new(),
-                others: Vec::new(),
-                ping: None,
-                bound: ANSWER_BOUND,
-                #[cfg(test)]
-                pump: None,
             })),
             num,
             back: None,
@@ -407,26 +287,25 @@ impl BrokerVt {
         }
     }
 
-    /// The test's stand-in broker, which answers each time the drawer waits.
-    #[cfg(test)]
-    pub(crate) fn pumped_by(&self, pump: Rc<dyn Fn()>) {
-        self.shared.borrow_mut().pump = Some(pump);
+    /// Whether `order` is one of the VT's, which the owner hands to
+    /// [`BrokerVt::take`].
+    pub fn takes(order: &Order) -> bool {
+        matches!(
+            order,
+            Order::Device { .. } | Order::Master { .. } | Order::Release | Order::Back
+        )
     }
 
-    /// Reads every order waiting on the socket.
-    pub(crate) fn readable(&mut self) {
-        self.shared.borrow_mut().read();
+    /// Acts on one of the VT's orders, with its descriptor, as the courier
+    /// read it. The next [`Vt::events`] reports what it changed.
+    pub fn take(&mut self, order: Order, fd: Option<OwnedFd>) {
+        self.shared.borrow_mut().take(order, fd);
     }
 
-    /// The orders that are not the VT's, since the last call: a session's
-    /// pty, a helper's socket, a process's exit, blank, wake and stop.
-    pub fn orders(&mut self) -> Vec<(Order, Option<OwnedFd>)> {
-        std::mem::take(&mut self.shared.borrow_mut().others)
-    }
-
-    /// Sends one of the owner's own requests to the broker.
-    pub fn request(&self, request: &Request) -> io::Result<()> {
-        self.shared.borrow().send(request)
+    /// The broker's socket closed. The next [`Vt::events`] reports
+    /// [`VtEvent::Hangup`], once.
+    pub fn closed(&mut self) {
+        self.shared.borrow_mut().closed();
     }
 
     /// The keyboards and pointers, opened through the broker from here on.

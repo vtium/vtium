@@ -10,15 +10,14 @@
     reason = "a test fails by panicking"
 )]
 
-use std::cell::RefCell;
 use std::os::fd::{AsFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use vtium_broker_protocol::{DevicePath, Errno, Order, Request};
+use vtium_broker_protocol::{Courier, DevicePath, Errno, Got, Order, Request};
 
-use super::stand_in::{CARD, FB, KEYBOARD, MOUSE, NodeCall, StandIn, seat_node};
+use super::stand_in::{CARD, FB, KEYBOARD, MOUSE, NodeCall, Remote, StandIn, seat_node};
 use super::{BrokerVt, RELEASE_BOUND};
 use crate::input::fake::{self, FakeDevice, Nodes as FakeInputs};
 use crate::input::{Input, InputConfig, InputEvent, Keymap, Open, Opening, RawEvent};
@@ -501,26 +500,47 @@ fn a_retake_sends_back_and_a_hangup_is_reported() {
     assert!(s.holder.hung_up());
 }
 
-/// The drawer and its stand-in broker, which answers each time the drawer
-/// waits for an answer.
-fn drawer(on_screen: u16) -> (BrokerVt, Rc<RefCell<StandIn>>) {
-    let (s, link) = StandIn::new(VT, on_screen, KbMode::Unicode);
-    let s = Rc::new(RefCell::new(s));
-    let console = s.borrow().console.clone();
-    let mut vt = BrokerVt::with(link, VT, Box::new(move || Ok(console.0.borrow().on_screen)));
-    let pumped = Rc::downgrade(&s);
-    vt.pumped_by(Rc::new(move || {
-        if let Some(s) = pumped.upgrade() {
-            s.borrow_mut().pump();
+/// The drawer, its courier and its stand-in broker, which runs on a thread
+/// of its own, with the stand-in's first orders taken.
+fn drawer(on_screen: u16) -> (BrokerVt, Rc<Courier>, Rc<Remote>) {
+    let (remote, link) = Remote::start(VT, on_screen, KbMode::Unicode);
+    let remote = Rc::new(remote);
+    let courier = Rc::new(Courier::new(link));
+    let asked = Rc::clone(&remote);
+    let mut vt = BrokerVt::with(
+        Rc::clone(&courier),
+        VT,
+        Box::new(move || Ok(asked.with(|s| s.console.0.borrow().on_screen))),
+    );
+    deliver(&courier, &mut vt);
+    (vt, courier, remote)
+}
+
+/// Reads every order waiting through the courier, as the owner's loop
+/// does: the VT's go to the VT, the close too, and the rest are returned.
+fn deliver(courier: &Courier, vt: &mut BrokerVt) -> Vec<Order> {
+    let mut others = Vec::new();
+    loop {
+        match courier
+            .next()
+            .unwrap_or_else(|e| panic!("the courier reads: {e}"))
+        {
+            Got::Message(Ok((order, fd))) if BrokerVt::takes(&order) => vt.take(order, fd),
+            Got::Message(Ok((order, _))) => others.push(order),
+            Got::Message(Err(why)) => panic!("the stand-in sent a refused order: {why}"),
+            Got::Closed => vt.closed(),
+            Got::Nothing => return others,
         }
-    }));
-    s.borrow_mut().pump();
-    vt.readable();
-    (vt, s)
+    }
 }
 
 fn events(vt: &mut BrokerVt) -> Vec<VtEvent> {
     vt.events().collect()
+}
+
+/// The inode of the open file the stand-in broker last opened for `path`.
+fn file_of(remote: &Remote, path: &'static str) -> Option<u64> {
+    remote.with(move |s| s.nodes.borrow().files.get(Path::new(path)).copied())
 }
 
 /// The drawer's backend follows the broker: `Back` is the acquire, a
@@ -528,56 +548,46 @@ fn events(vt: &mut BrokerVt) -> Vec<VtEvent> {
 /// broker then lets the devices go; `Back` after it is the next acquire.
 #[test]
 fn the_drawer_follows_the_brokers_release_and_acquire() {
-    let (mut vt, s) = drawer(VT);
+    let (mut vt, courier, remote) = drawer(VT);
     assert_eq!(events(&mut vt), [VtEvent::Acquired]);
     assert!(vt.is_active());
     let card = vt
         .open_device(Path::new(CARD))
         .unwrap_or_else(|e| panic!("the card opens: {e}"));
     let inode = |fd: &OwnedFd| rustix::fs::fstat(fd).map(|st| st.st_ino).ok();
-    assert_eq!(
-        inode(&card),
-        s.borrow()
-            .nodes
-            .borrow()
-            .files
-            .get(Path::new(CARD))
-            .copied()
-    );
+    assert_eq!(inode(&card), file_of(&remote, CARD));
     let keeper = vt
         .master_keeper(Path::new(CARD))
         .unwrap_or_else(|| panic!("the card has a master keeper"));
     keeper
         .take()
         .unwrap_or_else(|e| panic!("master is taken: {e}"));
-    assert!(
-        s.borrow()
-            .nodes
-            .borrow()
-            .masters
-            .contains(&PathBuf::from(CARD))
-    );
+    let masters = || remote.with(|s| s.nodes.borrow().masters.clone());
+    assert_eq!(masters(), [PathBuf::from(CARD)]);
 
-    s.borrow_mut().switch_away(5);
-    s.borrow_mut().pump();
-    vt.readable();
+    remote.with(|s| s.switch_away(5));
+    deliver(&courier, &mut vt);
     assert_eq!(events(&mut vt), [VtEvent::Release]);
     assert!(!vt.is_active());
     vt.acknowledge_release()
         .unwrap_or_else(|e| panic!("the release is acknowledged: {e}"));
-    s.borrow_mut().pump();
-    assert!(s.borrow().requests.contains(&Request::Released));
-    assert!(s.borrow().nodes.borrow().masters.is_empty());
-    assert_eq!(s.borrow().console.0.borrow().on_screen, 5);
+    let (released, shown) = remote.with(|s| {
+        (
+            s.requests.contains(&Request::Released),
+            s.console.0.borrow().on_screen,
+        )
+    });
+    assert!(released);
+    assert_eq!(shown, 5);
+    assert!(masters().is_empty());
     // Master is refused while the VT is another's.
     assert_eq!(
         keeper.take().map_err(|e| e.raw_os_error()),
         Err(Some(rustix::io::Errno::BUSY.raw_os_error()))
     );
 
-    s.borrow_mut().switch_back();
-    s.borrow_mut().pump();
-    vt.readable();
+    remote.with(|s| s.switch_back());
+    deliver(&courier, &mut vt);
     assert_eq!(events(&mut vt), [VtEvent::Acquired]);
     keeper
         .take()
@@ -590,16 +600,17 @@ fn the_drawer_follows_the_brokers_release_and_acquire() {
 /// finish before the next acquire.
 #[test]
 fn a_back_during_a_release_waits_for_the_acknowledgement() {
-    let (mut vt, s) = drawer(VT);
+    let (mut vt, courier, remote) = drawer(VT);
     let _ = events(&mut vt);
-    let start = s.borrow().now.get();
-    s.borrow_mut().switch_away(5);
-    s.borrow_mut().pump();
-    s.borrow().now.set(start + RELEASE_BOUND);
-    s.borrow_mut().pump();
-    s.borrow_mut().switch_back();
-    s.borrow_mut().pump();
-    vt.readable();
+    remote.with(|s| {
+        let start = s.now.get();
+        s.switch_away(5);
+        s.pump();
+        s.now.set(start + RELEASE_BOUND);
+        s.pump();
+        s.switch_back();
+    });
+    deliver(&courier, &mut vt);
     assert_eq!(events(&mut vt), [VtEvent::Release]);
     vt.acknowledge_release()
         .unwrap_or_else(|e| panic!("the release is acknowledged: {e}"));
@@ -610,19 +621,20 @@ fn a_back_during_a_release_waits_for_the_acknowledgement() {
 /// The switch keys and the switches the owner asks for go to the broker as
 /// `SwitchVt`; this VT's own key does nothing. `leave` goes back to the VT
 /// shown when `activate` asked, and the broker's closed socket is a
-/// hangup.
+/// hangup, reported once.
 #[test]
 fn the_drawers_switches_go_to_the_broker() {
-    let (mut vt, s) = drawer(1);
+    let (mut vt, courier, remote) = drawer(1);
     assert!(events(&mut vt).is_empty());
     assert_eq!(vt.wait().ok(), Some(crate::vt::Switch::Pending));
     assert_eq!(vt.activate().ok(), Some(crate::vt::Switch::Pending));
-    s.borrow_mut().pump();
-    s.borrow().console.run_worker();
     // The kernel's worker switches from VT 1, in VT_AUTO and text mode.
-    s.borrow_mut().holder.vt().acquire_signal();
-    s.borrow_mut().pump();
-    vt.readable();
+    remote.with(|s| {
+        s.pump();
+        s.console.run_worker();
+        s.holder.vt().acquire_signal();
+    });
+    deliver(&courier, &mut vt);
     assert_eq!(events(&mut vt), [VtEvent::Acquired]);
 
     let key = |n: u32| crate::input::KeyEvent {
@@ -640,49 +652,45 @@ fn the_drawers_switches_go_to_the_broker() {
     assert!(vt.is_own_key(&key(2)));
     assert!(vt.key(&key(3)));
     assert_eq!(vt.leave().ok(), Some(crate::vt::Switch::Pending));
-    s.borrow_mut().pump();
-    let asked: Vec<Request> = s.borrow().requests.clone();
+    vt.restore().unwrap_or_else(|e| panic!("restore: {e}"));
+    let asked = remote.with(|s| s.requests.clone());
     assert_eq!(
         asked,
         [
             Request::SwitchVt { vt: 2 },
             Request::SwitchVt { vt: 3 },
             Request::SwitchVt { vt: 1 },
+            Request::RestoreVt,
         ]
     );
-    vt.restore().unwrap_or_else(|e| panic!("restore: {e}"));
-    s.borrow_mut().pump();
-    assert_eq!(s.borrow().requests.last(), Some(&Request::RestoreVt));
 
-    drop(s);
-    vt.readable();
+    remote.stop();
+    deliver(&courier, &mut vt);
+    vt.closed();
     assert_eq!(events(&mut vt), [VtEvent::Hangup]);
     assert!(vt.open_device(Path::new(FB)).is_err());
 }
 
-/// The broker's other orders wait for the owner, and the owner's own
-/// requests reach the broker.
+/// The VT takes only its own orders, and an order read while the drawer
+/// waits for an answer waits in the courier for the owner, in order.
 #[test]
 fn the_brokers_other_orders_wait_for_the_owner() {
-    let (mut vt, s) = drawer(VT);
+    let (mut vt, courier, remote) = drawer(VT);
     let _ = events(&mut vt);
-    s.borrow()
-        .link
-        .order(&Order::Blank, None)
-        .unwrap_or_else(|e| panic!("blank: {e}"));
-    s.borrow()
-        .link
-        .order(&Order::Wake, None)
-        .unwrap_or_else(|e| panic!("wake: {e}"));
-    // An order read while the drawer waits for an answer waits too.
-    let _ = vt.open_device(Path::new(FB));
-    vt.readable();
-    let orders: Vec<Order> = vt.orders().into_iter().map(|(o, _)| o).collect();
-    assert_eq!(orders, [Order::Blank, Order::Wake]);
-    vt.request(&Request::Ready)
-        .unwrap_or_else(|e| panic!("ready: {e}"));
-    s.borrow_mut().pump();
-    assert_eq!(s.borrow().requests.last(), Some(&Request::Ready));
+    assert!(!BrokerVt::takes(&Order::Blank));
+    assert!(!BrokerVt::takes(&Order::Stop));
+    remote.with(|s| {
+        s.link
+            .order(&Order::Blank, None)
+            .unwrap_or_else(|e| panic!("blank: {e}"));
+        s.link
+            .order(&Order::Wake, None)
+            .unwrap_or_else(|e| panic!("wake: {e}"));
+    });
+    vt.open_device(Path::new(FB))
+        .unwrap_or_else(|e| panic!("the framebuffer opens: {e}"));
+    assert!(courier.pending());
+    assert_eq!(deliver(&courier, &mut vt), [Order::Blank, Order::Wake]);
 }
 
 fn keymap() -> Keymap {
@@ -697,14 +705,16 @@ const KEY_A: u16 = 30;
 /// descriptor non-blocking.
 fn through_broker(
     vt: &BrokerVt,
-    s: &Rc<RefCell<StandIn>>,
+    remote: &Rc<Remote>,
     nodes: &FakeInputs,
 ) -> super::BrokerInput<FakeDevice> {
-    let s = Rc::clone(s);
+    let remote = Rc::clone(remote);
     let nodes = nodes.clone();
     vt.input_with(Box::new(move |path: &Path, fd: OwnedFd| {
         let inode = rustix::fs::fstat(fd.as_fd())?.st_ino;
-        if s.borrow().nodes.borrow().files.get(path) != Some(&inode) {
+        let owned = path.to_owned();
+        let given = remote.with(move |s| s.nodes.borrow().files.get(&owned).copied());
+        if given != Some(inode) {
             return Err(std::io::Error::other(format!(
                 "{} is not the open file the broker gave",
                 path.display()
@@ -724,23 +734,17 @@ fn through_broker(
 /// new descriptor without asking.
 #[test]
 fn a_keyboard_opened_through_the_broker_is_opened_anew_at_each_acquire() {
-    let (mut vt, s) = drawer(VT);
+    let (mut vt, courier, remote) = drawer(VT);
     let _ = events(&mut vt);
     let nodes = FakeInputs::default();
     let node = nodes.add(KEYBOARD, fake::keyboard());
     let mut input = Input::new(nodes.clone(), keymap(), InputConfig::default());
-    input.open_with(through_broker(&vt, &s, &nodes));
+    input.open_with(through_broker(&vt, &remote, &nodes));
     input.wake_up();
     let id = input
         .add(Path::new(KEYBOARD))
         .unwrap_or_else(|| panic!("the keyboard opens through the broker"));
-    let first = s
-        .borrow()
-        .nodes
-        .borrow()
-        .files
-        .get(Path::new(KEYBOARD))
-        .copied();
+    let first = file_of(&remote, KEYBOARD);
     for value in [1, 0] {
         node.borrow_mut().queue.push_back(RawEvent {
             kind: crate::ioctl::EV_KEY,
@@ -756,41 +760,30 @@ fn a_keyboard_opened_through_the_broker_is_opened_anew_at_each_acquire() {
         "the keyboard types"
     );
 
-    s.borrow_mut().switch_away(5);
-    s.borrow_mut().pump();
-    vt.readable();
+    remote.with(|s| s.switch_away(5));
+    deliver(&courier, &mut vt);
     assert_eq!(events(&mut vt), [VtEvent::Release]);
     input.sleep();
     assert!(!node.borrow().open);
     vt.acknowledge_release()
         .unwrap_or_else(|e| panic!("ack: {e}"));
-    s.borrow_mut().pump();
-    assert!(
-        !s.borrow()
-            .requests
+    let closed = remote.with(|s| {
+        s.requests
             .iter()
-            .any(|r| matches!(r, Request::CloseDevice { .. })),
-        "a release keeps the keyboard's id at the broker"
-    );
+            .any(|r| matches!(r, Request::CloseDevice { .. }))
+    });
+    assert!(!closed, "a release keeps the keyboard's id at the broker");
 
-    s.borrow_mut().switch_back();
-    s.borrow_mut().pump();
-    vt.readable();
+    remote.with(|s| s.switch_back());
+    deliver(&courier, &mut vt);
     assert_eq!(events(&mut vt), [VtEvent::Acquired]);
-    let asked = s.borrow().requests.len();
+    let asked = remote.with(|s| s.requests.len());
     input.wake_up();
     assert!(node.borrow().open, "the keyboard opens again");
-    let again = s
-        .borrow()
-        .nodes
-        .borrow()
-        .files
-        .get(Path::new(KEYBOARD))
-        .copied();
+    let again = file_of(&remote, KEYBOARD);
     assert_ne!(first, again);
-    s.borrow_mut().pump();
     assert_eq!(
-        s.borrow().requests.len(),
+        remote.with(|s| s.requests.len()),
         asked,
         "the wake-up asked the broker nothing"
     );
@@ -800,11 +793,11 @@ fn a_keyboard_opened_through_the_broker_is_opened_anew_at_each_acquire() {
 /// the next wake-up, and so does one the broker refuses with `EPERM`.
 #[test]
 fn an_input_device_waits_for_the_vt() {
-    let (mut vt, s) = drawer(1);
+    let (mut vt, _courier, remote) = drawer(1);
     let _ = events(&mut vt);
     let nodes = FakeInputs::default();
     nodes.add(KEYBOARD, fake::keyboard());
-    let mut open = through_broker(&vt, &s, &nodes);
+    let mut open = through_broker(&vt, &remote, &nodes);
     assert!(matches!(open.open(Path::new(KEYBOARD)), Ok(Opening::Wake)));
-    assert!(s.borrow().requests.is_empty(), "nothing was asked");
+    assert!(remote.with(|s| s.requests.is_empty()), "nothing was asked");
 }
