@@ -7,5 +7,5 @@ open: it types into the active head	crates/vtium/src/head/route.rs	head_of
 closed: a keyboard no rule names is ignored	crates/vtium-settings/src/place.rs	Place::Ignore
 closed: vtium never opens it, so its keys reach no session	crates/vtium/src/head/route.rs	disposition
 open: a head is isolated only with isolated = yes; closed: unless isolated = no	crates/vtium-settings/src/place.rs	Config::isolated
-the rescue key, on under open and off under closed	crates/vtium/src/app.rs	App::rescue
-the anti-lockout guard, on under open and off under closed	crates/vtium/src/app.rs	App::guard
+the rescue key, on under open and off under closed	crates/vtium/src/app/input.rs	App::rescue
+the anti-lockout guard, on under open and off under closed	crates/vtium/src/app/guard.rs	App::guard

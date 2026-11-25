@@ -14,7 +14,7 @@ the panic screen's lines	crates/vtium/src/notice.rs	panic
 under the panic screen every input is ignored, and an ignored input under closed is never opened	crates/vtium-settings/src/place.rs	Config::disposition
 a device whose disposition is closed is never opened	crates/vtium-platform/src/input/event.rs	Disposition::Closed
 the start checks for a keyboard once its device scan is placed	crates/vtium/src/app.rs	App::scanned
-with no keyboard present, every head shows the no-keyboard notice	crates/vtium/src/app.rs	App::turn
+with no keyboard present, every head shows the no-keyboard notice	crates/vtium/src/app/turn.rs	App::turn
 the no-keyboard notice, word for word	crates/vtium/src/notice.rs	NO_KEYBOARD
 a keyboard plugged in later is placed by the rules alone	crates/vtium-settings/src/place.rs	Config::walk
 vtium config install refuses a draft that fails vtium check-config, and installs a file that passes the ownership check	crates/vtium-config/src/flowcli.rs	Command::install
