@@ -1109,13 +1109,10 @@ mod tests {
         let process = launch.start(&account, false, 4096, 8192).unwrap();
         assert_eq!(process.pid(), None, "this process never signals it");
         assert!(!process.exited());
-        // the root process's report, which the loop takes
-        let Got::Message(Ok((order, _))) = courier.next().unwrap() else {
-            panic!("no report");
-        };
-        let Order::HelperExit { helper, status } = order else {
-            panic!("{order:?}");
-        };
+        // the root process's report, which the loop takes; the stand-in
+        // writes it on its own thread after its answer, so it may not be
+        // in the socket yet
+        let (helper, status) = until_helper_exit(&courier);
         root.exited(helper, status);
         assert!(process.exited());
         assert!(matches!(
@@ -1140,12 +1137,18 @@ mod tests {
     }
 
     /// Reads the root process's report of a helper's end, before the
-    /// socket closes, so the stand-in reads no reset.
+    /// socket closes, so the stand-in reads no reset, and gives the
+    /// helper's id and its status. The stand-in writes the report on its
+    /// own thread, so this waits for the socket to be readable while the
+    /// report is not there yet. The wait is bounded at 30 s only so that a
+    /// report that never comes fails the test instead of hanging it.
     #[cfg(feature = "images")]
-    fn until_helper_exit(courier: &Courier) {
+    fn until_helper_exit(courier: &Courier) -> (u32, Status) {
         loop {
             match courier.next().unwrap() {
-                Got::Message(Ok((Order::HelperExit { .. }, _))) => break,
+                Got::Message(Ok((Order::HelperExit { helper, status }, _))) => {
+                    return (helper, status);
+                }
                 Got::Message(other) => panic!("{other:?}"),
                 Got::Closed => panic!("the root process closed"),
                 Got::Nothing => {
