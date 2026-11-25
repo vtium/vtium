@@ -2119,6 +2119,9 @@ impl View {
     }
 }
 
+#[cfg(all(test, feature = "scroll-pan"))]
+mod pan_tests;
+
 #[cfg(test)]
 #[expect(
     clippy::arithmetic_side_effects,
@@ -2863,6 +2866,44 @@ mod tests {
             shown.push(video.pixels.lock().unwrap().clone());
         }
         assert_eq!(shown[0], shown[1]);
+    }
+
+    // A build without `scroll-pan` reads `scroll-draw` and draws every
+    // scroll the `redraw` way, whatever the key asks: a head asked to pan
+    // or copy redraws, and a view of each way draws each buffer as a view
+    // that redraws does.
+    //
+    // References:
+    // - ADR-1310 D7: a build without `scroll-pan` accepts the key.
+    #[cfg(not(feature = "scroll-pan"))]
+    #[test]
+    fn a_build_without_scroll_pan_draws_every_scroll_again() {
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        for way in ["auto", "pan", "copy", "redraw"] {
+            let text = format!("version = 1\nscroll-draw = {way}\n");
+            let config = crate::config::load(&[], &mut |p: &std::path::Path| {
+                Ok((p == path).then(|| text.as_bytes().to_vec()))
+            })
+            .config;
+            assert_eq!(ScrollDraw::configured(&config), ScrollDraw::Redraw, "{way}");
+        }
+        let mut pictures = Vec::new();
+        for scroll in [
+            ScrollDraw::Auto,
+            ScrollDraw::Pan,
+            ScrollDraw::Copy,
+            ScrollDraw::Redraw,
+        ] {
+            let (mut term, mut view) = view();
+            view.scroll = scroll;
+            let mut video = Flip::new();
+            for step in [b"ab\r\ncd" as &[u8], b"\r\nef", b"\r\ngh"] {
+                term.parse(step, &mut |_| {});
+                draw(&mut term, &mut view, &mut video, None);
+            }
+            pictures.push((video.pixels(0), video.pixels(1), video.sent));
+        }
+        assert!(pictures.windows(2).all(|w| w[0] == w[1]));
     }
 
     // ADR-1401 D2: no view keeps a copy of its display's frame. At
