@@ -786,19 +786,21 @@ impl<'f> Pass<'_, 'f> {
 
     /// The cell drawn at `row`, column `col`, the overlay row's where it
     /// covers the cell ([`Frame::cell`]).
+    #[cfg(not(feature = "scroll-pan"))]
     fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'f>> {
-        #[cfg(feature = "scroll-pan")]
-        return self
-            .frame_cell(row, col)
-            .map(|fc| match (self.link_row, self.screen_row(row)) {
-                (Some(o), Some(y)) => o.cell(col, y, fc),
-                _ => fc,
-            });
-        #[cfg(not(feature = "scroll-pan"))]
-        {
-            let fc = self.frame.cell(row, col)?;
-            Some(self.link_row.map_or(fc, |o| o.cell(col, row, fc)))
-        }
+        let fc = self.frame.cell(row, col)?;
+        Some(self.link_row.map_or(fc, |o| o.cell(col, row, fc)))
+    }
+
+    /// The cell drawn at `row`, column `col`, the overlay row's where it
+    /// covers the cell ([`Frame::cell_at`]).
+    #[cfg(feature = "scroll-pan")]
+    fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'f>> {
+        let fc = self.frame_cell(row, col)?;
+        Some(match (self.link_row, self.screen_row(row)) {
+            (Some(o), Some(y)) => o.cell(col, y, fc),
+            _ => fc,
+        })
     }
 
     /// The size `row` draws at: its line's, or the normal size under the
@@ -2900,11 +2902,12 @@ impl<F: Face> Renderer<F> {
             }
         }
         let mut count = 0u32;
+        // the hidden row above the spare lines draws nothing
         #[cfg(feature = "scroll-pan")]
-        let draws = !p.hidden(row) && self.cells.stale_cells(0, row, g.cols);
+        let shown = !p.hidden(row);
         #[cfg(not(feature = "scroll-pan"))]
-        let draws = self.cells.stale_cells(0, row, g.cols);
-        if draws {
+        let shown = true;
+        if shown && self.cells.stale_cells(0, row, g.cols) {
             self.compose.jobs.clear();
             self.compose.text.clear();
             self.compose.sources.clear();
