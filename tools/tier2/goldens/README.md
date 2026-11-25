@@ -12,8 +12,8 @@ On a double-width line or a double-height pair, vtium cuts each glyph's ink at t
 | `edges-right.ppm` | The same on a display turned right, 67x93: text reads top to bottom. |
 | `edges-upside-down.ppm` | The same turned half round. The two cut wide glyphs show their left halves, as in every orientation. |
 | `edges-left.ppm` | The same turned left: text reads bottom to top. The cut wide glyphs show their left halves, as in every orientation. |
-| `scroll-unifont.ppm` | 389x167: a grid of 48 by 10 cells with a border around it, after three line feeds on the bottom row and a reverse index on the top row between two frames: `top again`, then `line 3` to `line 11`. Tier 2 shows its frames the redraw way, by the pan and by the copy, and the three must agree. Provisional. |
-| `scroll-unifont-right.ppm` | The same on a display turned right, 167x389: text reads top to bottom. Provisional. |
+| `scroll-unifont.ppm` | 389x167: a grid of 48 by 10 cells with a border around it, after three line feeds on the bottom row and a reverse index on the top row between two frames: `top again`, then `line 3` to `line 11`. Tier 2 shows its frames the redraw way, by the pan and by the copy, and the three must agree. |
+| `scroll-unifont-right.ppm` | The same on a display turned right, 167x389: text reads top to bottom. |
 | `erase-pen.ppm` | 320x96: a red top row scrolled in, then `line one stays as it is`; `line two is ` and red to the end; two red cells and `line three gets two cells inserted`; `line four stays as it is`; `line five is erase` and red to the end. No red cell carries an underline or a strike. |
 | `vs16-unifont.ppm` | 256x80: `a`, the heart and `b` four times. The VS16 heart and the underlined VS16 heart take two cells, the text heart centred in them; the plain and VS15 hearts take one, squeezed into it, two of unifont's columns into one. |
 | `vs16-wcwidth.ppm` | The same by wcwidth: every heart one cell, the VS16 ones included. |
