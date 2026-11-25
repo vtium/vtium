@@ -2914,6 +2914,49 @@ mod tests {
         assert_eq!(shown[0], shown[1]);
     }
 
+    // A build with `scroll-pan` reads each value of `scroll-draw` at the
+    // top level as its own way, and a head's section wins over the top
+    // level: a head set to `copy` copies under a top level set to `pan`,
+    // and a head that sets nothing takes the top level's way.
+    //
+    // References:
+    // - ADR-1310 D7: the key's four values.
+    // - ADR-1401 D3: the key is set for each head.
+    #[cfg(feature = "scroll-pan")]
+    #[test]
+    #[expect(clippy::expect_used, reason = "a test's set-up fails loudly")]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn scroll_draw_reads_each_value_and_a_head_s_section_wins() {
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let load = |text: &str| {
+            crate::config::load(&[], &mut |p: &std::path::Path| {
+                Ok((p == path).then(|| text.as_bytes().to_vec()))
+            })
+            .config
+        };
+        for (value, way) in [
+            ("auto", ScrollDraw::Auto),
+            ("pan", ScrollDraw::Pan),
+            ("copy", ScrollDraw::Copy),
+            ("redraw", ScrollDraw::Redraw),
+        ] {
+            let config = load(&format!("version = 1\nscroll-draw = {value}\n"));
+            assert_eq!(ScrollDraw::configured(&config), way, "{value}");
+        }
+        let text = "scroll-draw = pan\nversion = 1\n[head a]\nscroll-draw = copy\n[head b]\n";
+        let top = load(text);
+        let rules = vtium_settings::sections(text.as_bytes())
+            .expect("a flow")
+            .parsed
+            .config;
+        let clock: Clock = Rc::new(Instant::now);
+        let caps = crate::head::session::Caps { head: 4, total: 8 };
+        let heads = crate::head::session::heads(&rules, &top, ((100, 100), 1 << 20), caps, &clock);
+        let ways: Vec<(&str, ScrollDraw)> =
+            heads.iter().map(|h| (h.name(), h.scroll_draw)).collect();
+        assert_eq!(ways, [("a", ScrollDraw::Copy), ("b", ScrollDraw::Pan)]);
+    }
+
     // A build without `scroll-pan` reads `scroll-draw` and draws every
     // scroll the `redraw` way, whatever the key asks: a head asked to pan
     // or copy redraws, and a view of each way draws each buffer as a view
