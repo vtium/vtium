@@ -70,14 +70,15 @@ const BANDS: [(Overlay, &str); 4] = [
 ];
 
 /// A display of `profile`'s size, its cleared grid then `label` on `row`
-/// drawn by the renderer, and `overlay` over it; returns the canvas and how
-/// far down the overlay reaches, in pixels.
+/// drawn by the renderer, and `overlay` over it; returns the canvas, how
+/// far down the overlay reaches, and where the grid's first row starts,
+/// in pixels.
 fn band<F: Face>(
     profile: &Profile,
     layout: &Layout,
     make: &impl Fn() -> Result<Font<F>, String>,
     overlay: Option<(&Overlay, usize, &str)>,
-) -> Result<(Canvas, u32), String> {
+) -> Result<(Canvas, u32, u32), String> {
     let mut bytes = String::from("\x1b[?25l\x1b[H\x1b[2J");
     if let Some((_, row, label)) = overlay {
         bytes.push_str(&format!("\x1b[{};1H\x1b[2m{label}\x1b[m", row + 1));
@@ -109,7 +110,15 @@ fn band<F: Face>(
         }
         bottom = drawn.iter().map(|a| a.y + a.height).max().unwrap_or(0);
     }
-    Ok((canvas, bottom))
+    Ok((canvas, bottom, grid_top(&r, layout)))
+}
+
+/// The display pixel row where `r` draws the first row of `layout`'s grid,
+/// asked of the renderer rather than worked out here, since the renderer
+/// decides where the spare pixel rows go.
+fn grid_top<F: Face>(r: &Renderer<F>, layout: &Layout) -> u32 {
+    r.cell_rect((layout.cols, layout.rows), 0, 0)
+        .map_or(0, |cell| cell.y)
 }
 
 /// The message bars' screens on `profile`'s display, each its XRGB pixels
@@ -125,8 +134,8 @@ pub fn screens(profile: &Profile, sources: &Sources) -> Result<Vec<Vec<u32>>, St
     let layout = profile.layout()?;
     let make = || font(profile, sources);
     let ch = profile.cell.1;
-    let top = (profile.height - layout.rows as u32 * ch) / 2;
-    let blank = band(profile, &layout, &make, None)?.0.pixels().to_vec();
+    let (blank, _, top) = band(profile, &layout, &make, None)?;
+    let blank = blank.pixels().to_vec();
     let width = profile.width as usize;
     let mut screens = Vec::new();
     for group in groups {
@@ -134,9 +143,9 @@ pub fn screens(profile: &Profile, sources: &Sources) -> Result<Vec<Vec<u32>>, St
         let mut y = 0;
         for (overlay, label) in group {
             // the first row wholly below the overlay holds the label
-            let (_, bottom) = band(profile, &layout, &make, Some((overlay, 0, label)))?;
+            let (_, bottom, _) = band(profile, &layout, &make, Some((overlay, 0, label)))?;
             let row = bottom.saturating_sub(top).div_ceil(ch) as usize;
-            let (canvas, _) = band(profile, &layout, &make, Some((overlay, row, label)))?;
+            let (canvas, _, _) = band(profile, &layout, &make, Some((overlay, row, label)))?;
             let height = top + (row as u32 + 2) * ch;
             if y + height > profile.height {
                 return Err(format!(
@@ -151,4 +160,33 @@ pub fn screens(profile: &Profile, sources: &Sources) -> Result<Vec<Vec<u32>>, St
         screens.push(out);
     }
     Ok(screens)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vtium_font::Unifont;
+
+    // A display of 320×245 holds 15 rows of 16-pixel cells and 5 spare
+    // pixel rows. The renderer puts the grid's last row on the display's
+    // bottom edge, so the bands are cut from a grid that starts 5 pixels
+    // down.
+    //
+    // References:
+    // - ADR-1310 D10: the grid flush to the text's bottom edge.
+    #[test]
+    fn the_bands_start_where_the_renderer_puts_the_grid() {
+        let r = Renderer::new(Font::new(Unifont::new(16)), 320, 245, Config::default());
+        let layout = Layout {
+            cols: 40,
+            rows: 15,
+            across: 1,
+            down: 1,
+            top: 0,
+            left: 0,
+            pages: 1,
+            slices: 1,
+        };
+        assert_eq!(grid_top(&r, &layout), 5);
+    }
 }

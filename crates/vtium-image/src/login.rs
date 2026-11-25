@@ -163,9 +163,15 @@ pub struct Form {
     pub scale: u8,
 }
 
-/// The screen the picture is made for: the display's size in pixels, the
-/// character cell in pixels, and the grid in cells. The renderer centers
-/// the grid on the display, with the odd spare pixel after it.
+/// The screen the picture is made for: the display's size in pixels, as
+/// the text reads on it, the character cell in pixels, and the grid in
+/// cells. The renderer centers the grid across the display, with the odd
+/// spare pixel after it, and puts the grid's last row on the display's
+/// bottom edge, so the spare pixel rows lie above the grid.
+///
+/// References:
+/// - ADR-1310 D10: the grid flush to the text's bottom edge, and centered
+///   across.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Geometry {
     pub display: (u32, u32),
@@ -269,21 +275,21 @@ pub fn fit(
         return Some((tw, th, pixels));
     }
     let display = shown_display(geometry, grid_px);
+    let origin = grid_origin(display, grid_px);
     let scaled = shrunk(fitted(form.fit, size, display)?, form.scale);
     let (across, down) = sides(form.position);
-    let shown = (scaled.0.min(grid_px.0), scaled.1.min(grid_px.1));
-    // where the scaled picture starts, relative to the first pixel of it
-    // that shows, along each side: 0, or less where the grid cuts it
-    let offset = |side, d, g, s, v| {
-        let window = centered(d, g).checked_add(i64::from(inset(side, d, g, v)?))?;
-        start(side, d, g, s).checked_sub(window)
+    // along each side, how much of the scaled picture shows, and where the
+    // picture starts relative to the first pixel of it that shows: 0, or
+    // less where the grid cuts it
+    let side = |side, d, at, g, s| {
+        let v = visible(side, d, at, g, s);
+        let window = at.checked_add(i64::from(inset(side, d, at, g, v)?))?;
+        Some((v, start(side, d, at, g, s).checked_sub(window)?))
     };
-    let offset = (
-        offset(across, display.0, grid_px.0, scaled.0, shown.0)?,
-        offset(down, display.1, grid_px.1, scaled.1, shown.1)?,
-    );
-    let pixels = resample(source, size, scaled, offset, shown)?;
-    Some((shown.0, shown.1, pixels))
+    let (vw, ox) = side(across, display.0, origin.0, grid_px.0, scaled.0)?;
+    let (vh, oy) = side(down, display.1, origin.1, grid_px.1, scaled.1)?;
+    let pixels = resample(source, size, scaled, (ox, oy), (vw, vh))?;
+    Some((vw, vh, pixels))
 }
 
 /// Whether the screen `fitting` names has room for a picture in its form:
@@ -346,10 +352,12 @@ impl Spot {
 /// console checks before it reads a pixel of the image helper's answer.
 ///
 /// A background's visible size says where it lies. Against an edge the
-/// anchor names, the picture's visible part starts or ends at that edge,
-/// and centered on the display, its visible part is centered too, or
-/// fills the grid's side when the picture passes both its edges. So the
-/// console needs nothing from the image helper but the size.
+/// anchor names, the picture's visible part starts or ends at that edge.
+/// Centered on the display, its visible part is centered too when it lies
+/// wholly on the grid, and otherwise starts at the grid's first edge, since
+/// the spare pixel rows lie before the grid and a centered picture that
+/// passes the grid's last edge fills the grid. So the console needs nothing
+/// from the image helper but the size.
 pub fn place(fitting: &Fitting, size: (u32, u32)) -> Option<Spot> {
     let (form, geometry) = (&fitting.form, &fitting.geometry);
     let grid_px = grid_pixels(geometry)?;
@@ -366,9 +374,10 @@ pub fn place(fitting: &Fitting, size: (u32, u32)) -> Option<Spot> {
         return None;
     }
     let display = shown_display(geometry, grid_px);
+    let origin = grid_origin(display, grid_px);
     let (across, down) = sides(form.position);
-    let x = inset(across, display.0, grid_px.0, w)?;
-    let y = inset(down, display.1, grid_px.1, h)?;
+    let x = inset(across, display.0, origin.0, grid_px.0, w)?;
+    let y = inset(down, display.1, origin.1, grid_px.1, h)?;
     let (col, row) = (x.checked_div(cw)?, y.checked_div(ch)?);
     let box_cols = x.checked_add(w)?.div_ceil(cw).checked_sub(col)?;
     let box_rows = y.checked_add(h)?.div_ceil(ch).checked_sub(row)?;
@@ -476,29 +485,63 @@ fn sides(position: Option<Position>) -> (Side, Side) {
     position.map_or((Side::Middle, Side::Middle), |p| (p.across(), p.down()))
 }
 
-/// Where a scaled picture `s` long starts on a display side `d` long that
-/// holds a grid side `g` long: on the grid's first edge, ending on its last
-/// edge, or centered on the display.
-fn start(side: Side, d: u32, g: u32, s: u32) -> i64 {
-    let grid = centered(d, g);
+/// Where the grid starts on the `display` that holds it, across and down,
+/// as the renderer places it: centered across, with the odd spare pixel
+/// after it, and its last row on the display's bottom edge.
+///
+/// References:
+/// - ADR-1310 D10: the grid flush to the text's bottom edge, and centered
+///   across.
+fn grid_origin((dw, dh): (u32, u32), (gw, gh): (u32, u32)) -> (i64, i64) {
+    (
+        centered(dw, gw),
+        i64::from(dh).saturating_sub(i64::from(gh)),
+    )
+}
+
+/// Where a scaled picture `s` long starts on a display side `d` long whose
+/// grid side, `g` long, starts at `at`: on the grid's first edge, ending on
+/// its last edge, or centered on the display. A centered picture that
+/// would end before the grid starts, which only spare pixels longer than
+/// the grid allow, starts on the grid's first edge instead, so some of it
+/// shows.
+fn start(side: Side, d: u32, at: i64, g: u32, s: u32) -> i64 {
     match side {
-        Side::Start => grid,
-        Side::End => grid
-            .saturating_add(i64::from(g))
-            .saturating_sub(i64::from(s)),
-        Side::Middle => centered(d, s),
+        Side::Start => at,
+        Side::End => at.saturating_add(i64::from(g)).saturating_sub(i64::from(s)),
+        Side::Middle => {
+            let c = centered(d, s);
+            if c.saturating_add(i64::from(s)) <= at {
+                at
+            } else {
+                c
+            }
+        }
     }
 }
 
+/// How much of a scaled picture `s` long, placed as [`start`] places it,
+/// lies on the grid side `g` long that starts at `at`.
+fn visible(side: Side, d: u32, at: i64, g: u32, s: u32) -> u32 {
+    let first = start(side, d, at, g, s);
+    let end = first.saturating_add(i64::from(s));
+    let shown = end
+        .min(at.saturating_add(i64::from(g)))
+        .saturating_sub(first.max(at));
+    u32::try_from(shown).unwrap_or(0)
+}
+
 /// Where the part `v` long that shows of a picture starts on a grid side
-/// `g` long, on a display side `d` long, in pixels from the grid's first
-/// edge. A centered picture longer than the grid fills it, so its part
-/// that shows starts at 0 as `centered` gives for `v` equal to `g`.
-fn inset(side: Side, d: u32, g: u32, v: u32) -> Option<u32> {
+/// `g` long that starts at `at` on a display side `d` long, in pixels from
+/// the grid's first edge. A centered picture wholly on the grid shows
+/// whole, centered on the display. One that passes the grid's first edge,
+/// or both its edges, shows from that first edge, where `centered` gives
+/// no later start for `v`.
+fn inset(side: Side, d: u32, at: i64, g: u32, v: u32) -> Option<u32> {
     match side {
         Side::Start => Some(0),
         Side::End => g.checked_sub(v),
-        Side::Middle => u32::try_from(centered(d, v).checked_sub(centered(d, g))?).ok(),
+        Side::Middle => u32::try_from(centered(d, v).checked_sub(at)?.max(0)).ok(),
     }
 }
 
@@ -878,9 +921,11 @@ mod tests {
 
     #[test]
     fn a_background_keeps_the_part_that_falls_on_the_grid() {
-        // a display of 84x50 with a grid of 80x48 centered on it, 2 pixel
-        // columns and 1 pixel row before it: the picture of 84x50 at one to
-        // one, cut to the grid
+        // a display of 84x50 with a grid of 80x48 on it, centered across
+        // with 2 pixel columns before it, and its last row on the display's
+        // bottom edge with the 2 spare pixel rows above it: the picture of
+        // 84x50 at one to one, cut to the grid, so the grid's first row
+        // shows the picture's third
         let src = picture(84, 50);
         let geo = Geometry {
             display: (84, 50),
@@ -892,7 +937,7 @@ mod tests {
             for x in 0..80 {
                 assert_eq!(
                     made.pixels.as_slice()[y * 80 + x],
-                    src[(y + 1) * 84 + x + 2]
+                    src[(y + 2) * 84 + x + 2]
                 );
             }
         }
@@ -1224,7 +1269,8 @@ mod tests {
     }
 
     // A display of 100×60 pixels with a grid of 12×5 cells of 7×10 pixels
-    // centered on it: the grid starts 8 pixels in and 5 pixels down.
+    // on it, centered across and its last row on the display's bottom
+    // edge: the grid starts 8 pixels in and 10 pixels down.
     const ROOMY: Geometry = Geometry {
         display: (100, 60),
         cell: (7, 10),
@@ -1260,11 +1306,11 @@ mod tests {
                 _ => 54,
             };
             // down: the first scaled row that shows, 0 at the top; centered,
-            // the picture starts at the display's top, 5 rows above the
-            // grid; at the bottom, 10 rows of it lie above the grid
+            // the picture starts at the display's top, 10 rows above the
+            // grid, and at the bottom its last row is the grid's last, so
+            // 10 rows of it lie above the grid too
             let first_row = match position {
                 Position::TopLeft | Position::Top | Position::TopRight => 0,
-                Position::Left | Position::Center | Position::Right => 5,
                 _ => 10,
             };
             let at = picture_on_grid(&made, ROOMY.cell);
@@ -1277,6 +1323,40 @@ mod tests {
                 first_row / 2
             );
         }
+    }
+
+    // A picture shorter than the grid, centered on the display, can reach
+    // into the spare pixel rows above the grid, and the grid shows only the
+    // rest of it. At its own size, 20×46 on ROOMY's display of 100×60, it
+    // spans the display's rows 7 to 52, and the grid starts at row 10, so
+    // the grid's first row shows the picture's row 3 and its last 43 rows
+    // show. Across, it starts at (100 - 20) / 2 = 40, the grid's 32.
+    //
+    // References:
+    // - ADR-1100 D17, "Where the picture sits": a side the anchor does not
+    //   name centers the picture on the display.
+    // - ADR-1310 D10: the grid's last row on the display's bottom edge.
+    #[test]
+    fn a_centered_picture_shorter_than_the_grid_loses_its_rows_above_the_grid() {
+        let src = coordinates(20, 46);
+        let form = placed(Fit::Natural, None, SCALE_FULL);
+        // the image helper hands back only the rows that show
+        let fitting = Fitting {
+            form,
+            geometry: ROOMY,
+        };
+        let (w, h, _) = fit(&fitting, (20, 46), Source::Argb(&src)).expect("fitted");
+        assert_eq!((w, h), (20, 43));
+        let made = make(&form, &ROOMY, (20, 46), &src).expect("made");
+        assert_eq!(picture_on_grid(&made, ROOMY.cell), (32, 0, 20, 43));
+        assert_eq!(
+            on_grid(&made, ROOMY.cell, (32, 0)),
+            Some(0xff00_0000 | 3 << 8)
+        );
+        assert_eq!(
+            on_grid(&made, ROOMY.cell, (51, 42)),
+            Some(0xff00_0000 | 19 << 16 | 45 << 8)
+        );
     }
 
     // Unset, a background is centered, which is where `center` puts it.

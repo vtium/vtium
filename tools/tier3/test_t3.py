@@ -2736,6 +2736,22 @@ class PointerTest(unittest.TestCase):
         # a 64-pixel cell: a hotspot of 3, the grid 1344x768 at 11,0
         self.assertEqual(t3_pointer.corner((0, 0), self.DISPLAY, (32, 64)), (11 - 3, -3))
 
+    def test_the_corner_counts_the_spare_lines_above_the_grid(self):
+        # 640x480 in 6x9 cells: a grid of 636x477, centred across with 2
+        # spare columns on each side, its last row on the display's bottom
+        # edge and the 3 spare lines above it, so at 2,3; a hotspot of 1
+        display, cell = (640, 480), (6, 9)
+        self.assertEqual(t3_pointer.origin(display, cell), (2, 3))
+        self.assertEqual(t3_pointer.corner((0, 0), display, cell), (2 - 1, 3 - 1))
+        self.assertEqual(t3_pointer.corner((t3_pointer.ABS_MAX,) * 2, display, cell),
+                         (2 + 635 - 1, 3 + 476 - 1))
+        # 1280x800 in 10x19 cells: 798 lines of grid, 2 spare lines above
+        self.assertEqual(t3_pointer.origin((1280, 800), (10, 19)), (0, 2))
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 19)), (3, 8))
+        # 1366 across in 9-pixel cells leaves 7 spare columns: 3 on the
+        # left and the odd one with the other 3 on the right
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (9, 16)), (3, 0))
+
     def test_the_planes_are_read_from_the_dump(self):
         planes = t3_pointer.planes(self.STATE)
         self.assertEqual([(p["name"], p["crtc"], p["fb"], p["pos"]) for p in planes],
@@ -2778,12 +2794,15 @@ class PointerTest(unittest.TestCase):
         for display, cell, target in (((1920, 1080), (16, 40), (24, 4)),
                                       ((1920, 1080), (16, 40), (119, 26)),
                                       (self.DISPLAY, (8, 16), (0, 0)),
-                                      (self.DISPLAY, (8, 16), (100, 30))):
+                                      (self.DISPLAY, (8, 16), (100, 30)),
+                                      ((640, 480), (6, 9), (10, 20))):
             with self.subTest(display=display, cell=cell, target=target):
                 at = t3_pointer.aim(target, display, cell)
                 self.assertTrue(all(0 <= v <= t3_pointer.ABS_MAX for v in at), at)
                 hot = t3_pointer.hotspot(cell[1])
-                off = [(side - side // c * c) // 2 for side, c in zip(display, cell)]
+                # centred across, and the spare lines above the grid
+                (w, h), (cw, ch) = display, cell
+                off = [(w - w // cw * cw) // 2, h - h // ch * ch]
                 want = tuple(o + n * c + c // 2 - hot
                              for o, n, c in zip(off, target, cell))
                 self.assertEqual(t3_pointer.corner(at, display, cell), want)

@@ -242,9 +242,27 @@ impl Layout {
         (line, lines.min(fit))
     }
 
+    /// Where the grid of `frame` sits on the display.
     fn grid_for(&self, frame: &Frame<'_>) -> Grid {
-        let cols = frame.cols().min(self.max_cols);
-        let rows = frame.rows().min(self.max_rows);
+        self.grid_of(frame.cols(), frame.rows())
+    }
+
+    /// Where a grid of `cols` by `rows` cells sits on the display. The
+    /// grid's last row touches the text's bottom edge, so the spare pixel
+    /// lines, left when the display's length along the rows is not a whole
+    /// number of rows, lie above the grid's first row. The text's bottom is
+    /// the display's bottom upright, its top upside down, its left turned
+    /// right and its right turned left. Across the rows the grid stays
+    /// centred in the display's own pixels, and an odd spare pixel goes to
+    /// the right or the bottom. Every build places the grid so, and the GPU
+    /// path draws the grid where this places it.
+    ///
+    /// References:
+    /// - ADR-1310 D10: the grid flush to the text's bottom edge in every build, and centred across the rows.
+    /// - ADR-1303 D3: the GPU path places the grid where the CPU path does.
+    fn grid_of(&self, cols: usize, rows: usize) -> Grid {
+        let cols = cols.min(self.max_cols);
+        let rows = rows.min(self.max_rows);
         let gw = int(cols).saturating_mul(self.cw);
         let gh = int(rows).saturating_mul(self.ch);
         let (sw, sh) = (int(self.width), int(self.height));
@@ -253,8 +271,13 @@ impl Layout {
         } else {
             (gw, gh)
         };
-        let off_x = sw.saturating_sub(across) / 2;
-        let off_y = sh.saturating_sub(down) / 2;
+        let (spare_x, spare_y) = (sw.saturating_sub(across), sh.saturating_sub(down));
+        let (off_x, off_y) = match self.orientation {
+            Orientation::Normal => (spare_x / 2, spare_y),
+            Orientation::UpsideDown => (spare_x / 2, 0),
+            Orientation::Right => (0, spare_y / 2),
+            Orientation::Left => (spare_x, spare_y / 2),
+        };
         Grid {
             cols,
             rows,
@@ -1383,6 +1406,16 @@ impl<F: Face> Renderer<F> {
             i32::try_from(a.x).unwrap_or(i32::MAX),
             i32::try_from(a.y).unwrap_or(i32::MAX),
         ))
+    }
+
+    /// The display rectangle of the cell at `col`, `row` in a grid of
+    /// `grid` columns and rows, placed and turned where a frame of that
+    /// size draws it. vtium draws its focus mark over the grid's top-right
+    /// cell through it. `None` for a cell outside the grid, whose size the
+    /// display's columns and rows bound.
+    pub fn cell_rect(&self, grid: (usize, usize), col: usize, row: usize) -> Option<Rect> {
+        let g = self.layout.grid_of(grid.0, grid.1);
+        (col < g.cols && row < g.rows).then(|| self.layout.cell_rect(&g, col, row))
     }
 
     /// The columns and rows the display holds.
@@ -3137,4 +3170,171 @@ fn draws_no_text(glyph: Glyph<'_>) -> bool {
             Glyph::Char(c) => c == PLACEHOLDER,
             Glyph::Cluster(s) => s.starts_with(PLACEHOLDER),
         }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::expect_used,
+    reason = "a test fails by panicking, on small numbers it picks"
+)]
+mod tests {
+    use vtium_font::{Font, Unifont};
+    use vtium_term::{Age, Cursor, Damage, Frame, Glyph, Line, LineId, Palette, Rgb, Style, Width};
+
+    use super::{Config, DrawState, Renderer};
+    use crate::{Canvas, Orientation, Rect};
+
+    /// The border's color around the grid, and the cells' ink.
+    const BORDER: u32 = 0x10_10_10;
+    const INK: u32 = 0xff_ff_ff;
+
+    /// Rows of `cols` cells, blank but for a full block at each of `at`.
+    fn lines(cols: usize, rows: usize, at: &[(usize, usize)]) -> Vec<Line> {
+        (0..rows)
+            .map(|r| {
+                let mut line = Line::new(LineId::new(r as u64 + 1), cols);
+                for &(c, _) in at.iter().filter(|&&(_, row)| row == r) {
+                    line.write(
+                        c,
+                        Glyph::Char('\u{2588}'),
+                        Width::Narrow,
+                        &Style::DEFAULT,
+                        None,
+                    );
+                }
+                line
+            })
+            .collect()
+    }
+
+    /// The renderer's drawing, on a display `w` by `h` turned as `o`, of a
+    /// grid of `cols` by `rows` cells with a full block at each of `at`.
+    fn drawn(
+        o: Orientation,
+        (w, h): (u32, u32),
+        (cols, rows): (usize, usize),
+        at: &[(usize, usize)],
+    ) -> (Renderer<Unifont>, Canvas) {
+        let config = Config {
+            orientation: o,
+            ..Config::default()
+        };
+        let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, config);
+        let mut canvas = Canvas::new(w, h, 0);
+        let rows_ = lines(cols, rows, at);
+        let damage = Damage::new(cols, rows);
+        let palette = Palette::new(
+            [Rgb::default(); 256],
+            Rgb::new(0xff, 0xff, 0xff),
+            Rgb::new(0x10, 0x10, 0x10),
+        );
+        let frame = Frame::new(
+            rows_.iter().collect(),
+            &damage,
+            &palette,
+            Age::NEVER,
+            Cursor {
+                visible: false,
+                ..Cursor::default()
+            },
+            false,
+        );
+        let state = DrawState {
+            background: Rgb::new(0x10, 0x10, 0x10),
+            ..DrawState::default()
+        };
+        r.draw(&frame, &mut canvas, 0, &state);
+        (r, canvas)
+    }
+
+    /// The smallest rectangle that holds every pixel of `canvas` in `ink`.
+    fn lit(canvas: &Canvas, ink: u32) -> Option<Rect> {
+        let (w, h) = (canvas.width(), canvas.height());
+        let px: Vec<(u32, u32)> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| canvas.pixel(x, y) == Some(ink))
+            .collect();
+        let x0 = px.iter().map(|p| p.0).min()?;
+        let y0 = px.iter().map(|p| p.1).min()?;
+        let x1 = px.iter().map(|p| p.0).max()?;
+        let y1 = px.iter().map(|p| p.1).max()?;
+        Some(Rect {
+            x: x0,
+            y: y0,
+            width: x1 - x0 + 1,
+            height: y1 - y0 + 1,
+        })
+    }
+
+    // At rest, the grid's last row touches the text's bottom edge, so the
+    // spare lines lie above its first row. Across the rows the grid stays
+    // centred, with an odd spare pixel on the right or the bottom of the
+    // display. A grid of 6 by 2 cells of 8 by 16 pixels leaves 3 spare
+    // lines and 5 spare columns, which the display turned on its side
+    // swaps.
+    //
+    // References:
+    // - ADR-1310 D10: the grid flush to the text's bottom edge, and centred across the rows.
+    #[test]
+    fn the_grid_at_rest_touches_the_text_s_bottom_edge() {
+        let (gw, gh) = (6 * 8, 2 * 16);
+        let all: Vec<(usize, usize)> = (0..2).flat_map(|r| (0..6).map(move |c| (c, r))).collect();
+        // the border's columns left and right, then its lines above and
+        // below, on the display
+        for (o, size, want) in [
+            (Orientation::Normal, (gw + 5, gh + 3), [2, 3, 3, 0]),
+            (Orientation::UpsideDown, (gw + 5, gh + 3), [2, 3, 0, 3]),
+            (Orientation::Right, (gh + 3, gw + 5), [0, 3, 2, 3]),
+            (Orientation::Left, (gh + 3, gw + 5), [3, 0, 2, 3]),
+        ] {
+            let (_, canvas) = drawn(o, size, (6, 2), &all);
+            let (w, h) = size;
+            let grid = lit(&canvas, INK).expect("the cells draw");
+            assert_eq!(grid.area(), u64::from(gw * gh), "{o:?}: every cell lit");
+            let got = [
+                grid.x,
+                w - grid.x - grid.width,
+                grid.y,
+                h - grid.y - grid.height,
+            ];
+            assert_eq!(got, want, "{o:?}: left, right, top, bottom");
+            let border = (0..h)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .filter(|&(x, y)| canvas.pixel(x, y) == Some(BORDER))
+                .count();
+            assert_eq!(border as u32, w * h - gw * gh, "{o:?}: the border");
+        }
+    }
+
+    // The renderer's rectangle of a cell is where a frame of the grid's
+    // size draws that cell, at every turn, with spare lines and columns
+    // left over; a cell outside the grid has none.
+    #[test]
+    fn a_cell_s_rectangle_is_where_the_frame_draws_it() {
+        for (o, size) in [
+            (Orientation::Normal, (6 * 8 + 5, 2 * 16 + 3)),
+            (Orientation::UpsideDown, (6 * 8 + 5, 2 * 16 + 3)),
+            (Orientation::Right, (2 * 16 + 3, 6 * 8 + 5)),
+            (Orientation::Left, (2 * 16 + 3, 6 * 8 + 5)),
+        ] {
+            for at in [(0, 0), (5, 0), (0, 1), (3, 1)] {
+                let (r, canvas) = drawn(o, size, (6, 2), &[at]);
+                assert_eq!(
+                    r.cell_rect((6, 2), at.0, at.1),
+                    lit(&canvas, INK),
+                    "{o:?} {at:?}"
+                );
+            }
+            let (r, _) = drawn(o, size, (6, 2), &[]);
+            assert_eq!(
+                r.cell_rect((6, 2), 6, 0),
+                None,
+                "{o:?}: past the last column"
+            );
+            assert_eq!(r.cell_rect((6, 2), 0, 2), None, "{o:?}: past the last row");
+            assert_eq!(r.cell_rect((0, 2), 0, 0), None, "{o:?}: an empty grid");
+        }
+    }
 }

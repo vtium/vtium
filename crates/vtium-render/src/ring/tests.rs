@@ -37,16 +37,15 @@ struct Shape {
     across: u32,
 }
 
-/// 4 rows of 16 pixels and 7 spare lines, so the grid has a border strip
-/// thinner than a row on both sides; 6 cells of 8 pixels and 5 spare
-/// columns across.
+/// 4 rows of 16 pixels and 7 spare lines, which lie above the grid and are
+/// thinner than a row; 6 cells of 8 pixels and 5 spare columns across.
 const TIGHT: Shape = Shape {
     along: 4 * 16 + 7,
     across: 6 * 8 + 5,
 };
 
-/// 6 rows fit, and the grid's 4 rows leave strips of 21 lines on both
-/// sides, more than a row; 20 spare columns on each side across.
+/// 6 rows fit, and the grid's 4 rows leave 42 spare lines above them, more
+/// than two rows; 20 spare columns on each side across.
 const WIDE: Shape = Shape {
     along: 4 * 16 + 42,
     across: 6 * 8 + 40,
@@ -773,9 +772,8 @@ fn a_twin_is_drawn_only_for_a_window_that_shows_it() {
 }
 
 // a scroll draws again only the border that the window shows anew: on a
-// display whose border is wider than a row, a scroll by one line writes
-// two bands across the screen and the row that came in, not the whole
-// border
+// display whose spare lines are taller than a row, a scroll by one line
+// writes two bands across the screen, not the whole border
 #[test]
 fn a_scroll_draws_only_the_border_it_shows_anew() {
     for o in TURNS {
@@ -821,10 +819,10 @@ fn a_scroll_draws_only_the_border_it_shows_anew() {
                 "{o:?} step {n}: the window shows the frame"
             );
         }
-        // the leaving row's lines, now in the border strip, and the 16
-        // lines the window shows anew, each across the display's 88 pixels,
-        // and the row that came in, 48 by 16
-        assert_eq!(written, 2 * 16 * 88 + 48 * 16, "{o:?}");
+        // the leaving row's lines, now in the spare lines above the grid,
+        // and the 16 lines the window shows anew, which hold the row that
+        // came in and its side margins, each across the display's 88 pixels
+        assert_eq!(written, 2 * 16 * 88, "{o:?}");
     }
 }
 
@@ -1192,9 +1190,9 @@ fn a_one_line_scroll_draws_the_rows_that_came_in() {
     assert_eq!(redraw, 48 * 1360 * 16, "the full screen drawn again");
     let redraw_small = measure(Way::Redraw, (1366, 768), (80, 25), 4, SCROLL).0;
     assert_eq!(redraw_small, 25 * 640 * 16, "the 80×25 grid drawn again");
-    // the full-screen grid leaves no border strip above or below it and
-    // three pixels each side: the pan writes two rows with their margins,
-    // each into both copies while the window shows the twins
+    // the full-screen grid leaves no spare lines and three pixels each
+    // side: the pan writes two rows with their margins, each into both
+    // copies while the window shows the twins
     let pan = measure(Way::Pan, (1366, 768), (170, 48), 4, SCROLL).0;
     assert_eq!(pan, 2 * 2 * line, "the full screen through the pan");
     // and so it stays across the ring's end, where the window shows the
@@ -1205,14 +1203,15 @@ fn a_one_line_scroll_draws_the_rows_that_came_in() {
         2 * 2 * line,
         "the most one frame writes, past the ring's end"
     );
-    // around the 80×25 grid the leaving rows' lines and the lines the
-    // window shows anew are border across the whole display, two bands of
-    // a row for each of the two frames the buffer lacks, written into both
-    // copies, and the two rows the buffer lacks are written once
+    // the 80×25 grid touches the display's bottom edge, so for each of the
+    // two frames the buffer lacks, the pan writes two bands of a row
+    // across the whole display into both copies: the leaving row's lines,
+    // now border in the spare lines above the grid, and the row that came
+    // in with its margins
     let pan_small = measure(Way::Pan, (1366, 768), (80, 25), 4, SCROLL).0;
     assert_eq!(
         pan_small,
-        2 * 2 * 2 * line + 2 * 640 * 16,
+        2 * 2 * 2 * line,
         "the 80×25 grid through the pan"
     );
 }

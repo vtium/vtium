@@ -1,5 +1,4 @@
-//! The turn between the upright frame and a turned display (ADR-1303 D3,
-//! D6).
+//! The turn between the upright frame and a turned display.
 //!
 //! The GPU path composes the upright frame, the whole display as the text
 //! sees it, and present turns it into the display's buffer. The renderer's
@@ -11,9 +10,16 @@
 //! pixel `x`, `y` at `width - 1 - y`, `x`.
 //!
 //! The grid therefore sits in the upright frame where the CPU path puts it
-//! on the display, mapped back, with an odd margin's spare pixel where the
-//! CPU path leaves it once the frame is turned, so the two paths draw a
-//! turned grid at the same pixels.
+//! on the display, mapped back. Its last row touches the text's bottom
+//! edge, and the spare lines lie above its first row. Across the rows, an
+//! odd margin's spare pixel lies where the CPU path leaves it once the
+//! frame is turned, so the two paths draw a turned grid at the same
+//! pixels.
+//!
+//! References:
+//! - ADR-1303 D3: the GPU path places a turned grid where the CPU path does.
+//! - ADR-1303 D6: the turn of the upright frame into the display.
+//! - ADR-1310 D10: the grid flush to the text's bottom edge.
 
 use super::gl::Size;
 use crate::compose::Area;

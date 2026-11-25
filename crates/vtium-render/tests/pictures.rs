@@ -461,7 +461,8 @@ fn the_cursor_the_selection_and_the_pointer_draw_above_every_picture() {
 #[test]
 fn a_picture_at_the_screen_edge_is_cut_at_the_grid() {
     // 10 by 4 cells of 8x16 on a display 5 pixels wider and 6 taller: a
-    // border of 2 and 3 pixels left and above, 3 and 3 right and below
+    // border of 2 pixels left and 3 right, and 6 spare lines above the
+    // grid, whose last row touches the display's bottom edge
     let s = screen();
     let mut con = Console::new(10, 4, 0);
     let img = con.image(Protocol::SIXEL, 0, (40, 48), ramp);
@@ -489,13 +490,13 @@ fn a_picture_at_the_screen_edge_is_cut_at_the_grid() {
     let border = (bg.r as u32) << 16 | (bg.g as u32) << 8 | bg.b as u32;
     for y in 0..h {
         for x in 0..w {
-            let in_grid = (2..82).contains(&x) && (3..67).contains(&y);
-            let in_pic = (2 + 64..82).contains(&x) && (3 + 32..67).contains(&y);
+            let in_grid = (2..82).contains(&x) && (6..70).contains(&y);
+            let in_pic = (2 + 64..82).contains(&x) && (6 + 32..70).contains(&y);
             let px = c.pixel(x, y).unwrap();
             if !in_grid {
                 assert_eq!(px, border, "border {x},{y}");
             } else if in_pic {
-                assert_eq!(px, ramp(x - 66, y - 35) & 0xff_ffff, "{x},{y}");
+                assert_eq!(px, ramp(x - 66, y - 38) & 0xff_ffff, "{x},{y}");
             }
         }
     }
@@ -1020,8 +1021,8 @@ fn every_orientation_draws_the_same_pictures_turned() {
     );
     // in the 8x16 cells the store made them in, and scaled to 12x24 cells
     for font in [16u32, 24] {
-        // a border of 2 pixels each side and 1 above and below, which turns
-        // with the grid
+        // a border of 2 pixels each side and the 2 spare lines above the
+        // grid, which turn with the grid
         let (cw, ch) = if font == 16 { (8, 16) } else { (12, 24) };
         let (w, h) = (20 * cw + 4, 5 * ch + 2);
         let drawn = |o: Orientation| {

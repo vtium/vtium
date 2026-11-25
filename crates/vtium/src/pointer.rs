@@ -430,12 +430,13 @@ mod tests {
         assert_eq!(p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))), None);
         assert_eq!(p.route(), Route::Hardware);
         assert_eq!(plane.arrow.as_ref(), Some(r.arrow()));
-        // the grid is centred: 2,1 from the display's corner
+        // the grid touches the display's bottom edge and is centred across
+        // it: 2,2 from the display's corner
         after(&mut p, &mut plane, &r, Some((5, 6)));
-        assert_eq!(plane.shown, Some((7, 7)));
+        assert_eq!(plane.shown, Some((7, 8)));
         // past the grid, the tip is kept on its last pixel
         after(&mut p, &mut plane, &r, Some((1000, 1000)));
-        assert_eq!(plane.shown, Some((2 + 31, 1 + 31)));
+        assert_eq!(plane.shown, Some((2 + 31, 2 + 31)));
         after(&mut p, &mut plane, &r, None);
         assert_eq!(plane.shown, None);
     }
@@ -445,10 +446,11 @@ mod tests {
         let r = renderer(Orientation::Right);
         let (mut p, mut plane) = (Pointer::default(), Fake::default());
         p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
-        // turned right, the grid is 32 across and 32 down at 1,2; the
-        // grid's pixel 5,6 lands at 1 + 32 - 1 - 6, 2 + 5
+        // turned right, the text's bottom is the display's left edge, so
+        // the grid, 32 across and 32 down, lies at 0,2; the grid's pixel
+        // 5,6 lands at 0 + 32 - 1 - 6, 2 + 5
         after(&mut p, &mut plane, &r, Some((5, 6)));
-        assert_eq!(plane.shown, Some((26, 7)));
+        assert_eq!(plane.shown, Some((25, 7)));
         let arrow = plane.arrow.unwrap();
         assert_eq!(arrow, Arrow::new(16, Orientation::Right));
     }

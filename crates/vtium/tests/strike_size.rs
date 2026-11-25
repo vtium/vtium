@@ -257,9 +257,10 @@ impl Seat {
     }
 
     /// The box the ink of the grid's top-left cell covers, in a grid of
-    /// cells `cell` centred on the display, as its left column and top row
-    /// within the cell, and its width and height in pixels. The background
-    /// is the display's bottom-right pixel, which no text reaches.
+    /// cells `cell` centred across the display, with its last row touching
+    /// the display's bottom edge, as its left column and top row within the
+    /// cell, and its width and height in pixels. The background is the
+    /// display's bottom-right pixel, which no text reaches.
     fn ink(&mut self, cell: (u32, u32)) -> Option<(u32, u32, u32, u32)> {
         let memory = self
             .app
@@ -273,7 +274,7 @@ impl Seat {
             drawn.get(at..at + 4).map(<[u8]>::to_vec)
         };
         let paper = pixel(WIDTH - 1, HEIGHT - 1)?;
-        let (x0, y0) = ((WIDTH % cell.0) / 2, (HEIGHT % cell.1) / 2);
+        let (x0, y0) = ((WIDTH % cell.0) / 2, HEIGHT % cell.1);
         let lit: Vec<(u32, u32)> = (0..cell.1)
             .flat_map(|y| (0..cell.0).map(move |x| (x, y)))
             .filter(|&(x, y)| pixel(x0 + x, y0 + y).is_some_and(|p| p != paper))
