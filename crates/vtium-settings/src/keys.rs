@@ -863,10 +863,9 @@ pub const SCROLL_DRAW: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP_HEAD,
     what: "How the displays of a head show text that scrolls.\n\n\
-           `auto` pans where the display's driver allows it, and copies where it does not. To pan, vtium keeps each display buffer taller than the screen. A scroll then moves the part of the buffer that the screen shows, so vtium draws only the new lines. To copy, vtium keeps the drawn lines in memory and copies the screen's part to the display.\n\n\
-           `pan` and `copy` ask for one of the two ways, and `pan` copies where the driver refuses the pan. `redraw` draws again every line that moved, which takes the least memory.\n\n\
-           A display drawn with the GPU always uses `redraw`. So does a build of vtium without faster scrolling (the `scroll-pan` feature), which logs once that it ignores `pan` and `copy`.\n\n\
-           [docs] A display buffer that pans holds about two screens, and the copy keeps about one screen of memory for each display.",
+           `auto` pans where the display's driver allows it, and copies where it does not. `pan` and `copy` ask for one of the two ways. `redraw` draws again every line that moved. A display drawn with the GPU always uses `redraw`, and so does a build without the `scroll-pan` feature.\n\n\
+           [docs] To pan, vtium keeps each display buffer taller than the screen. A scroll then moves the part of the buffer that the screen shows, so vtium draws only the new lines. To copy, vtium keeps the drawn lines in memory and copies the screen's part to the display. `pan` copies where the driver refuses the pan.\n\n\
+           [docs] A display buffer that pans holds about two screens, and the copy keeps about one screen of memory for each display, so `redraw` takes the least memory. A build without `scroll-pan` logs once that it ignores `pan` and `copy`.",
 };
 
 pub const HWACCEL: Key = Key {

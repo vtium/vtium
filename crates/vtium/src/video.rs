@@ -4,6 +4,8 @@
 use std::any::Any;
 use std::io;
 
+#[cfg(feature = "scroll-pan")]
+use vtium_platform::display::Tall;
 use vtium_platform::display::{
     Buffers, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Identity, Interrupt, Rect,
     SwapError, Swapped, Token,
@@ -206,6 +208,20 @@ pub trait Video: Any {
     fn gone(&self) -> bool {
         false
     }
+    /// Asks display `id` for buffers taller than its screen, so that a
+    /// scroll moves the window the display shows, or with `None` for
+    /// buffers the screen's size again. The tokens the display lends next
+    /// report which it holds: a device that cannot pan, as a framebuffer,
+    /// keeps buffers the screen's size, and so does a card that refuses the
+    /// tall buffer or the pan.
+    ///
+    /// References:
+    /// - ADR-1401 D2, "A buffer taller than the screen": the display's half
+    ///   of the pan.
+    #[cfg(feature = "scroll-pan")]
+    fn set_tall(&mut self, _: DisplayId, _: Option<Tall>) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// A video device's cursor plane, as the pointer drives it.
@@ -350,6 +366,10 @@ macro_rules! drm2d_video {
             fn gone(&self) -> bool {
                 <$device>::gone(self)
             }
+            #[cfg(feature = "scroll-pan")]
+            fn set_tall(&mut self, id: DisplayId, tall: Option<Tall>) -> io::Result<()> {
+                <$device>::set_tall(self, id, tall)
+            }
         }
     };
 }
@@ -436,6 +456,8 @@ mod tests {
         gone: bool,
         commits: Vec<DisplayId>,
         buffers: Buffers,
+        #[cfg(feature = "scroll-pan")]
+        tall: Vec<(DisplayId, Option<Tall>)>,
     }
 
     #[expect(clippy::unused_self, reason = "drm2d's signatures")]
@@ -536,6 +558,11 @@ mod tests {
             self.gone
         }
         fn set_interrupt(&mut self, _: Interrupt) {}
+        #[cfg(feature = "scroll-pan")]
+        fn set_tall(&mut self, id: DisplayId, tall: Option<Tall>) -> io::Result<()> {
+            self.tall.push((id, tall));
+            Ok(())
+        }
     }
 
     drm2d_video!(Probe);
@@ -552,6 +579,29 @@ mod tests {
         assert!(video.gone());
         assert_eq!(video.commit(DisplayId(7)).ok(), Some(Swapped::Frame));
         assert_eq!(probe.commits, [DisplayId(7)]);
+    }
+
+    // A drm2d display's ask for buffers taller than the screen reaches the
+    // display rather than the trait's default, which keeps buffers the
+    // screen's size.
+    //
+    // References:
+    // - ADR-1401 D2, "A buffer taller than the screen": the display's half.
+    #[cfg(feature = "scroll-pan")]
+    #[test]
+    fn a_drm2d_device_forwards_the_ask_for_tall_buffers() {
+        let mut probe = Probe::default();
+        let tall = Tall {
+            ring: 32,
+            turned: false,
+        };
+        let video: &mut dyn Video = &mut probe;
+        assert!(video.set_tall(DisplayId(3), Some(tall)).is_ok());
+        assert!(video.set_tall(DisplayId(3), None).is_ok());
+        assert_eq!(
+            probe.tall,
+            [(DisplayId(3), Some(tall)), (DisplayId(3), None)]
+        );
     }
 
     // ADR-1401 D2: a drm2d display with two or three buffers holds a paced

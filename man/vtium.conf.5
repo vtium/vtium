@@ -1013,13 +1013,11 @@ Set it in the top level, or on vtium's command line with \fB\-\-display\-buffers
 \fBscroll-draw\fR
 How the displays of a head show text that scrolls.
 .IP
-\fBauto\fR pans where the display's driver allows it, and copies where it does not. To pan, vtium keeps each display buffer taller than the screen. A scroll then moves the part of the buffer that the screen shows, so vtium draws only the new lines. To copy, vtium keeps the drawn lines in memory and copies the screen's part to the display.
+\fBauto\fR pans where the display's driver allows it, and copies where it does not. \fBpan\fR and \fBcopy\fR ask for one of the two ways. \fBredraw\fR draws again every line that moved. A display drawn with the GPU always uses \fBredraw\fR, and so does a build without the \fBscroll\-pan\fR feature.
 .IP
-\fBpan\fR and \fBcopy\fR ask for one of the two ways, and \fBpan\fR copies where the driver refuses the pan. \fBredraw\fR draws again every line that moved, which takes the least memory.
+To pan, vtium keeps each display buffer taller than the screen. A scroll then moves the part of the buffer that the screen shows, so vtium draws only the new lines. To copy, vtium keeps the drawn lines in memory and copies the screen's part to the display. \fBpan\fR copies where the driver refuses the pan.
 .IP
-A display drawn with the GPU always uses \fBredraw\fR. So does a build of vtium without faster scrolling (the \fBscroll\-pan\fR feature), which logs once that it ignores \fBpan\fR and \fBcopy\fR.
-.IP
-A display buffer that pans holds about two screens, and the copy keeps about one screen of memory for each display.
+A display buffer that pans holds about two screens, and the copy keeps about one screen of memory for each display, so \fBredraw\fR takes the least memory. A build without \fBscroll\-pan\fR logs once that it ignores \fBpan\fR and \fBcopy\fR.
 .IP
 It takes one of \fBauto\fR, \fBpan\fR, \fBcopy\fR, \fBredraw\fR. Default: \fBauto\fR.
 .IP

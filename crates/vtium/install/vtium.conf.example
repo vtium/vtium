@@ -813,18 +813,9 @@
 ## How the displays of a head show text that scrolls.
 ##
 ## `auto` pans where the display's driver allows it, and copies where it does
-## not. To pan, vtium keeps each display buffer taller than the screen. A
-## scroll then moves the part of the buffer that the screen shows, so vtium
-## draws only the new lines. To copy, vtium keeps the drawn lines in memory
-## and copies the screen's part to the display.
-##
-## `pan` and `copy` ask for one of the two ways, and `pan` copies where the
-## driver refuses the pan. `redraw` draws again every line that moved, which
-## takes the least memory.
-##
-## A display drawn with the GPU always uses `redraw`. So does a build of vtium
-## without faster scrolling (the `scroll-pan` feature), which logs once that
-## it ignores `pan` and `copy`.
+## not. `pan` and `copy` ask for one of the two ways. `redraw` draws again
+## every line that moved. A display drawn with the GPU always uses `redraw`,
+## and so does a build without the `scroll-pan` feature.
 
 #scroll-draw=auto
 

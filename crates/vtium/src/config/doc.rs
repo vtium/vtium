@@ -494,8 +494,9 @@ pub(super) const EXAMPLE_MAX: usize = 49_152;
 /// picture's placement keys used the last of the room, which leaves 1,591
 /// bytes kept for the planned settings. `helper-sandbox` (ADR-1200 D15)
 /// used 267 bytes, which leaves 1,324. The `font-name` text on a font
-/// file's path used 15 bytes, which leaves 1,309.
-const EXAMPLE_ROOM: usize = 1_309;
+/// file's path used 15 bytes, which leaves 1,309. `scroll-draw` (ADR-1310
+/// D6) used 444 bytes, which leaves 865.
+const EXAMPLE_ROOM: usize = 865;
 
 #[cfg(test)]
 #[expect(
