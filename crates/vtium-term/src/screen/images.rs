@@ -742,12 +742,18 @@ mod with {
         /// screen rows, and above the main screen the scrollback's newest
         /// rows, as many as the main buffer's tallest placement reaches.
         pub(crate) fn keys(&self, alt: bool) -> Keys {
+            self.keys_reaching(alt, self.images.main_reach())
+        }
+
+        /// The keys of the main (`alt` false) or the alternate buffer's
+        /// screen rows, and above the main screen the scrollback's newest
+        /// `reach` rows.
+        fn keys_reaching(&self, alt: bool, reach: usize) -> Keys {
             let lines = if alt { &self.alt } else { &self.main };
             let screen = lines.iter().take(self.rows).map(key).collect();
             let above = if alt {
                 Vec::new()
             } else {
-                let reach = self.images.main_reach();
                 let len = self.scrollback.len();
                 (0..len)
                     .rev()
@@ -1039,7 +1045,22 @@ mod with {
                 self.damage.mark_all();
                 return;
             }
-            let keys = self.active_keys();
+            // A box anchored on a line of the scrollback can reach down
+            // onto the screen: a box `row` rows below its line and `rows`
+            // tall, from at most `row + rows` lines above the screen. The
+            // store keeps no reach for a buffer whose last placement has
+            // just gone, so the walk up the scrollback is sized from the
+            // changed boxes themselves.
+            let reach = changed
+                .iter()
+                .map(|r| {
+                    let below = u64::try_from(r.row.max(0)).unwrap_or(0);
+                    let rows = below.saturating_add(u64::from(r.rows));
+                    usize::try_from(rows).unwrap_or(usize::MAX)
+                })
+                .max()
+                .unwrap_or(0);
+            let keys = self.keys_reaching(self.flags.alternate, reach);
             let rows = keys.rows();
             let row_of = |line: LineKey| -> Option<i64> {
                 if let Some(y) = rows.screen.iter().position(|&k| k == line) {
@@ -1109,6 +1130,51 @@ mod with {
                 t.screen().frame_runs().is_empty(),
                 "the alternate buffer holds none"
             );
+        }
+
+        /// A terminal of 12 columns by 4 rows with a scrollback, cells of
+        /// 8×16 pixels and the kitty handler, after a picture three rows tall
+        /// with id 7 is shown at the left of row 1 and two lines scrolled, so
+        /// the picture's rows are -1, 0 and 1.
+        fn picture_across_the_top_edge() -> Terminal {
+            let mut t = Terminal::new(12, 4, 100);
+            t.screen_mut().set_scrollback_max(10);
+            t.screen_mut().set_image_limit(1 << 30);
+            t.screen_mut().set_image_cell(8, 16).unwrap();
+            t.set_image_switches(Switches {
+                sixel: false,
+                kitty: true,
+                iterm2: false,
+            });
+            t.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+            let mut s = b"\x1b[2;1H\x1b_Ga=T,f=24,s=8,v=48,i=7,C=1,q=2;".to_vec();
+            s.extend(b"////".repeat(384));
+            s.extend(b"\x1b\\");
+            t.input(&s);
+            t.input(b"\x1b[4;1H\n\n");
+            t
+        }
+
+        // A kitty delete takes the picture off every cell its box covered,
+        // so the screen's rows of that box are marked changed, also when
+        // the box's top row has scrolled above the screen and the store
+        // holds no other placement.
+        //
+        // References:
+        // - ADR-1100 D8: the store reports each changed box, and the screen
+        //   marks the cells under it.
+        // covers: image.kitty
+        #[test]
+        fn a_kitty_delete_marks_the_screen_rows_of_a_box_whose_top_scrolled_off() {
+            let mut t = picture_across_the_top_edge();
+            assert_eq!(t.screen().placements().len(), 1);
+            let age = t.screen_mut().checkpoint();
+            t.input(b"\x1b_Ga=d,d=i,i=7,q=2\x1b\\");
+            assert!(t.screen().placements().is_empty(), "deleted");
+            for row in 0..2 {
+                assert!(t.screen().damage().changed(row, 0, age), "row {row}");
+            }
+            assert!(!t.screen().damage().row_changed(2, age), "past the box");
         }
     }
 }
