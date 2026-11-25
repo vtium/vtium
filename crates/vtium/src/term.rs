@@ -443,31 +443,40 @@ impl Snapshot {
     /// - ADR-1310 D2: the rows the snapshot asks for, and one more for the ink of the rows next to them.
     #[cfg(feature = "scroll-pan")]
     pub fn take_reaching(terminal: &Terminal, above: usize) -> Snapshot {
-        let mut taken = Self::take_frame(terminal);
-        if above > 0 {
-            let palette = terminal.palette();
-            let reach = vtium_term::Reach {
-                above,
-                ..vtium_term::Reach::default()
-            };
-            let frame = terminal.screen().frame_reaching(palette, Age::NEVER, reach);
-            taken.above = Above {
-                lines: frame.lines_above().iter().map(|&l| l.clone()).collect(),
-                selection: frame.selection_beyond().0.to_vec(),
-                #[cfg(feature = "images")]
-                placements: frame.placements_beyond().to_vec(),
-                #[cfg(feature = "bidi")]
-                order: frame.order_beyond().0.clone(),
-            };
+        if above == 0 {
+            return Self::take_frame(terminal);
         }
+        let reach = vtium_term::Reach {
+            above,
+            ..vtium_term::Reach::default()
+        };
+        // one frame serves the screen's rows and the rows above them, so
+        // the screen's order and pictures are worked out once
+        let frame = terminal
+            .screen()
+            .frame_reaching(terminal.palette(), Age::NEVER, reach);
+        let above = Above {
+            lines: frame.lines_above().iter().map(|&l| l.clone()).collect(),
+            selection: frame.selection_beyond().0.to_vec(),
+            #[cfg(feature = "images")]
+            placements: frame.placements_beyond().to_vec(),
+            #[cfg(feature = "bidi")]
+            order: frame.order_beyond().0.clone(),
+        };
+        let mut taken = Self::of_frame(terminal, &frame);
+        taken.above = above;
         taken
     }
 
     /// What `terminal`'s view shows now, the screen's rows alone.
     fn take_frame(terminal: &Terminal) -> Snapshot {
+        let frame = terminal.screen().frame(terminal.palette(), Age::NEVER);
+        Self::of_frame(terminal, &frame)
+    }
+
+    /// The screen's rows of `frame`, a frame of `terminal`'s screen.
+    fn of_frame(terminal: &Terminal, frame: &Frame<'_>) -> Snapshot {
         let screen = terminal.screen();
-        let palette = terminal.palette().clone();
-        let frame = screen.frame(&palette, Age::NEVER);
         let rows = frame.rows();
         let lines = (0..rows).filter_map(|r| frame.line(r)).cloned().collect();
         // the selected columns of each row, as the screen keeps them:
@@ -492,7 +501,7 @@ impl Snapshot {
             overlay,
             link_hints,
             labelled,
-            palette,
+            palette: terminal.palette().clone(),
             #[cfg(feature = "images")]
             placements,
             #[cfg(feature = "bidi")]
