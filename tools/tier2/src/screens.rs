@@ -609,6 +609,30 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
     }
 }
 
+/// Ten numbered lines, the cursor on the bottom row.
+const SCROLL: &[u8] =
+    b"line 0\r\nline 1\r\nline 2\r\nline 3\r\nline 4\r\nline 5\r\nline 6\r\nline 7\r\nline 8\r\nline 9";
+
+/// Three line feeds on the bottom row, then a reverse index on the top row,
+/// so the screen moves three rows up and one down between two frames.
+const SCROLL_NEXT: &[u8] = b"\r\nline 10\r\nline 11\r\nline 12\x1b[1;1H\x1bMtop again\x1b[10;1H";
+
+const SCROLL_DESC: &str = "Four frames into a double-buffered display of 389x167 pixels, a grid of 48 by 10 cells with a border around it: ten numbered lines, then three line feeds on the bottom row and a reverse index on the top row between two frames. Each frame is shown the redraw way, by the pan over buffers taller than the screen and by the copy from a ring in memory, and the three must show the same pixels. In unifont. Correct: `top again` on the top row, `line 3` to `line 11` below it, and the border plain around the grid.";
+
+/// A screen that scrolls between frames, which the pan and the copy show
+/// as the redraw does (ADR-1310 D6), on a display turned as `orientation`
+/// says.
+const fn scrolls(name: &'static str, orientation: Orientation) -> Case {
+    Case {
+        screen: Screen {
+            orientation,
+            display: Some((48 * 8 + 5, 10 * 16 + 7)),
+            next: Some(SCROLL_NEXT),
+            ..Screen::new(name, SCROLL_DESC, SCROLL, 48, 10)
+        },
+    }
+}
+
 /// A light theme set by OSC 10 and 11, for a 1-bit display: default
 /// text, a red word, colored and reversed cells, decorations and sprites
 /// (vtium/vtium#135).
@@ -1984,6 +2008,8 @@ const BASE: &[Case] = &[
     edges("edges-right", Orientation::Right),
     edges("edges-upside-down", Orientation::UpsideDown),
     edges("edges-left", Orientation::Left),
+    scrolls("scroll-unifont", Orientation::Normal),
+    scrolls("scroll-unifont-right", Orientation::Right),
     Case {
         screen: Screen::new(
             "erase-pen",

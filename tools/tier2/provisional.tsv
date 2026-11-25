@@ -2,3 +2,5 @@
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
 palette-ink	the shipped color scheme Ink (crates/vtium/install/palettes/ink.palette), drawn on 2026-11-20 by tier2 render from feat/w5-look-keys at 4110c2ce; every color is black, red or white
+scroll-unifont	new, the screen that scrolls between frames, which the pan and the copy show as the redraw does; drawn on 2026-11-25 by tier2 render from feat/w6-pan-wired at b5bdad5ef
+scroll-unifont-right	the same on a display turned right; drawn on 2026-11-25 by tier2 render from feat/w6-pan-wired at b5bdad5ef
