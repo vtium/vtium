@@ -84,7 +84,7 @@ A string on screen is any text vtium, vtium-config or `vtium check-config` shows
 
 ## The gates
 
-A gate is a check that must pass before a change goes to review. The gate line below lists every gate in order. `make gates` is a Makefile target that runs the same commands, each to the end, and reports each exit code in the gate line's order. It runs up to 8 gates at once: `make gates JOBS=N` sets the number, and `JOBS=1` runs them one after another. Each gate builds in a cargo target directory of its own under `target/gates/`, and writes its output to a log of its own under `target/gates/logs/`, which the report names when the gate fails. When you set `CARGO_TARGET_DIR` yourself, those directories go under that directory. Never share one `CARGO_TARGET_DIR` between worktrees whose sources differ: cargo can give both worktrees' builds the same artifact names, and a test run in one worktree then runs a test binary built from the other's sources. The line below is the full set of gates. The steering session runs the whole gate line on the merged tree before every push, and the author of a change runs only the checks of what the change touched (see [The working loop](#the-working-loop), step 4):
+A gate is a check that must pass before a change goes to review. The gate line below lists every gate in order. `make gates` is a Makefile target that runs the same commands, each to the end, and reports each exit code in the gate line's order. It runs up to 8 gates at once: `make gates JOBS=N` sets the number, and `JOBS=1` runs them one after another. Each gate builds in a cargo target directory of its own under `target/gates/`, and writes its output to a log of its own under `target/gates/logs/`, which the report names when the gate fails. After the gates, `make gates` builds the minspec binary the way tier 3 builds it and prints the binary's size against tier 3's budget. A binary over the budget gets a warning that `make tier3-minimal` fails on it, and the gates' result stays as the gates decided. When you set `CARGO_TARGET_DIR` yourself, those directories go under that directory. Never share one `CARGO_TARGET_DIR` between worktrees whose sources differ: cargo can give both worktrees' builds the same artifact names, and a test run in one worktree then runs a test binary built from the other's sources. The line below is the full set of gates. The steering session runs the whole gate line on the merged tree before every push, and the author of a change runs only the checks of what the change touched (see [The working loop](#the-working-loop), step 4):
 
 ```sh
 cargo fmt --all --check \
@@ -102,6 +102,7 @@ cargo fmt --all --check \
   && docs/scripts/prose --check \
   && docs/scripts/coverage \
   && make api \
+  && make features-check \
   && make man-check \
   && make test-tools \
   && make conformance \

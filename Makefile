@@ -754,7 +754,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the locale mode scripts with the real vtium-config, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the release files' check, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the scroll timing tool's ways and its frame loop on a counted display without a KMS device, the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the locale mode scripts with the real vtium-config, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the feature check's plan and the minspec size report, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the release files' check, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the scroll timing tool's ways and its frame loop on a counted display without a KMS device, the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I tools/vt/tests/test_typepad.py
@@ -766,6 +766,7 @@ test-tools: ## Test the VT review tools, the locale mode scripts with the real v
 	python3 -I -B tools/gallery/tests/test_gallery.py
 	python3 -I -B tools/fuzz/test_run.py
 	python3 -I -B tools/gates/test_run.py
+	python3 -I -B tools/gates/test_features.py
 	python3 -I -B docs/scripts/test_fork_refs.py
 	python3 -I -B docs/scripts/test_prose.py
 	python3 -I -B docs/scripts/test_claims.py
@@ -1109,6 +1110,16 @@ api: ## Build the crates' interfaces with rustdoc into target/doc, failing on an
 	rm -rf $(API_DOC_DIR)
 	RUSTDOCFLAGS="$(API_RUSTDOCFLAGS)" cargo doc --no-deps --all-features --lib $(API_PACKAGES)
 
+# make features-check runs clippy and rustdoc on each crate under crates/
+# that declares cargo features, once with no feature and once with each
+# feature alone, through tools/gates/features. The gate line's clippy and make
+# api build every crate with every feature on, so they never see an import
+# or a doc link that only a build with fewer features breaks. rustdoc runs
+# with make api's flags. make features-check is a gate of the gate line.
+.PHONY: features-check
+features-check: ## Run clippy and rustdoc on each crate with no feature and with each feature alone, failing on any warning and naming the crate and the features
+	RUSTDOCFLAGS="$(API_RUSTDOCFLAGS)" python3 -I -B tools/gates/features
+
 site-api: api ## Copy the crates' interfaces into the built site under target/site/api (run make docs first)
 	@test -f target/site/index.html || { echo "target/site has no built site: run make docs first" >&2; exit 1; }
 	mkdir -p target/site/api
@@ -1289,6 +1300,7 @@ docs/scripts/claims
 docs/scripts/prose --check
 docs/scripts/coverage
 make api
+make features-check
 make man-check
 make test-tools
 make conformance
@@ -1315,12 +1327,33 @@ endef
 # and its report. No gate needs the machine to itself. A CARGO_TARGET_DIR
 # set by the caller must not be shared by worktrees whose sources differ
 # (AGENTS.md, "The gates").
+#
+# After the gates, make gates builds the minspec binary with make minspec,
+# in $(GATES_DIR)/minspec-size, and tools/gates/minspec-size prints its size
+# against tier 3's budget. make minspec builds the binary that tier 3
+# measures, and the gate cargo build --profile minspec builds another one,
+# without the minspec link flags. The report is not a gate: a binary over
+# the budget prints a warning, and make gates exits as the gates decided.
+# make tier3-minimal is the check that fails on that binary. An interrupted
+# run skips the report.
+#
+# References:
+# - ADR-1200 D19: the minspec binary's size budget.
 GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),8)
 GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
+GATES_SIZE_LOG = $(GATES_DIR)/logs/minspec-size.log
 
 .PHONY: gates
-gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed
-	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR)
+gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed; then report the minspec binary's size against tier 3's budget
+	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR); code=$$?; \
+	[ $$code -ne 130 ] || exit $$code; \
+	echo; echo "==> make minspec, for the size of the binary tier 3 measures (log: $(GATES_SIZE_LOG))"; \
+	if CARGO_TARGET_DIR=$(GATES_DIR)/minspec-size $(MAKE) --no-print-directory minspec >$(GATES_SIZE_LOG) 2>&1 </dev/null; then \
+		python3 -I -B tools/gates/minspec-size $(GATES_DIR)/minspec-size/$(X86_TARGET)/minspec/vtium; \
+	else \
+		echo "warning: make minspec failed, so make gates cannot report the minspec binary's size. Its log is $(GATES_SIZE_LOG)."; \
+	fi; \
+	exit $$code
 
 # make ci-local runs the tests in a container with the userland of CI's
 # runner, Ubuntu 24.04, so a test that only fails there shows up before a

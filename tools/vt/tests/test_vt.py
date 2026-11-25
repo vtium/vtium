@@ -2072,15 +2072,15 @@ class Make(Case):
     def test_the_default_binary_is_the_minspec_build(self):
         # VTIUM_MINSPEC points the default at the stand-in, which the stand-in
         # cargo "builds".
-        # The acceptance pass builds it with pictures and bidirectional text
+        # The acceptance pass builds it with the packaged console's features
         # unless FEATURES is named on make's command line (ADR-1501 D5).
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.s.calls_of("cargo"), [f"rustc --profile minspec {remap_paths(self.s.env())} -p vtium --bin vtium "
-                                                   f"--target x86_64-unknown-linux-gnu --features images bidi filters {MINSPEC_LINK}"])
+                                                   f"--target x86_64-unknown-linux-gnu --features images bidi filters scroll-pan {MINSPEC_LINK}"])
         self.assertIn(f"--bin={self.s.bin} ", p.stdout)
         self.assertIn(f"--helper={self.s.helper} ", p.stdout)
-        self.assertIn(" --features=images\\ bidi\\ filters ", p.stdout)
+        self.assertIn(" --features=images\\ bidi\\ filters\\ scroll-pan ", p.stdout)
         open(self.s.calls, "w").close()
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}", "FEATURES=")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -2264,7 +2264,7 @@ class Make(Case):
         # or --no-hwaccel and the pass as ACCEPT_RENDER_PATH (ADR-1501 D5).
         # Unnamed, FEATURES is images and bidi, and gpu with them for the GPU
         # path.
-        for path, opt, features in (("cpu", "--no-hwaccel", "images bidi filters"), ("gpu", "--hwaccel", "images bidi filters gpu")):
+        for path, opt, features in (("cpu", "--no-hwaccel", "images bidi filters scroll-pan"), ("gpu", "--hwaccel", "images bidi filters scroll-pan gpu")):
             with self.subTest(path=path):
                 open(self.s.calls, "w").close()
                 named = () if path == "cpu" else ("RENDER_PATH=gpu",)

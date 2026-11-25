@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""
+features - lint and document each crate with fewer features than the gate line's --all-features
+
+Usage:
+
+    make features-check
+    tools/gates/features [--list]
+
+The gate line runs clippy and rustdoc with every feature on, so code that only
+a build with fewer features compiles is never linted there: an import that only
+a feature uses becomes an unused import without it, and a doc link to an item
+that only a feature defines breaks. This script runs both checks with fewer
+features. For each crate under crates/ whose Cargo.toml declares features, it
+runs these two commands once with no feature and once with each feature alone:
+
+    cargo clippy -p CRATE FLAGS --all-targets -- -D warnings
+    cargo doc --no-deps --lib -p CRATE FLAGS
+
+rustdoc runs with RUSTDOCFLAGS from the environment, which `make
+features-check` sets to `make api`'s flags, or with `-D warnings` when the
+variable is unset. With no feature, FLAGS is empty, or --no-default-features
+for a crate whose default features are not empty. With one feature, FLAGS adds
+--features NAME. A crate whose default features are not empty also gets a run
+with FLAGS empty, named "its default features", since that is the build cargo makes when
+nobody names a feature.
+
+The script reads the crates and their features from `cargo metadata`, so a new
+crate or a new feature joins the check by itself. It builds in the cargo target
+directory that CARGO_TARGET_DIR names, as cargo does; `make gates` gives each
+gate a directory of its own. It runs every combination to the end, prints one
+line for each with its result, and then prints the output of each failed run.
+It exits 0 when every run passed and 1 when one failed, naming the crate, the
+check and the features of each failed run. It exits 2 when it finds no crate
+with features, since then it has checked nothing. --list prints the
+combinations without running them.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+def plan(metadata):
+    """The runs for the crates under crates/ that declare features, in the
+    crates' order of name: a list of (crate, label, flags), each to be run
+    with clippy and with rustdoc."""
+    root = Path(metadata["workspace_root"]).resolve()
+    runs = []
+    packages = sorted(metadata["packages"], key=lambda p: p["name"])
+    for p in packages:
+        manifest = Path(p["manifest_path"]).resolve()
+        if manifest.parent.parent != root / "crates":
+            continue
+        features = p["features"]
+        named = sorted(f for f in features if f != "default")
+        if not named:
+            continue
+        default = features.get("default", [])
+        base = ["--no-default-features"] if default else []
+        runs.append((p["name"], "no features", base))
+        if default:
+            runs.append((p["name"], "its default features", []))
+        for f in named:
+            runs.append((p["name"], f"--features {f}", base + ["--features", f]))
+    return runs
+
+
+def commands(crate, flags):
+    """The two checks of one run, as (check, argv)."""
+    return [
+        ("clippy", ["cargo", "clippy", "-p", crate, *flags, "--all-targets", "--", "-D", "warnings"]),
+        ("rustdoc", ["cargo", "doc", "--no-deps", "--lib", "-p", crate, *flags]),
+    ]
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Lint and document each crate with no feature and with each feature alone.")
+    ap.add_argument("--list", action="store_true", help="print the combinations without running them")
+    args = ap.parse_args()
+
+    meta = subprocess.run(["cargo", "metadata", "--no-deps", "--format-version", "1"],
+                          capture_output=True, text=True)
+    if meta.returncode != 0:
+        sys.stderr.write(meta.stderr)
+        print("features: cargo metadata failed, so the check cannot list the crates.", file=sys.stderr)
+        return 2
+    runs = plan(json.loads(meta.stdout))
+    if not runs:
+        print("features: no crate under crates/ declares features, so there is nothing to check.", file=sys.stderr)
+        return 2
+
+    env = dict(os.environ)
+    env.setdefault("RUSTDOCFLAGS", "-D warnings")
+    checks = [(crate, label, check, argv) for crate, label, flags in runs for check, argv in commands(crate, flags)]
+    if args.list:
+        for crate, label, check, argv in checks:
+            print(f"{check:8}{crate:20}{label}")
+        return 0
+
+    print(f"features: {len(checks)} runs, clippy and rustdoc for {len({c for c, _, _ in runs})} crates")
+    start = time.monotonic()
+    failed = []
+    for crate, label, check, argv in checks:
+        p = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env)
+        ok = p.returncode == 0
+        print(f"{'ok  ' if ok else 'FAIL'}  {check:8}{crate:20}{label}", flush=True)
+        if not ok:
+            failed.append((crate, label, check, argv, p.stdout + p.stderr))
+
+    for crate, label, check, argv, output in failed:
+        print()
+        print(f"==> {check} of {crate} with {label} failed: {' '.join(argv)}")
+        print(output.rstrip())
+    print()
+    took = time.monotonic() - start
+    if failed:
+        print(f"features: {len(failed)} of {len(checks)} runs failed ({took:.0f} s):")
+        for crate, label, check, _, _ in failed:
+            print(f"  {check} of {crate} with {label}")
+        return 1
+    print(f"features: all {len(checks)} runs passed ({took:.0f} s)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""
+minspec-size - report the minspec binary's size against tier 3's budget
+
+Usage:
+
+    tools/gates/minspec-size BINARY
+
+`make gates` runs this script after the gates, on the binary that `make
+minspec` builds. That is the binary tier 3 measures: `make install-tree`
+installs it, built for x86_64 against the glibc 2.36 sysroot and linked with
+packed relative relocations and identical code folding. The gate `cargo build
+--profile minspec` builds another binary, for the host and without those link
+flags, and that binary is several hundred kilobytes larger.
+
+The script reads the budget from BINARY_BUDGET in tools/tier3/t3_impl.py, so
+the budget has one home. It prints the binary's size, the budget and the
+margin in bytes. When the binary is over the budget, it also prints a warning
+that `make tier3-minimal` fails on it. The report fails nothing: the script
+exits 0 whether the binary is under the budget or over it. It exits 2 when it
+cannot read the binary's size or the budget.
+
+References:
+- ADR-1200 D19: the minspec binary's size budget.
+"""
+
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+T3_IMPL = ROOT / "tools" / "tier3" / "t3_impl.py"
+
+
+def budget():
+    """BINARY_BUDGET as tools/tier3/t3_impl.py sets it."""
+    found = re.findall(r"^BINARY_BUDGET = ([0-9]+)$", T3_IMPL.read_text(), re.MULTILINE)
+    if len(found) != 1:
+        raise ValueError(f"{T3_IMPL} does not set BINARY_BUDGET to a number on one line")
+    return int(found[0])
+
+
+def count(n):
+    """N bytes, in words."""
+    return f"{n:,} byte" + ("" if n == 1 else "s")
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("usage: tools/gates/minspec-size BINARY", file=sys.stderr)
+        return 2
+    binary = Path(sys.argv[1])
+    try:
+        size = binary.stat().st_size
+        limit = budget()
+    except (OSError, ValueError) as e:
+        print(f"minspec size: cannot report the minspec binary's size: {e}", file=sys.stderr)
+        return 2
+    margin = limit - size
+    side = "under" if margin >= 0 else "over"
+    print(f"minspec size: the minspec binary is {count(size)}, {count(abs(margin))} {side} "
+          f"tier 3's budget of {count(limit)} ({binary}).")
+    if margin < 0:
+        print(f"warning: the minspec binary is {count(-margin)} over tier 3's budget, "
+              "so make tier3-minimal fails on it.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
