@@ -120,6 +120,27 @@ pub struct Pty {
     /// Whether dropping the pty hangs its session up; [`Pty::release`]
     /// turns it off.
     hang_up: bool,
+    /// For a pty [`Pty::passed`] made, the process that started its
+    /// session, which hangs the session up and signals it in the pty's
+    /// place.
+    remote: Option<Box<dyn Remote>>,
+}
+
+/// The process that started a session whose pty master another process
+/// passed to vtium. Under the privilege split, vtium's root process starts
+/// each session as root, and the drawing process, which runs as another
+/// account, cannot signal the session's processes, so it asks the root
+/// process to.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the broker hangs a session up
+///   when the drawer closes its console, and sends `SIGWINCH` when the
+///   drawer asks.
+pub trait Remote {
+    /// Hangs the session up: the console it ran on closed.
+    fn hang_up(&self);
+    /// Sends `SIGWINCH` to the session's foreground process group.
+    fn winch(&self) -> io::Result<()>;
 }
 
 impl Pty {
@@ -165,78 +186,16 @@ impl Pty {
     }
 
     fn start(
-        mut command: Command,
+        command: Command,
         size: Size,
         erase: Erase,
         before_exec: Option<impl FnOnce(u32)>,
     ) -> io::Result<Pty> {
-        let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
-        grantpt(&master)?;
-        unlockpt(&master)?;
-        // Reached from the master, not by its name, which could be replaced.
-        let slave = ioctl_tiocgptpeer(
-            &master,
-            OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC,
-        )?;
-        let mut termios = tcgetattr(&slave)?;
-        termios.special_codes[SpecialCodeIndex::VERASE] = match erase {
-            Erase::Backspace => 0x08,
-            Erase::Delete => 0x7f,
-        };
-        tcsetattr(&slave, OptionalActions::Now, &termios)?;
-        tcsetwinsize(&master, size.winsize())?;
-        fcntl_setfl(&master, fcntl_getfl(&master)? | OFlags::NONBLOCK)?;
-
-        let ctty = slave.try_clone()?;
-        command
-            .stdin(Stdio::from(slave.try_clone()?))
-            .stdout(Stdio::from(slave.try_clone()?))
-            .stderr(Stdio::from(slave));
-        #[expect(
-            unsafe_code,
-            reason = "the signal dispositions and mask, a new session and its controlling terminal can only be set between fork and exec"
-        )]
-        // SAFETY: the hook runs in the forked child before exec, so it
-        // makes only async-signal-safe calls: default_signals's, setsid
-        // and the TIOCSCTTY ioctl, raw syscalls through rustix which
-        // allocate nothing and take no lock. The child has one thread,
-        // as default_signals requires.
-        unsafe {
-            command.pre_exec(move || {
-                default_signals()?;
-                setsid()?;
-                ioctl_tiocsctty(&ctty)?;
-                Ok(())
-            });
-        }
-        // Here and not in the hook: listing the descriptors where
-        // close_range cannot mark them allocates.
-        crate::fds::cloexec_before_spawn()?;
-        // The parent's copies of the slave go with the command, so the
-        // master sees a hangup once the child's session closes it.
-        let mut child = match before_exec {
-            None => {
-                let spawned = command.spawn();
-                drop(command);
-                spawned?
-            }
-            Some(before_exec) => spawn_held(command, before_exec)?,
-        };
-        let opened = fail_at(Step::Pidfd)
-            .and_then(|()| Ok(pidfd_open(Pid::from_child(&child), PidfdFlags::empty())?));
-        let pidfd = match opened {
-            Ok(pidfd) => pidfd,
-            Err(e) => {
-                // Nothing else will wait for this child, so spawn kills it
-                // and waits for it here; a child nobody waits for stays a
-                // zombie until vtium exits. SIGKILL ends the child whatever
-                // it does with other signals, so the wait is short.
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(e);
-            }
-        };
-
+        let Session {
+            master,
+            child,
+            pidfd,
+        } = open(command, size, erase, before_exec)?;
         let master = Rc::new(master);
         Ok(Pty {
             channel: Channel::new(Master(Rc::clone(&master))),
@@ -248,6 +207,7 @@ impl Pty {
             size,
             link: None,
             hang_up: true,
+            remote: None,
         })
     }
 
@@ -293,7 +253,19 @@ impl Pty {
             size,
             link: None,
             hang_up: true,
+            remote: None,
         })
+    }
+
+    /// Makes a pty of `master`, which `remote` started a session on and
+    /// passed to vtium, at the size the kernel holds for it. The pty
+    /// watches the session's leader as [`Pty::adopt`] does. Dropping the
+    /// pty asks `remote` to hang the session up, and [`Pty::redraw`] asks
+    /// it for `SIGWINCH`, since vtium cannot signal the session itself.
+    pub fn passed(master: OwnedFd, remote: Box<dyn Remote>) -> io::Result<Pty> {
+        let mut pty = Pty::adopt(master)?;
+        pty.remote = Some(remote);
+        Ok(pty)
     }
 
     /// Puts the pty in the loop behind `handle`. `access` finds the pty
@@ -471,8 +443,10 @@ impl Pty {
             tcsetwinsize(&*self.master, wanted)?;
             return Ok(());
         }
-        kill_process_group(tcgetpgrp(&*self.master)?, Signal::WINCH)?;
-        Ok(())
+        match &self.remote {
+            Some(remote) => remote.winch(),
+            None => winch(self.master.as_fd()),
+        }
     }
 
     /// The child's process id, or `None` once it was reaped; for an
@@ -513,11 +487,7 @@ impl Pty {
     /// `fstat`, and closed. The image helper's identity reads it before
     /// each request (ADR-1101 D2).
     pub fn slave_owner(&self) -> io::Result<u32> {
-        let slave = ioctl_tiocgptpeer(
-            &*self.master,
-            OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC,
-        )?;
-        Ok(rustix::fs::fstat(&slave)?.st_uid)
+        slave_owner(self.master.as_fd())
     }
 }
 
@@ -583,7 +553,10 @@ impl Drop for Pty {
         if !self.hang_up {
             return;
         }
-        self.signal_leader();
+        match &self.remote {
+            Some(remote) => remote.hang_up(),
+            None => self.signal_leader(),
+        }
         let link = self.link.take();
         let Some(child) = self.child.take() else {
             return;
@@ -608,20 +581,184 @@ impl Pty {
     /// id since is never signalled. With no session on the pty, a child
     /// still running gets the signal.
     fn signal_leader(&self) {
-        let leader = tcgetsid(&*self.master).ok().and_then(|sid| {
-            let pidfd = pidfd_open(sid, PidfdFlags::empty()).ok()?;
-            (tcgetsid(&*self.master).ok() == Some(sid)).then_some(pidfd)
-        });
-        match leader {
-            Some(pidfd) => {
-                let _ = pidfd_send_signal(&pidfd, Signal::HUP);
+        hang_up(
+            self.master.as_fd(),
+            self.child.is_some().then(|| self.pidfd.as_fd()),
+        );
+    }
+}
+
+/// Sends SIGHUP to the leader of the session on the pty behind `master`,
+/// as [`Pty`]'s drop does: the leader is found by its session id and
+/// reached through a pidfd, used only when the pty still names that
+/// session once the pidfd is open. With no session on the pty, `child`
+/// gets the signal, when it is given. vtium's root process calls it when
+/// the drawing process closes a console, before it closes its own copy of
+/// the master.
+pub fn hang_up(master: BorrowedFd<'_>, child: Option<BorrowedFd<'_>>) {
+    match leader(master) {
+        Some(pidfd) => {
+            let _ = pidfd_send_signal(&pidfd, Signal::HUP);
+        }
+        None => {
+            if let Some(child) = child {
+                let _ = pidfd_send_signal(child, Signal::HUP);
             }
-            None if self.child.is_some() => {
-                let _ = pidfd_send_signal(&*self.pidfd, Signal::HUP);
-            }
-            None => {}
         }
     }
+}
+
+/// A pidfd of the process that leads the session on the pty behind
+/// `master`, or `None` when no session is on the pty. The pidfd is given
+/// only when the pty still names that session once the pidfd is open, so
+/// a process that took the leader's id since is never reached.
+pub fn leader(master: BorrowedFd<'_>) -> Option<OwnedFd> {
+    let sid = tcgetsid(master).ok()?;
+    let pidfd = pidfd_open(sid, PidfdFlags::empty()).ok()?;
+    (tcgetsid(master).ok() == Some(sid)).then_some(pidfd)
+}
+
+/// Sends SIGWINCH to the foreground process group of the pty behind
+/// `master`, so that its program redraws. vtium's root process sends it
+/// when the drawing process asks, because the session's processes run as
+/// another account than the drawing process.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": `SIGWINCH` through the broker.
+/// - ADR-1401 D13, item 5: the resize after a restart.
+pub fn winch(master: BorrowedFd<'_>) -> io::Result<()> {
+    kill_process_group(tcgetpgrp(master)?, Signal::WINCH)?;
+    Ok(())
+}
+
+/// Sets the window size of the pty behind `master` to `size`.
+pub fn set_size(master: BorrowedFd<'_>, size: Size) -> io::Result<()> {
+    tcsetwinsize(master, size.winsize())?;
+    Ok(())
+}
+
+/// The size the kernel holds for the pty behind `master`, in cells, and
+/// in pixels per cell where the kernel holds a pixel size.
+pub fn size(master: BorrowedFd<'_>) -> io::Result<Size> {
+    let held = tcgetwinsize(master)?;
+    let cell = |px: u16, cells: u16| u32::from(px).checked_div(u32::from(cells)).unwrap_or(0);
+    Ok(Size {
+        cols: held.ws_col,
+        rows: held.ws_row,
+        cell_width: cell(held.ws_xpixel, held.ws_col),
+        cell_height: cell(held.ws_ypixel, held.ws_row),
+    })
+}
+
+/// The uid that owns the slave of the pty behind `master`, as
+/// [`Pty::slave_owner`] reads it.
+pub fn slave_owner(master: BorrowedFd<'_>) -> io::Result<u32> {
+    let slave = ioctl_tiocgptpeer(
+        master,
+        OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC,
+    )?;
+    Ok(rustix::fs::fstat(&slave)?.st_uid)
+}
+
+/// A session that [`open_session`] started: the pty's master, and the
+/// child that leads a new session on the pty's slave, with its pidfd.
+pub struct Session {
+    pub master: OwnedFd,
+    pub child: Child,
+    pub pidfd: OwnedFd,
+}
+
+/// Opens a pty of `size` and runs `command` on it, as [`Pty::spawn`] does,
+/// and gives the master and the child back without a loop to watch them.
+/// vtium's root process starts each session this way under the privilege
+/// split: it passes a copy of the master to the drawing process, keeps
+/// its own copy, and waits for the child itself.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the broker makes each session's
+///   pty and starts `login` on it.
+pub fn open_session(command: Command, size: Size, erase: Erase) -> io::Result<Session> {
+    open(command, size, erase, None::<fn(u32)>)
+}
+
+fn open(
+    mut command: Command,
+    size: Size,
+    erase: Erase,
+    before_exec: Option<impl FnOnce(u32)>,
+) -> io::Result<Session> {
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
+    grantpt(&master)?;
+    unlockpt(&master)?;
+    // Reached from the master, not by its name, which could be replaced.
+    let slave = ioctl_tiocgptpeer(
+        &master,
+        OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC,
+    )?;
+    let mut termios = tcgetattr(&slave)?;
+    termios.special_codes[SpecialCodeIndex::VERASE] = match erase {
+        Erase::Backspace => 0x08,
+        Erase::Delete => 0x7f,
+    };
+    tcsetattr(&slave, OptionalActions::Now, &termios)?;
+    tcsetwinsize(&master, size.winsize())?;
+    fcntl_setfl(&master, fcntl_getfl(&master)? | OFlags::NONBLOCK)?;
+
+    let ctty = slave.try_clone()?;
+    command
+        .stdin(Stdio::from(slave.try_clone()?))
+        .stdout(Stdio::from(slave.try_clone()?))
+        .stderr(Stdio::from(slave));
+    #[expect(
+        unsafe_code,
+        reason = "the signal dispositions and mask, a new session and its controlling terminal can only be set between fork and exec"
+    )]
+    // SAFETY: the hook runs in the forked child before exec, so it
+    // makes only async-signal-safe calls: default_signals's, setsid
+    // and the TIOCSCTTY ioctl, raw syscalls through rustix which
+    // allocate nothing and take no lock. The child has one thread,
+    // as default_signals requires.
+    unsafe {
+        command.pre_exec(move || {
+            default_signals()?;
+            setsid()?;
+            ioctl_tiocsctty(&ctty)?;
+            Ok(())
+        });
+    }
+    // Here and not in the hook: listing the descriptors where
+    // close_range cannot mark them allocates.
+    crate::fds::cloexec_before_spawn()?;
+    // The parent's copies of the slave go with the command, so the
+    // master sees a hangup once the child's session closes it.
+    let mut child = match before_exec {
+        None => {
+            let spawned = command.spawn();
+            drop(command);
+            spawned?
+        }
+        Some(before_exec) => spawn_held(command, before_exec)?,
+    };
+    let opened = fail_at(Step::Pidfd)
+        .and_then(|()| Ok(pidfd_open(Pid::from_child(&child), PidfdFlags::empty())?));
+    let pidfd = match opened {
+        Ok(pidfd) => pidfd,
+        Err(e) => {
+            // Nothing else will wait for this child, so spawn kills it
+            // and waits for it here; a child nobody waits for stays a
+            // zombie until vtium exits. SIGKILL ends the child whatever
+            // it does with other signals, so the wait is short.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e);
+        }
+    };
+
+    Ok(Session {
+        master,
+        child,
+        pidfd,
+    })
 }
 
 /// Kills the child behind `pidfd` with SIGKILL and waits for it to exit,
@@ -824,7 +961,7 @@ impl<D: 'static, C, A> Drop for LoopLink<D, C, A> {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
     use std::collections::BTreeSet;
     use std::path::Path;
     use std::time::Duration;
@@ -1118,5 +1255,48 @@ mod tests {
         failing_at(Step::Reaper, || drop(pty));
         let left = left_unreaped(&before);
         assert_eq!(left, [], "children left unreaped");
+    }
+
+    /// Records what a passed pty asks of the process that started it.
+    struct Asked(Rc<RefCell<Vec<&'static str>>>);
+
+    impl Remote for Asked {
+        fn hang_up(&self) {
+            self.0.borrow_mut().push("hang up");
+        }
+        fn winch(&self) -> io::Result<()> {
+            self.0.borrow_mut().push("winch");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_passed_pty_asks_its_starter_to_signal_its_session() {
+        let started = open_session(sleeper(), SIZE, Erase::Delete).unwrap();
+        let asked: Rc<RefCell<Vec<&'static str>>> = Rc::default();
+        let passed = || {
+            Pty::passed(
+                started.master.try_clone().unwrap(),
+                Box::new(Asked(Rc::clone(&asked))),
+            )
+            .unwrap()
+        };
+        let mut pty = passed();
+        assert_eq!(pty.size, SIZE, "the pty takes the size the kernel holds");
+        // a new size reaches the kernel, which signals the session itself
+        let bigger = Size { cols: 90, ..SIZE };
+        pty.redraw(bigger).unwrap();
+        assert!(asked.borrow().is_empty());
+        // the same size again sends nothing through the kernel
+        pty.redraw(bigger).unwrap();
+        assert_eq!(*asked.borrow(), ["winch"]);
+        drop(pty);
+        assert_eq!(*asked.borrow(), ["winch", "hang up"]);
+        // a pty let go at vtium's exit leaves its session running
+        passed().release();
+        assert_eq!(*asked.borrow(), ["winch", "hang up"]);
+        let mut child = started.child;
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }

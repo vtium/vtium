@@ -129,6 +129,7 @@ mod batch;
 #[cfg(test)]
 mod batch_login;
 mod blanking;
+pub mod broker;
 #[cfg(test)]
 mod colorterm;
 #[cfg(test)]
@@ -429,6 +430,10 @@ pub struct App {
     retaking: BTreeSet<PathBuf>,
     /// Devices a release waits on.
     releasing: Option<BTreeSet<PathBuf>>,
+    /// Under the privilege split, vtium's root process, which starts the
+    /// sessions and runs the power keys; `None` when vtium runs as one
+    /// process.
+    broker: Option<Rc<broker::Courier>>,
     /// Device events a test hands the next turn, as udev would.
     #[cfg(test)]
     queued_devices: Vec<DeviceEvent>,
@@ -696,6 +701,7 @@ impl App {
             retake_owed: false,
             retaking: BTreeSet::new(),
             releasing: None,
+            broker: None,
             #[cfg(test)]
             queued_devices: Vec::new(),
             wait,
@@ -1079,7 +1085,7 @@ fn to_usize(n: u64) -> usize {
 
 /// The locale in `env`, found as locale(7) says: the first of `LC_ALL`,
 /// `LC_CTYPE` and `LANG` set and not empty, else `C`.
-pub(crate) fn locale(env: &[(OsString, OsString)]) -> String {
+pub fn locale(env: &[(OsString, OsString)]) -> String {
     ["LC_ALL", "LC_CTYPE", "LANG"]
         .iter()
         .find_map(|name| {
