@@ -99,7 +99,7 @@ These tests check what vtium does with the sequences on this page.
 - `a_script_cells_lines_come_from_its_scripts_strike` in [crates/vtium/src/deferred.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/deferred.rs)
 - `a_superscript_cluster_draws_from_the_frits_superscript_parts` in [crates/vtium/src/deferred.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/deferred.rs)
 - `before_the_frits_glyphs_a_script_cells_lines_are_the_built_in_fonts` in [crates/vtium/src/deferred.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/deferred.rs)
-- `a_superscript_ask_names_its_script_and_its_glyphs_are_held_in_it` in [crates/vtium/src/helper.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/helper.rs)
+- `a_superscript_ask_names_its_script_and_its_glyphs_are_held_in_it` in [crates/vtium/src/helper/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/helper/tests.rs)
 - `italic_and_bold_text_is_asked_for_in_its_style` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
 - `a_built_in_font_at_twice_its_size_takes_its_scripts_at_its_own_size` in [crates/vtium/tests/script.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/script.rs)
 - `a_built_in_script_glyph_sits_against_the_text_band` in [crates/vtium/tests/script.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/script.rs)

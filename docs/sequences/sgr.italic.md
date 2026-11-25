@@ -37,7 +37,7 @@ These tests check what vtium does with the sequences on this page.
 - `the_builtin_unifont_leans_about_its_baseline` in [crates/vtium-font/tests/italic.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/tests/italic.rs)
 - `italic_is_set_and_cleared` in [crates/vtium-term/tests/sgr.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sgr.rs)
 - `a_style_draws_its_own_glyph_else_the_built_in_fonts_in_that_style` in [crates/vtium/src/deferred.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/deferred.rs)
-- `an_italic_ask_names_its_style_and_its_glyphs_are_held_as_italic` in [crates/vtium/src/helper.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/helper.rs)
+- `an_italic_ask_names_its_style_and_its_glyphs_are_held_as_italic` in [crates/vtium/src/helper/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/helper/tests.rs)
 - `italic_and_bold_text_is_asked_for_in_its_style` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
 
 ## Where to read more
