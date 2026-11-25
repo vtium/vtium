@@ -52,6 +52,9 @@ log = "0.4"
 udev = "=0.9.3"
 xkbcommon = { version = "=0.9.0", default-features = false }
 rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "mm", "net", "process", "pty", "runtime", "system", "termios", "thread"] }
+# The messages between vtium's broker and its drawer, which the broker's
+# VT backend and the broker's device holder speak.
+vtium-broker-protocol.workspace = true
 # The image helper's wire and reply types, which the helper links too
 # (ADR-1101 D7); only with `images`.
 vtium-image = { workspace = true, optional = true }

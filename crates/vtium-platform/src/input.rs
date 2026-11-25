@@ -127,15 +127,11 @@ pub(crate) enum Opening<D> {
     Retry,
     /// The device is refused until the seat is vtium's again. [`Input`]
     /// keeps it and tries it again at its next wake-up.
-    #[cfg_attr(
-        not(feature = "libseat"),
-        expect(dead_code, reason = "only the seat manager answers it")
-    )]
     Wake,
 }
 
-/// How the devices are opened: directly, or through the seat manager
-/// (vtium/vtium#34).
+/// How the devices are opened: directly, through the seat manager
+/// (vtium/vtium#34), or through vtium's broker.
 pub(crate) trait Open {
     type Device: EventDevice;
     fn open(&mut self, node: &Path) -> io::Result<Opening<Self::Device>>;
@@ -916,14 +912,10 @@ impl<O: Open + 'static> Input<O> {
         }
     }
 
-    /// From here on, every device opens through `seat`, the seat manager,
-    /// in place of the opener (ADR-1400's L2 layer). A device open already
-    /// is closed through the opener and opened again through the seat
-    /// while the input is awake.
-    #[cfg_attr(
-        not(feature = "libseat"),
-        expect(dead_code, reason = "only a libseat build opens through the seat")
-    )]
+    /// From here on, every device opens through `seat`, the seat manager
+    /// or vtium's broker, in place of the opener (ADR-1400's L2 layer). A
+    /// device open already is closed through the opener and opened again
+    /// through the seat while the input is awake.
     pub(crate) fn open_with(&mut self, seat: impl Open<Device = O::Device> + 'static) {
         let open: Vec<DeviceId> = self
             .devices
@@ -940,6 +932,20 @@ impl<O: Open + 'static> Input<O> {
                 self.wake_device(id);
             }
         }
+    }
+}
+
+impl Input<Direct> {
+    /// From here on, every keyboard and pointer opens through vtium's
+    /// broker, in place of a direct open, as the drawer must under the
+    /// privilege split. vtium calls it once with
+    /// [`crate::vt::BrokerVt::input`].
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker opens the input
+    ///   devices and revokes them at each release.
+    pub fn open_through_broker(&mut self, broker: crate::vt::BrokerInput) {
+        self.open_with(broker);
     }
 }
 

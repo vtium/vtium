@@ -90,37 +90,61 @@ impl<C: Console + 'static> KernelVt<C> {
         D: 'static,
         A: Fn(&mut D) -> Option<&mut KernelVt<C>> + Clone + 'static,
     {
-        let acquire = access.clone();
+        KernelVt::start_with(lp, console, num, move |data: &mut D, f: Reach<'_, C>| {
+            if let Some(vt) = access(data) {
+                f(vt);
+            }
+        })
+    }
+
+    /// [`KernelVt::start`] for a VT that the loop's data does not hold:
+    /// `reach` calls the function it is given on the VT, when it finds
+    /// the VT, as the broker's loop finds the VT it shares with its
+    /// device handling.
+    pub(crate) fn start_with<D, R>(
+        lp: &mut Loop<D>,
+        console: C,
+        num: u16,
+        reach: R,
+    ) -> io::Result<Self>
+    where
+        D: 'static,
+        R: Fn(&mut D, Reach<'_, C>) + Clone + 'static,
+    {
+        let acquire = reach.clone();
         lp.on_signal(Signal::SIGUSR1, move |data| {
-            if let Some(vt) = acquire(data) {
-                vt.acquire_signal();
-            }
+            acquire(data, &mut |vt| vt.acquire_signal());
         })?;
-        let release = access.clone();
+        let release = reach.clone();
         lp.on_signal(Signal::SIGUSR2, move |data| {
-            if let Some(vt) = release(data) {
-                vt.release_signal();
-            }
+            release(data, &mut |vt| vt.release_signal());
         })?;
         let vt = KernelVt::open(console, num)?;
         match vt.console.watch_shown() {
             None => {}
             Some(Err(e)) => warn_unwatched(&e),
             Some(Ok(fd)) => {
-                let shown = access.clone();
+                let shown = reach.clone();
                 // Edge-triggered: sysfs reports the attribute readable at
                 // every poll, and wakes its pollers on each notification.
                 let inserted = lp.handle().insert_source(
                     Generic::new(fd, Interest::READ, Mode::Edge),
                     move |_, fd, data: &mut D| {
-                        let Some(vt) = shown(data) else {
-                            return Ok(PostAction::Remove);
-                        };
-                        match vt.console.shown(fd.as_fd()) {
-                            Ok(n) => vt.shown_changed(n),
-                            Err(e) => log::warn!(target: "vt", "cannot read the VT shown: {e}"),
-                        }
-                        Ok(PostAction::Continue)
+                        let mut found = false;
+                        shown(data, &mut |vt| {
+                            found = true;
+                            match vt.console.shown(fd.as_fd()) {
+                                Ok(n) => vt.shown_changed(n),
+                                Err(e) => {
+                                    log::warn!(target: "vt", "cannot read the VT shown: {e}");
+                                }
+                            }
+                        });
+                        Ok(if found {
+                            PostAction::Continue
+                        } else {
+                            PostAction::Remove
+                        })
                     },
                 );
                 if let Err(e) = inserted {
@@ -133,15 +157,16 @@ impl<C: Console + 'static> KernelVt<C> {
                 .insert_source(
                     Generic::new(fd?, Interest::READ, Mode::Level),
                     move |readiness, _, data: &mut D| {
-                        let Some(vt) = access(data) else {
-                            return Ok(PostAction::Remove);
-                        };
                         #[expect(
                             clippy::disallowed_methods,
                             reason = "the re-take's log reads the clock, held in vtium-platform"
                         )]
                         let now = Instant::now();
-                        Ok(if vt.tty_ready(readiness.readable, readiness.error, now) {
+                        let mut keep = false;
+                        reach(data, &mut |vt| {
+                            keep = vt.tty_ready(readiness.readable, readiness.error, now);
+                        });
+                        Ok(if keep {
                             PostAction::Continue
                         } else {
                             PostAction::Remove
@@ -153,6 +178,9 @@ impl<C: Console + 'static> KernelVt<C> {
         Ok(vt)
     }
 }
+
+/// The function [`KernelVt::start_with`]'s `reach` calls on the VT.
+pub(crate) type Reach<'a, C> = &'a mut dyn FnMut(&mut KernelVt<C>);
 
 #[expect(private_bounds, reason = "the console is a Tty outside the crate")]
 impl<C: Console> KernelVt<C> {
@@ -441,6 +469,76 @@ impl<C: Console> KernelVt<C> {
             termios: self.termios.clone(),
             state: AtomicU8::new(RESTORE_IDLE),
         })
+    }
+
+    /// Puts the VT back once the drawer has ended, as the broker must:
+    /// text mode with `KDSETMODE`, `VT_AUTO` with `VT_SETMODE`, and the
+    /// keyboard mode found at the open with `KDSKBMODE`, in that order,
+    /// and then the tty's line settings. Each is tried on its own, so a
+    /// refusal leaves the rest to be put back. The kernel's own reset of a
+    /// VT sets text mode and `VT_AUTO` but leaves the keyboard mode, so the
+    /// broker puts it back itself. The drop that follows puts nothing back
+    /// again.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "When the drawer dies": what the broker puts back,
+    ///   and in which order.
+    pub(crate) fn give_back(&mut self) {
+        let num = self.num;
+        let quiet = self.hup;
+        let report = |what: &str, r: io::Result<()>| {
+            if let Err(e) = r
+                && !quiet
+            {
+                log::warn!(target: "vt", "cannot reset VT {num}'s {what}: {e}");
+            }
+        };
+        let set = std::mem::take(&mut self.set);
+        if set.graphics {
+            report(
+                "display to text mode",
+                self.console.set_display_mode(DisplayMode::Text),
+            );
+        }
+        if set.process {
+            report(
+                "switching to VT_AUTO",
+                self.console.set_switching(Switching::Auto),
+            );
+        }
+        if set.keyboard {
+            report(
+                "keyboard mode",
+                self.console.set_keyboard_mode(self.kb_mode),
+            );
+        }
+        if let Some(termios) = self.termios.take() {
+            report("line settings", self.console.set_termios(&termios));
+        }
+        self.state = State::Inactive;
+    }
+
+    /// Asks the kernel to show VT `target` for the drawer. vtium's own VT
+    /// is asked for as [`Vt::activate`] asks for it. Another VT is asked
+    /// for only while this one is ours and shown, as a switch key does, so
+    /// a drawer whose VT is in the background cannot take the screen from
+    /// another VT.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": `VT_ACTIVATE` when the
+    ///   drawer asks.
+    pub(crate) fn switch_to(&mut self, target: u16) -> io::Result<Switch> {
+        if target == self.num {
+            return self.activate();
+        }
+        self.hung_up()?;
+        if !self.shown_and_ours() {
+            return Err(io::Error::from(rustix::io::Errno::PERM));
+        }
+        log::debug!(target: "vt", "leaving VT {} for VT {target} at the drawer's request", self.num);
+        self.take_switching()?;
+        self.console.activate(target)?;
+        Ok(Switch::Pending)
     }
 
     /// The VT is ours, not hung up, and on screen: when its switch keys
