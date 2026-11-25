@@ -1247,9 +1247,9 @@ mod tests {
             Box::new(Still::new(&[(1, "A")])),
         );
         shown(&mut app);
-        let head = Head::new(app.heads.get(0).unwrap().name()).unwrap();
+        let head = Head::new(app.heads.first().unwrap().name()).unwrap();
         assert!(
-            app.heads.get(0).unwrap().login_image_waits(),
+            app.heads.first().unwrap().login_image_waits(),
             "the first login prompt does not wait for the picture"
         );
         let courier = Rc::clone(app.broker.as_ref().unwrap());

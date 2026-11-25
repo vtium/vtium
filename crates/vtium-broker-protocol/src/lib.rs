@@ -1675,14 +1675,8 @@ mod tests {
             (with(helper, BODY + 4, &[0]), Refusal::Field("helper kind")),
             (with(helper, BODY + 4, &[4]), Refusal::Field("helper kind")),
             // a login picture's helper names a head vtium.conf allows
-            (
-                with(login_picture.clone(), BODY + 6, &[b'/']),
-                Refusal::Field("head"),
-            ),
-            (
-                with(login_picture.clone(), BODY + 5, &[0]),
-                Refusal::Field("head"),
-            ),
+            (with(login_picture, BODY + 6, b"/"), Refusal::Field("head")),
+            (with(login_picture, BODY + 5, &[0]), Refusal::Field("head")),
             // and nothing past its head
             (with(login_picture, AFTER_HEAD + 5, &[1]), Refusal::Padding),
             // the image's budget, its largest file and whether it reads a
