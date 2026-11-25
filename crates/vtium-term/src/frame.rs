@@ -24,6 +24,8 @@ use core::ops::Range;
 
 use crate::cell::{Cell, StyleIndex, Width};
 use crate::damage::{Age, Damage};
+#[cfg(all(feature = "bidi", feature = "rows-beyond"))]
+use crate::line::LineFlags;
 use crate::line::{Glyph, Line, LineSize, LinkId};
 #[cfg(feature = "bidi")]
 use crate::order::Order;
@@ -231,6 +233,11 @@ struct Beyond<'a> {
     /// The order each row below is drawn in, top to bottom.
     #[cfg(feature = "bidi")]
     order_below: Order,
+    /// How many rows above, counted up from row -1, continue the paragraph
+    /// of the screen's top row, and how many rows below, counted down from
+    /// the first, continue the paragraph of its bottom row.
+    #[cfg(feature = "bidi")]
+    joined: (usize, usize),
 }
 
 /// Where a row of a frame's capture lies: on the screen, or the index of
@@ -722,6 +729,14 @@ impl<'a> Frame<'a> {
     /// ending with the row just above the screen, and `below`, top to
     /// bottom, starting with the row just below it.
     pub fn with_rows_beyond(mut self, above: Vec<&'a Line>, below: Vec<&'a Line>) -> Self {
+        #[cfg(feature = "bidi")]
+        {
+            let wrapped = |l: &&&Line| l.flags().contains(LineFlags::WRAPPED);
+            let up = above.iter().rev().take_while(wrapped).count();
+            let last = self.lines.last().into_iter();
+            let down = last.chain(&below).take_while(wrapped).count();
+            self.beyond.joined = (up, down.min(below.len()));
+        }
         self.beyond.above = above;
         self.beyond.below = below;
         self
@@ -891,17 +906,45 @@ impl<'a> Frame<'a> {
     /// Whether any cell of the row at position `row` changed for this
     /// display: [`row_changed`](Self::row_changed) on the screen, and
     /// [`beyond_changed`](Self::beyond_changed) beyond it.
+    ///
+    /// Under bidi, a row beyond the screen that continues the paragraph of
+    /// the screen's top or bottom row is ordered with that whole paragraph,
+    /// so it also reads as changed whenever that screen row does.
     pub fn row_changed_at(&self, row: isize) -> bool {
         match self.place(row) {
             Some(Place::Screen(y)) => self.row_changed(y),
-            Some(_) => self.beyond_changed(),
+            Some(place) => self.beyond_row_changed(place),
             None => false,
         }
+    }
+
+    /// Whether the row beyond the screen at `place` changed for this
+    /// display, as [`row_changed_at`](Self::row_changed_at) reads it.
+    fn beyond_row_changed(&self, place: Place) -> bool {
+        if self.beyond_changed() {
+            return true;
+        }
+        #[cfg(feature = "bidi")]
+        {
+            let (up, down) = self.beyond.joined;
+            let edge = match place {
+                Place::Above(i) if self.rows_above().saturating_sub(i) <= up => Some(0),
+                Place::Below(i) if i < down => self.rows().checked_sub(1),
+                _ => None,
+            };
+            if let Some(y) = edge {
+                return self.row_changed(y);
+            }
+        }
+        #[cfg(not(feature = "bidi"))]
+        let _ = place;
+        false
     }
 
     /// The line beyond the screen at `place`, with its selection and, in a
     /// build with the bidi feature, its order.
     fn beyond_row(&self, place: Place) -> Option<BeyondRow<'a, '_>> {
+        let changed = self.beyond_row_changed(place);
         let (line, selection, i, below) = match place {
             Place::Above(i) => (
                 self.beyond.above.get(i)?,
@@ -928,6 +971,7 @@ impl<'a> Frame<'a> {
         Some(BeyondRow {
             line,
             selection,
+            changed,
             #[cfg(feature = "bidi")]
             order,
         })
@@ -1006,7 +1050,7 @@ impl<'a> Frame<'a> {
         c: Colors,
     ) -> FrameCell<'a> {
         let mut out = self.frame_cell(r.line, cell, usize::MAX, col, c);
-        out.changed = self.beyond_changed();
+        out.changed = r.changed;
         #[cfg(feature = "bidi")]
         if let Some(order) = r.order {
             let glyph = r.line.glyph(cell);
@@ -1025,6 +1069,8 @@ impl<'a> Frame<'a> {
 struct BeyondRow<'a, 'f> {
     line: &'a Line,
     selection: Option<&'f Range<usize>>,
+    /// Whether the row changed for this display.
+    changed: bool,
     #[cfg(feature = "bidi")]
     order: Option<&'f RowOrder>,
 }

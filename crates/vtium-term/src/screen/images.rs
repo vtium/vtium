@@ -683,6 +683,11 @@ mod with {
                 return;
             }
             let runs = self.screen_runs(alt);
+            #[cfg(feature = "rows-beyond")]
+            if !alt && self.changes_above(images, floating, &runs) {
+                self.damage.mark_all();
+                return;
+            }
             for (y, run) in &runs {
                 if !images.contains(&run.image) {
                     continue;
@@ -715,6 +720,56 @@ mod with {
         /// start on.
         fn rows_above(&self, top: usize) -> impl Iterator<Item = &Line> + '_ {
             (0..top).rev().filter_map(|i| self.scrollback.get(i))
+        }
+
+        /// Whether a changed picture draws on a row that a frame can capture
+        /// above the main screen, one of the ROWS_MAX + 1 newest lines of
+        /// the scrollback: through placeholder cells of one of `images` on
+        /// such a row, or in one of the `floating` boxes that reaches such a
+        /// row. `screen` holds the screen's runs, each with its row. A row
+        /// above the screen keeps no damage of its own, and a display keeps
+        /// its pixels by line id, so such a change has the whole frame read
+        /// as drawn whole.
+        ///
+        /// References:
+        /// - ADR-1310 D2, "What the capture holds under `scroll-pan`": a row
+        ///   beyond the screen reads as changed only in a frame drawn whole.
+        #[cfg(feature = "rows-beyond")]
+        fn changes_above(
+            &self,
+            images: &BTreeSet<u32>,
+            floating: &[FloatingRegion],
+            screen: &[(usize, PlaceholderRun)],
+        ) -> bool {
+            let side = crate::bounds::ROWS_MAX.saturating_add(1);
+            let top = self.scrollback.len();
+            let from = top.saturating_sub(side);
+            let (mut carry, _) = placeholder::carry_from(self.rows_above(from), self.cols);
+            let mut above: Vec<(i64, PlaceholderRun)> = Vec::new();
+            for place in from..top {
+                let Some(line) = self.scrollback.get(place) else {
+                    continue;
+                };
+                let back = i64::try_from(top.saturating_sub(place)).unwrap_or(i64::MAX);
+                placeholder::runs(line, key(line), self.cols, &mut carry, &mut |r| {
+                    above.push((back.saturating_neg(), r));
+                });
+            }
+            if above.iter().any(|(_, r)| images.contains(&r.image)) {
+                return true;
+            }
+            let reach = i64::try_from(side).unwrap_or(i64::MAX).saturating_neg();
+            let rows = || {
+                let screen = screen
+                    .iter()
+                    .map(|(y, run)| (i64::try_from(*y).unwrap_or(i64::MAX), run));
+                above.iter().map(|(y, run)| (*y, run)).chain(screen)
+            };
+            floating.iter().any(|region| {
+                region.top_left(rows()).is_some_and(|(top, _)| {
+                    top < 0 && top.saturating_add(i64::from(region.rows)) > reach
+                })
+            })
         }
 
         /// The runs on the screen's own lines of a buffer, each with its
@@ -1060,6 +1115,10 @@ mod with {
                 })
                 .max()
                 .unwrap_or(0);
+            // A frame captures up to ROWS_MAX + 1 rows above the screen, so
+            // the walk also finds each box that reaches one of those rows.
+            #[cfg(feature = "rows-beyond")]
+            let reach = reach.saturating_add(crate::bounds::ROWS_MAX.saturating_add(1));
             let keys = self.keys_reaching(self.flags.alternate, reach);
             let rows = keys.rows();
             let row_of = |line: LineKey| -> Option<i64> {
@@ -1075,6 +1134,21 @@ mod with {
                 let Some(top) = row_of(region.line).map(|y| y.saturating_add(region.row)) else {
                     continue;
                 };
+                // A row above the screen that a frame captures keeps no
+                // damage of its own, and a display keeps its pixels by line
+                // id, so a box that changes on such a row has every row
+                // read as changed.
+                #[cfg(feature = "rows-beyond")]
+                {
+                    let captured = i64::try_from(crate::bounds::ROWS_MAX)
+                        .unwrap_or(i64::MAX)
+                        .saturating_add(1);
+                    let bottom = top.saturating_add(i64::from(region.rows));
+                    if top < 0 && bottom > captured.saturating_neg() {
+                        self.damage.mark_all();
+                        return;
+                    }
+                }
                 let first = usize::try_from(top.max(0)).unwrap_or(0);
                 let end = top.saturating_add(i64::from(region.rows));
                 let end = usize::try_from(end.max(0)).unwrap_or(0).min(self.rows);
@@ -1158,7 +1232,8 @@ mod with {
         // A kitty delete takes the picture off every cell its box covered,
         // so the screen's rows of that box are marked changed, also when
         // the box's top row has scrolled above the screen and the store
-        // holds no other placement.
+        // holds no other placement. A build with the rows beyond the screen
+        // marks everything, since the box reaches row -1.
         //
         // References:
         // - ADR-1100 D8: the store reports each changed box, and the screen
@@ -1174,6 +1249,7 @@ mod with {
             for row in 0..2 {
                 assert!(t.screen().damage().changed(row, 0, age), "row {row}");
             }
+            #[cfg(not(feature = "rows-beyond"))]
             assert!(!t.screen().damage().row_changed(2, age), "past the box");
         }
     }

@@ -137,9 +137,11 @@ pub struct Reach {
     /// The rows below the screen that the capture always holds where they
     /// exist, which is only while the view is scrolled back.
     pub below: usize,
-    /// The rows drawn ahead and behind on each side of the screen. The
-    /// capture holds them only while the view is scrolled back, or when
-    /// the scroll record counted a move of the view since `moved_since`.
+    /// The rows drawn ahead and behind on each side of the screen, counted
+    /// from the screen's edge, as `above` and `below` are. The capture
+    /// holds them only while the view is scrolled back, or when the scroll
+    /// record counted a move of the view since `moved_since`. Each side
+    /// then holds the larger of `spare` and its own count, not their sum.
     pub spare: usize,
     /// The age since which a move of the view counts: the oldest age among
     /// the displays that read the capture.
@@ -794,6 +796,35 @@ impl Screen {
             side(reach.above.max(spare), exist_above),
             side(reach.below.max(spare), offset),
         )
+    }
+
+    /// Marks everything changed when a line that a frame can capture
+    /// beyond the view matches `changed`: one of the ROWS_MAX + 1 lines
+    /// above the view's top row, or, while the view is scrolled back, of
+    /// those below its bottom row. A row beyond the screen keeps no damage
+    /// of its own, and a display keeps its pixels by line id, so a change
+    /// of look that reaches such a line, a hover or a label of link hints,
+    /// has the whole frame read as drawn whole.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "What the capture holds under `scroll-pan`": a row
+    ///   beyond the screen reads as changed only in a frame drawn whole.
+    #[cfg(feature = "rows-beyond")]
+    pub(super) fn mark_all_if_beyond(&mut self, changed: impl Fn(&Line) -> bool) {
+        if self.flags.alternate {
+            return;
+        }
+        let side = ROWS_MAX.saturating_add(1);
+        let top = self.view_place(0);
+        let end = top.saturating_add(self.rows);
+        let below = end..end.saturating_add(side.min(self.scrollback.offset()));
+        let beyond = (top.saturating_sub(side)..top)
+            .chain(below)
+            .filter_map(|p| self.line_at(p))
+            .any(changed);
+        if beyond {
+            self.damage.mark_all();
+        }
     }
 
     /// The line the view shows at row `y`.
