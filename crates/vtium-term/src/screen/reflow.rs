@@ -283,6 +283,11 @@ pub(crate) fn rewrap_line(
                 p.col = p.col.min(held.saturating_sub(1));
             }
             cut(&mut src, width);
+            // The row keeps its cells but takes its reorder mark from them,
+            // as a row the rewrap makes does. A row kept here may have
+            // waited through a width that would have made it anew.
+            #[cfg(feature = "bidi")]
+            src.mark_reorders_from_text();
             out.push(src);
             return 1;
         }

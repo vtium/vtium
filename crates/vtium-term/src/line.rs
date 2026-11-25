@@ -167,8 +167,8 @@ impl LineFlags {
     /// and redraws all of the paragraph's rows when any of them changes,
     /// so a row whose last right-to-left character was erased is redrawn
     /// in its new order too (ADR-1004 D8). A rewrap, which redraws the
-    /// whole screen, sets it on each row it makes from the characters the
-    /// row holds.
+    /// whole screen, sets or clears it on each row it makes or keeps, from
+    /// the characters the row holds.
     pub(crate) const REORDERS: Self = Self(1 << 11);
 
     const FLAGS: u16 = ((1 << 4) - 1) | Self::FIXED.0 | Self::PARAGRAPH.0 | Self::REORDERS.0;
@@ -969,6 +969,28 @@ impl Line {
             changed = true;
         }
         changed
+    }
+
+    /// Sets the line's reorder mark from the characters it holds now, and
+    /// clears the mark when none of them reorders. A rewrap does this for a
+    /// row it keeps as it is, as it does for each row it makes, so the mark
+    /// after a rewrap depends only on the row's characters. A row that
+    /// waited through several widths then ends with the same mark as one
+    /// rewrapped at each of them, which may have made it anew.
+    ///
+    /// References:
+    /// - ADR-1004 D8: what the mark records and why a frame reads it.
+    #[cfg(feature = "bidi")]
+    pub(crate) fn mark_reorders_from_text(&mut self) {
+        let reorders = self
+            .cells
+            .iter()
+            .any(|&c| first_char(self.glyph(c)).is_some_and(crate::unicode::bidi::reorders));
+        if reorders {
+            self.flags.insert(LineFlags::REORDERS);
+        } else {
+            self.flags.remove(LineFlags::REORDERS);
+        }
     }
 
     /// Whether the line may hold a wide character; false only when it
