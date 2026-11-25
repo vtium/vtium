@@ -767,6 +767,12 @@ impl<F: Face> Renderer<F> {
         if !out.is_empty()
             && let Some(held) = self.ring.uncounted.take()
         {
+            // both halves keep the frames after this one cheap: without
+            // the serial, the next buffer's age names a frame older than
+            // it holds; without the new key, this buffer's record waits
+            // under a frame no buffer holds. Either way a buffer finds no
+            // record of its stale copies, takes every copy as stale and
+            // draws the whole screen
             self.cells.count_presented();
             let serial = self.cells.serial();
             if let Some(entry) = self.ring.twins.iter_mut().find(|(k, _)| *k == held) {

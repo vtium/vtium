@@ -1253,6 +1253,66 @@ fn a_one_line_scroll_down_writes_the_copies_the_window_heads_for() {
     );
 }
 
+// a frame that changes nothing, presented for an overlay alone, counts as
+// a frame, and the buffer it was drawn into keeps its record of stale
+// copies under that frame: the frames after it, into either buffer, find
+// their record and draw only what they lack, not the whole screen, as
+// they would for a buffer the pan does not remember
+#[test]
+fn a_frame_presented_for_an_overlay_alone_keeps_the_buffers_records() {
+    let (cols, rows) = (170, 48);
+    let mut big = Big::new(cols, rows);
+    let mut r = big_renderer(1366, 768);
+    let mut bufs = Buffers::new(2, r.pan_buffer_size());
+    let state = big.state();
+    let over = crate::Rect {
+        x: 600,
+        y: 300,
+        width: 160,
+        height: 48,
+    };
+    let mut since = Age::NEVER;
+    // scrolls that move the window off the ring's start, then a frame
+    // that changes nothing, then one that changes nothing under the
+    // overlay, then scrolls again
+    let script = [1, 1, 1, 1, 0, 0, 1, 1, 1, 1];
+    let mut written = Vec::new();
+    for (n, &scroll) in [0].iter().chain(&script).enumerate() {
+        let mut d = Damage::new(cols, rows);
+        if n > 0 {
+            since = d.checkpoint();
+        }
+        if scroll > 0 {
+            big.scroll(&mut d, true);
+        }
+        let frame = big.frame(&d, since);
+        let (i, age) = bufs.take();
+        let mut counted = Counted {
+            canvas: &mut bufs.canvases[i],
+            pixels: 0,
+        };
+        let whole = n == 0;
+        let (drawn, _) = r.draw_pan(&frame, &mut counted, age, &state, scroll, whole);
+        let mut damaged = !drawn.damage.is_empty();
+        if n == 6 {
+            assert!(!damaged, "the frame before the overlay changes nothing");
+            draw_over(&mut r.pan_overlay(&mut counted), (1366, 768), over);
+            r.redraw_area(over);
+            damaged = !r.pan_damage(over).is_empty();
+        }
+        written.push(counted.pixels);
+        bufs.drawn(i, damaged);
+    }
+    // each scroll after the overlay draws the rows its buffer lacks, the
+    // cells under the overlay and the border: far less than the screen
+    for (n, &px) in written.iter().enumerate().skip(7) {
+        assert!(
+            px < 200_000,
+            "frame {n} after the overlay writes {px} pixels: {written:?}"
+        );
+    }
+}
+
 /// The display area the overlay test draws over: across the grid's edge
 /// and into the border on both displays, three rows tall.
 const OVER: crate::Rect = crate::Rect {
