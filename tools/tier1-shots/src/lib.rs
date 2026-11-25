@@ -9,7 +9,7 @@
 //! the case's goldens. It then draws the terminal the replay leaves, text
 //! and pictures, through the console's built-in face, unifont at 8×16. A
 //! screen that shows Arabic draws in tier 2's scripts font set instead,
-//! so its letters join ([`shoot`]). For each behaviour scenario it draws
+//! so its letters join (`shoot`). For each behaviour scenario it draws
 //! each screen the scenario dumps, in order, and checks the scenario's
 //! transcript. A picture whose output differs from its golden is still
 //! drawn, and the manifest and the report list the lines that differ.
@@ -20,9 +20,9 @@
 //! the tool checks that the live path's bytes, read back through a
 //! terminal, draw the picture.
 //!
-//! [`select`] says what is drawn, [`judge`] compares an output with its
+//! `select` says what is drawn, [`judge`] compares an output with its
 //! golden, [`manifest`] names each picture and writes `manifest.json`,
-//! [`shoot`] replays and draws, and [`play`] plays a case live.
+//! `shoot` replays and draws, and `play` plays a case live.
 
 pub mod judge;
 pub mod manifest;

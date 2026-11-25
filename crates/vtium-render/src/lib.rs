@@ -52,7 +52,7 @@
 //! device memory is never read. A [`Canvas`] keeps them in memory, for
 //! tests and tier 2; a [`Mapped`] writes them into a mapped dumb buffer.
 //!
-//! With the `gpu` feature, the [`gpu`] module holds the GPU path: the safe
+//! With the `gpu` feature, the `gpu` module holds the GPU path: the safe
 //! `Gl` trait it draws through and the pipeline of slots each frame passes
 //! (ADR-1303).
 //!

@@ -65,7 +65,7 @@ impl Step {
 }
 
 /// A scenario's input steps, checks and assertions, as the judge reads
-/// them ([`crate::scenario::Scenario::probe`]).
+/// them (`Scenario::probe`).
 #[derive(Clone, Debug)]
 pub struct Probe {
     pub name: String,
