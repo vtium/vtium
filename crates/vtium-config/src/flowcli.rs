@@ -703,22 +703,23 @@ impl Command<'_, '_> {
             .ok_or_else(|| Fail::Usage("look takes add, set or rm".to_owned()))?;
         match sub.as_str() {
             "add" => {
-                let valued: Vec<&str> = ops::LOOK_KEYS.iter().map(|(_, o)| *o).collect();
+                let valued: Vec<&str> = ops::LOOK_KEYS
+                    .iter()
+                    .map(|(_, o)| *o)
+                    .chain([VTLOOK_OPTION])
+                    .collect();
                 let args = Args::parse(rest, &CHANGE, &valued)?;
                 let [name] = args.words.as_slice() else {
                     return Err(Fail::Usage("look add takes NAME".to_owned()));
                 };
-                let keys: Vec<(&str, Option<&str>)> = ops::LOOK_KEYS
-                    .iter()
-                    .filter_map(|(k, o)| args.value(o).map(|v| (*k, Some(v))))
-                    .collect();
+                let keys = look_keys(&args);
                 self.change(&args, |t| ops::look_add(t, name, &keys))
             }
             "set" => {
                 let valued: Vec<&str> = ops::LOOK_KEYS
                     .iter()
                     .map(|(_, o)| *o)
-                    .chain(["--name"])
+                    .chain([VTLOOK_OPTION, "--name"])
                     .collect();
                 let args = Args::parse(rest, &CHANGE, &valued)?;
                 let [name] = args.words.as_slice() else {
@@ -726,10 +727,7 @@ impl Command<'_, '_> {
                         "look set takes NAME and the settings to change".to_owned(),
                     ));
                 };
-                let keys: Vec<(&str, Option<&str>)> = ops::LOOK_KEYS
-                    .iter()
-                    .filter_map(|(k, o)| args.value(o).map(|v| (*k, Some(v))))
-                    .collect();
+                let keys = look_keys(&args);
                 let rename = args.value("--name").map(str::to_owned);
                 if keys.is_empty() && rename.is_none() {
                     return Err(Fail::Usage(
@@ -1088,4 +1086,23 @@ mod tests {
         };
         assert_eq!(missing(&checked), gaps.iter().map(line).collect::<Vec<_>>());
     }
+}
+
+/// The option of `look add` and `look set` that sets a look's `vtlook`,
+/// which the look card also sets. `vtlook` is not in [`ops::LOOK_KEYS`],
+/// because a look's section takes it beside the key table, as a head
+/// takes `look`.
+///
+/// References:
+/// - ADR-1403 D8: every change the view makes is also a command.
+const VTLOOK_OPTION: &str = "--vtlook";
+
+/// The look keys that `args` gives values to, in the order of
+/// [`ops::LOOK_KEYS`], then `vtlook`.
+fn look_keys<'a>(args: &'a Args) -> Vec<(&'static str, Option<&'a str>)> {
+    ops::LOOK_KEYS
+        .iter()
+        .chain([&("vtlook", VTLOOK_OPTION)])
+        .filter_map(|(k, o)| args.value(o).map(|v| (*k, Some(v))))
+        .collect()
 }

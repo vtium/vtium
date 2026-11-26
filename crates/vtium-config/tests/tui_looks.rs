@@ -718,11 +718,11 @@ fn a_look_with_no_font_set_anywhere_says_what_vtium_uses() {
     let screen = reach_inputs(with_conf(conf), &[TO_LOOKS, b"\r"]);
     let text = flat(&screen);
     assert!(
-        text.contains("Font set none, so vtium uses the font that vconsole.conf names, or else its built-in font"),
+        text.contains("Font set none, so vtium uses the font that vconsole.conf names, else the font set terminus where it is installed, or else its built-in font"),
         "{screen}"
     );
     assert!(
-        text.contains("Text: the font that vconsole.conf names, or else vtium's built-in font"),
+        text.contains("Text: the font that vconsole.conf names, else the font set terminus where it is installed, or else vtium's built-in font"),
         "{screen}"
     );
     assert!(!text.contains("vtium's own choice"), "{screen}");

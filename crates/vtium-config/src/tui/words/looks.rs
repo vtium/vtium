@@ -184,17 +184,19 @@ pub fn top_choice(what: &str, value: impl Display) -> String {
 pub const TOP_NONE: &str = "none";
 
 /// What the font set line shows where neither the look nor vtium.conf
-/// names a font set.
-pub const FRIT_NONE: &str =
-    "none, so vtium uses the font that vconsole.conf names, or else its built-in font";
+/// names a font set: vtium's order of fonts after `font-name`.
+///
+/// References:
+/// - ADR-1204 D2: vconsole's font, then the default set `terminus`, then
+///   the built-in font.
+pub const FRIT_NONE: &str = "none, so vtium uses the font that vconsole.conf names, else the font set terminus where it is installed, or else its built-in font";
 
 /// The note of the font set list's first choice where vtium.conf names no
 /// font set.
-pub const FRIT_NONE_NOTE: &str =
-    "vtium uses the font that vconsole.conf names, or else its built-in font";
+pub const FRIT_NONE_NOTE: &str = "vtium uses the font that vconsole.conf names, else the font set terminus where it is installed, or else its built-in font";
 
 /// The text role where neither the look nor vtium.conf names a font set.
-pub const ROLE_TEXT_NONE: &str = "the font that vconsole.conf names, or else vtium's built-in font";
+pub const ROLE_TEXT_NONE: &str = "the font that vconsole.conf names, else the font set terminus where it is installed, or else vtium's built-in font";
 
 pub const TOP_FRIT: &str = "font set";
 pub const TOP_SIZE: &str = "size";

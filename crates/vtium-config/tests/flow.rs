@@ -561,6 +561,44 @@ fn look_add_and_look_set_take_a_look_s_cell() {
     assert_eq!(f.draft(), before);
 }
 
+// ADR-1403 D8: every change the view makes is also a command, and the
+// look card sets a look's vtlook, so `look add` and `look set` take
+// --vtlook; the help's usage lines name --ligatures and --vtlook
+#[test]
+fn look_add_and_look_set_take_a_look_s_vtlook() {
+    let f = fixture("look-vtlook");
+    f.desk();
+    let added = f.run(&[
+        "look", "add", "big", "--frit", "monoid", "--vtlook", "amber",
+    ]);
+    assert_eq!(added.status, 0, "{}", added.err);
+    assert!(
+        f.draft()
+            .contains("[look big]\nfont-name = monoid\nvtlook = amber\n"),
+        "{}",
+        f.draft()
+    );
+    let set = f.run(&["look", "set", "big", "--vtlook", "sepia"]);
+    assert_eq!(set.status, 0, "{}", set.err);
+    assert!(
+        f.draft()
+            .contains("[look big]\nfont-name = monoid\nvtlook = sepia\n"),
+        "{}",
+        f.draft()
+    );
+    let help = f.run(&["--help", "look"]);
+    assert_eq!(help.status, 0, "{}", help.err);
+    for form in ["look set NAME"] {
+        let line = help
+            .out
+            .lines()
+            .find(|l| l.contains(form))
+            .unwrap_or_else(|| panic!("{form} in {}", help.out));
+        assert!(line.contains("[--ligatures L]"), "{line}");
+        assert!(line.contains("[--vtlook NAME]"), "{line}");
+    }
+}
+
 #[test]
 fn the_library_keeps_looks_and_rules_and_lets_them_go() {
     let f = fixture("library");

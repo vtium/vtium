@@ -264,12 +264,12 @@ const TOPICS: &[Topic] = &[
                 "add a look",
             ),
             form(
-                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT] [--login-image-rows N] [--login-image-position P] [--login-image-scale PCT] [--palette NAME] [--pointer-theme PATH]",
+                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--ligatures L] [--display-depth D] [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT] [--login-image-rows N] [--login-image-position P] [--login-image-scale PCT] [--palette NAME] [--pointer-theme PATH] [--vtlook NAME]",
                 "change a look's settings",
             ),
             form("look rm NAME [--force]", "delete a look"),
         ],
-        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting, --line-spacing and --ligatures set font-engine, font-hinting, font-line-spacing and font-ligatures; --display-depth, --display-dpi, --login-image, --login-image-fit, --login-image-rows, --login-image-position, --login-image-scale, --palette and --pointer-theme set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
+        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting, --line-spacing and --ligatures set font-engine, font-hinting, font-line-spacing and font-ligatures; --display-depth, --display-dpi, --login-image, --login-image-fit, --login-image-rows, --login-image-position, --login-image-scale, --palette, --pointer-theme and --vtlook set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
         example: "vtium-config look add big --frit monoid --size 14",
     },
     Topic {
