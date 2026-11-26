@@ -1227,7 +1227,9 @@ impl App {
             (f, s) => f.or(s),
         };
         let unused = super::tabs::looks::list::heads(&self.shared, &name).is_empty();
-        let offer = unused.then(|| offer_head(&self.shared)).flatten();
+        let offer = unused
+            .then(|| super::tabs::looks::list::console_head(&self.shared))
+            .flatten();
         if font.is_none() && colors.is_none() && size.is_none() {
             let same = words::look_same(&name, later.as_deref());
             match offer {
@@ -1545,23 +1547,6 @@ fn console_scheme(shared: &Shared) -> String {
     of_look
         .or_else(|| vtium_settings::setting(conf, "palette"))
         .unwrap_or_else(|| "legacy".to_owned())
-}
-
-/// The terminal of the draft that a look no terminal uses is offered to:
-/// the console's own terminal, which `VTIUM_HEAD` names, else the draft's
-/// only terminal. With several terminals and no `VTIUM_HEAD`, there is
-/// none to offer.
-fn offer_head(shared: &Shared) -> Option<String> {
-    let heads: Vec<String> = shared
-        .conf_text()
-        .and_then(|c| vtium_settings::sections(c.as_bytes()))
-        .map(|r| r.parsed.config.heads.into_iter().map(|h| h.name).collect())
-        .unwrap_or_default();
-    match (&shared.inputs.head, heads.as_slice()) {
-        (Some(head), _) if heads.contains(head) => Some(head.clone()),
-        (_, [only]) => Some(only.clone()),
-        _ => None,
-    }
 }
 
 /// What `y` does to the question that offers the look `look` to the

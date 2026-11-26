@@ -85,6 +85,31 @@ pub fn heads(shared: &Shared, name: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The terminal of the draft that the console belongs to: the one that
+/// `VTIUM_HEAD` names, else the draft's only terminal. With several
+/// terminals and no `VTIUM_HEAD`, vtium-config cannot tell which.
+///
+/// References:
+/// - ADR-1401 D5: vtium sets `VTIUM_HEAD` in each console's session.
+pub fn console_head(shared: &Shared) -> Option<String> {
+    let heads: Vec<String> = shared
+        .conf_text()
+        .and_then(|c| vtium_settings::sections(c.as_bytes()))
+        .map(|r| r.parsed.config.heads.into_iter().map(|h| h.name).collect())
+        .unwrap_or_default();
+    match (&shared.inputs.head, heads.as_slice()) {
+        (Some(head), _) if heads.contains(head) => Some(head.clone()),
+        (_, [only]) => Some(only.clone()),
+        _ => None,
+    }
+}
+
+/// Whether the terminal `head` of the draft names no look of its own, so
+/// it draws the look `default`.
+pub fn names_no_look(shared: &Shared, head: &str) -> bool {
+    heads(shared, words::DEFAULT_LOOK).iter().any(|h| h == head)
+}
+
 /// The look `look` as an item of the tab's list: its name, then the
 /// sentence that says its font set, its size and the heads that draw it.
 pub fn item(shared: &Shared, look: &Look) -> Item {

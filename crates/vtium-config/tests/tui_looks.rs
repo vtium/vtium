@@ -2478,3 +2478,74 @@ fn t_on_a_look_no_terminal_uses_offers_it_to_the_terminal() {
         )
     );
 }
+
+/// A vtium.conf with the look `nordic`, which no terminal uses, and the
+/// terminal desk, which names no look.
+const UNUSED_LOOK: &str = "# mine\nfont-name=unifont\nversion = 1\n[look nordic]\nfont-size = 16\n[head desk]\n[rules]\ndisplay * -> desk\n";
+
+/// Choosing a font set on the card of a look that no terminal uses, while
+/// the console's terminal names no look, gives the terminal the look, and
+/// the message line says so. Without that, the font set saved in the look
+/// reaches no console, and quitting puts the console back.
+///
+/// References:
+/// - ADR-1201 D3, "What it writes": when the console's head names no
+///   look, the tab sets the head's `look =` line and says on screen that
+///   it did.
+#[test]
+fn a_font_set_chosen_for_a_look_no_terminal_uses_gives_the_console_s_terminal_the_look() {
+    // Enter opens the card, Down reaches its font set line, and Right
+    // steps from vtium.conf's font set to the first font set
+    let keys: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, b"\x1b[C", ESC, b"s"];
+    let draft = draft_after(UNUSED_LOOK, keys);
+    let head = draft.split("[head desk]\n").nth(1).unwrap_or_default();
+    assert!(head.starts_with("look = nordic\n"), "{draft}");
+    let mut d = desk();
+    d.installed = UNUSED_LOOK.to_owned();
+    d.draft = UNUSED_LOOK.to_owned();
+    let mut c = console().keys(&[TO_LOOKS, b"\r", DOWN, b"\x1b[C"]);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(UNUSED_LOOK), Some(&mut d))
+        .expect("the loop");
+    let screen = flat(&c.seen.clone().expect("the screen"));
+    assert!(
+        screen.contains(
+            "The terminal desk named no look, so vtium-config set it to use the look nordic."
+        ),
+        "{screen}"
+    );
+}
+
+/// `q` with changes that are not saved says that the draft is not
+/// installed yet, so the console goes back to its installed font, and
+/// what installs the draft.
+#[test]
+fn q_says_the_draft_is_not_installed_and_what_installs_it() {
+    let mut d = desk();
+    d.installed = UNUSED_LOOK.to_owned();
+    d.draft = UNUSED_LOOK.to_owned();
+    let mut c = console().keys(&[TO_LOOKS, b"\r", DOWN, b"\x1b[C", ESC, b"q"]);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(UNUSED_LOOK), Some(&mut d))
+        .expect("the loop");
+    let screen = flat(&c.seen.clone().expect("the screen"));
+    assert!(
+        screen.contains("Either way, the console goes back to its installed font until you install the draft with i."),
+        "{screen}"
+    );
+}
+
+/// The card's list of font sets marks a set whose text font this machine
+/// lacks, so a set that would draw in vtium's built-in font is not chosen
+/// by mistake.
+#[test]
+fn the_card_marks_a_font_set_whose_text_font_is_missing() {
+    let screen = reach_inputs(with_conf(UNUSED_LOOK), &[TO_LOOKS, b"\r", DOWN, b"\r"]);
+    let rows: Vec<String> = body(&screen)
+        .into_iter()
+        .filter(|r| r.contains("proof"))
+        .collect();
+    assert!(
+        rows.iter()
+            .any(|r| r.contains("its text font is not on this machine")),
+        "{rows:?}\n{screen}"
+    );
+}

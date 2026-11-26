@@ -342,16 +342,29 @@ pub fn saved_draft(n: usize, name: &str) -> String {
 
 pub const NOTHING_TO_SAVE: &str = "Nothing to save: the draft already holds every change.";
 
-/// The question `q` asks while changes are not saved (ADR-1403 D7).
+/// The question `q` asks while changes are not saved. Saving writes the
+/// changes into the draft, and only an install puts the draft in use, so
+/// the question says that the console goes back to its installed font and
+/// what installs the draft.
+///
+/// References:
+/// - ADR-1403 D7: `q` asks before it drops changes that are not saved.
+/// - ADR-1201 D4, "Giving the console back": leaving gives the console
+///   back the font it had, unless Install made a font the configured one.
 pub fn quit_question(n: usize) -> String {
     let changes = match n {
         1 => "1 change is".to_owned(),
         n => format!("{n} changes are"),
     };
     format!(
-        "{changes} not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back."
+        "{changes} not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back. {QUIT_NOT_INSTALLED}"
     )
 }
+
+/// What the quit question says of the draft: it is not in use until it is
+/// installed.
+pub const QUIT_NOT_INSTALLED: &str =
+    "Either way, the console goes back to its installed font until you install the draft with i.";
 
 /// A question that throws the draft away, with the unsaved changes it
 /// also throws away.

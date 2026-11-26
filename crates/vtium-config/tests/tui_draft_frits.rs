@@ -223,7 +223,7 @@ fn a_font_set_made_in_the_tui_survives_leaving_before_install() {
     let said = words(&screen);
     assert!(
         said.contains(
-            "1 change is not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back."
+            "1 change is not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back. Either way, the console goes back to its installed font until you install the draft with i."
         ),
         "{screen}"
     );

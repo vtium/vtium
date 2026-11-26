@@ -917,7 +917,7 @@ mod draft_flow {
         let ran = run(&b, &[&CHANGE[..], &[b"q"]].concat());
         assert!(
             flat(ran.screen()).contains(
-                "1 change is not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back."
+                "1 change is not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back. Either way, the console goes back to its installed font until you install the draft with i."
             ),
             "{}",
             ran.screen()

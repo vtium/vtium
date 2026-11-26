@@ -381,14 +381,23 @@ pub fn missing(shared: &Shared, name: &str) -> Vec<String> {
     }
 }
 
-/// What the console draws in place of the text font of the font set
-/// `name`, where the font helper left the text font out: the font, why,
-/// and what to do, as a sentence for the trial's countdown. `None` when
-/// the text font is there, or nothing is known yet.
-///
-/// References:
-/// - ADR-1204 D7: vtium-config names each font a set needs and lacks.
-pub fn text_fallback(shared: &Shared, name: &str) -> Option<String> {
+/// Why the font helper left a font set's text font out, with the font in
+/// a person's words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TextFont {
+    /// This machine does not have it.
+    Missing(String),
+    /// The batch does not list its file.
+    Inactive(String),
+    /// This machine has it, and the font helper cannot use it: the font
+    /// and why.
+    Refused(String, String),
+}
+
+/// Why the font helper left out the text font of the font set `name`, the
+/// first font outside a layer. `None` when the text font is there, or
+/// nothing is known yet.
+pub fn text_font_left_out(shared: &Shared, name: &str) -> Option<TextFont> {
     use vtium_settings::batch::{MISSING_BECAUSE, NOT_ACTIVE};
     let frit = parsed(shared, name)?;
     let text = frit.sources.iter().find(|s| s.layer.is_none())?;
@@ -398,9 +407,23 @@ pub fn text_fallback(shared: &Shared, name: &str) -> Option<String> {
     let l = left.iter().find(|l| l.spelling == text.spelling)?;
     let font = words::font_named(&text.origin);
     Some(match l.why.split_once(MISSING_BECAUSE) {
-        Some((_, NOT_ACTIVE)) => words::text_font_inactive(font),
-        _ if l.missing => words::text_font_missing(font),
-        _ => words::text_font_refused(font, &l.why),
+        Some((_, NOT_ACTIVE)) => TextFont::Inactive(font),
+        _ if l.missing => TextFont::Missing(font),
+        _ => TextFont::Refused(font, l.why.clone()),
+    })
+}
+
+/// What the console draws in place of the text font of the font set
+/// `name`, where the font helper left the text font out: the font, why,
+/// and what to do, as a sentence for the trial's countdown.
+///
+/// References:
+/// - ADR-1204 D7: vtium-config names each font a set needs and lacks.
+pub fn text_fallback(shared: &Shared, name: &str) -> Option<String> {
+    Some(match text_font_left_out(shared, name)? {
+        TextFont::Missing(font) => words::text_font_missing(font),
+        TextFont::Inactive(font) => words::text_font_inactive(font),
+        TextFont::Refused(font, why) => words::text_font_refused(font, why),
     })
 }
 

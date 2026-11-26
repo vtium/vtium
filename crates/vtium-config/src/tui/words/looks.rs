@@ -660,3 +660,23 @@ pub fn inactive_drafted(name: impl Display, paths: &[String]) -> String {
         and_list(paths)
     )
 }
+
+/// What the card's list of font sets notes beside a set whose text font
+/// this machine lacks.
+pub const CHOICE_TEXT_MISSING: &str = "its text font is not on this machine";
+
+/// What the card's list of font sets notes beside a set whose text font
+/// is not active.
+pub const CHOICE_TEXT_INACTIVE: &str = "its text font is not active";
+
+/// What the card's list of font sets notes beside a set whose text font
+/// the font helper cannot use.
+pub const CHOICE_TEXT_REFUSED: &str = "its text font cannot be used";
+
+/// What the message line says when choosing a font set or a size for the
+/// look `name` gave the look to the terminal `head`, which named none.
+pub fn look_given(head: impl Display, name: impl Display) -> String {
+    format!(
+        "The terminal {head} named no look, so vtium-config set it to use the look {name}. Press s to save the change and i to install it."
+    )
+}
