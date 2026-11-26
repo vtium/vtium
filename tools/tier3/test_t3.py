@@ -1344,6 +1344,10 @@ class VtiumGoldenTest(unittest.TestCase):
         #   whole number of rows tall. They are provisional until the B8c
         #   cards have moved them all and the maintainer has reviewed the one
         #   redraw; that golden commit empties MOVING again.
+        # - 2026-11-25: ADR-1310 D12 centres the grid on both axes again
+        #   while smooth scrolling is off, the default, which every variant
+        #   runs with, so most of these goldens may match their committed
+        #   pixels again; the same redraw shows which.
         moving = ("2d-1280x800", "2d-1366x768-potato", "2d-7680x2160",
                   "2d-7680x2160-font32", "2d-potato-min")
         expected = sorted(
