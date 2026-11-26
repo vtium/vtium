@@ -749,6 +749,8 @@ The helper is `vtium-vitrify serve`, a separate process that the console starts.
 
 > Edited 2026-10-29: the team lead's correction from the heads gap-check (C5), as ADR-1401 D1 decides: several consoles logged in as different users cannot share one helper running as one of them, and heads with different frits need a helper each. D15 spoke of one helper, "a separate process the console starts".
 
+> Note 2026-11-25, on the privilege split (ADR-1400 D4): in a build with the cargo feature `split`, which the packaged builds name, vtium runs as a root process and a drawing process under the account `vtium`. There the root process starts the font helper at the drawing process's request, as `nobody`, reads its ids back, and passes the drawing process one end of a stream socket as the helper's input and output. The drawing process cannot start or signal a helper of another account, so it asks the root process to stop one, and the root process reports each helper's exit. The drawing process checks each glyph the helper sends, as the console does in one process. The minspec build leaves the split out, and starts the helper itself as this decision says.
+
 ### D14: parsing and rasterizing safely
 
 - Every font file is parsed in a process that is not the console: either the helper (D15), or the child process to which `preview` and `new` hand a font. That child drops to an unprivileged account, sets no-new-privileges, holds no file descriptor except its pipes, and runs under a memory limit. A panic, a fault or a timeout in either process fails that one source and nothing else. The font research found swash panicking on Fusion Pixel's OTB file ("chunk size must be non-zero").

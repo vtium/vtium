@@ -402,6 +402,18 @@ A build with `libseat` alone is for seatd. It stages neither file, and opens no 
 
 **Build feature:** `images`, with `logind` for sd-login.
 
+### The privilege split's accounts
+
+**Where:** `crates/vtium/src/broker/`, which starts vtium's drawing process as its account, and the account file `crates/vtium/install/vtium-split.conf`.
+
+**With systemd:** A vtium built with `split` starts as root and runs as two processes. The unit's main process stays root. It holds the VT, opens the devices, starts the sessions and the helpers, keeps the sessions' ptys in the unit's file-descriptor store, and sends `READY=1`. Everything else runs in a drawing process, as the system account `vtium`. `systemd-sysusers` creates that account, and `vtium-session` beside it, from the sysusers file `vtium-split.conf`. Both accounts have home `/`, no login shell and no files, and nothing runs as `vtium-session` yet. The package, `make install` and `make install-tree` stage that file in a build with `split`. When systemd stops the unit, it signals the main process alone (`KillMode=process`). The main process then stops the drawing process, puts the VT back and exits. When the drawing process ends on its own, the main process puts the VT back. It then exits with the drawing process's status, or with a failure when a signal killed the drawing process. So systemd sees the same failures as before, and [A failure falls back to getty](#a-failure-falls-back-to-getty) still applies.
+
+**Without systemd:** The account `vtium` exists only where a package script or the administrator created it, for example with `useradd --system --no-create-home --home-dir / --shell /usr/bin/nologin vtium`. Where the account is missing, vtium runs as one process, as root, and logs a line that names the missing account. A vtium started without root runs as one process too.
+
+**Under elogind:** As without systemd, since elogind hosts may lack `systemd-sysusers`.
+
+**Build feature:** `split`. It is off in minspec.
+
 ## Giving vtium a VT without systemd
 
 Without systemd, `vtium console` changes nothing, and says so. The VTs that are not vtium's are the ones that your init system's configuration gives to a getty, another console, or a display manager. You give vtium a VT in the way your init system already runs a getty there. Replace the getty's entry for that VT with one that runs `vtium --vt=ttyN --no-switchvt`. Let the init system restart vtium when it exits.

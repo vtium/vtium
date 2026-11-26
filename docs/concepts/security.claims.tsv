@@ -1,6 +1,15 @@
 # Claims of docs/concepts/security.md, converted from its author's claim list.
 element	file	symbol
-the console runs as root for its whole life, and its unit sets no sandboxing	crates/vtium/install/vtium@.service	ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
+the unit starts vtium as root, and sets no sandboxing	crates/vtium/install/vtium@.service	ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
+a packaged vtium runs its drawing process as the account vtium	crates/vtium/src/broker/start.rs	ACCOUNT
+the account vtium, which the package creates	crates/vtium/install/vtium-split.conf	u vtium
+without root or without the account, vtium runs as one process and names the missing account	crates/vtium/src/broker/mod.rs	plan
+the drawing process holds no capabilities and gains none by starting a program	crates/vtium/src/broker/start.rs	clear_capabilities
+the drawing process's bounding set is empty	crates/vtium/src/broker/start.rs	drop_bounding_set
+no other process of its account can trace the drawing process, which is not dumpable	crates/vtium/src/broker/start.rs	begin
+the root process puts the VT back in text mode after any end of the drawing process	crates/vtium-platform/src/vt/kernel.rs	give_back
+the root process takes the command each console runs and the power keys from its own reading of vtium.conf	crates/vtium/src/broker/mod.rs	Begun
+check-config warns when the account vtium cannot read vtium.conf	crates/vtium/src/check/drawer.rs	finding
 the parser's bounds, with no input-reachable panic	crates/vtium-parse/src/bounds.rs	PARAMS
 the parser is fuzzed	crates/vtium-parse/fuzz/Cargo.toml	name = "parse"
 the screen is fuzzed	crates/vtium-term/fuzz/Cargo.toml	name = "screen"
