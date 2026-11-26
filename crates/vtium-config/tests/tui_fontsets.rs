@@ -602,6 +602,52 @@ fn the_finder_reads_font_sets_through_the_active_fonts() {
     );
 }
 
+/// The finder reads a font set through the active-fonts request that the
+/// console sends, which names account 0: a font file the person owns,
+/// listed in the batch, fails the trust rule, as the root-run console
+/// refuses it.
+///
+/// References:
+/// - ADR-1205 D4: a resource passes the trust rule only when root owns it
+///   and every folder above it.
+#[test]
+fn the_finder_refuses_a_listed_font_the_person_owns_as_the_console_does() {
+    use vtium_settings::batch::{Batch, Entry, MISSING_BECAUSE, NOT_ACTIVE};
+    if rustix::process::geteuid().is_root() {
+        return;
+    }
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("finder-owner");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the frits' folder");
+    let font =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/DejaVuSansMono-W-M-0.ttf");
+    std::fs::write(
+        dir.join("t.vtfrit"),
+        format!(
+            "source=outline:{}\nsource=builtin:unscii-8\n",
+            font.display()
+        ),
+    )
+    .expect("the frit");
+    let helper = vtium_config::specimen::Helper::at(env!("CARGO_BIN_EXE_vtium-config"));
+    let active = vtium_config::tui::console_active(&Batch::new(vec![Entry::Path(font.clone())]));
+    assert_eq!(active.owner, 0);
+    let found = vtium_config::tui::finder_through(dir, helper, active)(vec!["t".to_owned()]);
+    let [(_, Sources::LeftOut(left))] = found.as_slice() else {
+        panic!("{found:?}");
+    };
+    let [l] = left.as_slice() else {
+        panic!("the font is not left out: {left:?}");
+    };
+    assert!(l.missing, "{l:?}");
+    let reason = l
+        .why
+        .split_once(MISSING_BECAUSE)
+        .map(|(_, r)| r)
+        .unwrap_or_default();
+    assert!(!reason.is_empty() && reason != NOT_ACTIVE, "{l:?}");
+}
+
 /// What the console's font helper says, through the installed batch, of a
 /// font set whose text font `/usr/share/fonts/misc/ter-u16n.otb` is not
 /// active.

@@ -592,9 +592,7 @@ pub fn finder_through(
 
 /// The active fonts of the batch the console reads: the installed batch
 /// file, read as root reads it, or the list of a fresh install where
-/// there is none. vtium-config's helper runs as the person, so the files
-/// of root and of the person pass the trust rule. The batch is what this
-/// check is for: whether a font set's files are listed.
+/// there is none.
 ///
 /// References:
 /// - ADR-1205 D4: one batch, which the console reads, with the list of a
@@ -602,7 +600,20 @@ pub fn finder_through(
 fn installed_active() -> crate::serve::ActiveAsk {
     let places = vtium_settings::batch::Places::system();
     let read = vtium_settings::batch::Batch::system(&places, &vtium_settings::Trust::running_as(0));
-    crate::serve::ActiveAsk::of_batch(rustix::process::geteuid().as_raw(), &read.batch)
+    console_active(&read.batch)
+}
+
+/// The active-fonts request that the console sends its font helper for
+/// `batch`. The system console runs as root, so it names account 0, and
+/// only root's files pass the trust rule. vtium-config's helper runs as
+/// the person and accepts account 0 as well, so a font file the person
+/// owns fails here as it fails on the console.
+///
+/// References:
+/// - ADR-1205 D4: a resource passes the trust rule only when root owns it
+///   and every folder above it.
+pub fn console_active(batch: &vtium_settings::batch::Batch) -> crate::serve::ActiveAsk {
+    crate::serve::ActiveAsk::of_batch(0, batch)
 }
 
 /// The TUI's describer: what each font file is, as `helper` describes it,
