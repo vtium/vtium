@@ -10,6 +10,9 @@ q.too-small	q	too-small	Quits vtium-config. If changes are not saved, it asks fi
 esc.view	Esc	view	Does nothing here.	supported		ADR-1403 D7		-	
 esc.view.flow	Esc	view:flow	Clears NEW PATH. If you were revising a path, the path leaves the configuration. While NEW PATH is empty, says that there is nothing to clear.	supported	the one view where Esc acts with nothing open	ADR-1403 D7		clear	
 esc.layer	Esc	layer	Goes back, with the same item highlighted.	supported	the file view and Restore's list included	ADR-1403 D7		back	1
+esc.layer.look	Esc	layer:look	Goes back to the list, with the look highlighted. Your changes stay, and s saves them into the draft.	supported	the look's card had esc.layer's back until 2026-11-25	ADR-1403 D10		back, keep changes	1
+esc.layer.flow-card	Esc	layer:flow-card	Goes back, with the terminal highlighted. Your changes stay, and s saves them into the draft.	supported	an added path's terminal card had esc.layer's back until 2026-11-25	ADR-1403 D10		back, keep changes	1
+esc.layer.flow-detail	Esc	layer:flow-detail	Goes back, with the part highlighted. Your changes stay, and s saves them into the draft.	supported	a part's detail had esc.layer's back until 2026-11-25	ADR-1403 D10		back, keep changes	1
 esc.typing	Esc	typing	Cancels what you typed and goes back.	supported		ADR-1403 D7		cancel	
 esc.question	Esc	question	Cancels the question. Nothing changes.	supported		ADR-1403 D7		cancel	
 esc.trial	Esc	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-	
@@ -74,7 +77,7 @@ esc.layer.list	Esc	layer:list	Closes the list without picking.	supported	the Flo
 list.settings-values	Enter	layer:settings-section	Shows the key's allowed values as a list to pick from, with the highlight on the value the key has now.	supported		ADR-1403 D7		-	
 enter.view.settings	Enter	view:settings	Opens the highlighted section, with its keys in titled groups.	supported		ADR-1201 D3		open	1
 enter.layer.settings-section	Enter	layer:settings-section	Lets you type the highlighted key's value, or shows its allowed values as a list.	supported		ADR-1201 D3		change	1
-esc.layer.settings-section	Esc	layer:settings-section	Goes back to the list of sections.	supported		ADR-1201 D3		back	1
+esc.layer.settings-section	Esc	layer:settings-section	Goes back to the list of sections. Your changes stay, and s saves them into the draft.	supported	the label read back until 2026-11-25	ADR-1403 D10		back, keep changes	1
 list.flow-card	Enter	layer:flow-card	Shows the card's displays, devices or VTs as a list inside the card.	planned	today a card joins them with commas across rows	ADR-1403 D7	#453	choose	
 list.filter-picker	Enter	layer:picker	Shows the devices that each value matches as a list.	planned	today the filter picker joins each value's devices with commas	ADR-1403 D7	#453	choose	
 list.font-set-files	Enter	layer:flow-card	On the card's look, shows the looks to choose from as a list.	planned	today Enter on the card's look sets the look the highlight is on, and Left and Right step through the draft's looks	ADR-1205 D1; ADR-1403 D10	#453	choose	
@@ -136,10 +139,10 @@ t.layer.look	t	layer:look	Tries this look on this console for 10 seconds.	suppor
 list.look-effects	Enter	layer:look	On the look's vtlook, shows the vtlooks as a list in the Effects tab's order: No filter first, then the presets, then the administrator's vtlooks. A vtlook that does not read, such as one that names a color map that is not active, shows why, and the look can still pick it. A new look starts on No filter.	supported		ADR-1205 D6; ADR-1304 D4; ADR-1403 D5, D10	#379	choose	1
 list.pointer-themes	Enter	layer:look	On the look's pointer theme, shows a list: the theme vtium.conf names first, which leaves the look's own unset, then each active pointer theme, with vtium's own pictures first.	supported		ADR-1205 D6; ADR-1403 D10	#379	choose	1
 up.layer.flow-detail	Up	layer:flow-detail	Does nothing on the label line, which is the first line of the detail.	supported		ADR-1403 D7		-	
-down.layer.flow-detail	Down	layer:flow-detail	Moves from the label line to the part's first choice.	supported		ADR-1403 D7		choices	
+down.layer.flow-detail	Down	layer:flow-detail	Moves from the label line to the part's first choice.	supported		ADR-1403 D7		choices	1
 end.layer.flow-detail	End	layer:flow-detail	Moves from the label line to the last choice.	supported		ADR-1403 D7		choices	
 pgdn.layer.flow-detail	PgDn	layer:flow-detail	Moves from the label line down by a page of choices.	supported		ADR-1403 D7		choices	
-enter.layer.flow-detail	Enter	layer:flow-detail	Lets you type the part's label.	supported		ADR-1403 D7		label	
+enter.layer.flow-detail	Enter	layer:flow-detail	Lets you type the part's label.	supported		ADR-1403 D7		label	1
 e.layer.flow-info	e	layer:flow-info	Takes this path out of the configuration into NEW PATH, to change it. While NEW PATH holds another path, e says so and changes nothing.	supported		ADR-1403 D7		revise	
 up.layer.flow-card	Up	layer:flow-card	Moves to the field above.	supported		ADR-1403 D7		move	1
 down.layer.flow-card	Down	layer:flow-card	Moves to the field below.	supported		ADR-1403 D7		move	1

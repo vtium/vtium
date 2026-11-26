@@ -1123,6 +1123,8 @@ On a configuration with no terminal and no rule, the first path's inputs roam, a
 
   - **Moving to another view** keeps the unsaved changes.
   - **Quitting with `q`** while changes are unsaved asks `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back.` (the maintainer, 2026-11-09: "As proposed").
+
+    > Note 2026-11-25: the quit question ends with one more sentence, because a draft saved on `y` reaches the console only once it is installed. It now reads `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back. The console then shows what is installed until you install the draft, with i or vtium-config install.`
   - **When the TUI stops for another reason,** by Ctrl-C, by SIGINT, SIGTERM, SIGQUIT or SIGHUP, or because its terminal closed, it saves the unsaved changes into the draft before it leaves (the maintainer, 2026-11-09: "As proposed"). A panic and SIGKILL lose them. At a question, Ctrl-C cancels the question instead, as **The same keys in every view** says.
   - **Revert, Restore and New** throw the unsaved changes away with what they replace, and their questions count the unsaved changes among what is lost.
 - **Each view shows its own controls** (the maintainer, 2026-11-09: "this sounds like contextual controls (by tab) and I think it makes more sense to declutter"). Beside the views' names, the tab bar shows only the actions of the view in front, each with its key. In the Flow view they are View file (`v`), Save (`s`), Install (`i`), Revert (`r`) and New (`n`), and Restore is on `o`. In the Looks and Settings views they are Save and Install, and Help shows none (the maintainer, 2026-11-09: "Accept all"; the Fonts view went into the Looks view on 2026-11-11, ADR-1201 D3). The view has no Delete draft: `vtium config draft rm` deletes a draft (D8). Each action but View file and Save asks before it acts:
@@ -1432,6 +1434,8 @@ Every tab is built the same way. The tab shows one list, or the Flow view's boxe
 Tab, Shift-Tab and the digits act only on a tab with nothing open, as D7 decides for Tab. Each tab keeps its highlight while vtium-config runs, so coming back to a tab finds the item you left. D7 says this of the Flow view, and it now holds for every tab.
 
 A card keeps each change as you make it. Esc closes the card and keeps those changes, which wait for Save to write them into the draft, as every change does. Revert throws them away with the draft's other changes. Esc drops only a value being typed, and the card's other lines keep what they were given.
+
+> Note 2026-11-25: the key line now says that Esc keeps the changes. On a look's card, an added path's terminal card, a part's detail in the Flow view and a section of the Settings tab, Esc's label reads `back, keep changes`, and its help says that the changes stay until `s` saves them into the draft. Those key lines read `Esc back` before, which reads as if Esc dropped the changes. The key table's rows `esc.layer.look`, `esc.layer.flow-card` and `esc.layer.flow-detail` are new, and `esc.layer.settings-section` changed its label and its help.
 
 #### The same key for the same action
 

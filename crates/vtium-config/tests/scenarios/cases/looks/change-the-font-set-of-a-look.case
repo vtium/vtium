@@ -2,7 +2,6 @@ kind how-do-i
 title How do I change the font set of a look?
 intro A look's card lists its font set, size and color scheme. You change one on the card, and Esc keeps the change for Save.
 see looks/make-a-look-and-use-it-on-the-console
-waits-for CF1 item 6: Esc saves the look, and the screen does not say so
 
 file etc/vtium.conf
     version = 1
@@ -24,7 +23,7 @@ frit mono
 4. Choose mono.
 at the card, before Esc
 check screen shows "Esc keeps the changes"
-check screen lacks "Esc back"
+check screen shows "Esc back, keep changes"
 5. Press Esc.
 6. Press s to save.
 at the save

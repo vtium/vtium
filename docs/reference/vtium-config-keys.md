@@ -176,7 +176,7 @@ A part's detail on its label line: the part's name and label, with the choices t
 | Key | Shown as | What it does |
 |---|---|---|
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
-| Esc | back | Goes back, with the same item highlighted. |
+| Esc | back, keep changes | Goes back, with the part highlighted. Your changes stay, and s saves them into the draft. |
 | Tab | - | Does nothing until you close what is open with Esc. |
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
@@ -276,7 +276,7 @@ An added path's terminal card, in CONFIGURATION.
 | Key | Shown as | What it does |
 |---|---|---|
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
-| Esc | back | Goes back, with the same item highlighted. |
+| Esc | back, keep changes | Goes back, with the terminal highlighted. Your changes stay, and s saves them into the draft. |
 | Tab | - | Does nothing until you close what is open with Esc. |
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
@@ -631,7 +631,7 @@ A look's card: its name, font set, size, color scheme, vtlook and pointer theme,
 | Key | Shown as | What it does |
 |---|---|---|
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
-| Esc | back | Goes back, with the same item highlighted. |
+| Esc | back, keep changes | Goes back to the list, with the look highlighted. Your changes stay, and s saves them into the draft. |
 | Tab | - | Does nothing until you close what is open with Esc. |
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
@@ -1038,7 +1038,7 @@ One section: its groups as headed blocks, with their keys beneath.
 | Key | Shown as | What it does |
 |---|---|---|
 | Enter | change | Lets you type the highlighted key's value, or shows its allowed values as a list. |
-| Esc | back | Goes back to the list of sections. |
+| Esc | back, keep changes | Goes back to the list of sections. Your changes stay, and s saves them into the draft. |
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
 | Tab | - | Does nothing until you close what is open with Esc. |
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
