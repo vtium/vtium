@@ -81,6 +81,7 @@ _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
 | [ADR-1402](./platform/ADR-1402-vtium-s-own-text-is-translated-through-gettext-catalogs-in-the-system-s-language.md) | vtium's own text is translated through gettext catalogs in the system's language | accepted |
 | [ADR-1403](./platform/ADR-1403-vtium-conf-holds-the-configuration-as-one-flow-from-the-displays-to-the-input-devices-and-vtium-config-draws-it.md) | vtium.conf holds the configuration as one flow from the displays to the input devices, and vtium-config draws it | accepted |
 | [ADR-1404](./platform/ADR-1404-a-head-can-join-its-displays-into-one-larger-terminal-stacked-or-side-by-side-and-mirroring-stays-the-default.md) | A head can join its displays into one larger terminal, stacked or side by side, and mirroring stays the default | accepted |
+| [ADR-1405](./platform/ADR-1405-vtium-config-opens-each-deeper-screen-as-a-window-centered-over-the-screen-below-and-esc-closes-the-top-window.md) | vtium-config opens each deeper screen as a window centered over the screen below, and Esc closes the top window | proposed |
 
 ## Project
 _Process, harness and contributions - how vtium is built, tested and judged_
