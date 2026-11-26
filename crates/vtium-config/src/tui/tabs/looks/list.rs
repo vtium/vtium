@@ -67,19 +67,29 @@ pub fn look(shared: &Shared, name: &str) -> Option<Look> {
 
 /// The heads of the draft that draw the look `name`: those whose
 /// `look =` line names it, and for the look `default` also those with no
-/// `look =` line, which draw `default`. vtium reads what survives of the
+/// `look =` line, which draw `default`. A draft that defines no head and
+/// no rule runs vtium's built-in terminal, whose head `console` names no
+/// look and so draws `default`. vtium reads what survives of the
 /// sections, so a draft with errors elsewhere still answers.
+///
+/// References:
+/// - ADR-1401 D3: vtium runs the built-in default terminal when the file
+///   defines no head and no rule.
 pub fn heads(shared: &Shared, name: &str) -> Vec<String> {
     shared
         .conf_text()
         .and_then(|c| vtium_settings::sections(c.as_bytes()))
         .map(|r| {
-            r.parsed
-                .config
-                .heads
-                .iter()
+            let config = r.parsed.config;
+            let heads = if config.uses_builtin() {
+                vtium_settings::Config::builtin().heads
+            } else {
+                config.heads
+            };
+            heads
+                .into_iter()
                 .filter(|h| h.look == name)
-                .map(|h| h.name.clone())
+                .map(|h| h.name)
                 .collect()
         })
         .unwrap_or_default()

@@ -2509,6 +2509,25 @@ fn t_on_a_look_whose_color_scheme_is_not_active_offers_to_activate_it() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// A draft that defines no head and no rule runs vtium's built-in
+/// terminal, whose head `console` draws the look `default`, so `t` on that
+/// look never says that no terminal uses it.
+///
+/// References:
+/// - ADR-1401 D3: vtium runs the built-in default terminal when the file
+///   defines no head and no rule.
+#[test]
+fn the_built_in_terminal_uses_the_look_default() {
+    use vtium_config::tui::tabs::looks::list;
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look default]\npalette = legacy\n";
+    let (mut app, _) = started(with_conf(conf));
+    assert_eq!(list::heads(&app.shared, "default"), ["console"]);
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    let said = app.shared.message.clone().unwrap_or_default();
+    assert!(!said.contains("No terminal uses"), "{said}");
+}
+
 /// A stand-in console in which a program has set color 1 and the
 /// background before vtium-config started.
 fn console_with_program_colors(keys: &[&[u8]]) -> Console {
