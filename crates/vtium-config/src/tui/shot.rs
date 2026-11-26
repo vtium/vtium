@@ -199,27 +199,45 @@ pub struct LookParts {
     pub offer: Option<String>,
 }
 
-/// The bytes that set the console's sixteen colors and its default
-/// foreground and background to `palette`: OSC 4 for colors 0 to 15, then
-/// OSC 10 and OSC 11. Colors 16 to 255 are the same in every color
-/// scheme, so the request leaves them alone.
+/// The bytes that set the console's colors to `palette`, where the
+/// console shows `shown` now. OSC 4 sets colors 0 to 15, and each color
+/// from 16 to 255 that differs from `shown`, since a color scheme file may
+/// set any of the 256. OSC 10 and OSC 11 set the default foreground and
+/// background. OSC 21, the kitty color protocol, sets the cursor's color
+/// and the selection's two colors that a color scheme file can give, and
+/// with an empty value unsets the ones `palette` leaves unset, so the
+/// console then inverts the cell as `palette` asks.
 ///
 /// References:
 /// - ADR-1000, the rows `color.palette.set` and `color.dynamic.set`: vtium
 ///   sets its colors on OSC 4, 10 and 11.
-pub fn colors_request(palette: &vtium_term::Palette) -> Vec<u8> {
+/// - ADR-1000, the row `color.kitty-protocol`: OSC 21 sets a color by its
+///   key, and an empty value unsets a special color.
+pub fn colors_request(palette: &vtium_term::Palette, shown: &vtium_term::Palette) -> Vec<u8> {
     use std::fmt::Write as _;
+    use vtium_term::Special;
     let spec = |c: vtium_term::Rgb| format!("rgb:{:02x}/{:02x}/{:02x}", c.r, c.g, c.b);
     let mut out = String::from("\x1b]4");
-    for i in 0..16u8 {
-        let _ = write!(out, ";{i};{}", spec(palette.color(i)));
+    for i in 0..=255u8 {
+        if i < 16 || palette.color(i) != shown.color(i) {
+            let _ = write!(out, ";{i};{}", spec(palette.color(i)));
+        }
     }
     let _ = write!(
         out,
-        "\x1b\\\x1b]10;{}\x1b\\\x1b]11;{}\x1b\\",
+        "\x1b\\\x1b]10;{}\x1b\\\x1b]11;{}\x1b\\\x1b]21",
         spec(palette.fg()),
         spec(palette.bg())
     );
+    for (key, which) in [
+        ("cursor", Special::Cursor),
+        ("selection_background", Special::SelectionBg),
+        ("selection_foreground", Special::SelectionFg),
+    ] {
+        let value = palette.special(which).map(spec).unwrap_or_default();
+        let _ = write!(out, ";{key}={value}");
+    }
+    out.push_str("\x1b\\");
     out.into_bytes()
 }
 
@@ -1267,7 +1285,7 @@ impl App {
             if !std::mem::replace(&mut self.shared.colors_saved, true) {
                 bytes.extend_from_slice(COLORS_SAVE);
             }
-            bytes.extend(colors_request(p));
+            bytes.extend(colors_request(p, &shown_colors(&self.shared)));
             out.push(Effect::Write(bytes));
         }
         self.shared.message = Some(words::look_countdown(&name, TRIAL_TICKS, later.as_deref()));
@@ -1377,12 +1395,12 @@ impl App {
     }
 
     /// The bytes that give the console back the colors it showed before a
-    /// look's trial set its own: the colors that `k` kept from an earlier
+    /// look's trial set its own, `tried`: the colors that `k` kept from an earlier
     /// look, else the colors saved before the first trial, which
     /// XTPOPCOLORS restores.
-    pub(crate) fn colors_back(&mut self) -> Vec<u8> {
+    pub(crate) fn colors_back(&mut self, tried: &vtium_term::Palette) -> Vec<u8> {
         if let Some(kept) = &self.shared.kept_colors {
-            return colors_request(kept);
+            return colors_request(kept, tried);
         }
         self.shared.colors_saved = false;
         COLORS_RESTORE.to_vec()
@@ -1393,8 +1411,8 @@ impl App {
     /// because a font switch changes the console's grid too.
     fn put_look_back(&mut self, t: &Trial, look: &LookParts) -> Vec<Effect> {
         let mut out = Vec::new();
-        if look.colors.is_some() {
-            out.push(Effect::Write(self.colors_back()));
+        if let Some(tried) = &look.colors {
+            out.push(Effect::Write(self.colors_back(tried)));
         }
         let back = words::look_back(&look.name);
         self.shared.message = Some(match look.offer {

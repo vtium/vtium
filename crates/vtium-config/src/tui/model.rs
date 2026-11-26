@@ -1095,8 +1095,8 @@ impl App {
             if let Some(t) = self.nav.trial.take_if(|t| t.font == asked) {
                 // a look's trial that set the console's colors gives them
                 // back with the font
-                if t.look.as_ref().is_some_and(|l| l.colors.is_some()) {
-                    reset.extend(self.colors_back());
+                if let Some(tried) = t.look.as_ref().and_then(|l| l.colors.as_ref()) {
+                    reset.extend(self.colors_back(tried));
                 }
                 self.shared.message = Some(if super::shot::is_file(&asked) {
                     super::words::font_file_refused(super::shot::font_shown(&asked))

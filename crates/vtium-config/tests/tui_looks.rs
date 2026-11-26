@@ -2395,7 +2395,10 @@ fn t_on_a_look_tries_its_font_set_and_its_colors() {
     );
     // the bytes the trial sends are ones vtium's terminal takes
     let mut t = Terminal::new(80, 25, 0);
-    t.input(&vtium_config::tui::shot::colors_request(&nord));
+    t.input(&vtium_config::tui::shot::colors_request(
+        &nord,
+        &vtium_term::Palette::default(),
+    ));
     assert_eq!(t.palette().color(1), red);
     assert_eq!(t.palette().bg(), nord.bg());
     // the countdown says that the size waits for the next start
@@ -2404,7 +2407,7 @@ fn t_on_a_look_tries_its_font_set_and_its_colors() {
     let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
     let request = [
         vtium_config::tui::shot::COLORS_SAVE,
-        &vtium_config::tui::shot::colors_request(&nord),
+        &vtium_config::tui::shot::colors_request(&nord, &vtium_term::Palette::default()),
     ]
     .concat();
     assert!(tried.contains(&Effect::Write(request)), "{tried:?}");
@@ -2429,6 +2432,41 @@ fn t_on_a_look_tries_its_font_set_and_its_colors() {
             .expect("legacy")
             .color(1)
     );
+}
+
+/// The colors a look's trial sends carry the whole color scheme: the
+/// cursor's color and the selection's colors that a color scheme file
+/// sets, and a color from 16 to 255 that it sets. A color the scheme
+/// leaves unset is unset on the console, which then inverts the cell.
+///
+/// References:
+/// - ADR-1000, the row `color.kitty-protocol`: OSC 21 sets a color by its
+///   key, and an empty value unsets a special color.
+#[test]
+fn a_look_s_colors_carry_the_cursor_the_selection_and_the_256() {
+    use vtium_term::{Palette, Rgb, Special};
+    let legacy = Palette::default();
+    let mut scheme = Palette::named("nord").expect("nord");
+    let cursor = Rgb::new(0xf8, 0xf8, 0xf2);
+    let selection = Rgb::new(0x44, 0x47, 0x5a);
+    let ink = Rgb::new(0xf8, 0xf8, 0xf1);
+    let hundred = Rgb::new(0x10, 0x20, 0x30);
+    scheme.set_special(Special::Cursor, Some(cursor));
+    scheme.set_special(Special::SelectionBg, Some(selection));
+    scheme.set_special(Special::SelectionFg, Some(ink));
+    scheme.set_color(100, hundred);
+    let mut t = Terminal::new(80, 25, 0);
+    t.input(&vtium_config::tui::shot::colors_request(&scheme, &legacy));
+    assert_eq!(t.palette().special(Special::Cursor), Some(cursor));
+    assert_eq!(t.palette().special(Special::SelectionBg), Some(selection));
+    assert_eq!(t.palette().special(Special::SelectionFg), Some(ink));
+    assert_eq!(t.palette().color(100), hundred);
+    assert_eq!(t.palette().color(101), legacy.color(101));
+    // back to a scheme that sets none of them
+    t.input(&vtium_config::tui::shot::colors_request(&legacy, &scheme));
+    assert_eq!(t.palette().special(Special::Cursor), None);
+    assert_eq!(t.palette().special(Special::SelectionBg), None);
+    assert_eq!(t.palette().color(100), legacy.color(100));
 }
 
 /// A stand-in console in which a program has set color 1 and the
@@ -2463,8 +2501,11 @@ fn a_look_s_trial_gives_back_the_colors_a_program_set() {
         let mut c = console_with_program_colors(keys);
         drive(&mut c, with_conf(&conf)).expect("the loop");
         let saved = find(&c.written, b"\x1b[#P").expect("XTPUSHCOLORS");
-        let set = find(&c.written, &vtium_config::tui::shot::colors_request(&nord))
-            .expect("the look's colors");
+        let set = find(
+            &c.written,
+            &vtium_config::tui::shot::colors_request(&nord, &vtium_term::Palette::default()),
+        )
+        .expect("the look's colors");
         assert!(
             saved < set,
             "the colors were saved after the trial set its own"
