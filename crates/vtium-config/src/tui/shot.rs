@@ -1467,7 +1467,11 @@ impl App {
         }
         if !self.shared.window_ops() {
             self.shared.message = Some(
-                if self.shared.text_preview() {
+                if self.shared.text_preview() && self.shared.window_ops_drafted() {
+                    // the draft lets programs resize the grid, and the
+                    // running console read the key before it did
+                    words::SIZE_AT_RESTART
+                } else if self.shared.text_preview() {
                     words::SIZE_AT_NEXT_START
                 } else {
                     words::SIZE_PICTURE_ONLY

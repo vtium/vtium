@@ -485,6 +485,9 @@ pub struct Shared {
     /// The size whose cell the font helper is measuring for a trial of the
     /// size on the console.
     pub size_asked: Option<super::shot::SizeAsked>,
+    /// The installed vtium.conf's `allow-window-ops` when vtium-config
+    /// started, which [`Shared::window_ops`] reports.
+    running_window_ops: bool,
 }
 
 /// The terminal's grid, and its cell in pixels where it reports its size
@@ -538,15 +541,14 @@ impl Shared {
             .unwrap_or(true)
     }
 
-    /// Whether the console lets programs resize its grid: the installed
-    /// vtium.conf's `allow-window-ops`, which the running console read
-    /// when it started. It is off by default.
+    /// Whether the console lets programs resize its grid: the
+    /// `allow-window-ops` of the vtium.conf that was installed when
+    /// vtium-config started, which the running console read when it made
+    /// its head. An install during this run changes the installed file
+    /// and not the running console, which reads the key again only when
+    /// vtium starts again. It is off by default.
     pub fn window_ops(&self) -> bool {
-        self.inputs
-            .conf
-            .as_deref()
-            .and_then(|c| conf_switch(c, "allow-window-ops"))
-            .unwrap_or(false)
+        self.running_window_ops
     }
 
     /// Whether the draft turns `allow-window-ops` on, so the Looks tab's
@@ -687,6 +689,11 @@ impl App {
             _ => vtium_term::ClusterWidth::Double,
         };
         let _rule = super::canvas::measure_by(cluster_width);
+        let running_window_ops = inputs
+            .conf
+            .as_deref()
+            .and_then(|c| conf_switch(c, "allow-window-ops"))
+            .unwrap_or(false);
         let mut app = App {
             nav: super::nav::Nav {
                 view,
@@ -731,6 +738,7 @@ impl App {
                 colors_saved: false,
                 kept_colors: None,
                 size_asked: None,
+                running_window_ops,
             },
             size,
             fonts: super::tabs::fonts::Fonts::default(),

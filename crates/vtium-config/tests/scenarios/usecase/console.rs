@@ -11,12 +11,13 @@
 //! vtium would use. The stand-in calls vtium's own refusal code for this
 //! rather than copying it, so it refuses exactly what that code refuses.
 //!
-//! OSC 4 and OSC 104 change the palette, XTPUSHCOLORS and XTPOPCOLORS
-//! save and restore it, and the grid request `CSI 8 ;
-//! rows ; cols t` changes the grid, which is how vtium meets a new font
-//! size. After every key the runner can read the font set the console
-//! was asked for, the font it really draws, its cell, its palette by name,
-//! and its grid.
+//! OSC 4 and OSC 104 change the palette, and XTPUSHCOLORS and
+//! XTPOPCOLORS save and restore it. The grid request `CSI 8 ; rows ; cols
+//! t` changes the grid, which is how vtium meets a new font size, and the
+//! console meets it only while the vtium.conf it last started from turns
+//! `allow-window-ops` on, as vtium does. After every key the runner can
+//! read the font set the console was asked for, the font it really draws,
+//! its cell, its palette by name, and its grid.
 //!
 //! When the person restarts vtium, the console reads the installed
 //! vtium.conf again for its head, through vtium-settings' own reading of
@@ -77,6 +78,9 @@ pub struct Console {
     pub saved: Vec<[Rgb; 16]>,
     /// The grid, columns by rows.
     pub grid: (usize, usize),
+    /// Whether the console meets the grid request: the installed
+    /// vtium.conf's `allow-window-ops` when vtium last started.
+    pub window_ops: bool,
     /// Every byte vtium-config wrote, in order.
     pub received: Vec<u8>,
     /// The fonts the helper found missing or refused while the console
@@ -106,6 +110,7 @@ impl Console {
             colors: named("legacy"),
             saved: Vec::new(),
             grid,
+            window_ops: false,
             received: Vec::new(),
             log: Vec::new(),
         };
@@ -125,6 +130,7 @@ impl Console {
                 vtium_config::specimen::pixel_height(points, self.dpi)
             });
         self.colors = named(value("palette").as_deref().unwrap_or("legacy"));
+        self.window_ops = vtium_settings::switch(&conf, "allow-window-ops").unwrap_or(false);
         let font = value("font-name").unwrap_or_else(|| "unifont".to_owned());
         self.switch(&font);
     }
@@ -236,7 +242,8 @@ impl Console {
                 let end = csi.find('t').unwrap_or(csi.len());
                 let (params, after) = csi.split_at(end);
                 let mut n = params.split(';').filter_map(|p| p.parse::<usize>().ok());
-                if let (Some(rows), Some(cols)) = (n.next(), n.next()) {
+                // vtium ignores the request while allow-window-ops is off
+                if let (Some(rows), Some(cols), true) = (n.next(), n.next(), self.window_ops) {
                     self.grid = (cols, rows);
                 }
                 rest = after.get(1..).unwrap_or_default();

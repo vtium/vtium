@@ -1887,6 +1887,34 @@ fn enter_on_a_size_tries_its_grid_on_the_console_and_a_key_puts_it_back() {
     assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
 }
 
+/// An install that turns `allow-window-ops` on does not change the
+/// running console, which read the key when vtium made its head. So a
+/// size picked after the install sends no grid request and says that the
+/// console resizes its grid only once vtium starts again.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the size is tried
+///   only where the console lets programs resize its grid.
+#[test]
+fn installing_window_ops_does_not_turn_them_on_in_the_running_console() {
+    let conf = inputs().conf.expect("the conf");
+    let mut d = desk();
+    d.installed = conf.clone();
+    d.draft = conf.clone();
+    let mut keys: Vec<&[u8]> = vec![TO_LOOKS, b"w", b"y", b"i", b"y"];
+    keys.extend_from_slice(&[b"\r", DOWN, DOWN, b"\r", DOWN, DOWN, b"\r"]);
+    let mut c = console().keys(&keys);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(&conf), Some(&mut d)).expect("the loop");
+    assert!(d.installed.contains("allow-window-ops"), "{}", d.installed);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert_eq!(grid_requests(&c.written), Vec::<String>::new(), "{seen}");
+    assert!(!seen.contains("Trying 6 pt on the console"), "{seen}");
+    assert!(
+        seen.contains("The console does not let programs resize its grid until vtium starts again, because vtium reads allow-window-ops when it starts."),
+        "{seen}"
+    );
+}
+
 /// Putting a tried size back gives the console its grid back, and the
 /// look keeps the size it was given, as a change to save. The message
 /// says both, so a person does not take the key for an undo of the pick.

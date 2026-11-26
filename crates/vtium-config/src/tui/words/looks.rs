@@ -440,6 +440,11 @@ pub fn size_unmeasured(why: impl Display) -> String {
 /// own text at its current size.
 pub const SIZE_AT_NEXT_START: &str = "The console does not let programs resize its grid, so the size takes effect once you install the draft and vtium starts again. Press w in the Looks tab to let programs resize the grid.";
 
+/// [`SIZE_AT_NEXT_START`] where the draft already lets programs resize
+/// the grid: the running console read `allow-window-ops` when vtium
+/// started, so only a new start turns it on.
+pub const SIZE_AT_RESTART: &str = "The console does not let programs resize its grid until vtium starts again, because vtium reads allow-window-ops when it starts. The size takes effect once you install the draft and vtium starts again.";
+
 /// Enter on a size in a vtium console that does not let programs resize
 /// its grid, where the live trial is off, so the preview is a picture or
 /// a description of the size.
