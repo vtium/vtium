@@ -43,7 +43,10 @@ considered:
     said: "Keep the 80x25 minimum (Recommended)"
     via: question tool, 2026-11-25, after the figure of ADR-1405 at 80x25; the option's wording is the steering session's, on a terminal smaller than 80x25
     paraphrase: true
-status: proposed
+  - operator: aaronsb
+    said: "yes"
+    via: conversation, 2026-11-25, asked whether to accept ADR-1405 as it stands after its figure and three answers
+status: accepted
 date: 2026-11-25
 deciders:
   - aaronsb
