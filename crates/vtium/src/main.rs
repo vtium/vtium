@@ -492,6 +492,10 @@ fn run(
     app.set_config_reader(reread);
     app.set_heads(heads);
     app.set_survival(kept.0, kept.1);
+    // Under the privilege split, the root process holds the kept sessions
+    // and names their consoles before any head starts.
+    #[cfg(feature = "split")]
+    app.take_kept_from_root();
     if !split {
         kernel_messages(&mut app);
     }

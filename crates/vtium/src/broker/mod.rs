@@ -336,6 +336,25 @@ impl Processes {
         }
     }
 
+    /// Names to the drawer each console whose session an earlier vtium
+    /// kept, as the first orders no request asks for, and ends the list
+    /// with [`Order::KeptEnd`]. The drawer waits for that end at its start,
+    /// so it knows every kept console before its heads start. It opens
+    /// each of them as its head starts, and closes each one it has no
+    /// place for.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker keeps the pty
+    ///   masters through a restart.
+    /// - ADR-1401 D13: a head that starts opens the consoles whose
+    ///   sessions were kept, within the caps.
+    pub fn name_kept(&mut self) {
+        for console in self.sessions.kept() {
+            self.unasked.push_back(Order::Kept { console });
+        }
+        self.unasked.push_back(Order::KeptEnd);
+    }
+
     /// Takes `SIGRTMIN+1` and `SIGRTMIN+2`, which `vtium blank` and
     /// `vtium wake` send to the process that holds the VT, through `lp`,
     /// and passes each on to the drawer as [`Order::Blank`] or
@@ -679,8 +698,9 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
     let env = begun.env.clone();
     let kernel = begun.kernel(&lp);
-    let processes = begun.processes(&lp);
+    let mut processes = begun.processes(&lp);
     processes.listen(&lp)?;
+    processes.name_kept();
     // The broker holds the VT before it says it is ready and before the
     // drawer starts, and puts the VT back after any end of the drawer.
     let path = devices::vt_path(args)?;

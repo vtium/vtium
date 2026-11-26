@@ -412,7 +412,7 @@ fn images_through_root(root: Rc<RootHelpers>) -> crate::head::images::Helpers {
 
 /// The protocol's name of head `head`'s console `id`, or an error for a
 /// head name the protocol cannot carry, which vtium.conf never gives.
-fn console_ref(head: &str, id: u64) -> io::Result<ConsoleRef> {
+pub(super) fn console_ref(head: &str, id: u64) -> io::Result<ConsoleRef> {
     Ok(ConsoleRef {
         head: head_ref(head)?,
         console: id,
@@ -478,6 +478,42 @@ impl App {
             .map(|l| l.with_active(0, &crate::font::gate().batch));
         self.broker = Some(courier);
         Ok(())
+    }
+
+    /// Waits for the root process to name the consoles whose sessions an
+    /// earlier vtium kept, which it does once at the start, ending with
+    /// [`Order::KeptEnd`], and gives them to the seat. vtium calls it once,
+    /// after [`App::set_survival`] and before any head starts, so each
+    /// head that has kept consoles opens them at its start. Every other
+    /// order that comes meanwhile waits for the loop. Without an answer,
+    /// the heads start as if nothing was kept, and the kept sessions wait
+    /// in the root process for the next vtium.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker keeps the pty
+    ///   masters through a restart.
+    pub fn take_kept_from_root(&mut self) {
+        let Some(courier) = self.broker.clone() else {
+            return;
+        };
+        let mut names = Vec::new();
+        loop {
+            match courier.wait(|o| matches!(o, Order::Kept { .. } | Order::KeptEnd)) {
+                Ok((Order::Kept { console }, _)) => names.push(crate::survive::Name::new(
+                    console.head.as_str(),
+                    console.console,
+                )),
+                Ok(_) => break,
+                Err(e) => {
+                    log::warn!(
+                        target: "broker",
+                        "vtium's root process did not name the sessions it kept, so the consoles open as if none was kept: {e}"
+                    );
+                    break;
+                }
+            }
+        }
+        self.kept_by_root(names);
     }
 
     /// Asks the root process for the session of head `h`'s console `id`
@@ -902,6 +938,83 @@ mod tests {
                 },
                 Request::CloseSession { console }
             ]
+        );
+    }
+
+    /// Under the split, the consoles whose sessions an earlier vtium kept
+    /// come back: the root process names them at the drawing process's
+    /// start, and the head opens exactly those at its start, keeping their
+    /// ids, and asks the root process for each one's session, which the
+    /// root process answers with the kept master. The drawing process asks
+    /// the root process to hang up the kept session of a head that is not
+    /// in vtium.conf at once, and the one that head-consoles-max leaves no
+    /// room for at its head's start.
+    #[test]
+    fn under_the_split_kept_consoles_come_back_and_those_without_a_place_are_hung_up() {
+        let (broker, theirs) = Link::pair().unwrap();
+        let kept = |head: &str, id| Order::Kept {
+            console: console_ref(head, id).unwrap(),
+        };
+        let seen = stand_in(
+            broker,
+            vec![
+                kept("console", 2),
+                kept("gone", 1),
+                kept("console", 9),
+                kept("console", 5),
+                Order::Blank,
+                Order::KeptEnd,
+            ],
+        );
+        let (mut lp, mut app) = seat_with(&["--head-consoles-max=2"], None, no_fonts());
+        app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
+            .unwrap();
+        app.take_kept_from_root();
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        app.start();
+        shown(&mut app);
+        let head = app.heads.first().unwrap();
+        let ids: Vec<u64> = head.consoles().map(|c| c.id).collect();
+        assert_eq!(ids, [2, 5], "the kept consoles the caps leave room for");
+        for c in head.consoles() {
+            assert!(
+                c.pty.as_ref().is_some_and(Pty::started_elsewhere),
+                "console {} has no session from the root process",
+                c.id
+            );
+        }
+        // The order that came amid the kept consoles waits for the loop.
+        lp.dispatch(Some(std::time::Duration::ZERO), &mut app)
+            .unwrap();
+        assert_eq!(app.order, Some(blank::Order::Blank));
+        app.release_sessions();
+        drop((app, lp));
+        let seen = seen.join().unwrap();
+        let opened: Vec<u64> = seen
+            .iter()
+            .filter_map(|r| match r {
+                Request::OpenSession { console, .. } => Some(console.console),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(opened, [2, 5], "{seen:?}");
+        let closed: Vec<ConsoleRef> = seen
+            .iter()
+            .filter_map(|r| match r {
+                Request::CloseSession { console } => Some(console.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            closed,
+            [
+                console_ref("gone", 1).unwrap(),
+                console_ref("console", 9).unwrap()
+            ],
+            "{seen:?}"
         );
     }
 

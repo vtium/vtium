@@ -42,6 +42,12 @@ pub(crate) struct Survival {
     /// hung up: the keeper drops every master of such a name when the
     /// first is taken back, and is given it again at the turn's end.
     rekeep: Vec<String>,
+    /// Under the privilege split, the consoles whose kept sessions the
+    /// root process holds, until their heads start. A head that starts
+    /// opens each of them, and asks the root process for its session as
+    /// for any other, which the root process answers with the kept master.
+    #[cfg(feature = "split")]
+    elsewhere: Vec<Name>,
 }
 
 /// What became of a console's kept master at its start.
@@ -93,6 +99,48 @@ impl App {
         }
     }
 
+    /// Under the privilege split, takes `names`, the consoles whose
+    /// sessions an earlier vtium kept and the root process holds. Each
+    /// opens again as its head starts, as a kept master does; the session
+    /// of one whose head is not among the seat's heads is hung up at once.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker keeps the pty
+    ///   masters through a restart.
+    #[cfg(feature = "split")]
+    pub(super) fn kept_by_root(&mut self, names: Vec<Name>) {
+        let heads: Vec<String> = self
+            .heads
+            .iter()
+            .filter(|head| !head.notice_only)
+            .map(|head| head.name().to_owned())
+            .collect();
+        for name in names {
+            if heads.contains(&name.head) {
+                self.survival.elsewhere.push(name);
+            } else {
+                self.let_go_kept(&name, "its head is not in vtium.conf");
+            }
+        }
+    }
+
+    /// Under the privilege split, asks the root process to hang up the
+    /// session kept for `name`, which it holds, for the reason `why`,
+    /// which is logged as [`App::hang_up_kept`] logs it.
+    #[cfg(feature = "split")]
+    fn let_go_kept(&mut self, name: &Name, why: &str) {
+        log::warn!(
+            "{}: vtium hangs up its session, kept from the last vtium, because {why}",
+            describe(&name.encode())
+        );
+        if let Some(console) = super::broker::console_ref(&name.head, name.console).ok()
+            && let Some(courier) = &self.broker
+            && let Err(e) = courier.send(&vtium_broker_protocol::Request::CloseSession { console })
+        {
+            log::warn!(target: "broker", "vtium cannot ask its root process to hang up a kept session: {e}");
+        }
+    }
+
     /// The id of a pty the seat opens or takes back now, which no other
     /// pty of this run has.
     pub(super) fn next_pty_id(&mut self) -> u64 {
@@ -140,7 +188,28 @@ impl App {
         let Some(name) = self.heads.get(h).map(|head| head.name().to_owned()) else {
             return false;
         };
-        let ids = self.survival.kept.consoles(&name);
+        #[cfg_attr(
+            not(feature = "split"),
+            expect(unused_mut, reason = "only the split adds ids")
+        )]
+        let mut ids = self.survival.kept.consoles(&name);
+        // Under the privilege split, the root process holds the kept
+        // masters, and this head's consoles among them open here too.
+        #[cfg(feature = "split")]
+        let theirs: Vec<u64> = {
+            let (mine, rest): (Vec<Name>, Vec<Name>) = std::mem::take(&mut self.survival.elsewhere)
+                .into_iter()
+                .partition(|n| n.head == name);
+            self.survival.elsewhere = rest;
+            let mine: Vec<u64> = mine.into_iter().map(|n| n.console).collect();
+            for id in &mine {
+                let at = ids.binary_search(id).unwrap_or_else(|at| at);
+                if ids.get(at) != Some(id) {
+                    ids.insert(at, *id);
+                }
+            }
+            mine
+        };
         if ids.is_empty() {
             return false;
         }
@@ -177,6 +246,13 @@ impl App {
             if let Some(master) = self.survival.kept.take(&name, id) {
                 let key = Name::new(&name, id).encode();
                 self.hang_up_kept(&key, master, "the console caps leave no room for it", true);
+            }
+            #[cfg(feature = "split")]
+            if theirs.contains(&id) {
+                self.let_go_kept(
+                    &Name::new(&name, id),
+                    "the console caps leave no room for it",
+                );
             }
         }
         true

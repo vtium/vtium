@@ -482,6 +482,15 @@ pub enum Order {
     Kmsg,
     /// The kernel's font, with the sealed memory file that holds it.
     Font(KernelFont),
+    /// An earlier vtium kept this console's session through a restart, and
+    /// the broker holds its pty master. The drawer opens the console when
+    /// its head starts, and asks for its session as for any other, or
+    /// closes the session when the drawer has no place for it. The broker
+    /// names every such console once, at the drawer's start, before
+    /// [`Order::KeptEnd`].
+    Kept { console: ConsoleRef },
+    /// The broker has named every console whose session it keeps.
+    KeptEnd,
 }
 
 impl Order {
@@ -526,6 +535,8 @@ const WAKE: u16 = 0x10a;
 const STOP: u16 = 0x10b;
 const KMSG: u16 = 0x10c;
 const FONT: u16 = 0x10d;
+const KEPT: u16 = 0x10e;
+const KEPT_END: u16 = 0x10f;
 
 /// A message being written. Every kind's fields fit in [`SIZE`] bytes,
 /// which a test checks for the largest of each, so no write runs past the
@@ -987,6 +998,8 @@ impl Order {
                 o.u16(font.pairs);
                 o
             }
+            Order::Kept { console } => console_only(KEPT, console),
+            Order::KeptEnd => Out::new(KEPT_END),
         };
         out.bytes
     }
@@ -1047,6 +1060,10 @@ impl Order {
                     pairs,
                 })
             }
+            KEPT => Order::Kept {
+                console: r.console()?,
+            },
+            KEPT_END => Order::KeptEnd,
             other => return Err(Refusal::Kind(other)),
         };
         r.end(order)
@@ -1503,6 +1520,16 @@ mod tests {
                 glyphs: 1,
                 pairs: 0,
             }),
+            Order::Kept {
+                console: long_console(),
+            },
+            Order::Kept {
+                console: ConsoleRef {
+                    head: Head::new("a").unwrap(),
+                    console: 0,
+                },
+            },
+            Order::KeptEnd,
         ]
     }
 
@@ -1780,6 +1807,7 @@ mod tests {
             pairs: 0,
         })
         .encode();
+        let kept = Order::Kept { console: console() }.encode();
         let errno = (ERRNO_MAX + 1).to_le_bytes();
         let cases: Vec<([u8; SIZE], Refusal)> = vec![
             (with(font, BODY, &[0]), Refusal::Field("font width")),
@@ -1825,6 +1853,14 @@ mod tests {
                 with(helper_exit, BODY + 4, &[2, 0]),
                 Refusal::Field("signal"),
             ),
+            (with(kept, BODY, &[0]), Refusal::Field("head")),
+            (with(kept, BODY, &[2, b'a', b'/']), Refusal::Field("head")),
+            (
+                with(kept, BODY, &[u8::try_from(NAME_MAX + 1).unwrap()]),
+                Refusal::Field("head"),
+            ),
+            (with(kept, AFTER_HEAD + 8, &[1]), Refusal::Padding),
+            (with(Order::KeptEnd.encode(), BODY, &[1]), Refusal::Padding),
         ];
         for (bytes, refusal) in cases {
             assert_eq!(Order::decode(&bytes), Err(refusal), "{bytes:?}");
@@ -1853,8 +1889,8 @@ mod tests {
             Err(Refusal::Kind(15))
         );
         assert_eq!(
-            Order::decode(&with(ready, 0, &[0x0e, 1])),
-            Err(Refusal::Kind(0x10e))
+            Order::decode(&with(ready, 0, &[0x10, 1])),
+            Err(Refusal::Kind(0x110))
         );
         assert_eq!(
             Request::decode(&with(ready, 2, &[1])),
@@ -2186,7 +2222,7 @@ mod tests {
             );
             seen += 1;
         }
-        assert_eq!(seen, 12);
+        assert_eq!(seen, 13);
     }
 
     /// The drawer takes descriptor 3 only when it is a Unix
