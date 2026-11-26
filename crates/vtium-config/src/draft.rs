@@ -3,7 +3,7 @@
 //! the lines that differ, which the TUI's save view and the commands show
 //! before anything is written.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// One file a save replaces or writes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,6 +48,25 @@ impl Plan {
     /// How many files the save writes or removes.
     pub fn len(&self) -> usize {
         self.files.len().saturating_add(self.removals.len())
+    }
+
+    /// How many font sets the save writes or removes.
+    pub fn font_sets(&self) -> usize {
+        self.files
+            .iter()
+            .filter(|f| f.path.extension().is_some_and(|e| e == "vtfrit"))
+            .count()
+            .saturating_add(self.removals.len())
+    }
+
+    /// Whether the save writes the batch file, the list of active
+    /// resources: vtium's own, or `batch.conf` in the configuration
+    /// directory an install to other directories writes.
+    pub fn writes_batch(&self) -> bool {
+        self.files.iter().any(|f| {
+            f.path == Path::new(vtium_settings::batch::BATCH_FILE)
+                || f.path.file_name().is_some_and(|n| n == "batch.conf")
+        })
     }
 }
 

@@ -1027,7 +1027,7 @@ mod draft_flow {
         std::fs::write(path, &unrouted).expect("the draft");
         let asked = run(&b, &[b"i"]);
         assert!(
-            flat(asked.screen()).contains(&flat(&words::no_route_question(5, 3, 0))),
+            flat(asked.screen()).contains(&flat(&words::no_route_question(5, 3, 0, 0))),
             "{}",
             asked.screen()
         );

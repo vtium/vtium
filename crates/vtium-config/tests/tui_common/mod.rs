@@ -625,14 +625,34 @@ impl Desk {
     }
 
     /// The plan an install hands the privileged step, as the store's
-    /// prepare builds it: the font sets first, then vtium.conf where the
+    /// prepare builds it: the font sets first, then the batch file where
+    /// the draft changes the active resources, then vtium.conf where the
     /// draft differs from it.
     fn plan(&self) -> vtium_config::draft::Plan {
+        use vtium_config::batch::State;
         let (mut files, removals) = vtium_config::tui::fixture::frit_plan(
             &self.frits,
             &self.installed_frits,
             &inputs().frits,
         );
+        let listed = |states: &[State]| -> String {
+            self.resources
+                .iter()
+                .filter(|(_, s)| states.contains(s))
+                .map(|(p, _)| format!("{}\n", p.display()))
+                .collect()
+        };
+        if self
+            .resources
+            .iter()
+            .any(|(_, s)| matches!(s, State::Activates | State::Deactivates))
+        {
+            files.push(vtium_config::draft::FileEdit {
+                path: PathBuf::from("/etc/vtium/batch.conf"),
+                old: Some(listed(&[State::Active, State::Deactivates])),
+                new: listed(&[State::Active, State::Activates]),
+            });
+        }
         if self.draft != self.installed {
             files.push(vtium_config::draft::FileEdit {
                 path: PathBuf::from("/etc/vtium/vtium.conf"),

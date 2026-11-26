@@ -275,12 +275,7 @@ impl App {
             // References:
             // - ADR-1403 D8: an install writes the frits before vtium.conf.
             Done::Plan(plan) => {
-                let n = plan
-                    .files
-                    .iter()
-                    .filter(|f| f.path.extension().is_some_and(|e| e == "vtfrit"))
-                    .count()
-                    .saturating_add(plan.removals.len());
+                let n = plan.font_sets();
                 if plan.is_empty() {
                     return self.say(words::NOTHING_TO_INSTALL);
                 }
@@ -298,10 +293,17 @@ impl App {
                 //
                 // References:
                 // - ADR-1403 D7: the question before such an install.
-                let question = if plan.no_route {
-                    words::no_route_question(added, removed, n)
+                // the changes to the active resources install with the
+                // batch file, which the plan holds when they change it
+                let batch = if plan.writes_batch() {
+                    self.shared.draft.as_ref().map_or(0, |d| d.batch)
                 } else {
-                    words::install_question(added, removed, n)
+                    0
+                };
+                let question = if plan.no_route {
+                    words::no_route_question(added, removed, batch, n)
+                } else {
+                    words::install_question(added, removed, batch, n)
                 };
                 self.ask(question, Then::Install(plan));
             }

@@ -699,6 +699,7 @@ impl Session<'_> {
                 no_route,
             },
             replaced: if same { None } else { installed },
+            conf: !same,
         }))
     }
 
@@ -835,10 +836,18 @@ impl Session<'_> {
                 Unrouted::Ask(ask) => {
                     let installed = self.installed()?;
                     let (added, removed) = counts(installed.as_deref().unwrap_or_default(), text);
-                    if !ask(
-                        out,
-                        &crate::tui::words::no_route_question(added, removed, 0),
-                    ) {
+                    let batch = if ready.plan.writes_batch() {
+                        self.store.batch_changes(name)?.len()
+                    } else {
+                        0
+                    };
+                    let question = crate::tui::words::no_route_question(
+                        added,
+                        removed,
+                        batch,
+                        ready.plan.font_sets(),
+                    );
+                    if !ask(out, &question) {
                         return Err(Fail::Check(
                             crate::tui::words::NO_ROUTE_NOT_INSTALLED.to_owned(),
                         ));
@@ -848,7 +857,12 @@ impl Session<'_> {
         }
         self.put(&ready.plan, &mut *run, out)?;
         self.finish(name, text, ready.replaced.as_deref(), out)?;
-        self.after(text, run, ask, out);
+        // vtium reads the batch file again at each login, so an install
+        // that writes only the batch file needs no step that starts or
+        // restarts vtium
+        if ready.restarts() {
+            self.after(text, run, ask, out);
+        }
         Ok(())
     }
 }
@@ -983,6 +997,18 @@ pub enum Unrouted<'a> {
 pub struct Ready {
     pub plan: Plan,
     pub replaced: Option<String>,
+    /// Whether the plan writes vtium.conf. An install that writes only
+    /// font sets and the batch file leaves vtium.conf as it is.
+    pub conf: bool,
+}
+
+impl Ready {
+    /// Whether the running vtium reads what the install writes only when
+    /// it starts again: vtium.conf or a font set. The batch file alone it
+    /// reads again at the next login.
+    pub fn restarts(&self) -> bool {
+        self.conf || self.plan.font_sets() > 0
+    }
 }
 
 /// Runs `argv` as a plain child, its standard input the terminal's, so
@@ -1088,6 +1114,38 @@ mod tests {
         assert!(!says_no_route("No display rule sends a display to a head."));
         assert!(!says_no_route("Head is isolated"));
         assert!(!says_no_route("BAD is not a key vtium reads"));
+    }
+
+    // vtium reads the batch file again at each login, so an install of
+    // the batch file alone offers no restart; vtium.conf and a font set
+    // are read when vtium starts
+    #[test]
+    fn only_an_install_of_vtium_conf_or_a_font_set_restarts_vtium() {
+        let edit = |path: &str| FileEdit {
+            path: PathBuf::from(path),
+            old: None,
+            new: String::new(),
+        };
+        let ready = |files: Vec<FileEdit>, conf: bool| Ready {
+            plan: Plan {
+                files,
+                removals: Vec::new(),
+                no_route: false,
+            },
+            replaced: None,
+            conf,
+        };
+        let batch = ready(vec![edit("/etc/vtium/batch.conf")], false);
+        assert!(batch.plan.writes_batch());
+        assert!(!batch.restarts());
+        let frit = ready(vec![edit("/etc/vtium/fonts/mono.vtfrit")], false);
+        assert_eq!(frit.plan.font_sets(), 1);
+        assert!(frit.restarts());
+        let conf = ready(
+            vec![edit("/etc/vtium/batch.conf"), edit("/etc/vtium/vtium.conf")],
+            true,
+        );
+        assert!(conf.restarts());
     }
 
     #[test]

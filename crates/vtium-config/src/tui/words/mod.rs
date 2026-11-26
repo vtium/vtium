@@ -412,18 +412,29 @@ pub const INSTALLING: &str = "Installing. sudo may ask for your password.";
 pub const NOTHING_TO_INSTALL: &str =
     "Nothing to install: the draft is the same as the installed vtium.conf.";
 
-pub fn install_question(added: usize, removed: usize, frits: usize) -> String {
-    match frits {
-        0 => format!("Install the draft? {}.", lines(added, removed)),
-        1 => format!(
-            "Install the draft? {}, and 1 font set.",
-            lines(added, removed)
-        ),
-        n => format!(
-            "Install the draft? {}, and {n} font sets.",
-            lines(added, removed)
-        ),
+/// Install's question: what the install changes, the lines of vtium.conf
+/// added and removed, then the `batch` changes to the active resources and
+/// the `frits` font sets it writes or removes. A draft that changes no line
+/// of vtium.conf names only what else it installs.
+pub fn install_question(added: usize, removed: usize, batch: usize, frits: usize) -> String {
+    let mut parts = Vec::new();
+    if (added, removed) != (0, 0) || (batch, frits) == (0, 0) {
+        parts.push(lines(added, removed));
     }
+    if batch > 0 {
+        parts.push(crate::batch::resource_changes(batch));
+    }
+    match frits {
+        0 => {}
+        1 => parts.push("1 font set".to_owned()),
+        n => parts.push(format!("{n} font sets")),
+    }
+    let counted = match parts.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{}, and {last}", rest.join(", ")),
+        None => String::new(),
+    };
+    format!("Install the draft? {counted}.")
 }
 
 /// The first half of Install's question for a draft that wires no
@@ -443,8 +454,8 @@ pub const NO_ROUTE_NOT_INSTALLED: &str =
 
 /// Install's question for a draft whose only problem is that it wires no
 /// complete route (ADR-1403 D7).
-pub fn no_route_question(added: usize, removed: usize, frits: usize) -> String {
-    let install = install_question(added, removed, frits);
+pub fn no_route_question(added: usize, removed: usize, batch: usize, frits: usize) -> String {
+    let install = install_question(added, removed, batch, frits);
     let counted = install
         .strip_prefix("Install the draft? ")
         .unwrap_or(&install);
@@ -626,8 +637,16 @@ mod tests {
     #[test]
     fn install_revert_and_new_name_the_draft() {
         assert_eq!(
-            super::install_question(3, 1, 0),
+            super::install_question(3, 1, 0, 0),
             "Install the draft? 3 lines added, 1 removed."
+        );
+        assert_eq!(
+            super::install_question(0, 0, 2, 0),
+            "Install the draft? 2 changes to the active resources."
+        );
+        assert_eq!(
+            super::install_question(1, 0, 1, 2),
+            "Install the draft? 1 line added, 1 change to the active resources, and 2 font sets."
         );
         assert_eq!(
             super::revert_question(3, 1),
@@ -644,7 +663,7 @@ mod tests {
     #[test]
     fn install_asks_before_it_installs_a_draft_with_no_complete_path() {
         assert_eq!(
-            super::no_route_question(3, 1, 0),
+            super::no_route_question(3, 1, 0, 0),
             "This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. After the install, nobody at this machine may be able to type into vtium. Install it anyway? 3 lines added, 1 removed."
         );
         assert_eq!(

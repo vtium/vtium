@@ -124,7 +124,7 @@ The checks say what is true at that point:
 |---|---|
 | `check screen shows "TEXT"`, `check screen lacks "TEXT"` | The screen shows the text, or does not. The screen's words are read with one space between each, so a text that wraps across rows still matches. |
 | `check said shows "TEXT"`, `check said lacks "TEXT"` | What the install and the command lines printed holds the text, or does not. |
-| `check draft has "TEXT"`, `check installed lacks "TEXT"` | The saved draft or the installed vtium.conf holds the text, or does not. |
+| `check draft has "TEXT"`, `check installed lacks "TEXT"` | The saved draft or the installed vtium.conf holds the text, or does not. `batch` in place of `draft` reads the installed batch.conf. |
 | `check draft head NAME KEY VALUE` | vtium takes VALUE for KEY on the head NAME when it runs the saved draft. `installed` in place of `draft` reads the installed vtium.conf. The key `look` reads the head's own section. |
 | `check draft look NAME KEY VALUE` | The section `[look NAME]` sets KEY to VALUE. |
 | `check draft display NAME reaches HEAD`, `check draft input NAME reaches HEAD` | Under the file's rules, vtium puts the connected device on the head HEAD, or with `roams`, `ignored` or `off`, it does that with the device. |

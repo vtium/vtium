@@ -355,6 +355,25 @@ fn an_activation_made_with_space_stays_marked_after_a_system_font_install() {
     );
 }
 
+/// An install whose only change is to the active fonts asks with the
+/// count of those changes, not with "no lines changed", which reads as if
+/// the install changed nothing.
+///
+/// References:
+/// - ADR-1403 D7: Install asks before it acts, and says what it installs.
+#[test]
+fn an_install_of_the_active_fonts_alone_says_what_it_changes() {
+    let mut c = console().keys(&on_font(2, &[b" ", b"i"]));
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let seen = flat(&c.seen.clone().expect("the screen"));
+    assert!(
+        seen.contains("Install the draft? 1 change to the active resources."),
+        "{seen}"
+    );
+    assert!(!seen.contains("no lines changed"), "{seen}");
+}
+
 /// Space on a font in the person's own folder activates nothing and says
 /// how the font becomes usable; on a font that fails the trust rule it
 /// says why and activates nothing.

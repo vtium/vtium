@@ -155,6 +155,8 @@ enum Which {
     Draft,
     /// The installed vtium.conf.
     Installed,
+    /// The installed batch.conf, the list of active resources.
+    Batch,
 }
 
 /// The text between the first and the last double quote of `s`, with
@@ -368,7 +370,8 @@ fn parse_check(rest: &str) -> Result<Check, String> {
     let file = |w: &str| match w {
         "draft" => Ok(Which::Draft),
         "installed" => Ok(Which::Installed),
-        _ => Err(format!("{w} is neither draft nor installed")),
+        "batch" => Ok(Which::Batch),
+        _ => Err(format!("{w} is not draft, installed or batch")),
     };
     Ok(match words.as_slice() {
         ["screen", "shows", ..] => Check::Screen {
@@ -882,6 +885,11 @@ impl Run<'_> {
         let file = |which: Which| match which {
             Which::Draft => ("the saved draft", self.machine.draft()),
             Which::Installed => ("the installed vtium.conf", self.machine.installed()),
+            Which::Batch => (
+                "the installed batch.conf",
+                std::fs::read_to_string(self.machine.root.join("etc/batch.conf"))
+                    .unwrap_or_default(),
+            ),
         };
         match check {
             Check::Screen { shows, text } => {
