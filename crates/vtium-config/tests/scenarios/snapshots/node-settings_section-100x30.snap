@@ -31,4 +31,4 @@ description: "settings.section at 100×30, keys: 5 Enter"
  the font from vconsole.conf, or else the font set `terminus`. If vtium cannot find the font, it …
 
 ----------------------------------------------------------------------------------------------------
- ↑↓ move  Enter change  Esc back  q quit  . more 1/3
+ ↑↓ move  Enter change  Esc back, keep changes  q quit  . more 1/3
