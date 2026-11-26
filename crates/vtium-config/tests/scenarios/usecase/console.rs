@@ -11,7 +11,8 @@
 //! vtium would use. The stand-in calls vtium's own refusal code for this
 //! rather than copying it, so it refuses exactly what that code refuses.
 //!
-//! OSC 4 and OSC 104 change the palette, and the grid request `CSI 8 ;
+//! OSC 4 and OSC 104 change the palette, XTPUSHCOLORS and XTPOPCOLORS
+//! save and restore it, and the grid request `CSI 8 ;
 //! rows ; cols t` changes the grid, which is how vtium meets a new font
 //! size. After every key the runner can read the font set the console
 //! was asked for, the font it really draws, its cell, its palette by name,
@@ -72,6 +73,8 @@ pub struct Console {
     pub height: u32,
     /// The sixteen colors of the palette in use.
     pub colors: [Rgb; 16],
+    /// The colors that XTPUSHCOLORS saved, the last saved last.
+    pub saved: Vec<[Rgb; 16]>,
     /// The grid, columns by rows.
     pub grid: (usize, usize),
     /// Every byte vtium-config wrote, in order.
@@ -101,6 +104,7 @@ impl Console {
             },
             height: DEFAULT_HEIGHT,
             colors: named("legacy"),
+            saved: Vec::new(),
             grid,
             received: Vec::new(),
             log: Vec::new(),
@@ -177,16 +181,8 @@ impl Console {
         let path = self.places.frits.join(format!("{name}.vtfrit"));
         let text = std::fs::read_to_string(&path)
             .map_err(|e| format!("there is no font set {name}: {e}"))?;
-        let batch = std::fs::read(&self.places.batch).unwrap_or_default();
-        let read = vtium_settings::batch::Batch::parse(&batch, &self.places.batch);
-        let paths: Vec<PathBuf> = read
-            .batch
-            .entries()
-            .iter()
-            .map(|vtium_settings::batch::Entry::Path(p)| p.clone())
-            .collect();
         let euid = rustix::process::geteuid().as_raw();
-        let gate = ActiveAsk { owner: euid, paths }.gate(euid)?;
+        let gate = active_fonts(&self.places.batch).gate(euid)?;
         let helper_paths = vtium_config::serve::Paths {
             font_dirs: self.places.font_dirs.clone(),
             kbd_dirs: Vec::new(),
@@ -226,6 +222,16 @@ impl Console {
                 };
                 rest = after;
                 self.osc(body, &mut replies);
+            } else if let Some(after) = rest.strip_prefix("\x1b[#P") {
+                // XTPUSHCOLORS: the console saves its colors on a stack
+                self.saved.push(self.colors);
+                rest = after;
+            } else if let Some(after) = rest.strip_prefix("\x1b[#Q") {
+                // XTPOPCOLORS: the console restores the colors saved last
+                if let Some(colors) = self.saved.pop() {
+                    self.colors = colors;
+                }
+                rest = after;
             } else if let Some(csi) = rest.strip_prefix("\x1b[8;") {
                 let end = csi.find('t').unwrap_or(csi.len());
                 let (params, after) = csi.split_at(end);
@@ -308,4 +314,23 @@ fn parse_rgb(spec: &str) -> Option<Rgb> {
         g: channel(hex.get(2..4)?)?,
         b: channel(hex.get(4..6)?)?,
     })
+}
+
+/// The active fonts of the machine's installed batch file `batch`, as the
+/// console's launcher hands them to its font helper. The machine's files
+/// belong to the account running the test, so that account stands in for
+/// root as the owner whose files pass the trust rule.
+pub fn active_fonts(batch: &Path) -> ActiveAsk {
+    let bytes = std::fs::read(batch).unwrap_or_default();
+    let read = vtium_settings::batch::Batch::parse(&bytes, batch);
+    let paths: Vec<PathBuf> = read
+        .batch
+        .entries()
+        .iter()
+        .map(|vtium_settings::batch::Entry::Path(p)| p.clone())
+        .collect();
+    ActiveAsk {
+        owner: rustix::process::geteuid().as_raw(),
+        paths,
+    }
 }

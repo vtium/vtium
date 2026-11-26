@@ -734,7 +734,15 @@ impl Run<'_> {
                     Event::Celled { font, height, cell }
                 }
                 Effect::Sources(names) => {
-                    Event::Sourced(vtium_config::tui::find_sources(&frits, &helper, &names))
+                    // The Looks tab reads each font set through the active
+                    // fonts the console reads, as the TUI's own finder does.
+                    let active = console::active_fonts(&self.machine.root.join("etc/batch.conf"));
+                    Event::Sourced(vtium_config::tui::find_sources(
+                        &frits,
+                        &helper,
+                        Some(&active),
+                        &names,
+                    ))
                 }
                 Effect::Describe(paths) => {
                     let described = vtium_config::discover::describe(&helper, &paths);

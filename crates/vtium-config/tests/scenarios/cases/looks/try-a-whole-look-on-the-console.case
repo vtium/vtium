@@ -9,7 +9,7 @@ waits-for CF1 item 2: the live trial carries only the font set's name
 file etc/vtium.conf
     version = 1
     font-name = unifont
-    allow-window-ops = on
+    allow-window-ops
     [head console]
     vt = 5
 file etc/batch.conf

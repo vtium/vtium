@@ -2,7 +2,6 @@ kind how-do-i
 title How do I leave vtium-config after a trial without installing the look yet?
 intro When you quit, vtium-config saves your changes into the draft. The console keeps its installed settings until you install the draft.
 see install-and-restore/save-on-quit-and-install-from-the-command-line
-waits-for CF1 item 5: a font saved in the look is lost on q
 
 file etc/vtium.conf
     version = 1
