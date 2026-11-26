@@ -103,13 +103,23 @@ impl Default for Bounds {
     }
 }
 
-/// What decides whether vtium splits: whether it runs as root, and the
-/// account the drawer runs as.
+/// What decides whether vtium splits: whether it runs as root, the
+/// account the drawer runs as, and the seat managers.
 pub trait Facts {
     fn root(&self) -> bool;
     fn account(&self, name: &str) -> Option<Account>;
-    /// Whether a seat manager, seatd or logind, would serve vtium's seat.
-    fn seat_manager(&self) -> bool;
+    /// What vtium finds about the seat managers, before it opens anything.
+    fn seat(&self) -> Seat;
+}
+
+/// What vtium finds about the seat managers at its start.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Seat {
+    /// A seat manager, seatd or logind, would serve vtium's seat.
+    pub served: bool,
+    /// vtium looks for seatd alone, being in no logind session of its own
+    /// with no libseat backend named.
+    pub seatd_only: bool,
 }
 
 /// The running system.
@@ -125,19 +135,17 @@ impl Facts for System {
     }
 
     #[cfg(feature = "libseat")]
-    fn seat_manager(&self) -> bool {
+    fn seat(&self) -> Seat {
         let managers = vtium_platform::seat::managers();
-        // vtium looked for seatd alone and found none, so it splits on the
-        // kernel's VT, as vtium in one process runs on it then.
-        if managers.seatd_only && !managers.serve {
-            log::info!(target: "seat", "{}", vtium_platform::seat::SEATD_ONLY);
+        Seat {
+            served: managers.serve,
+            seatd_only: managers.seatd_only,
         }
-        managers.serve
     }
 
     #[cfg(not(feature = "libseat"))]
-    fn seat_manager(&self) -> bool {
-        false
+    fn seat(&self) -> Seat {
+        Seat::default()
     }
 }
 
@@ -149,8 +157,10 @@ pub enum Plan {
     /// vtium runs as one process because a seat manager serves its seat,
     /// and logs the line.
     Seat(String),
-    /// vtium starts a broker and a drawer that runs as the account.
-    Split(Account),
+    /// vtium starts a broker and a drawer that runs as the account. With
+    /// `seatd_only`, vtium looked for seatd alone and found none, so it
+    /// splits on the kernel's VT.
+    Split { account: Account, seatd_only: bool },
 }
 
 /// vtium splits only when it runs as root, no seat manager serves its
@@ -169,13 +179,17 @@ pub fn plan(facts: &dyn Facts) -> Plan {
     if !facts.root() {
         return Plan::OneProcess(None);
     }
-    if facts.seat_manager() {
+    let seat = facts.seat();
+    if seat.served {
         return Plan::Seat(
             "A seat manager serves vtium's seat, so vtium runs as one process, as root: its privilege split does not work with a seat manager yet.".to_owned(),
         );
     }
     match facts.account(ACCOUNT) {
-        Some(account) => Plan::Split(account),
+        Some(account) => Plan::Split {
+            account,
+            seatd_only: seat.seatd_only,
+        },
         None => Plan::OneProcess(Some(format!(
             "The system account {ACCOUNT} does not exist, so vtium runs as one process, as root."
         ))),
@@ -648,6 +662,40 @@ pub fn drawer(args: &mut Vec<OsString>) -> io::Result<Option<(Link, u16)>> {
     start::begin().map(|link| Some((link, vt)))
 }
 
+/// Logs what [`plan`] decides from `facts`, and returns the drawer's
+/// account when vtium splits. A vtium that splits after it looked for
+/// seatd alone and found none logs that once here. A vtium that runs as
+/// one process logs it as it pins libseat to seatd, so the line never
+/// comes twice.
+fn decide(facts: &dyn Facts) -> Option<Account> {
+    match plan(facts) {
+        Plan::OneProcess(line) => {
+            if let Some(line) = line {
+                log::warn!(target: "broker", "{line}");
+            }
+            None
+        }
+        Plan::Seat(line) => {
+            log::info!(target: "broker", "{line}");
+            None
+        }
+        Plan::Split {
+            account,
+            seatd_only,
+        } => {
+            // vtium looked for seatd alone and found none, so it splits on
+            // the kernel's VT, as vtium in one process runs on it then.
+            #[cfg(feature = "libseat")]
+            if seatd_only {
+                log::info!(target: "seat", "{}", vtium_platform::seat::SEATD_ONLY);
+            }
+            #[cfg(not(feature = "libseat"))]
+            let _ = seatd_only;
+            Some(account)
+        }
+    }
+}
+
 /// Takes [`DRAWER`] and the VT's number off the front of `args`: `None`
 /// when the run is not the drawer's, and an error when the number is
 /// missing or is not a VT's.
@@ -669,19 +717,7 @@ fn drawers_vt(args: &mut Vec<OsString>) -> Option<io::Result<u16>> {
 /// until the drawer ends, and returns the broker's exit status. Returns
 /// `None` when vtium runs as one process.
 pub fn split(args: &[OsString]) -> Option<u8> {
-    let account = match plan(&System) {
-        Plan::OneProcess(line) => {
-            if let Some(line) = line {
-                log::warn!(target: "broker", "{line}");
-            }
-            return None;
-        }
-        Plan::Seat(line) => {
-            log::info!(target: "broker", "{line}");
-            return None;
-        }
-        Plan::Split(account) => account,
-    };
+    let account = decide(&System)?;
     Some(match broker(args, &account) {
         Ok(status) => status,
         Err(e) => {
@@ -1765,6 +1801,7 @@ mod tests {
         root: bool,
         account: Option<Account>,
         seat_manager: bool,
+        seatd_only: bool,
     }
 
     impl Facts for Stand {
@@ -1775,9 +1812,57 @@ mod tests {
             assert_eq!(name, "vtium");
             self.account.clone()
         }
-        fn seat_manager(&self) -> bool {
-            self.seat_manager
+        fn seat(&self) -> Seat {
+            Seat {
+                served: self.seat_manager,
+                seatd_only: self.seatd_only,
+            }
         }
+    }
+
+    /// vtium logs that it looked for seatd alone once, and only when it
+    /// splits. A vtium that runs as one process logs the same line itself
+    /// as it pins libseat to seatd, so the broker's plan logs none then.
+    #[cfg(feature = "libseat")]
+    #[test]
+    fn seatd_only_is_logged_once_and_only_when_vtium_splits() {
+        let account = Account {
+            uid: 970,
+            gid: 970,
+            groups: Some(vec![970]),
+        };
+        let seatd_lines = |lines: &[String]| {
+            lines
+                .iter()
+                .filter(|l| *l == vtium_platform::seat::SEATD_ONLY)
+                .count()
+        };
+        logged();
+        let splits = Stand {
+            root: true,
+            account: Some(account),
+            seat_manager: false,
+            seatd_only: true,
+        };
+        assert!(decide(&splits).is_some());
+        assert_eq!(seatd_lines(&logged()), 1, "the split logs the line once");
+        let alone = Stand {
+            account: None,
+            ..splits
+        };
+        assert!(decide(&alone).is_none());
+        let lines = logged();
+        assert_eq!(
+            seatd_lines(&lines),
+            0,
+            "one process logs it itself: {lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("account vtium does not exist")),
+            "{lines:?}"
+        );
     }
 
     /// Where a seat manager serves the seat, vtium runs as one process, as
@@ -1795,6 +1880,7 @@ mod tests {
                 root: true,
                 account,
                 seat_manager: true,
+                seatd_only: false,
             };
             let Plan::Seat(line) = plan(&seated) else {
                 panic!("one process for the seat manager: {:?}", plan(&seated));
@@ -1806,6 +1892,7 @@ mod tests {
             root: false,
             account: None,
             seat_manager: true,
+            seatd_only: false,
         };
         assert_eq!(plan(&user), Plan::OneProcess(None));
     }
@@ -1825,18 +1912,27 @@ mod tests {
             root: true,
             account: Some(account.clone()),
             seat_manager: false,
+            seatd_only: false,
         };
-        assert_eq!(plan(&split), Plan::Split(account.clone()));
+        assert_eq!(
+            plan(&split),
+            Plan::Split {
+                account: account.clone(),
+                seatd_only: false
+            }
+        );
         let user = Stand {
             root: false,
             account: Some(account),
             seat_manager: false,
+            seatd_only: false,
         };
         assert_eq!(plan(&user), Plan::OneProcess(None));
         let missing = Stand {
             root: true,
             account: None,
             seat_manager: false,
+            seatd_only: false,
         };
         let Plan::OneProcess(Some(line)) = plan(&missing) else {
             panic!("one process with a line");
