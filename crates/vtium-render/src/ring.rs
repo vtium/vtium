@@ -60,7 +60,7 @@ use std::time::Instant;
 use vtium_font::Face;
 use vtium_term::{Frame, LineSize};
 
-use super::{DrawState, Drawn, Grid, Layout, Renderer};
+use super::{DrawState, Drawn, Grid, Layout, PartialRow, Placement, Renderer};
 use crate::bounds::{COPY_FRAMES, OVERSCAN_ROWS, TWIN_BUFFERS};
 use crate::compose::{Area, int};
 use crate::link_row::LinkRow;
@@ -1002,6 +1002,25 @@ impl<F: Face> Renderer<F> {
                 }
             }
         }
+        // under `blank` and `fade` the ring's slots under the spare lines
+        // hold covered pixels: the rows that moved into the spare lines
+        // are drawn covered, and those that moved out of them whole
+        if matches!(
+            self.layout.placement,
+            Placement::Bottom(PartialRow::Blank | PartialRow::Fade)
+        ) && g.above > 0
+        {
+            let k = usize::try_from(n.unsigned_abs()).unwrap_or(usize::MAX);
+            let last = match n < 0 {
+                true => g.above.saturating_add(k),
+                false => g.above,
+            };
+            for row in 0..last.min(g.rows) {
+                for col in 0..g.cols {
+                    self.cells.stamp(col, row);
+                }
+            }
+        }
         self.scroll_border(g, n);
         let shift = usize::try_from(n.unsigned_abs()).unwrap_or(usize::MAX);
         let rows = self.sizes.len();
@@ -1099,7 +1118,14 @@ impl<F: Face> Renderer<F> {
             false => [(1, k.min(now)), (before.saturating_add(k).max(1), now)],
         };
         let empty = bands.map(|rows| self.strip_band(g, rows));
-        for r in [Some(band)].into_iter().chain(empty).flatten() {
+        // a centred grid's bars show the border's color in every window,
+        // but a scroll moves the lines of the rows that leave the screen
+        // into them, so both are drawn as border again
+        let bars = match self.layout.placement {
+            Placement::Centred => self.layout.bars(g),
+            Placement::Bottom(_) => [None, None],
+        };
+        for r in [Some(band)].into_iter().chain(empty).chain(bars).flatten() {
             if r.area() > 0 {
                 self.cells.stamp_border_area(r);
             }

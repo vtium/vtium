@@ -38,6 +38,9 @@ mod gpu;
 #[path = "ring.rs"]
 pub(crate) mod ring;
 pub(crate) mod sized;
+#[cfg(feature = "scroll-pan")]
+#[path = "strip.rs"]
+mod strip;
 mod testing;
 #[cfg(test)]
 mod wider;
@@ -173,6 +176,53 @@ pub struct Config {
     /// ligature across its cells, which the renderer finds in a build with
     /// `bidi`.
     pub ligatures: bool,
+    /// Where the grid sits on the display, and what its spare pixel lines
+    /// show at rest.
+    pub placement: Placement,
+}
+
+/// Where the grid sits on the display, which the console's configured
+/// `smooth-scroll` chooses: centred on both axes while smooth scrolling is
+/// off, the default, or with its last row against the text's bottom edge
+/// while smooth scrolling is on.
+///
+/// References:
+/// - ADR-1310 D10: the grid flush to the text's bottom edge while smooth scrolling is on.
+/// - ADR-1310 D12, "With smooth scrolling off": the grid centred on both axes, with blank bars.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Placement {
+    /// The grid is centred on both axes in the display's own pixels. Of
+    /// the spare lines, the top gets half, rounded down, and the bottom the
+    /// rest, and the spare columns split the same way between the left and
+    /// the right. Every spare line and column shows the border's color,
+    /// and the screen's top row takes no ink from the history row above.
+    #[default]
+    Centred,
+    /// The grid's last row touches the text's bottom edge, so the spare
+    /// lines lie above its first row and show what `PartialRow` says.
+    /// Across the rows the grid stays centred.
+    Bottom(PartialRow),
+}
+
+/// What the spare lines above a grid placed at the bottom show at rest, as
+/// vtium.conf's `partial-row` asks. In a build without `scroll-pan` the
+/// renderer keeps no row of history above the screen, so every value shows
+/// the border's color there.
+///
+/// References:
+/// - ADR-1310 D12, "The key `partial-row`": the three values.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PartialRow {
+    /// The bottom of the row of history above the grid, drawn partly off
+    /// the screen.
+    #[default]
+    History,
+    /// The border's color.
+    Blank,
+    /// The row above, mixed in linear light more toward the border's color
+    /// the farther each line lies from the grid's first row, so the line at
+    /// the screen's edge is the border's color.
+    Fade,
 }
 
 impl Default for Config {
@@ -188,6 +238,7 @@ impl Default for Config {
             pointer: PointerShape::default(),
             depth: Depth::default(),
             ligatures: false,
+            placement: Placement::default(),
         }
     }
 }
@@ -270,6 +321,7 @@ struct Layout {
     ch: i64,
     max_cols: usize,
     max_rows: usize,
+    placement: Placement,
 }
 
 impl Layout {
@@ -291,18 +343,24 @@ impl Layout {
         self.grid_of(frame.cols(), frame.rows())
     }
 
-    /// Where a grid of `cols` by `rows` cells sits on the display. The
-    /// grid's last row touches the text's bottom edge, so the spare pixel
-    /// lines, left when the display's length along the rows is not a whole
-    /// number of rows, lie above the grid's first row. The text's bottom is
-    /// the display's bottom upright, its top upside down, its left turned
-    /// right and its right turned left. Across the rows the grid stays
-    /// centred in the display's own pixels, and an odd spare pixel goes to
-    /// the right or the bottom. Every build places the grid so, and the GPU
+    /// Where a grid of `cols` by `rows` cells sits on the display.
+    ///
+    /// Placed at the bottom, the grid's last row touches the text's bottom
+    /// edge, so the spare pixel lines, left when the display's length along
+    /// the rows is not a whole number of rows, lie above the grid's first
+    /// row. The text's bottom is the display's bottom upright, its top
+    /// upside down, its left turned right and its right turned left. Across
+    /// the rows the grid stays centred in the display's own pixels, and an
+    /// odd spare pixel goes to the right or the bottom.
+    ///
+    /// Centred, the grid is centred on both axes in the display's own
+    /// pixels, so at every turn an odd spare pixel goes to the display's
+    /// right or bottom edge. Every build places the grid so, and the GPU
     /// path draws the grid where this places it.
     ///
     /// References:
-    /// - ADR-1310 D10: the grid flush to the text's bottom edge in every build, and centred across the rows.
+    /// - ADR-1310 D10: the grid flush to the text's bottom edge while smooth scrolling is on, and centred across the rows.
+    /// - ADR-1310 D12, "With smooth scrolling off": the grid centred on both axes in the display's own pixels.
     /// - ADR-1303 D3: the GPU path places the grid where the CPU path does.
     fn grid_of(&self, cols: usize, rows: usize) -> Grid {
         let cols = cols.min(self.max_cols);
@@ -316,11 +374,12 @@ impl Layout {
             (gw, gh)
         };
         let (spare_x, spare_y) = (sw.saturating_sub(across), sh.saturating_sub(down));
-        let (off_x, off_y) = match self.orientation {
-            Orientation::Normal => (spare_x / 2, spare_y),
-            Orientation::UpsideDown => (spare_x / 2, 0),
-            Orientation::Right => (0, spare_y / 2),
-            Orientation::Left => (spare_x, spare_y / 2),
+        let (off_x, off_y) = match (self.placement, self.orientation) {
+            (Placement::Centred, _) => (spare_x / 2, spare_y / 2),
+            (Placement::Bottom(_), Orientation::Normal) => (spare_x / 2, spare_y),
+            (Placement::Bottom(_), Orientation::UpsideDown) => (spare_x / 2, 0),
+            (Placement::Bottom(_), Orientation::Right) => (0, spare_y / 2),
+            (Placement::Bottom(_), Orientation::Left) => (spare_x, spare_y / 2),
         };
         Grid {
             cols,
@@ -339,13 +398,17 @@ impl Layout {
     /// lines above the grid show, a part of a row included, and one more
     /// above them, whose ink reaches down into the rows below it. The grid
     /// keeps its place on the display: it reaches further up the text by
-    /// those rows.
+    /// those rows. A centred grid takes no rows above, so its spare lines
+    /// show the border's color and its top row takes no ink from above.
     ///
     /// References:
     /// - ADR-1310 D10, "A strip taller than a row": as many rows of history as fit fill the spare lines.
-    /// - ADR-1310 D10, "Ink at the top edge": the screen's top row takes ink from the row above it.
+    /// - ADR-1310 D10, "Ink at the top edge": the screen's top row takes ink from the row above it while smooth scrolling is on, and none while it is off.
     #[cfg(feature = "scroll-pan")]
     fn with_rows_above(&self, s: Grid) -> Grid {
+        if self.placement == Placement::Centred {
+            return s;
+        }
         let above = self.strip_rows(&s).saturating_add(1);
         let by = int(above).saturating_mul(self.ch);
         let mut g = Grid {
@@ -396,6 +459,36 @@ impl Layout {
             Orientation::Left => s.off_x,
         };
         spare.max(0)
+    }
+
+    /// The two bars of spare lines on either side of the grid `g` along
+    /// the axis the rows run down, each all across the display: on an
+    /// upright display, the lines above the grid's first row and those
+    /// below its last. `None` for a bar that holds no line.
+    #[cfg(feature = "scroll-pan")]
+    fn bars(&self, g: &Grid) -> [Option<Rect>; 2] {
+        let (w, h) = (self.width, self.height);
+        let cut = |v: i64, n: u32| u32::try_from(v.clamp(0, i64::from(n))).unwrap_or(0);
+        let (lo, hi, n) = match self.orientation.turned() {
+            true => (cut(g.off_x, w), cut(g.max_x, w), w),
+            false => (cut(g.off_y, h), cut(g.max_y, h), h),
+        };
+        [(0, lo), (hi, n)].map(|(a, b)| {
+            (a < b).then(|| match self.orientation.turned() {
+                true => Rect {
+                    x: a,
+                    y: 0,
+                    width: b.saturating_sub(a),
+                    height: h,
+                },
+                false => Rect {
+                    x: 0,
+                    y: a,
+                    width: w,
+                    height: b.saturating_sub(a),
+                },
+            })
+        })
     }
 
     /// The display area of the grid's rows from `r0` up to `r1`, across
@@ -1138,6 +1231,10 @@ pub struct Renderer<F> {
     /// with.
     #[cfg(feature = "scroll-pan")]
     ring: ring::Ring,
+    /// The scratch a run written into the spare lines is covered in,
+    /// under `partial-row = blank` or `fade`.
+    #[cfg(feature = "scroll-pan")]
+    strip_line: Vec<u32>,
 }
 
 /// The pointer's image for cells `cell_height` tall, upright. A shape a
@@ -1373,6 +1470,7 @@ impl<F: Face> Renderer<F> {
                 ch: int(ch),
                 max_cols,
                 max_rows,
+                placement: config.placement,
             },
             grid: None,
             cells: Cells::default(),
@@ -1412,6 +1510,8 @@ impl<F: Face> Renderer<F> {
             gpu,
             #[cfg(feature = "scroll-pan")]
             ring: ring::Ring::default(),
+            #[cfg(feature = "scroll-pan")]
+            strip_line: Vec::new(),
         }
     }
 
@@ -1822,6 +1922,19 @@ impl<F: Face> Renderer<F> {
         #[cfg(feature = "filters")]
         let mut target = crate::filter::Colored::new(&mut target, color.as_mut(), &mut color_line);
         let mut out = Over::new(&mut target, plan.pointer.map(|p| (&arrow, p.at)), &mut line);
+        // the spare lines blanked or faded, under the pointer's blend
+        #[cfg(feature = "scroll-pan")]
+        let mut strip_line = core::mem::take(&mut self.strip_line);
+        #[cfg(feature = "scroll-pan")]
+        let mut out = {
+            let border = crate::blend::pixel(mono::border(self.config.depth, state.background));
+            let screen = self.layout.screen_of(&plan.grid);
+            strip::Strip {
+                inner: &mut out,
+                cover: strip::Cover::of(&self.layout, &screen, border),
+                line: &mut strip_line,
+            }
+        };
         let reaching = self.compose.cache.reaching();
         if reaching && !self.reaches_kept {
             self.relearn_reaches();
@@ -1843,6 +1956,10 @@ impl<F: Face> Renderer<F> {
         {
             self.color = color;
             self.color_line = color_line;
+        }
+        #[cfg(feature = "scroll-pan")]
+        {
+            self.strip_line = strip_line;
         }
         self.arrow = arrow;
         self.pointer_line = line;
@@ -3712,8 +3829,8 @@ mod tests {
     use vtium_font::{Font, Unifont};
     use vtium_term::{Age, Cursor, Damage, Frame, Glyph, Line, LineId, Palette, Rgb, Style, Width};
 
-    use super::{Config, DrawState, Renderer};
-    use crate::{Canvas, Orientation, Rect};
+    use super::{Config, DrawState, PartialRow, Placement, Renderer};
+    use crate::{Canvas, Orientation, Rect, TestInk};
 
     /// The border's color around the grid, and the cells' ink.
     const BORDER: u32 = 0x10_10_10;
@@ -3742,12 +3859,24 @@ mod tests {
     /// grid of `cols` by `rows` cells with a full block at each of `at`.
     fn drawn(
         o: Orientation,
+        size: (u32, u32),
+        grid: (usize, usize),
+        at: &[(usize, usize)],
+    ) -> (Renderer<Unifont>, Canvas) {
+        drawn_placed(o, Placement::default(), size, grid, at)
+    }
+
+    /// [`drawn`], with the grid placed as `placement` says.
+    fn drawn_placed(
+        o: Orientation,
+        placement: Placement,
         (w, h): (u32, u32),
         (cols, rows): (usize, usize),
         at: &[(usize, usize)],
     ) -> (Renderer<Unifont>, Canvas) {
         let config = Config {
             orientation: o,
+            placement,
             ..Config::default()
         };
         let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, config);
@@ -3797,43 +3926,117 @@ mod tests {
         })
     }
 
-    // At rest, the grid's last row touches the text's bottom edge, so the
-    // spare lines lie above its first row. Across the rows the grid stays
-    // centred, with an odd spare pixel on the right or the bottom of the
-    // display. A grid of 6 by 2 cells of 8 by 16 pixels leaves 3 spare
-    // lines and 5 spare columns, which the display turned on its side
-    // swaps.
+    /// The border's columns left and right of the lit grid, then its lines
+    /// above and below, on a display of `size` drawn with every cell of a
+    /// grid of 6 by 2 lit, placed as `placement` says.
+    fn margins(o: Orientation, placement: Placement, size: (u32, u32)) -> [u32; 4] {
+        let (gw, gh) = (6 * 8, 2 * 16);
+        let all: Vec<(usize, usize)> = (0..2).flat_map(|r| (0..6).map(move |c| (c, r))).collect();
+        let (_, canvas) = drawn_placed(o, placement, size, (6, 2), &all);
+        let (w, h) = size;
+        let grid = lit(&canvas, INK).expect("the cells draw");
+        assert_eq!(grid.area(), u64::from(gw * gh), "{o:?}: every cell lit");
+        let border = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| canvas.pixel(x, y) == Some(BORDER))
+            .count();
+        assert_eq!(border as u32, w * h - gw * gh, "{o:?}: the border");
+        [
+            grid.x,
+            w - grid.x - grid.width,
+            grid.y,
+            h - grid.y - grid.height,
+        ]
+    }
+
+    // With smooth scrolling on, at rest, the grid's last row touches the
+    // text's bottom edge, so the spare lines lie above its first row.
+    // Across the rows the grid stays centred, with an odd spare pixel on
+    // the right or the bottom of the display. A grid of 6 by 2 cells of 8
+    // by 16 pixels leaves 3 spare lines and 5 spare columns, which the
+    // display turned on its side swaps.
     //
     // References:
-    // - ADR-1310 D10: the grid flush to the text's bottom edge, and centred across the rows.
+    // - ADR-1310 D10: the grid flush to the text's bottom edge while smooth scrolling is on, and centred across the rows.
     #[test]
     fn the_grid_at_rest_touches_the_text_s_bottom_edge() {
         let (gw, gh) = (6 * 8, 2 * 16);
-        let all: Vec<(usize, usize)> = (0..2).flat_map(|r| (0..6).map(move |c| (c, r))).collect();
-        // the border's columns left and right, then its lines above and
-        // below, on the display
+        for partial in [PartialRow::History, PartialRow::Blank, PartialRow::Fade] {
+            for (o, size, want) in [
+                (Orientation::Normal, (gw + 5, gh + 3), [2, 3, 3, 0]),
+                (Orientation::UpsideDown, (gw + 5, gh + 3), [2, 3, 0, 3]),
+                (Orientation::Right, (gh + 3, gw + 5), [0, 3, 2, 3]),
+                (Orientation::Left, (gh + 3, gw + 5), [3, 0, 2, 3]),
+            ] {
+                let got = margins(o, Placement::Bottom(partial), size);
+                assert_eq!(got, want, "{o:?} {partial:?}: left, right, top, bottom");
+            }
+        }
+    }
+
+    // With smooth scrolling off, the default, the grid is centred on both
+    // axes in the display's own pixels: of s spare lines the top gets
+    // half, rounded down, and the bottom the rest, and the spare columns
+    // split the same way. At every turn the odd pixel lies on the
+    // display's right or bottom edge, and every spare line and column
+    // shows the border's color.
+    //
+    // References:
+    // - ADR-1310 D12, "With smooth scrolling off": the grid centred on both axes in the display's own pixels.
+    #[test]
+    fn the_grid_with_smooth_scrolling_off_is_centred_on_both_axes() {
+        let (gw, gh) = (6 * 8, 2 * 16);
+        assert_eq!(Config::default().placement, Placement::Centred);
         for (o, size, want) in [
-            (Orientation::Normal, (gw + 5, gh + 3), [2, 3, 3, 0]),
-            (Orientation::UpsideDown, (gw + 5, gh + 3), [2, 3, 0, 3]),
-            (Orientation::Right, (gh + 3, gw + 5), [0, 3, 2, 3]),
-            (Orientation::Left, (gh + 3, gw + 5), [3, 0, 2, 3]),
+            (Orientation::Normal, (gw + 5, gh + 3), [2, 3, 1, 2]),
+            (Orientation::UpsideDown, (gw + 5, gh + 3), [2, 3, 1, 2]),
+            (Orientation::Right, (gh + 3, gw + 5), [1, 2, 2, 3]),
+            (Orientation::Left, (gh + 3, gw + 5), [1, 2, 2, 3]),
         ] {
-            let (_, canvas) = drawn(o, size, (6, 2), &all);
-            let (w, h) = size;
-            let grid = lit(&canvas, INK).expect("the cells draw");
-            assert_eq!(grid.area(), u64::from(gw * gh), "{o:?}: every cell lit");
-            let got = [
-                grid.x,
-                w - grid.x - grid.width,
-                grid.y,
-                h - grid.y - grid.height,
-            ];
-            assert_eq!(got, want, "{o:?}: left, right, top, bottom");
-            let border = (0..h)
-                .flat_map(|y| (0..w).map(move |x| (x, y)))
-                .filter(|&(x, y)| canvas.pixel(x, y) == Some(BORDER))
-                .count();
-            assert_eq!(border as u32, w * h - gw * gh, "{o:?}: the border");
+            assert_eq!(
+                margins(o, Placement::Centred, size),
+                want,
+                "{o:?}: left, right, top, bottom"
+            );
+        }
+    }
+
+    // A display 4,320 lines high with rows 41 pixels high holds 105 rows
+    // and leaves 15 spare lines. With smooth scrolling off, 7 lie above
+    // the grid and 8 below, at every turn.
+    //
+    // References:
+    // - ADR-1310 D12, "With smooth scrolling off": the example of the 4,320-line display.
+    #[test]
+    fn a_4320_line_display_of_41_pixel_rows_shows_7_lines_above_and_8_below() {
+        for o in [
+            Orientation::Normal,
+            Orientation::UpsideDown,
+            Orientation::Right,
+            Orientation::Left,
+        ] {
+            let (along, across) = (4320u32, 64u32);
+            let (w, h) = match o.turned() {
+                true => (along, across),
+                false => (across, along),
+            };
+            let config = Config {
+                orientation: o,
+                ..Config::default()
+            };
+            let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, config);
+            r.layout.ch = 41;
+            r.layout.max_rows = 105;
+            let g = r.layout.grid_of(8, 105);
+            let (lo, hi) = match o.turned() {
+                true => (g.off_x, i64::from(w) - g.max_x),
+                false => (g.off_y, i64::from(h) - g.max_y),
+            };
+            assert_eq!(
+                (lo, hi),
+                (7, 8),
+                "{o:?}: the display's own top or left, then bottom or right"
+            );
         }
     }
 
@@ -3871,11 +4074,36 @@ mod tests {
     /// a display with 7 spare lines above the grid, with the rows of
     /// history above the screen that a build with `scroll-pan` asks for.
     fn spare_lines_drawn(bytes: &[u8]) -> Canvas {
+        spare_lines_placed(bytes, BOTTOM)
+    }
+
+    /// The grid placed at the bottom, with the rows of history in the
+    /// spare lines: smooth scrolling on, under `partial-row`'s default.
+    const BOTTOM: Placement = Placement::Bottom(PartialRow::History);
+
+    /// [`spare_lines_drawn`], with the grid placed as `placement` says.
+    fn spare_lines_placed(bytes: &[u8], placement: Placement) -> Canvas {
         let mut t = vtium_term::Terminal::new(6, 4, 1000);
         t.screen_mut().set_scrollback_max(100);
         t.input(bytes);
         let (w, h) = (6 * 8, 4 * 16 + 7);
-        let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, Config::default());
+        let config = Config {
+            placement,
+            ..Config::default()
+        };
+        let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, config);
+        // a glyph whose ink reaches 6 pixels into the rows above and below
+        let pixels = [255u8; 2 * 28];
+        r.keep_glyph_for_test(
+            TALL,
+            TestInk {
+                left: 3,
+                top: -6,
+                width: 2,
+                height: 28,
+                pixels: &pixels,
+            },
+        );
         let palette = t.palette().clone();
         #[cfg(feature = "scroll-pan")]
         let frame = {
@@ -3931,6 +4159,122 @@ mod tests {
                 strip.iter().all(|&p| p == border),
                 "the spare lines show the border's color"
             );
+        }
+    }
+
+    /// A glyph whose ink reaches 6 pixels into the rows above and below.
+    const TALL: char = '\u{a6}';
+
+    // With smooth scrolling off, a centred grid draws no row of history:
+    // the spare lines show the border's color, and a history row whose ink
+    // reaches down leaves none in the screen's top row, so the display
+    // equals the one a terminal with no history draws. With smooth
+    // scrolling on, the same ink shows in the screen's top row.
+    //
+    // References:
+    // - ADR-1310 D10, "Ink at the top edge": ink from above only while smooth scrolling is on.
+    // - ADR-1310 D12, "With smooth scrolling off": the border's color in every spare line.
+    #[test]
+    fn a_centred_grid_takes_no_ink_from_the_row_above() {
+        let tall: String = core::iter::repeat_n(TALL, 6).collect();
+        let history = format!("{tall}\r\nB\r\nC\r\nD\r\nE");
+        let alone = b"B\r\nC\r\nD\r\nE";
+        let centred = spare_lines_placed(history.as_bytes(), Placement::Centred);
+        assert!(
+            centred == spare_lines_placed(alone, Placement::Centred),
+            "the history row leaves no pixel on a centred display"
+        );
+        let bg = vtium_term::Terminal::new(6, 4, 0).palette().bg();
+        let border = crate::blend::pixel(bg);
+        for y in (0..3).chain(4 * 16 + 3..4 * 16 + 7) {
+            for x in 0..48 {
+                assert_eq!(centred.pixel(x, y), Some(border), "the bar at {x}, {y}");
+            }
+        }
+        #[cfg(feature = "scroll-pan")]
+        {
+            let bottom = spare_lines_placed(history.as_bytes(), BOTTOM);
+            let top_row = |c: &Canvas| -> Vec<u32> {
+                (7..13)
+                    .flat_map(|y| (0..48).map(move |x| (x, y)))
+                    .map(|(x, y)| c.pixel(x, y).unwrap_or_default())
+                    .collect()
+            };
+            assert_ne!(
+                top_row(&bottom),
+                top_row(&spare_lines_placed(alone, BOTTOM)),
+                "with smooth scrolling on, the row above sends its ink into the top row"
+            );
+        }
+    }
+
+    // With smooth scrolling on, `partial-row` sets what the 7 spare lines
+    // above the grid show at rest. Under `blank` they show the border's
+    // color. Under `fade` the line at the screen's edge shows the border's
+    // color and the line next to the grid's first row shows the row
+    // above's own pixels, with the lines between mixed from one toward the
+    // other. The grid itself draws the same pixels under every value. A
+    // build without `scroll-pan` shows the border's color under each one.
+    //
+    // References:
+    // - ADR-1310 D12, "The key `partial-row`": the three values.
+    // - ADR-1310 D12, "In a build without `scroll-pan`": the border's color under every value.
+    #[test]
+    fn the_spare_lines_blank_and_fade_as_partial_row_says() {
+        let red = b"\x1b[41mAAAAAA\x1b[0m\r\nB\r\nC\r\nD\r\nE";
+        let drawn = |p| spare_lines_placed(red, Placement::Bottom(p));
+        let (history, blank, fade) = (
+            drawn(PartialRow::History),
+            drawn(PartialRow::Blank),
+            drawn(PartialRow::Fade),
+        );
+        let line = |c: &Canvas, y: u32| -> Vec<u32> {
+            (0..48).map(|x| c.pixel(x, y).unwrap_or_default()).collect()
+        };
+        let bg = vtium_term::Terminal::new(6, 4, 0).palette().bg();
+        let border = vec![crate::blend::pixel(bg); 48];
+        for y in 7..4 * 16 + 7 {
+            assert_eq!(
+                line(&blank, y),
+                line(&history, y),
+                "blank: the grid's line {y}"
+            );
+            assert_eq!(
+                line(&fade, y),
+                line(&history, y),
+                "fade: the grid's line {y}"
+            );
+        }
+        for y in 0..7 {
+            assert_eq!(line(&blank, y), border, "blank: the spare line {y}");
+        }
+        assert_eq!(
+            line(&fade, 0),
+            border,
+            "fade: the line at the screen's edge"
+        );
+        #[cfg(feature = "scroll-pan")]
+        {
+            assert_ne!(
+                line(&history, 6),
+                border,
+                "the red row shows in the spare lines"
+            );
+            assert_eq!(
+                line(&fade, 6),
+                line(&history, 6),
+                "fade: the line next to the grid"
+            );
+            let (mid, own) = (line(&fade, 3), line(&history, 3));
+            assert!(
+                mid != own && mid != border,
+                "fade: a line between mixes the two"
+            );
+        }
+        #[cfg(not(feature = "scroll-pan"))]
+        for y in 0..7 {
+            assert_eq!(line(&history, y), border, "history: the spare line {y}");
+            assert_eq!(line(&fade, y), border, "fade: the spare line {y}");
         }
     }
 
@@ -3993,7 +4337,11 @@ mod tests {
                 let frame = t.screen().frame_reaching(&palette, since, reach);
                 r.draw(&frame, c, age, &state);
             };
-        let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, Config::default());
+        let config = Config {
+            placement: BOTTOM,
+            ..Config::default()
+        };
+        let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, config);
         let mut kept = Canvas::new(w, h, 0x00ab_cdef);
         draw(&t, &mut r, &mut kept, Age::NEVER, 0);
         let border = crate::blend::pixel(palette.bg());
@@ -4008,7 +4356,7 @@ mod tests {
         t.input(b"\x1b[3J");
         draw(&t, &mut r, &mut kept, since, 1);
         let mut fresh = Canvas::new(w, h, 0x00ab_cdef);
-        let mut afresh = Renderer::new(Font::new(Unifont::new(16)), w, h, Config::default());
+        let mut afresh = Renderer::new(Font::new(Unifont::new(16)), w, h, config);
         draw(&t, &mut afresh, &mut fresh, Age::NEVER, 0);
         assert_eq!(lit(&fresh), 0, "a frame drawn afresh shows the border");
         assert_eq!(lit(&kept), 0, "no history pixel stays in the spare lines");

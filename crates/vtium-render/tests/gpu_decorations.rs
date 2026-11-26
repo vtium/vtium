@@ -61,8 +61,7 @@ fn screen() -> Screen {
 #[test]
 fn every_decoration_draws_on_the_gpu_path_as_on_the_cpu_path() {
     let mut s = screen();
-    // the grid inside a border of 2 pixels at each side, and its 2 spare
-    // lines above it, since its last row touches the display's bottom edge
+    // the grid inside a border of 2 pixels across and 1 down
     let size = Size::new(10 * 8 + 4, 16 + 2);
     let st = DrawState {
         background: s.palette.bg(),
@@ -115,7 +114,7 @@ fn every_decoration_draws_on_the_gpu_path_as_on_the_cpu_path() {
         .map(|col| {
             (0..16)
                 .flat_map(|y| (0..8).map(move |x| (x, y)))
-                .map(|(x, y)| canvas.pixel(2 + col * 8 + x, 2 + y))
+                .map(|(x, y)| canvas.pixel(2 + col * 8 + x, 1 + y))
                 .collect()
         })
         .collect();

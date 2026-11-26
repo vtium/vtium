@@ -116,8 +116,8 @@ pub use pointer_file::{PictureSizes, PointerPictures, svg as pointer_file_svg};
 #[doc(hidden)]
 pub use renderer::TestInk;
 pub use renderer::{
-    BlinkStyle, Config, DecoColor, DecorationColors, DrawState, Drawn, PointerShape, Renderer,
-    Stats, TextBlink,
+    BlinkStyle, Config, DecoColor, DecorationColors, DrawState, Drawn, PartialRow, Placement,
+    PointerShape, Renderer, Stats, TextBlink,
 };
 pub use target::{Canvas, Mapped, Orientation, Rect, Target};
 pub use timer::{RenderTimer, Report};

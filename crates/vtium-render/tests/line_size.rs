@@ -111,9 +111,7 @@ fn state(s: &Screen) -> DrawState {
     }
 }
 
-/// `s`'s display: its grid inside a border of 2 pixels at each side, and
-/// [`TOP`] spare lines above it, since its last row touches the display's
-/// bottom edge.
+/// `s`'s display: its grid inside a border of 2 pixels across and 1 down.
 fn display(s: &Screen) -> (u32, u32) {
     (s.cols as u32 * CW + 4, s.rows as u32 * CH + 2)
 }
@@ -132,12 +130,9 @@ fn whole(s: &Screen) -> Canvas {
     whole_with(s, Dots { reaches: false }, &[])
 }
 
-/// The display's lines above the grid.
-const TOP: u32 = 2;
-
 /// The pixel at `x`, `y` of the grid, from its top left.
 fn at(c: &Canvas, x: u32, y: u32) -> u32 {
-    c.pixel(x + 2, y + TOP).unwrap()
+    c.pixel(x + 2, y + 1).unwrap()
 }
 
 fn px(hex: &str) -> u32 {
@@ -432,7 +427,7 @@ fn lines_change_size(n: usize) {
             "{what}, {n} buffers: the buffer differs from a whole draw"
         );
         if what == "a letter on the doubled line" {
-            let row = (2, TOP + CH, 2 + 8 * CW, TOP + 2 * CH);
+            let row = (2, 1 + CH, 2 + 8 * CW, 1 + 2 * CH);
             let holds = |d: &Rect| {
                 d.x <= row.0 && d.y <= row.1 && d.x + d.width >= row.2 && d.y + d.height >= row.3
             };

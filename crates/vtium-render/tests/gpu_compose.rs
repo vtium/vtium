@@ -21,11 +21,8 @@ use vtium_term::{Age, Attrs, UnderlineStyle};
 
 const FG: &str = "c0c0c0";
 const BG: &str = "101010";
-/// 10 by 3 cells of 8x16, the grid at 2,[`OY`].
+/// 10 by 3 cells of 8x16, the grid at 2,1.
 const DISPLAY: Size = Size::new(84, 51);
-/// The grid's top on the display: its last row touches the display's
-/// bottom edge, so the 3 spare lines lie above it.
-const OY: u32 = 3;
 
 fn rect(x: u32, y: u32, width: u32, height: u32) -> Rect {
     Rect {
@@ -37,7 +34,7 @@ fn rect(x: u32, y: u32, width: u32, height: u32) -> Rect {
 }
 
 fn cell(col: u32, row: u32) -> Rect {
-    rect(2 + col * 8, OY + row * 16, 8, 16)
+    rect(2 + col * 8, 1 + row * 16, 8, 16)
 }
 
 /// A display on the stand-in GL: its pipeline, one buffer and a renderer.
@@ -494,7 +491,7 @@ fn the_arrow_is_one_texture_drawn_over_a_copy_of_what_the_frame_drew_beneath_it(
     }
     // the whole frame drew, so the arrow covers its whole area once
     let (hx, hy) = arrow.hot();
-    let at = (2 + 10 - hx as i32, OY as i32 + 3 - hy as i32);
+    let at = (2 + 10 - hx as i32, 1 + 3 - hy as i32);
     let covered: u32 = g
         .quads(&ARROW_INPUTS)
         .iter()
@@ -647,15 +644,15 @@ fn a_display_past_the_largest_texture_draws_each_cell_into_each_tile_it_meets() 
     let quads = g.cells();
     assert_eq!(
         quads.iter().map(|q| q.dst).collect::<Vec<_>>(),
-        [[58, OY as i32, 8, 16], [58 - 64, OY as i32, 8, 16]]
+        [[58, 1, 8, 16], [58 - 64, 1, 8, 16]]
     );
     // present draws each tile's own part
     let present = g.quads(&["target_size", "frame"]);
     assert_eq!(
         present.iter().map(|q| (q.dst, q.src)).collect::<Vec<_>>(),
         [
-            ([58, OY as i32, 6, 16], [58, OY, 6, 16]),
-            ([64, OY as i32, 2, 16], [0, OY, 2, 16])
+            ([58, 1, 6, 16], [58, 1, 6, 16]),
+            ([64, 1, 2, 16], [0, 1, 2, 16])
         ]
     );
 }
