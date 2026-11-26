@@ -391,7 +391,7 @@ pub fn warn_unreadable(out: &mut Outcome, loaded: &Loaded, host: &Host, drawer: 
 /// helper which of the locale's everyday letters each look's font set
 /// covers, and which fonts each font set lacks, waiting by `clock`. In a
 /// build with `split`, it also warns when `drawer`, the account of vtium's
-/// drawing process, cannot read vtium.conf ([`unreadable`]); `drawer` is
+/// drawing process, cannot read vtium.conf (`unreadable`); `drawer` is
 /// `None` on a machine without the account, where vtium runs as one
 /// process.
 pub fn main(

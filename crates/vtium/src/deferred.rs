@@ -159,7 +159,7 @@ pub fn frame_shown(term: &crate::term::Term) -> vtium_term::Frame<'_> {
 
 /// Adds to `all` what `frame` shows in a build without the bidi feature:
 /// each character and each cluster whole, in each variant a cell draws its
-/// glyph in, on every row the frame holds ([`positions`]), and what each
+/// glyph in, on every row the frame holds (`positions`), and what each
 /// line of double size shows at its size ([`read_doubled`]).
 #[cfg(not(feature = "bidi"))]
 pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
