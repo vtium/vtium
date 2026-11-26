@@ -281,6 +281,9 @@ impl Levels {
     /// The top level and a head: those of ADR-1401 D3's head keys that the
     /// key table also has.
     pub const TOP_HEAD: Levels = Levels(1 | 4);
+    /// Every level: a key a look sets for its heads and a head sets for
+    /// itself, such as `smooth-scroll`.
+    pub const TOP_LOOK_HEAD: Levels = Levels(1 | 2 | 4);
 
     fn bit(level: Level) -> u8 {
         match level {
@@ -308,6 +311,7 @@ const TOP: Levels = Levels::TOP;
 const LOOK: Levels = Levels::LOOK;
 const TOP_LOOK: Levels = Levels::TOP_LOOK;
 const TOP_HEAD: Levels = Levels::TOP_HEAD;
+const TOP_LOOK_HEAD: Levels = Levels::TOP_LOOK_HEAD;
 
 /// One row of the key table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -866,6 +870,32 @@ pub const SCROLL_DRAW: Key = Key {
            `auto` pans where the display's driver allows it, and copies where it does not. `pan` does the same, and logs a warning when the driver does not allow the pan. `copy` always copies, and `redraw` redraws every line a scroll moves. A head that draws with the GPU, or can move to it, always uses `redraw`, and so does a build without the `scroll-pan` feature.\n\n\
            [docs] To pan, vtium keeps each display buffer taller than the screen. A scroll then moves the part of the buffer that the screen shows, so vtium draws only the new lines. To copy, vtium keeps the drawn lines in memory and copies the screen's part to the display.\n\n\
            [docs] A display buffer that pans holds about two screens, and the copy keeps about one screen of memory for each display, so `redraw` takes the least memory. A build without `scroll-pan` logs once that it ignores `pan` and `copy`.",
+};
+
+pub const SMOOTH_SCROLL: Key = Key {
+    name: "smooth-scroll",
+    short: None,
+    kind: Kind::Choice(&["off", "on"]),
+    default: Default::Text("off"),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK_HEAD,
+    what: "Turn smooth scrolling on, in a build with the `smooth-scroll` feature.\n\n\
+           [docs] When off, the default, vtium centres the text on the screen. A screen whose size is not a whole number of character cells leaves pixels over, and they form bars of the border's color on both sides of the text. When on, the text's last row touches the bottom of the screen, and `partial-row` sets what the pixel lines left over above the text show. A build without the `smooth-scroll` feature always centres the text.\n\n\
+           [docs] A head's value wins over its look's, and both win over the top level's. A program can switch smooth scrolling with DECSCLM (mode 4), but the text stays where this key puts it.\n\n\
+           [docs] vtium does not slide the text by pixels yet, so it scrolls by whole rows either way.",
+};
+
+pub const PARTIAL_ROW: Key = Key {
+    name: "partial-row",
+    short: None,
+    kind: Kind::Choice(&["history", "blank", "fade"]),
+    default: Default::Text("history"),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    what: "What the pixel lines left over above the text show while smooth scrolling is on.\n\n\
+           [docs] A screen whose height is not a whole number of rows leaves pixel lines over. While `smooth-scroll` is on, they lie above the text's first row. `history` shows the bottom of the scrollback's row above the screen, cut off at the screen's edge. `blank` shows the border's color. `fade` shows the row above, fading into the border's color toward the screen's edge.\n\n\
+           [docs] While smooth scrolling is off, vtium centres the text, and the pixels left over show the border's color whatever this key says. A build without the `scroll-pan` feature shows the border's color under every value.\n\n\
+           [docs] vtium logs one line for each display whose size leaves pixels over. The line names the columns and rows that fit, and the pixels left over on each side.",
 };
 
 pub const HWACCEL: Key = Key {
@@ -2101,7 +2131,7 @@ pub const LOGIN_IMAGE_SCALE: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 141] = [
+pub static KEYS: [Key; 143] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2138,6 +2168,8 @@ pub static KEYS: [Key; 141] = [
     DISPLAY_WAIT,
     DISPLAY_BUFFERS,
     SCROLL_DRAW,
+    SMOOTH_SCROLL,
+    PARTIAL_ROW,
     HWACCEL,
     USE_ORIGINAL_MODE,
     MODE,
@@ -2526,7 +2558,7 @@ pub const SECTIONS: [Section; 11] = [
             },
             Group {
                 title: "Drawing a scroll",
-                keys: &[&SCROLL_DRAW],
+                keys: &[&SCROLL_DRAW, &SMOOTH_SCROLL, &PARTIAL_ROW],
             },
             Group {
                 title: "Drawing with the GPU",
@@ -2831,14 +2863,16 @@ mod tests {
     }
 
     // A look takes the font and display keys, its cell, the login
-    // picture's keys and its palette. A head takes `login` and
-    // `scroll-draw`, every other key is the top level's alone, and a key the
-    // command line alone sets has no level. `cell` is the one key only a
-    // section sets.
+    // picture's keys, its palette, `smooth-scroll` and `partial-row`. A head
+    // takes `login`, `scroll-draw` and `smooth-scroll`, every other key is
+    // the top level's alone, and a key the command line alone sets has no
+    // level. `cell` is the one key only a section sets.
     //
     // References:
     // - ADR-1401 D3: `scroll-draw` is a head key, since the buffer belongs
     //   to the display.
+    // - ADR-1310 D7: `smooth-scroll` at the top level, in a look and in a
+    //   head, and D12: `partial-row` at the top level and in a look.
     // - ADR-1403 D5: the three levels of a key.
     // - ADR-1200 D16: the font and display keys a look takes.
     // - ADR-1100 D17, "The keys": the login picture's keys are look keys.
@@ -2849,6 +2883,8 @@ mod tests {
         assert_eq!(
             names(Level::Look),
             [
+                "smooth-scroll",
+                "partial-row",
                 "palette",
                 "pointer-theme",
                 "font-engine",
@@ -2867,7 +2903,10 @@ mod tests {
                 "login-image-scale",
             ]
         );
-        assert_eq!(names(Level::Head), ["login", "scroll-draw"]);
+        assert_eq!(
+            names(Level::Head),
+            ["login", "scroll-draw", "smooth-scroll"]
+        );
         for k in &KEYS {
             match k.scope {
                 Scope::CommandLine => assert_eq!(k.levels, NONE, "{}", k.name),

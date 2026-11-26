@@ -76,6 +76,7 @@ pub mod cullet;
 mod error;
 mod file;
 mod findings;
+pub mod fit;
 pub mod fontpath;
 mod identity;
 pub mod keys;

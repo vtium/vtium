@@ -177,6 +177,16 @@ pub static NOTES: [Note; KEYS.len()] = [
         "vtium",
         "[the faster scrolling issue](https://github.com/vtium/vtium/issues/432)",
     ),
+    note(
+        SMOOTH_SCROLL,
+        "vtium",
+        "[the smooth scrolling issue](https://github.com/vtium/vtium/issues/427)",
+    ),
+    note(
+        PARTIAL_ROW,
+        "vtium",
+        "[the smooth scrolling issue](https://github.com/vtium/vtium/issues/427)",
+    ),
     note(HWACCEL, "vtium", "kmscon's `hwaccel` key"),
     note(
         USE_ORIGINAL_MODE,

@@ -22,6 +22,7 @@ The sections, with the `version` and `policy` lines above them, make up the flow
 | `src/parse.rs` | `reading`, vtium.conf's sections and its `version` and `policy` lines, read line by line to what survives their errors, with every `policy` line and each error's scope for `Trusted::of`; `sections`, the same for a file that holds a flow, `None` for one that holds none; `parse` and `parse_sections`, the strict readings, a `Config` only for a file with no error. |
 | `src/config.rs` | `Config`, `Look`, `Head`, `Setting` and `Rule`; `TEMPLATE` and `Config::builtin`, its parse; `Config::look` and `Config::settings`, and `value_for`, the level a head's key comes from (ADR-1403 D5). |
 | `src/route.rs` | `complete_route`, whether a configuration wires a display present to a head a keyboard present reaches, or by the rules alone (ADR-1403 D3). |
+| `src/fit.rs` | `Fit::of`, the columns and rows of character cells that fit on a display and the pixels left over on each axis, one rule applied to each (ADR-1310 D12). `Fit::line` is the informational line vtium logs for a display whose size leaves pixels over, and `Axis::of` gives one axis alone, for vtium-config's note and the sizes it offers that fit exactly. |
 | `src/identity.rs` | `Identity`, a device as the rules see it, and udev's input classes. |
 | `src/matching.rs` | The match keys and the glob. |
 | `src/matching/tests.rs` | A `path:` token against the ports and hubs below it, and a `connector-path:` token against a hub port's `PATH`. |
