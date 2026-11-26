@@ -651,7 +651,7 @@ pub const NODES: &[Node] = &[
             ("n", "Among the looks, makes a new look and lets you type its name. Among the font sets, opens the form for a new font set."),
             ("t", "Tries the highlighted look or font set on this console for 10 seconds."),
             ("p", "On a look or a font set, switches the preview between the sample characters and the picture of the console. On a font set that vtium cannot read, also says that the font set has no preview."),
-            ("w", "Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing."),
+            ("w", "Asks whether to let programs resize the console's grid while the draft leaves allow-window-ops off. y turns allow-window-ops on in the draft, and any other answer changes nothing. When the draft already turns it on, w asks nothing and says so."),
             (".", "Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row."),
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),

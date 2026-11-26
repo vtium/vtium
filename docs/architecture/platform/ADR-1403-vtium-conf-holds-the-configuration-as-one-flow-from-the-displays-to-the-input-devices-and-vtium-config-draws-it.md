@@ -1007,6 +1007,8 @@ A name after a colon narrows a state to one view, layer or question, as in `view
 
 A change to what a key means edits this record and the table in one commit. The scenarios that drive the TUI by script read the table and check every key against it. They check a planned row in reverse: they expect what vtium-config does today, so the check fails once the work lands and the row still says `planned`.
 
+> Note 2026-11-26: the row `window-ops.view.looks` changes. `w` on the Looks tab asks whether to let programs resize the console's grid only while the draft leaves `allow-window-ops` off. When the draft already turns it on, `w` asks nothing and says so, because a yes would change nothing. This follows the fix that makes vtium-config count no change when an edit leaves the draft's text as it was.
+
 #### The interface tree
 
 > Edited 2026-11-16: the maintainer asked for the TUI's keys to be mapped to its interface tree before the build starts (`considered`, 2026-11-16), and this subsection and the tree were added.

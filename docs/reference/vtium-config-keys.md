@@ -574,7 +574,7 @@ The Looks tab: the looks, the font sets, the color schemes and the installed poi
 | t | try live | Tries the highlighted look or font set on this console for 10 seconds. |
 | Enter | open | On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail. |
 | p | picture \| sample | On a look or a font set, switches the preview between the sample characters and the picture of the console. On a font set that vtium cannot read, also says that the font set has no preview. |
-| w | resize grid | Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing. |
+| w | resize grid | Asks whether to let programs resize the console's grid while the draft leaves allow-window-ops off. y turns allow-window-ops on in the draft, and any other answer changes nothing. When the draft already turns it on, w asks nothing and says so. |
 | o | - | Does nothing here. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
