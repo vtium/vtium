@@ -246,7 +246,7 @@ A logged-in session lives in its logind scope, which systemd leaves alone. `Kill
 
 Under an open policy, a failure starts the getty fallback, whose start stops the unit. So a crash hangs the sessions up there. A restart keeps the sessions under either policy. A crash keeps them under a closed policy. None of systemd's variables reach a session.
 
-A vtium built with `split` keeps the masters in the store the same way, from its root process, but no session survives a restart there yet. When the drawing process exits, it asks the root process to hang each session up. See [the privilege split issue](https://github.com/vtium/vtium/issues/406).
+A vtium built with `split` keeps the masters in the store the same way, from its root process, so its sessions survive a restart too. When the drawing process exits, the root process keeps each session the store holds and hangs up the rest.
 
 **Without systemd:** vtium runs as root on a VT. It starts its holder, `vtium hold`, before it blocks any signal. The holder leads a session of its own. It listens on `/run/vtium/ttyN/hold`, which only root may open. It keeps a copy of each master that vtium sends it, until vtium says the session ended. The vtium that starts next on that VT takes copies of them back, as above.
 

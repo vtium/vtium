@@ -709,11 +709,11 @@ The root process holds the VT and does each job that needs root:
 
 The drawing process starts with the word `drawer` and the number of the root process's VT as its first two arguments. The drawing process opens no tty and no device node, and reads each device's driver and name from sysfs. Its VT, its devices, its sessions and its helpers all go through the root process, over one socket that the protocol crate's `Courier` reads. `main.rs` runs it as `Role::Drawer`.
 
-These gaps remain under the split. Tier 3 found the first three on 2026-11-25, on a tree built with `libseat logind split`, where the same variants pass on a tree built without `split`:
+At its exit the drawing process lets each session go without asking for a hangup. The root process then keeps each session its keeper holds for the next vtium, and hangs up the rest (`Sessions::end`). After a hangup of the VT, the root process exits with a failure, as vtium in one process does, so systemd restarts vtium under the closed policy.
 
-- When the drawing process exits, each of its ptys asks the root process to hang the session up. So no session outlives a restart under the split, and `heads-survive`'s `session-survives` fails. The third slice of ADR-1400 D4 keeps the sessions, and their terminals' modes, through a restart.
-- After a hangup of the VT, the root process stops the drawing process and exits with the drawing process's status, 0, where vtium in one process exits 1. Under the closed policy systemd then starts vtium no more, so `heads-closed-broken`'s `getty-fallback` and `start-limit` fail.
-- The root process holds the VT and the devices itself in every mode, and the drawing process never opens a seat. So a build with `libseat` takes nothing from seatd or logind under the split, and `seat-seatd`'s, `seat-logind`'s and `direct-logind`'s `seat` and `direct` checks fail. In seat mode, a login at vtium's prompt lands in the unit's own PAM session and gets no logind session of its own (`seat-logind`'s `login-session`). The second slice of ADR-1400 D4 builds seat mode.
+These gaps remain under the split:
+
+- The root process holds the VT and the devices itself, and the drawing process takes nothing from a seat manager. The second slice of ADR-1400 D4 builds seat mode. Until then, `broker::plan` keeps vtium in one process wherever seatd or logind would serve its seat, and vtium logs one line that says so. That is when seatd listens on its socket, or when vtium runs in a logind session of its own while logind runs (`seat::managers` in vtium-platform).
 - The drawing process runs with no seccomp filter and no landlock domain, as ADR-1400 D4's "The drawer's setup" decides for the first two slices.
 
 ## Bounds
