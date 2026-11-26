@@ -1,0 +1,18 @@
+# Claims of ADR-1405-stacked-windows.svg, the figure of ADR-1405 D1 to D4. The windows are not built yet, so the rows for the windows rest on the record's own sentences. The rows for what the figure draws as it is today rest on the code and on the provisional snapshot it copies.
+element	file	symbol
+the tab bar, with the open tab in reverse video	crates/vtium-config/src/tui/view.rs	tab_bar
+the status line	crates/vtium-config/src/tui/view.rs	status
+the Looks tab underneath, copied from its provisional snapshot at 80×25	crates/vtium-config/tests/scenarios/snapshots/node-looks-80x25.snap	looks at 80×25, keys: 3
+the terminal of 80×25, the smallest the TUI draws its tabs in	crates/vtium-config/src/tui/layout.rs	MIN_COLS
+the look's card and its lines	crates/vtium-config/src/tui/tabs/looks/card.rs	Card
+the font set list, the shared list of choices	crates/vtium-config/src/tui/listbox.rs	ListBox
+each window centered over the work area	docs/architecture/platform/ADR-1405-vtium-config-opens-each-deeper-screen-as-a-window-centered-over-the-screen-below-and-esc-closes-the-top-window.md	Each window is centered over the work area
+the card leaves a margin of the Looks tab around it	docs/architecture/platform/ADR-1405-vtium-config-opens-each-deeper-screen-as-a-window-centered-over-the-screen-below-and-esc-closes-the-top-window.md	with a margin of two columns and one row of the screen below on each side
+only the top window draws a highlight in reverse video	docs/architecture/platform/ADR-1405-vtium-config-opens-each-deeper-screen-as-a-window-centered-over-the-screen-below-and-esc-closes-the-top-window.md	Only the top window draws its highlighted line in reverse video.
+the card's Font set line in bold, the line the list opened from	docs/architecture/platform/ADR-1405-vtium-config-opens-each-deeper-screen-as-a-window-centered-over-the-screen-below-and-esc-closes-the-top-window.md	A window below marks the line it opened from in bold
+double lines for the top window, single lines for the windows below	docs/architecture/platform/ADR-1405-vtium-config-opens-each-deeper-screen-as-a-window-centered-over-the-screen-below-and-esc-closes-the-top-window.md	The top window's border is drawn in double lines
+the card's lower border: Esc keeps its changes for Save	docs/architecture/platform/ADR-1405-vtium-config-opens-each-deeper-screen-as-a-window-centered-over-the-screen-below-and-esc-closes-the-top-window.md	Esc: back, changes kept for Save
+the card's hint today, whose last sentence moves into the border	crates/vtium-config/src/tui/words/looks.rs	CARD_HINT
+the list's lower border: Esc changes nothing	docs/architecture/platform/ADR-1405-vtium-config-opens-each-deeper-screen-as-a-window-centered-over-the-screen-below-and-esc-closes-the-top-window.md	Esc: back, no change
+Esc closes the top window and goes back with the same item highlighted	docs/architecture/platform/ADR-1403-keys.tsv	Goes back, with the same item highlighted.
+the key line shows the top window's keys: the shared list's	docs/architecture/platform/ADR-1405-vtium-config-opens-each-deeper-screen-as-a-window-centered-over-the-screen-below-and-esc-closes-the-top-window.md	the key line shows the top window's keys
