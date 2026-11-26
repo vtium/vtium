@@ -288,7 +288,7 @@ fn r_removes_the_highlighted_frit_at_the_next_install() {
     run_desk(&mut c, &mut desk());
     let screen = c.seen.clone().expect("the screen");
     assert!(
-        column(&screen).contains("tiny5: no font file on this machine, to remove."),
+        column(&screen).contains("tiny5: no font file vtium can use, to remove."),
         "{screen}"
     );
     let mut c = console().keys(&on_set(4, &[b"r", b"r", b"i", b"y", b"q"]));
@@ -460,7 +460,7 @@ fn keys_reach_the_tui_while_the_helper_finds_the_sources() {
 fn the_font_list_names_the_sources_a_frit_lacks() {
     for (n, says) in [
         (3, "proof: reads, 1 font file missing."),
-        (4, "tiny5: no font file on this machine."),
+        (4, "tiny5: no font file vtium can use."),
         (2, "minspec-16: reads."),
     ] {
         let mut c = console().keys(&to_set(n));
@@ -468,6 +468,16 @@ fn the_font_list_names_the_sources_a_frit_lacks() {
         let screen = c.seen.clone().expect("the screen");
         assert!(column(&screen).contains(says), "{says}: {screen}");
     }
+    // a font file the batch does not list is on this machine, so the note
+    // calls it not active
+    let mut c = console().keys(&to_set(4));
+    c.sources_found.insert("tiny5".into(), inactive_text_font());
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        column(&screen).contains("tiny5: reads, 1 font file not active."),
+        "{screen}"
+    );
 }
 
 #[test]

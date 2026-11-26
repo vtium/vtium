@@ -101,7 +101,14 @@ pub fn item(shared: &Shared, at: usize) -> Item {
     };
     let mut note = match (&f.state, shared.sources.get(&f.name)) {
         (FontState::Reads, Some(Sources::LeftOut(left))) if !left.is_empty() => {
-            format!("{}, {}", words::READS, words::sources_missing(left.len()))
+            // a file the batch does not list is on this machine, so the
+            // note calls it not active rather than missing
+            let inactive = left.iter().filter(|l| is_inactive(l)).count();
+            format!(
+                "{}, {}",
+                words::READS,
+                words::sources_left_out(left.len().saturating_sub(inactive), inactive)
+            )
         }
         (FontState::Reads, Some(Sources::DrawsNothing(_))) => words::DRAWS_NOTHING.to_owned(),
         (FontState::Reads, Some(Sources::Unknown(_))) => {
@@ -441,13 +448,13 @@ pub fn text_fallback(shared: &Shared, name: &str) -> Option<String> {
 /// - ADR-1205 D4: a font file that the batch does not list counts as
 ///   missing.
 pub fn inactive(shared: &Shared, name: &str) -> Vec<std::path::PathBuf> {
-    use vtium_settings::batch::{MISSING_BECAUSE, NOT_ACTIVE};
+    use vtium_settings::batch::MISSING_BECAUSE;
     let Some(Sources::LeftOut(left)) = shared.sources.get(name) else {
         return Vec::new();
     };
     let mut out: Vec<std::path::PathBuf> = Vec::new();
-    for l in left.iter().filter(|l| l.missing) {
-        if let Some((path, NOT_ACTIVE)) = l.why.split_once(MISSING_BECAUSE) {
+    for l in left.iter().filter(|l| is_inactive(l)) {
+        if let Some((path, _)) = l.why.split_once(MISSING_BECAUSE) {
             let path = std::path::PathBuf::from(path);
             if !out.contains(&path) {
                 out.push(path);
@@ -455,6 +462,13 @@ pub fn inactive(shared: &Shared, name: &str) -> Vec<std::path::PathBuf> {
         }
     }
     out
+}
+
+/// Whether the font helper left `l` out because the batch does not list
+/// its file, as `vtium check-config` reads the helper's reason.
+fn is_inactive(l: &LeftOut) -> bool {
+    use vtium_settings::batch::{MISSING_BECAUSE, NOT_ACTIVE};
+    l.missing && matches!(l.why.split_once(MISSING_BECAUSE), Some((_, NOT_ACTIVE)))
 }
 
 /// `t` on the font set `name`, whose font files `paths` are not active:
