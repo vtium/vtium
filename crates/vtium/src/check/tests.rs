@@ -163,7 +163,6 @@ fn check_config_says_what_it_finds_of_the_batch_file() {
         frit_trust: font::trust().below(&dir),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: batch.clone(),
-        drawer: None,
     };
     let f = file.display().to_string();
     let b = batch.display().to_string();
@@ -1289,15 +1288,9 @@ fn check_config_finds_the_frits_in_font_frits() {
         .map(OsString::from)
         .collect();
     let loaded = config::load(&args, &mut |_: &Path| Ok(None));
-    assert_eq!(
-        Host::system(&loaded.config, None).frits,
-        Path::new("/srv/frits")
-    );
+    assert_eq!(Host::system(&loaded.config).frits, Path::new("/srv/frits"));
     let loaded = config::load(&[OsString::from(SUBCOMMAND)], &mut |_: &Path| Ok(None));
-    assert_eq!(
-        Host::system(&loaded.config, None).frits,
-        Path::new(font::FRITS)
-    );
+    assert_eq!(Host::system(&loaded.config).frits, Path::new(font::FRITS));
 }
 
 /// A fixture directory of its own, which the test removes when it
@@ -2892,7 +2885,6 @@ fn check_config_reads_the_systemd_links_of_its_host() {
         frit_trust: font::trust(),
         systemd_root: root.clone(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let off = "Head terminal-1 runs only on VT 12, and vtium is not enabled on VT 12";
     let out = outcome_on(&[f.as_str()], &host);
@@ -2947,7 +2939,6 @@ fn the_drafts_font_sets_count_in_place_of_the_installed_ones() {
         frit_trust: font::trust().below(&dir),
         systemd_root: dir.join("root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let missing = |name: &str, line: usize| {
         format!(
@@ -3076,7 +3067,6 @@ fn an_old_key_binding_name_is_a_note_and_the_check_passes() {
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", f.as_str()]
         .iter()
@@ -3114,7 +3104,6 @@ fn the_installed_head_file_and_the_udev_socket_are_the_hosts() {
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let out = outcome_on(&[], &host);
     assert_eq!(out.status, 1);
@@ -3192,7 +3181,6 @@ fn the_installed_file_named_as_the_candidate_is_checked_as_installed() {
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     for named in [&file, &link] {
         let out = outcome_on(&[named.to_str().unwrap()], &host);
@@ -3228,7 +3216,6 @@ fn each_font_set_is_asked_each_question_once() {
         frit_trust: font::trust().below(file.parent().unwrap()),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let (covered, lacked) = (std::cell::Cell::new(0), std::cell::Cell::new(0));
     let cover = |_: &helper::FritText, _: &[u32]| {
@@ -3282,7 +3269,6 @@ fn a_font_file_line_is_said_once_for_a_set_the_top_level_and_looks_share() {
         frit_trust: font::trust().below(file.parent().unwrap()),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
         .iter()
@@ -3333,7 +3319,6 @@ fn a_missing_font_is_a_warning_and_an_older_one_a_note() {
         frit_trust: font::trust().below(file.parent().unwrap()),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
         .iter()
@@ -3446,7 +3431,6 @@ fn only_missing_fonts_exit_with_their_own_status() {
             frit_trust: font::trust().below(file.parent().unwrap()),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
             batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-            drawer: None,
         };
         let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
             .iter()
@@ -3506,7 +3490,6 @@ fn each_documented_head_file_checks_with_exit_0() {
         frit_trust: font::trust().below(anchor.parent().unwrap()),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let mut files: Vec<PathBuf> = std::fs::read_dir(docs)
         .unwrap()
@@ -3711,7 +3694,6 @@ fn the_devices_present_give_hardware_findings_outside_the_status() {
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let out = outcome_on(&[file.to_str().unwrap()], &host);
     assert_eq!((out.status, out.stderr), (0, Vec::new()));
@@ -3809,7 +3791,6 @@ fn check_config_reports_a_look_s_pointer_theme_on_the_look_s_line() {
         frit_trust: font::trust().below(&dir),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: dir.join("batch.conf"),
-        drawer: None,
     };
     let f = file.display().to_string();
     let out = outcome_on(&["--no-devices", f.as_str()], &host);
@@ -4103,7 +4084,6 @@ fn check_config_reports_the_vtlooks_vtium_conf_names() {
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", f.as_str()]
         .iter()
@@ -4201,7 +4181,6 @@ fn a_top_level_vtlook_that_is_no_name_is_reported_once_where_it_is_given() {
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer: None,
     };
     let check = |args: &[&str]| {
         let args: Vec<OsString> = [SUBCOMMAND, "--no-devices"]
@@ -4240,11 +4219,12 @@ fn a_top_level_vtlook_that_is_no_name_is_reported_once_where_it_is_given() {
 
 // check-config warns of a vtium.conf that the account of vtium's drawing
 // process cannot read, such as a file of mode 0600, and says nothing of one
-// of mode 0644, or where no drawing process runs as another account.
+// of mode 0644.
 //
 // References:
 // - ADR-1400 D4, "vtium.conf under the split": check-config warns when the
 //   drawer's account cannot read vtium.conf.
+#[cfg(feature = "split")]
 #[test]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 fn a_vtium_conf_the_drawing_process_cannot_read_is_warned_of() {
@@ -4253,7 +4233,7 @@ fn a_vtium_conf_the_drawing_process_cannot_read_is_warned_of() {
     let other = if me == 990 { 991 } else { 990 };
     let (_dir, file, _) = heads_fixture("drawer-reads", "version = 1\n", 0o600);
     let f = file.display().to_string();
-    let host = |drawer: Option<Reader>| Host {
+    let host = Host {
         conf_file: file.with_file_name("installed.conf"),
         udev_control: file.with_file_name("no-udev"),
         roots: nowhere(),
@@ -4261,7 +4241,6 @@ fn a_vtium_conf_the_drawing_process_cannot_read_is_warned_of() {
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
-        drawer,
     };
     let vtium = Reader {
         name: "vtium".to_owned(),
@@ -4269,16 +4248,52 @@ fn a_vtium_conf_the_drawing_process_cannot_read_is_warned_of() {
         gid: other,
         groups: vec![other],
     };
-    let warning = format!(
-        "{f}: vtium's drawing process could not read this file once it is installed. The drawing process runs as the account vtium, and the file's mode 0600 does not let that account read it. Install the file with mode 644 so that every account can read it."
+    let args: Vec<OsString> = [SUBCOMMAND, f.as_str()]
+        .iter()
+        .map(OsString::from)
+        .collect();
+    let loaded = config::load(&args, &mut |_: &Path| Ok(None));
+    assert_eq!(
+        unreadable(&loaded, &host, &vtium),
+        Some(format!(
+            "{f}: vtium's drawing process could not read this file once it is installed. The drawing process runs as the account vtium, and the file's mode 0600 does not let that account read it. Install the file with mode 644 so that every account can read it."
+        ))
     );
-    let out = outcome_on(&["--no-devices", f.as_str()], &host(Some(vtium.clone())));
-    assert_eq!((out.status, out.stderr), (1, vec![warning]));
-    // without a drawing process of its own account, the file is fine
-    let out = outcome_on(&["--no-devices", f.as_str()], &host(None));
+    // the account that owns the file reads it through the owner's bits
+    let owner = Reader {
+        uid: me,
+        gid: me,
+        groups: Vec::new(),
+        ..vtium.clone()
+    };
+    assert_eq!(unreadable(&loaded, &host, &owner), None);
+    // the subcommand's outcome carries the warning on standard error, which
+    // makes the status 1, and the help and a machine without the account
+    // carry none
+    let warned = |args: &[&str], drawer: Option<&Reader>| {
+        let args: Vec<OsString> = [SUBCOMMAND]
+            .iter()
+            .chain(args)
+            .map(OsString::from)
+            .collect();
+        let loaded = config::load(&args, &mut |_: &Path| Ok(None));
+        let mut out = outcome(&loaded, &host);
+        warn_unreadable(&mut out, &loaded, &host, drawer);
+        out
+    };
+    let out = warned(&["--no-devices", f.as_str()], Some(&vtium));
+    assert_eq!(out.status, 1);
+    assert_eq!(
+        out.stderr.last().map(String::as_str),
+        unreadable(&loaded, &host, &vtium).as_deref()
+    );
+    let out = warned(&["--no-devices", f.as_str()], None);
     assert_eq!((out.status, out.stderr), (0, Vec::new()));
+    let out = warned(&["--no-devices", "--help", f.as_str()], Some(&vtium));
+    assert_eq!(out.status, 0);
     // readable by every account
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let out = outcome_on(&["--no-devices", f.as_str()], &host(Some(vtium)));
+    assert_eq!(unreadable(&loaded, &host, &vtium), None);
+    let out = warned(&["--no-devices", f.as_str()], Some(&vtium));
     assert_eq!((out.status, out.stderr), (0, Vec::new()));
 }

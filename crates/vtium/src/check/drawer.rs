@@ -12,13 +12,16 @@
 //! file the folders above it, and judges them as the kernel judges an
 //! account's access: the owner's bits for the owner, the group's bits for
 //! a member of the file's group, and the others' bits for anyone else. It
-//! reads no access control list.
+//! reads no access control list. Only a build with the feature `split`
+//! makes the check, since only that build has a drawing process.
 //!
 //! References:
 //! - ADR-1400 D4, "vtium.conf under the split": the drawer reads vtium.conf
 //!   itself, and check-config warns when its account cannot read the file.
 
+#[cfg(feature = "split")]
 use std::os::unix::fs::MetadataExt;
+#[cfg(feature = "split")]
 use std::path::Path;
 
 /// The account vtium's drawing process runs as, as the name service gives
@@ -32,6 +35,7 @@ pub struct Reader {
 }
 
 /// The permission bit an account needs on a file or folder.
+#[cfg(feature = "split")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Need {
     /// Read a file.
@@ -40,6 +44,7 @@ enum Need {
     Search,
 }
 
+#[cfg(feature = "split")]
 impl Reader {
     /// Whether this account may do `need` to a file or folder of owner
     /// `uid`, group `gid` and permission bits `mode`. The kernel uses only
@@ -68,6 +73,7 @@ impl Reader {
 /// reads at start, each folder above it must let the account in as well. A
 /// candidate is judged by its own owner, group and mode alone, since its
 /// folder is not where vtium reads it.
+#[cfg(feature = "split")]
 pub fn finding(path: &Path, installed: bool, reader: &Reader) -> Option<String> {
     let f = path.display();
     let name = &reader.name;
@@ -101,7 +107,7 @@ pub fn finding(path: &Path, installed: bool, reader: &Reader) -> Option<String> 
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "split"))]
 mod tests {
     use super::*;
 

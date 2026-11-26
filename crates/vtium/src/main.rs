@@ -149,9 +149,10 @@ fn main() -> ExitCode {
             gid: account.gid,
             groups: account.groups.unwrap_or_default(),
         });
-        #[cfg(not(feature = "split"))]
-        let drawer = None;
+        #[cfg(feature = "split")]
         return ExitCode::from(check::main(&loaded, &*clock(), drawer));
+        #[cfg(not(feature = "split"))]
+        return ExitCode::from(check::main(&loaded, &*clock()));
     }
     for w in check::warnings(&loaded) {
         vtium::warn::warn(w);
