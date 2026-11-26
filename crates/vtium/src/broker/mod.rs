@@ -11,10 +11,10 @@
 //! account `vtium` exists. Otherwise it runs as one process, as it always
 //! has.
 //!
-//! The split is off in every build until the broker also holds the
-//! devices, the VT and the sessions. A drawer without root cannot open a
-//! display today, so [`SPLIT`] stays `false`, and nothing a user runs
-//! reaches the broker. The tests run the broker against stand-in drawers.
+//! This module is built only with the feature `split`, and there
+//! [`SPLIT`] is `true`. A build without the feature has no broker and
+//! runs as one process. The tests run the broker against stand-in
+//! drawers, since a test runs without root.
 //!
 //! References:
 //! - ADR-1400 D4: the broker, the drawer, when vtium runs as one process,
@@ -64,12 +64,17 @@ use refusals::Refusals;
 use start::{ACCOUNT, Account, DRAWER, Program, Started};
 use watch::{FAILURE, Seen};
 
-/// The internal switch that turns the privilege split on. It stays off
-/// until the cards that move the devices and the VT, and the sessions and
-/// helpers, into the broker have landed, and the card that installs the
-/// account `vtium` turns it on. Until then vtium runs as one process on
-/// every path a user can reach.
-pub const SPLIT: bool = false;
+/// The internal switch that turns the privilege split on. It is on in
+/// every build with the feature `split`, the only builds that carry this
+/// module. vtium then splits whenever [`plan`] says so: when it starts as
+/// root and the account `vtium` exists. The packages install that account
+/// with the sysusers file `vtium-split.conf`.
+///
+/// References:
+/// - ADR-1400 D4, "The accounts": the sysusers file makes the account.
+/// - ADR-1400 D4, "The slices", the note on the build: the split builds
+///   only behind the feature `split`, which the minspec build leaves out.
+pub const SPLIT: bool = true;
 
 /// How long the broker waits for the drawer's ready after it starts the
 /// drawer. A drawer that is not ready by then is stopped, and the broker

@@ -232,7 +232,9 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 # D4), with images in
 # FEATURES the picture gallery tool as vtium-gallery (ADR-1500 D8), and with
 # libseat and logind in FEATURES seat mode's unit vtium-seat@.service and the
-# PAM file /etc/pam.d/vtium (ADR-1400 D3), the man pages in /usr/share/man,
+# PAM file /etc/pam.d/vtium (ADR-1400 D3), with split in FEATURES the sysusers
+# file that makes the accounts of the privilege split (ADR-1400 D4), the man
+# pages in /usr/share/man,
 # and the package data install-package-data names: the color schemes, their
 # license texts and the preset vtlooks. Tier 3 installs this tree in its
 # guest.
@@ -243,6 +245,12 @@ VTIUM_INSTALL := crates/vtium/install
 # build installs none (ADR-1101 D1). FEATURES may separate its features
 # with commas or spaces, as cargo's --features does (comma, above).
 IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
+# A console built with split runs as a root process and a drawing process
+# that runs as the account vtium (ADR-1400 D4). So with split in FEATURES,
+# make install and make install-tree stage the sysusers file vtium-split.conf,
+# from which systemd-sysusers makes the accounts vtium and vtium-session, and
+# only then. A minspec build leaves the split out and needs neither account.
+SPLIT := $(filter split,$(subst $(comma), ,$(FEATURES)))
 # A console built with libseat and logind runs in direct mode through
 # vtium@.service, or in seat mode through vtium-seat@.service, which opens a
 # PAM session of vtium's own that libseat's logind backend takes the seat
@@ -409,6 +417,9 @@ endif
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
 endif
+ifneq ($(SPLIT),)
+	install -Dm644 $(VTIUM_INSTALL)/vtium-split.conf $(DESTDIR)/usr/lib/sysusers.d/vtium-split.conf
+endif
 
 # vtium as a package ships it, staged under DESTDIR with PREFIX, so that a
 # package's build can be one call: make install DESTDIR="$pkgdir"
@@ -434,7 +445,9 @@ endif
 # color schemes and preset vtlooks in PREFIX/share/vtium with the schemes'
 # license texts in PKGNAME's license folder, and with libseat and logind in
 # FEATURES seat mode's unit vtium-seat@.service and the PAM file
-# /etc/pam.d/vtium (ADR-1400 D3).
+# /etc/pam.d/vtium (ADR-1400 D3), and with split in FEATURES the sysusers
+# file vtium-split.conf in PREFIX/lib/sysusers.d, which makes the accounts of
+# the privilege split (ADR-1400 D4).
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's terminfo entry, compiled under its
@@ -563,6 +576,9 @@ endif
 	tools/vt/units.sh --name vtium --exec $(PREFIX)/bin/vtium --by 'make install' --conflicts 'kmsconvt@%i.service'$(if $(PAM_SESSION), --seat) $(DESTDIR)$(UNITDIR)
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
+endif
+ifneq ($(SPLIT),)
+	install -Dm644 $(VTIUM_INSTALL)/vtium-split.conf $(DESTDIR)$(PREFIX)/lib/sysusers.d/vtium-split.conf
 endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS)))
