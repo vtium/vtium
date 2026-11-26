@@ -1887,6 +1887,41 @@ fn enter_on_a_size_tries_its_grid_on_the_console_and_a_key_puts_it_back() {
     assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
 }
 
+/// Putting a tried size back gives the console its grid back, and the
+/// look keeps the size it was given, as a change to save. The message
+/// says both, so a person does not take the key for an undo of the pick.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": any key but `k` puts
+///   the grid back.
+#[test]
+fn putting_a_tried_size_back_says_the_look_still_holds_it() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let (c, _) = run_on(&window_ops_on(), &keys);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(
+        seen.contains("The console's grid is back to 80×25. The look still holds 6 pt as a change to save. Pick another size to change it."),
+        "{seen}"
+    );
+}
+
+/// Enter on Automatic, which sets no size of its own, tries nothing on
+/// the console, and the message says why.
+#[test]
+fn enter_on_automatic_says_there_is_no_size_to_try() {
+    let keys: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r", DOWN, b"\r"];
+    let (c, _) = run_on(&window_ops_on(), keys);
+    assert_eq!(grid_requests(&c.written), Vec::<String>::new());
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(
+        seen.contains(
+            "This choice sets no size of its own, so there is nothing to try on the console."
+        ),
+        "{seen}"
+    );
+}
+
 /// `k` keeps the size on the console, and quitting gives the console the
 /// grid it had when vtium-config started.
 ///

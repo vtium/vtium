@@ -1390,7 +1390,7 @@ impl App {
             // a console back at its starting grid needs nothing more when
             // the TUI leaves
             self.shared.grid_moved = g.back != self.shared.start_grid;
-            self.shared.message = Some(words::size_back(g.back));
+            self.shared.message = Some(words::size_back(g.back, g.points));
             return vec![Effect::Write(grid_request(g.back))];
         }
         self.shared.message = Some(words::trial_back(font_shown(&t.back)));
@@ -1456,7 +1456,13 @@ impl App {
     /// - ADR-1201 D4, its note of 2026-11-21: with the live trial on and
     ///   `allow-window-ops` off, the preview is the console's own text.
     pub(crate) fn try_size(&mut self, font: Option<String>, points: u32) -> Vec<Effect> {
-        if !self.shared.in_vtium() || points == 0 {
+        if !self.shared.in_vtium() {
+            return Vec::new();
+        }
+        if points == 0 {
+            if self.shared.window_ops() {
+                self.shared.message = Some(words::SIZE_NOTHING_TO_TRY.to_owned());
+            }
             return Vec::new();
         }
         if !self.shared.window_ops() {

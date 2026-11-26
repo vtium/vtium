@@ -407,10 +407,20 @@ pub fn size_kept(points: u32) -> String {
     )
 }
 
-/// The end of a size's trial: the console's grid as it was.
-pub fn size_back((cols, rows): (usize, usize)) -> String {
-    format!("The console's grid is back to {cols}×{rows}.")
+/// The end of a size's trial: the console's grid as it was, and the size
+/// `points` that the look keeps as a change to save, since Enter on the
+/// size both picked it for the look and tried it.
+pub fn size_back((cols, rows): (usize, usize), points: u32) -> String {
+    format!(
+        "The console's grid is back to {cols}×{rows}. The look still holds {} as a change to save. Pick another size to change it.",
+        self::points(points)
+    )
 }
+
+/// Enter on a size choice that sets no size of its own, such as
+/// Automatic, in a console that lets programs resize its grid.
+pub const SIZE_NOTHING_TO_TRY: &str =
+    "This choice sets no size of its own, so there is nothing to try on the console.";
 
 /// A size whose grid on the display is the console's grid now.
 pub fn size_same(points: u32) -> String {
