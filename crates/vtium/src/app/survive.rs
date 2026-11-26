@@ -303,10 +303,12 @@ impl App {
     /// - ADR-1400 D4, "What the broker does": the broker keeps the pty
     ///   masters through a restart.
     pub fn release_sessions(&mut self) {
-        if self.survival.released {
+        let keeps = self.survival.keeper.keeps();
+        // Only a build with the split has sessions another process started.
+        let split = cfg!(feature = "split");
+        if !(keeps || split) || self.survival.released {
             return;
         }
-        let keeps = self.survival.keeper.keeps();
         if keeps {
             self.sync_kept();
         }
@@ -317,7 +319,7 @@ impl App {
         for head in heads.iter_mut() {
             let name = head.name().to_owned();
             for console in head.consoles_mut() {
-                let elsewhere = console.pty.as_ref().is_some_and(Pty::started_elsewhere);
+                let elsewhere = split && console.pty.as_ref().is_some_and(Pty::started_elsewhere);
                 let held = keeps
                     && survival
                         .ledger
