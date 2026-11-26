@@ -1071,7 +1071,7 @@ impl Flow {
                     }
                 }
                 let name = changed.name.clone().unwrap_or_else(|| own.clone());
-                out.extend(say(words::changed_in_draft(&name)));
+                out.extend(say(words::card_changed(&name)));
                 if *line == CardLine::Name {
                     let renamed = Obj::Doc(value, Slot::Terminal);
                     self.state.layer = Some(renamed.clone());

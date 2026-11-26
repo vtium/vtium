@@ -706,8 +706,13 @@ pub fn path_revised(head: &str) -> String {
     )
 }
 
-pub fn changed_in_draft(head: &str) -> String {
-    format!("Changed {} in the draft.", terminal(head))
+/// What the status line says once a change on a terminal's card is made.
+/// The change waits for Save, which acts once the card is closed.
+pub fn card_changed(head: &str) -> String {
+    format!(
+        "Changed {}. Press Esc and then s to save the change into the draft.",
+        terminal(head)
+    )
 }
 
 pub fn piece_out(title: &str) -> String {
@@ -802,11 +807,14 @@ pub const LABEL_TYPING: &str =
 pub const LABEL_HASH: &str = "This label starts with #, which vtium.conf reads as the start of a comment. Start the label with another character.";
 
 pub const LABEL_REMOVED: &str =
-    "This part has no label now. vtium-config took it out of the draft.";
+    "This part has no label now. Press Esc and then s to save the change into the draft.";
 
-/// What the status line says once a part's label is written.
+/// What the status line says once a part's label is changed. The label
+/// waits for Save, which acts once the part's detail is closed.
 pub fn label_set(label: &str) -> String {
-    format!("This part's label is now \u{201c}{label}\u{201d}. vtium-config wrote it to the draft.")
+    format!(
+        "This part's label is now \u{201c}{label}\u{201d}. Press Esc and then s to save it into the draft."
+    )
 }
 
 /// Esc in the Flow view while NEW PATH is empty.

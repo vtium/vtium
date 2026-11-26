@@ -888,6 +888,30 @@ mod draft_flow {
         );
     }
 
+    /// A change on a terminal's card waits for Save, and the message says
+    /// how to save it: close the card, then press s. It never says the
+    /// change is in the draft already.
+    ///
+    /// References:
+    /// - ADR-1403 D7: a change waits for Save.
+    #[test]
+    fn a_change_on_a_terminal_s_card_says_how_to_save_it() {
+        const DOWN: &[u8] = b"\x1b[B";
+        let b = bench("card-look-said");
+        let ran = run(&b, &[b"\x1b[H", RIGHT, b"\r", DOWN, LEFT, b"\r"]);
+        let screen = ran
+            .screen()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            screen.contains(
+                "Changed the terminal desk. Press Esc and then s to save the change into the draft."
+            ),
+            "{screen}"
+        );
+    }
+
     #[test]
     fn a_change_waits_for_save_and_s_saves_it() {
         let b = bench("save");
