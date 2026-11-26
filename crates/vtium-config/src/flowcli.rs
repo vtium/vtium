@@ -1036,6 +1036,25 @@ pub fn editor(var: impl Fn(&str) -> Option<String>) -> String {
         .unwrap_or_else(|| "vi".to_owned())
 }
 
+/// The option of `look add` and `look set` that sets a look's `vtlook`,
+/// which the look card also sets. `vtlook` is not in [`ops::LOOK_KEYS`],
+/// because a look's section takes it beside the key table, as a head
+/// takes `look`.
+///
+/// References:
+/// - ADR-1403 D8: every change the view makes is also a command.
+const VTLOOK_OPTION: &str = "--vtlook";
+
+/// The look keys that `args` gives values to, in the order of
+/// [`ops::LOOK_KEYS`], then `vtlook`.
+fn look_keys(args: &Args) -> Vec<(&'static str, Option<&str>)> {
+    ops::LOOK_KEYS
+        .iter()
+        .chain([&("vtlook", VTLOOK_OPTION)])
+        .filter_map(|(k, o)| args.value(o).map(|v| (*k, Some(v))))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1086,23 +1105,4 @@ mod tests {
         };
         assert_eq!(missing(&checked), gaps.iter().map(line).collect::<Vec<_>>());
     }
-}
-
-/// The option of `look add` and `look set` that sets a look's `vtlook`,
-/// which the look card also sets. `vtlook` is not in [`ops::LOOK_KEYS`],
-/// because a look's section takes it beside the key table, as a head
-/// takes `look`.
-///
-/// References:
-/// - ADR-1403 D8: every change the view makes is also a command.
-const VTLOOK_OPTION: &str = "--vtlook";
-
-/// The look keys that `args` gives values to, in the order of
-/// [`ops::LOOK_KEYS`], then `vtlook`.
-fn look_keys<'a>(args: &'a Args) -> Vec<(&'static str, Option<&'a str>)> {
-    ops::LOOK_KEYS
-        .iter()
-        .chain([&("vtlook", VTLOOK_OPTION)])
-        .filter_map(|(k, o)| args.value(o).map(|v| (*k, Some(v))))
-        .collect()
 }

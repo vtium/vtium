@@ -588,15 +588,13 @@ fn look_add_and_look_set_take_a_look_s_vtlook() {
     );
     let help = f.run(&["--help", "look"]);
     assert_eq!(help.status, 0, "{}", help.err);
-    for form in ["look set NAME"] {
-        let line = help
-            .out
-            .lines()
-            .find(|l| l.contains(form))
-            .unwrap_or_else(|| panic!("{form} in {}", help.out));
-        assert!(line.contains("[--ligatures L]"), "{line}");
-        assert!(line.contains("[--vtlook NAME]"), "{line}");
-    }
+    let line = help
+        .out
+        .lines()
+        .find(|l| l.contains("look set NAME"))
+        .unwrap_or_else(|| panic!("look set's usage in {}", help.out));
+    assert!(line.contains("[--ligatures L]"), "{line}");
+    assert!(line.contains("[--vtlook NAME]"), "{line}");
 }
 
 #[test]
