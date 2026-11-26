@@ -184,6 +184,52 @@ pub(crate) fn pin_needed(named: Option<&OsStr>, own_session: bool) -> bool {
     named.is_none() && !own_session
 }
 
+/// What vtium finds at its start about the seat managers it could take
+/// its seat from, before it opens anything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Managers {
+    /// A seat manager would serve vtium's seat: seatd listens on its
+    /// socket and libseat may try seatd, or vtium is in a logind session of
+    /// its own, logind runs, and libseat may try logind.
+    pub serve: bool,
+    /// vtium is in no logind session of its own and `LIBSEAT_BACKEND`
+    /// names no backend, so vtium looks for seatd alone, as
+    /// [`keep_from_logind`] pins libseat to it.
+    pub seatd_only: bool,
+}
+
+/// [`Managers`] from `named`, the backend `LIBSEAT_BACKEND` names; whether
+/// vtium is in a logind session of its own; whether seatd listens; and
+/// whether logind runs. libseat tries only the backend named, and
+/// otherwise seatd, then logind. Outside a session of its own vtium never
+/// lets libseat reach logind, as [`LibseatVt::start`] decides.
+pub(crate) fn managers_from(
+    named: Option<&OsStr>,
+    own_session: bool,
+    seatd: bool,
+    logind_runs: bool,
+) -> Managers {
+    let tries_seatd = named.is_none_or(|n| n == "seatd");
+    let tries_logind = own_session && named.is_none_or(|n| n == "logind");
+    Managers {
+        serve: (tries_seatd && seatd) || (tries_logind && logind_runs),
+        seatd_only: pin_needed(named, own_session),
+    }
+}
+
+/// What vtium finds about the seat managers on this machine now. It
+/// connects to seatd's socket to see whether seatd listens, and opens no
+/// seat.
+pub fn managers() -> Managers {
+    let manager = binding::Libseat::default();
+    managers_from(
+        manager.backend_named().as_deref(),
+        manager.own_session(),
+        manager.seatd_listens(),
+        manager.logind_runs(),
+    )
+}
+
 /// Whether vtium pinned libseat to seatd at its start.
 static PINNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 

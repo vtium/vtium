@@ -1805,6 +1805,10 @@ The build made five choices of its own, each for the reason given:
 
 > Note 2026-11-10, later: the survival of a logged-in session is measured. A shell was logged in on a vtium built with libseat, running under logind with the drop-in's `KillMode=mixed`, in a virtual machine. After a restart of vtium's unit, and again after vtium was killed with SIGKILL, a new vtium took the session back, and the shell answered a line typed in it.
 
+> Note 2026-11-25, on the privilege split (ADR-1400 D4): in a build with the cargo feature `split`, which the packaged builds name, vtium runs as a root process and a drawing process under the account `vtium`. The root process is the unit's main process, so it makes each session's pty, keeps the masters in the file-descriptor store or with the holder, and sends `READY=1`. On 2026-11-25 tier 3's `heads-survive`, run on a tree built with split, found that no session yet survives a restart there. When the drawing process exits, each of its ptys asks the root process to hang its session up, and the new vtium takes no session back. Until that work lands, a restart under the split ends every session, and the minspec build keeps them as this decision says.
+
+> Note 2026-11-25, later: the work that fixes the split's regressions on a packaged build makes the sessions survive a restart under the split. At its exit the drawing process now lets each session go without asking the root process to hang it up. The root process then keeps each session its keeper holds for the next vtium and hangs up the rest, as item 9 says of vtium in one process. Tier 3's `heads-survive` and `seat-logind-survive` pass on a tree built with `libseat logind split`.
+
 ### D14: each mode set resets the connector's color
 
 > Added 2026-11-04: the maintainer decided that vtium resets a connector's color properties to their defaults at each mode set (`basis`, 2026-11-03).

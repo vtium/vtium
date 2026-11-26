@@ -47,7 +47,8 @@ done)
 say 0 "the keyboard's device" "$EV $(udevadm info -q property "$EV" | grep '^NAME=')"
 say 0 "/dev/dri/card0" "$(stat -c '%A %U:%G' /dev/dri/card0)"
 
-# Check 9 runs first, while no session holds the card.
+# Check 9 runs first, while no session holds the card. The same run answers
+# check 10: the drawer's own master calls on its copy of the card.
 "$P" drm --check 9 --user "$U" --vt 13
 
 # Checks 1 and 6: a session of the probe's account through vtium's PAM

@@ -24,6 +24,7 @@ import t3_power
 import t3_qemu
 import t3_seat
 import t3_showcase
+import t3_split
 import t3img
 from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, ROOT, RUNDIR, rel
 from t3_evaluate import (BENCHMARKS, CASES, DRAWS_PICTURES, IMAGE_SCREENS, KEYED, KEYS_AFTER,
@@ -37,8 +38,10 @@ from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 # the GPU path under virgl, gl-1280x800 and gpu-1280x800. Each draws every
 # screen, the image ones included (t3_evaluate.IMAGE_SCREENS), so its
 # console is built with images ("tree_features"). The five default variants
-# build it with scroll-pan too, as the packages do, so their goldens show
-# the rows of history above the screen in the spare lines above the grid.
+# build it with scroll-pan and split too, as the packages do, so their
+# goldens show the rows of history above the screen in the spare lines above
+# the grid, and their console runs as a root process and a drawing process
+# that runs as the account vtium.
 # Every variant's cases are judged by the goldens in goldens/VARIANT/, but
 # those of a variant judged by another's goldens (t3_evaluate.GOLDENS_OF)
 # and those of a variant judged another way ("verdict").
@@ -46,6 +49,8 @@ from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 # References:
 # - ADR-1310, Verification, "scroll-draw": the default variants build with
 #   scroll-pan, as the packages do.
+# - ADR-1400 D4, "The slices", the note on the build: the packaged builds
+#   name split.
 # The screens the frit variants draw: Latin text the frit's font holds, and
 # CJK it lacks, which the built-in unifont draws in its place (#141); cjk
 # last, as vt-restore compares with it.
@@ -75,7 +80,7 @@ VARIANTS = {
         "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
-        "tree_features": ["images", "scroll-pan"],
+        "tree_features": ["images", "scroll-pan", "split"],
     },
     # The minspec machine: one vCPU and 512 MB at a common laptop size.
     # The vCPU is a core of the host, so it bounds parallelism and memory
@@ -88,7 +93,7 @@ VARIANTS = {
         "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
-        "tree_features": ["images", "scroll-pan"],
+        "tree_features": ["images", "scroll-pan", "split"],
     },
     # The same machine with the minimal configuration: unifont, and a PSF
     # console font, which make tier3-minimal runs. Their image screens draw
@@ -195,7 +200,7 @@ VARIANTS = {
         "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
-        "tree_features": ["images", "scroll-pan"],
+        "tree_features": ["images", "scroll-pan", "split"],
     },
     # The 7680x2160 display with DejaVu Sans Mono at 32 points, a 20x38 cell
     # near the 20x40 of Monoid at 30 the
@@ -209,7 +214,7 @@ VARIANTS = {
         "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
-        "tree_features": ["images", "scroll-pan"],
+        "tree_features": ["images", "scroll-pan", "split"],
     },
     # The GL variant, run on vtium's GPU path: 2d-1280x800's
     # display on virtio-gpu with virgl, with hwaccel on (vtium-gl.conf).
@@ -227,7 +232,7 @@ VARIANTS = {
         "capture": "vnc",
         "cpus": 4,
         "memory_mb": 4096,
-        "tree_features": ["gpu", "images", "scroll-pan"],
+        "tree_features": ["gpu", "images", "scroll-pan", "split"],
     },
     # The GPU path on the installed console (ADR-1303): 2d-1280x800's
     # display on virtio-gpu with virgl, whose render node in the guest the
@@ -345,6 +350,16 @@ VARIANTS.update({
 # the session received. The variant runs only when named.
 VARIANTS["hand-over"] = dict(SEAT, tree_features=[], checks=["hand-over"], agent=True,
                              probe=True)
+# split-direct runs the minspec machine's direct mode on a tree built with
+# split, whose console runs as a root process and a drawing process under
+# the account vtium (ADR-1400 D4). It logs in, draws its screens and
+# switches VTs as 2d-potato-min does, judged by its goldens, then its checks
+# (t3_split.CHECKS) read the drawing process's status, switch away while a
+# graphical program run as root takes the card, and kill the drawing
+# process. The agent runs the probe as root for the last two.
+VARIANTS["split-direct"] = dict(SEAT, tree_features=["split"],
+                                checks=["drawer-status", "split-switch", "drawer-kill"],
+                                agent=True, probe=True)
 SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait",
                  "seat-seatd-stop", "panic-sysrq", "kmsg-notice"]
 
@@ -671,6 +686,22 @@ VARIANTS["seat-logind-survive"] = dict(VARIANTS["heads-survive"],
                                        mode="seat",
                                        checks=["seat", "login-session", "seat-cgroup",
                                                "session-survives"])
+# heads-partly-open's fallback on a tree built with split (ADR-1400 D4,
+# "When the drawer dies"): a kill of the root process, as before the split,
+# and a kill of the drawing process alone, after which the root process puts
+# the VT back and exits with a failure, so systemd starts the getty fallback
+# under the open policy as ADR-1401 D9 says.
+VARIANTS["split-fallback"] = dict(VARIANTS["heads-partly-open"], tree_features=["split"],
+                                  checks=["getty-fallback"], failures=["kill", "drawer-kill"])
+# heads-survive on a tree built with split, under an open policy, which
+# lets key-console-open open a console. Its check opened-survives logs in on
+# a console that the head does not open at its start, beside console 1, and
+# finds both sessions back after a restart: the root process keeps the
+# masters and names their consoles to the drawing process (ADR-1400 D4,
+# "What the broker does").
+VARIANTS["split-survive"] = dict(VARIANTS["heads-survive"], tree_features=["split"],
+                                 heads="tools/tier3/guest/heads/survive-open.conf",
+                                 policy="open", checks=["opened-survives"])
 VARIANTS["seat-logind-two"] = dict(VARIANTS["seat-logind-survive"],
                                    checks=["seat", "login-session", "two-logins"])
 SEAT_VARIANTS += ["seat-logind-survive", "seat-logind-two"]
@@ -953,12 +984,19 @@ IMAGE_HELPER = {
                          r"removed"),
 }
 
+# guest/setup's account of the privilege split's accounts (its "split"
+# field) once systemd-sysusers has made them from the tree's sysusers file:
+# each account's ids, none of them 0 (ADR-1400 D4, "The accounts").
+SPLIT_ACCOUNTS = re.compile(r"account vtium uid [1-9]\d* gid [1-9]\d* groups [1-9][\d,]*, "
+                            r"account vtium-session uid [1-9]\d* gid [1-9]\d*")
+
 
 def check_guest(variant, installed):
     """Raises when the guest's account (check_install) shows it is not the
     guest `variant` names: a variant whose console is built with images
     needs the image helper installed and its account made, or removed in
-    one whose pre-login account is nobody (IMAGE_HELPER);
+    one whose pre-login account is nobody (IMAGE_HELPER); one built with
+    split needs the accounts of the privilege split (SPLIT_ACCOUNTS);
     on the guest without systemd, PID 1 must be the init the variant boots,
     sysvinit's init or busybox, systemd's /run/systemd/system must be
     absent, and a udev daemon must run, or none in a variant without
@@ -972,6 +1010,12 @@ def check_guest(variant, installed):
                                "/usr/bin/vtium-image and the account vtium-image%s "
                                "(ADR-1101 D2)" % (helper, " removed" if account == "nobody"
                                                    else ""))
+    if "split" in v.get("tree_features", ()):
+        accounts = installed.get("split", "not reported")
+        if not SPLIT_ACCOUNTS.fullmatch(accounts):
+            raise RuntimeError("the guest's accounts of the privilege split are %r; the "
+                               "variant needs the accounts vtium and vtium-session, neither "
+                               "of them root's (ADR-1400 D4)" % accounts)
     if v.get("guest") != "sysvinit":
         return
     init, comm = {"sysvinit": ("sysvinit", "init"),
@@ -1224,22 +1268,46 @@ def resident(rss_kb, screens=SCREENS):
             "peak_kib": rss_kb.get(peak), "peak_screen": peak}
 
 
+# The line with which a console built with split names its drawing process
+# (crates/vtium/src/broker/mod.rs): the root process logs it once the
+# drawing process has started (ADR-1400 D4).
+DRAWER_LINE = re.compile(r"\] (?:kmscon|vtium)\[(\d+)\]: broker: vtium runs as two processes: "
+                         r"this root process, and drawing process (\d+)")
+
+
+def first_console(text):
+    """The first console process in the console log `text`, the one whose
+    revision line comes first, as (the kernel's timestamp of that line, its
+    name, and its process ids), or None. Under the privilege split the
+    console is two processes: the root process, which logs the revision
+    first, and the drawing process it names, which sets up the displays and
+    draws. Both count as the console."""
+    first = re.search(r"\[\s*([0-9.]+)\] (kmscon|vtium)\[(\d+)\]: log: \w+ Revision", text)
+    if not first:
+        return None
+    pids = [first.group(3)]
+    pids += [m.group(2) for m in DRAWER_LINE.finditer(text) if m.group(1) == first.group(3)][:1]
+    return float(first.group(1)), first.group(2), pids
+
+
 def console_startup_ms(serial):
     """Milliseconds from the first console process's first log line (its
     revision) to its "Display ... with backend" line, the display set up and
     its terminal drawing, by the kernel's timestamps on the console; None
     without both. The time before the console logs (exec and dynamic
-    linking) is not in it."""
+    linking) is not in it. Under the privilege split the display line is
+    the drawing process's (first_console)."""
     with open(serial, "rb") as f:
         text = f.read().decode(errors="replace")
-    first = re.search(r"\[\s*([0-9.]+)\] (kmscon|vtium)\[(\d+)\]: log: \w+ Revision", text)
+    first = first_console(text)
     if not first:
         return None
-    shown = re.search(r"\[\s*([0-9.]+)\] %s\[%s\]: (?:terminal: )?Display .* with backend"
-                      % (first.group(2), first.group(3)), text)
+    at, name, pids = first
+    shown = re.search(r"\[\s*([0-9.]+)\] %s\[(?:%s)\]: (?:terminal: )?Display .* with backend"
+                      % (name, "|".join(pids)), text)
     if not shown:
         return None
-    return round((float(shown.group(1)) - float(first.group(1))) * 1000, 1)
+    return round((float(shown.group(1)) - at) * 1000, 1)
 
 
 def console_cell(serial):
@@ -1249,12 +1317,15 @@ def console_cell(serial):
     sets the display up, and again when a cell answer that came after its
     wait moves the display to the font's own cell. Only the lines of the
     first console process count, the one whose revision line comes first,
-    so a console started later on another VT does not change the answer."""
+    with its drawing process under the privilege split (first_console), so
+    a console started later on another VT does not change the answer."""
     with open(serial, "rb") as f:
         text = f.read().decode(errors="replace")
-    first = re.search(r"\] ((?:kmscon|vtium)\[\d+\]): log: \w+ Revision", text)
+    first = first_console(text)
     if first:
-        lines = [l for l in text.splitlines() if "] %s: " % first.group(1) in l]
+        _, name, pids = first
+        tags = ["] %s[%s]: " % (name, pid) for pid in pids]
+        lines = [l for l in text.splitlines() if any(t in l for t in tags)]
     else:
         lines = text.splitlines()
     cells = [m for m in (re.search(r"cell size (\d+)x(\d+)", l) for l in lines) if m]
@@ -1895,6 +1966,7 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               "two-logins": t3_seat.check_two_logins,
               t3_fonts.CASE: t3_fonts.run,
               **t3_handover.CHECK_RUNS,
+              **t3_split.CHECK_RUNS,
               **t3_apply.CHECK_RUNS,
               **t3_keyecho.CHECK_RUNS,
               **t3_heads.CHECK_RUNS,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The checks of ADR-1400 D4 in the tier 3 guest: `make tier3-rootchecks`.
 
-D4, "The checks the build makes first", lists nine facts that the design for
+D4, "The checks the build makes first", lists ten facts that the design for
 running vtium without root rests on. This driver builds the probe in
 tools/tier3/probes, puts it on a disc with guest/rootchecks as the disc's
 setup and vtium's PAM file, boots a throwaway overlay of the tier 3 base

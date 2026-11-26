@@ -29,6 +29,8 @@ use crate::helper;
 use crate::notice::check_config;
 
 mod conf;
+#[cfg(feature = "split")]
+mod drawer;
 mod frits;
 mod notes;
 mod resources;
@@ -40,6 +42,8 @@ pub use conf::{
     AskCoverage, FontSources, HeadCheck, Settings, Squeeze, conf_file, device_findings,
 };
 use conf::{Helpers, same_file};
+#[cfg(feature = "split")]
+pub use drawer::Reader;
 pub use frits::{DraftFrits, with_frit_name};
 use frits::{font_name_frit, frit_layers, named_frit};
 use notes::{counts, warnings_of};
@@ -353,11 +357,48 @@ fn outcome_with(
     }
 }
 
+/// The warning when `reader`, the account of vtium's drawing process,
+/// cannot read the vtium.conf that `loaded` checks on the machine `host`:
+/// the installed file, judged with each folder above it, or a candidate,
+/// judged by its own owner, group and mode.
+///
+/// References:
+/// - ADR-1400 D4, "vtium.conf under the split": check-config warns when
+///   the drawer's account cannot read vtium.conf.
+#[cfg(feature = "split")]
+pub fn unreadable(loaded: &Loaded, host: &Host, reader: &Reader) -> Option<String> {
+    let path = loaded.candidate.as_deref().unwrap_or(&host.conf_file);
+    let candidate = loaded.candidate.is_some() && !same_file(path, &host.conf_file);
+    drawer::finding(path, !candidate, reader)
+}
+
+/// Adds [`unreadable`]'s warning to `out`, the outcome of `loaded` on
+/// `host`, as a line on standard error that makes the status 1. The help
+/// and a machine without the account `drawer` get none.
+#[cfg(feature = "split")]
+pub fn warn_unreadable(out: &mut Outcome, loaded: &Loaded, host: &Host, drawer: Option<&Reader>) {
+    if loaded.config.switch(&keys::HELP) {
+        return;
+    }
+    if let Some(line) = drawer.and_then(|reader| unreadable(loaded, host, reader)) {
+        out.stderr.push(line);
+        out.status = 1;
+    }
+}
+
 /// The subcommand as the binary runs it on the machine's own files: it
 /// prints [`outcome`] and returns the exit status. It asks the glyph
 /// helper which of the locale's everyday letters each look's font set
-/// covers, and which fonts each font set lacks, waiting by `clock`.
-pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
+/// covers, and which fonts each font set lacks, waiting by `clock`. In a
+/// build with `split`, it also warns when `drawer`, the account of vtium's
+/// drawing process, cannot read vtium.conf ([`unreadable`]); `drawer` is
+/// `None` on a machine without the account, where vtium runs as one
+/// process.
+pub fn main(
+    loaded: &Loaded,
+    clock: &dyn Fn() -> std::time::Instant,
+    #[cfg(feature = "split")] drawer: Option<Reader>,
+) -> u8 {
     let env: Vec<_> = std::env::vars_os().collect();
     let locale = crate::app::locale(&env);
     let helpers = Helpers {
@@ -375,12 +416,20 @@ pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
     let ask_sources =
         |frit: &helper::FritText| helpers.ask(frit, |helper, wait| helper.sources(wait, clock));
     let sources = FontSources { ask: &ask_sources };
+    #[cfg(not(feature = "split"))]
     let out = outcome_with(
         loaded,
         &Host::system(&loaded.config),
         Some(squeeze),
         Some(sources),
     );
+    #[cfg(feature = "split")]
+    let out = {
+        let host = Host::system(&loaded.config);
+        let mut out = outcome_with(loaded, &host, Some(squeeze), Some(sources));
+        warn_unreadable(&mut out, loaded, &host, drawer.as_ref());
+        out
+    };
     for line in &out.stderr {
         eprintln!("{line}");
     }

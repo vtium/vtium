@@ -46,7 +46,9 @@ use vtium_platform::calloop::generic::Generic;
 use vtium_platform::calloop::{Interest, LoopHandle, Mode, PostAction};
 use vtium_platform::pty::{self, Erase, Size};
 
-use super::protocol::{CELL_MAX, ConsoleRef, Display, ERRNO_MAX, Errno, Grid, SIGNAL_MAX, Status};
+use super::protocol::{
+    CELL_MAX, ConsoleRef, Display, ERRNO_MAX, Errno, Grid, Head, SIGNAL_MAX, Status,
+};
 use super::store::Keep;
 use super::watch::Seen;
 
@@ -271,7 +273,29 @@ impl Sessions {
             cell_height: grid.cell_height,
         };
         let running = match self.store.take(head, console.console) {
-            Some(master) => adopt(master, size),
+            Some(master) => match adopt(master, size) {
+                Ok(running) => {
+                    // The line vtium in one process logs for the same
+                    // event, so the log reads the same whether vtium
+                    // splits or not.
+                    log::info!(
+                        "head {head}: console {} takes back the session that outlived the last vtium",
+                        console.console
+                    );
+                    Ok(running)
+                }
+                // The session ended while no vtium ran, so the console
+                // starts a new one, as vtium in one process restarts it.
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    log::info!(
+                        "head {head}: console {}: its session ended while vtium was away",
+                        console.console
+                    );
+                    self.store.forget(head, console.console);
+                    self.start(console, size, display, truecolor)
+                }
+                Err(e) => Err(e),
+            },
             None => self.start(console, size, display, truecolor),
         }
         .map_err(|e| {
@@ -328,11 +352,47 @@ impl Sessions {
         })
     }
 
+    /// The consoles whose sessions an earlier vtium kept, which the root
+    /// process names to the drawing process at its start, so that each
+    /// opens again as its head starts. The root process hangs up each
+    /// other session the keeper gave back: one of a head that vtium.conf
+    /// no longer names, and one kept under a name vtium does not write.
+    ///
+    /// References:
+    /// - ADR-1401 D13: a starting vtium takes back each kept session, and
+    ///   hangs up one whose head is gone from vtium.conf.
+    pub fn kept(&mut self) -> Vec<ConsoleRef> {
+        let known: BTreeSet<String> = self
+            .conf
+            .known
+            .iter()
+            .filter(|head| Head::new(head).is_some())
+            .cloned()
+            .collect();
+        self.store
+            .waiting(&known)
+            .into_iter()
+            .filter_map(|(head, console)| {
+                Some(ConsoleRef {
+                    head: Head::new(&head)?,
+                    console,
+                })
+            })
+            .collect()
+    }
+
     /// Hangs `console`'s session up, when it is open, and drops the root
     /// process's copy of its master. Its process is reaped when it exits,
-    /// and its exit is not reported.
+    /// and its exit is not reported. A session an earlier vtium kept for
+    /// the console, which no console has taken back, is hung up too: the
+    /// drawing process closes it so when it has no place for it.
     pub fn close(&mut self, console: &ConsoleRef) {
+        let head = console.head.as_str();
         let Some(running) = self.open.remove(console) else {
+            if let Some(master) = self.store.take(head, console.console) {
+                self.store.forget(head, console.console);
+                pty::hang_up(master.as_fd(), None);
+            }
             return;
         };
         self.store.forget(console.head.as_str(), console.console);
@@ -344,6 +404,28 @@ impl Sessions {
         pty::hang_up(master.as_fd(), child.is_some().then(|| pidfd.as_fd()));
         drop(master);
         self.closing.push(Closing { child, pidfd });
+    }
+
+    /// Ends the sessions at the drawing process's end, as vtium in one
+    /// process does at its exit: each session the keeper holds runs on for
+    /// the next vtium, which takes it back, and every other session is hung
+    /// up. vtium cannot tell a restart from a stop, so systemd decides what
+    /// becomes of the kept sessions: a restart keeps its store, and a stop
+    /// closes it.
+    ///
+    /// References:
+    /// - ADR-1401 D13, item 9: vtium never hangs up a session that the
+    ///   store or the holder keeps when it exits.
+    pub fn end(&mut self) {
+        let unkept: Vec<ConsoleRef> = self
+            .open
+            .keys()
+            .filter(|c| !self.store.holds(c.head.as_str(), c.console))
+            .cloned()
+            .collect();
+        for console in &unkept {
+            self.close(console);
+        }
     }
 
     /// Whether vtium.conf, or the built-in configuration, names `head`.
@@ -852,12 +934,14 @@ pub(super) mod tests {
         s.close(&console("left", 1));
     }
 
-    /// A keeper that records what it is told, and holds one master an
-    /// earlier vtium kept.
+    /// A keeper that records what it is told, holds one master an earlier
+    /// vtium kept, and says it holds the masters of the consoles in
+    /// `holds`.
     #[derive(Default)]
     struct Recorded {
         told: Rc<RefCell<Vec<String>>>,
         kept: Option<(String, u64, OwnedFd)>,
+        holds: Vec<(String, u64)>,
     }
 
     impl Keep for Recorded {
@@ -871,6 +955,9 @@ pub(super) mod tests {
                 .borrow_mut()
                 .push(format!("forget {head} {console}"));
         }
+        fn holds(&self, head: &str, console: u64) -> bool {
+            self.holds.iter().any(|(h, c)| h == head && *c == console)
+        }
         fn take(&mut self, head: &str, console: u64) -> Option<OwnedFd> {
             let at = self.kept.as_ref()?;
             if at.0 != head || at.1 != console {
@@ -878,6 +965,145 @@ pub(super) mod tests {
             }
             self.kept.take().map(|(_, _, fd)| fd)
         }
+        fn waiting(&mut self, known: &BTreeSet<String>) -> Vec<(String, u64)> {
+            self.kept
+                .iter()
+                .filter(|(head, _, _)| known.contains(head))
+                .map(|(head, id, _)| (head.clone(), *id))
+                .collect()
+        }
+    }
+
+    /// A session an earlier vtium started on a pty of its own, which
+    /// prints `ready` and then sleeps with SIGHUP's default, so a hangup
+    /// ends it.
+    fn earlier_session() -> pty::Session {
+        let mut command = std::process::Command::new("/bin/sh");
+        command.args(["-c", "echo ready; exec sleep 1000"]);
+        let small = Size {
+            cols: 40,
+            rows: 10,
+            cell_width: 9,
+            cell_height: 18,
+        };
+        let earlier = pty::open_session(command, small, Erase::Delete).unwrap();
+        read_until(&earlier.master, "ready");
+        earlier
+    }
+
+    /// The sessions of `conf` over a real store that an earlier vtium left
+    /// `kept` in, with no keeper.
+    fn sessions_kept(conf: Conf, kept: Vec<(String, OwnedFd)>) -> (Sessions, Watched) {
+        let (watched, wake) = watching();
+        let store = super::super::store::Store::new(vtium::survive::Keeper::Off, kept);
+        (Sessions::new(conf, Box::new(store), wake), watched)
+    }
+
+    fn name(head: &str, id: u64) -> String {
+        vtium::survive::Name::new(head, id).encode()
+    }
+
+    /// Whether the process behind `pidfd` exits within 10 s.
+    fn exits(pidfd: &OwnedFd) -> bool {
+        let mut fds = [rustix::event::PollFd::new(
+            pidfd,
+            rustix::event::PollFlags::IN,
+        )];
+        let bound = rustix::event::Timespec {
+            tv_sec: 10,
+            tv_nsec: 0,
+        };
+        rustix::event::poll(&mut fds, Some(&bound)).unwrap() == 1
+    }
+
+    /// Two sessions an earlier vtium kept on head `left` both come back:
+    /// the root process names both consoles to the drawing process, and
+    /// each console that opens gets its own kept session. The session of
+    /// head `gone`, which vtium.conf no longer names, and the one kept
+    /// under a name vtium does not write are hung up at once, before the
+    /// drawing process hears of them.
+    #[test]
+    fn two_kept_sessions_come_back_and_one_of_a_removed_head_is_hung_up() {
+        let one = earlier_session();
+        let two = earlier_session();
+        let gone = earlier_session();
+        let stray = earlier_session();
+        let (mut s, _) = sessions_kept(
+            conf("echo NEW; sleep 1000", "exit 0", WIDE),
+            vec![
+                (name("left", 2), two.master.try_clone().unwrap()),
+                (name("gone", 1), gone.master.try_clone().unwrap()),
+                ("not-vtiums".to_owned(), stray.master.try_clone().unwrap()),
+                (name("left", 1), one.master.try_clone().unwrap()),
+            ],
+        );
+        assert_eq!(s.kept(), [console("left", 1), console("left", 2)]);
+        assert!(exits(&gone.pidfd), "the removed head's session runs on");
+        assert!(exits(&stray.pidfd), "the stray session runs on");
+        for (id, earlier) in [(1, &one), (2, &two)] {
+            let master = s
+                .open(&console("left", id), &GRID, Display::Kms, true)
+                .unwrap();
+            assert_eq!(
+                rustix::termios::tcgetsid(&master).unwrap(),
+                rustix::termios::tcgetsid(&earlier.master).unwrap(),
+                "console {id} did not get its kept session"
+            );
+            assert!(!exited(earlier.pidfd.as_fd()));
+        }
+        for id in [1, 2] {
+            s.close(&console("left", id));
+        }
+        for earlier in [one, two, gone, stray] {
+            let mut child = earlier.child;
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    /// A kept session whose console the drawing process closes before it
+    /// opens it, because it has no place for it, is hung up, and no later
+    /// open of that console gets it.
+    #[test]
+    fn a_kept_session_the_drawer_closes_unopened_is_hung_up() {
+        let kept = earlier_session();
+        let (mut s, watched) = sessions_kept(
+            conf("echo NEW; sleep 1000", "exit 0", WIDE),
+            vec![(name("left", 3), kept.master.try_clone().unwrap())],
+        );
+        assert_eq!(s.kept(), [console("left", 3)]);
+        s.close(&console("left", 3));
+        assert!(exits(&kept.pidfd), "the closed kept session runs on");
+        let master = s
+            .open(&console("left", 3), &GRID, Display::Kms, true)
+            .unwrap();
+        read_until(&master, "NEW");
+        s.close(&console("left", 3));
+        wait_for_exits(&watched);
+        let mut child = kept.child;
+        let _ = child.wait();
+    }
+
+    /// A kept session that ended while no vtium ran leaves its console a
+    /// new session, as vtium in one process restarts it, rather than an
+    /// error that would end vtium.
+    #[test]
+    fn a_kept_session_that_ended_while_vtium_was_away_starts_anew() {
+        let kept = earlier_session();
+        let mut child = kept.child;
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let (mut s, watched) = sessions_kept(
+            conf("echo NEW; sleep 1000", "exit 0", WIDE),
+            vec![(name("left", 1), kept.master.try_clone().unwrap())],
+        );
+        drop(kept.master);
+        let master = s
+            .open(&console("left", 1), &GRID, Display::Kms, true)
+            .unwrap();
+        read_until(&master, "NEW");
+        s.close(&console("left", 1));
+        wait_for_exits(&watched);
     }
 
     #[test]
@@ -885,7 +1111,7 @@ pub(super) mod tests {
         let told: Rc<RefCell<Vec<String>>> = Rc::default();
         let store = Recorded {
             told: Rc::clone(&told),
-            kept: None,
+            ..Recorded::default()
         };
         let (watched, wake) = watching();
         let mut s = Sessions::new(conf("exit 0", "sleep 1000", WIDE), Box::new(store), wake);
@@ -921,8 +1147,8 @@ pub(super) mod tests {
         let earlier = pty::open_session(command, small, Erase::Delete).unwrap();
         read_until(&earlier.master, "ready");
         let store = Recorded {
-            told: Rc::default(),
             kept: Some(("left".to_owned(), 3, earlier.master.try_clone().unwrap())),
+            ..Recorded::default()
         };
         let (_, wake) = watching();
         let mut s = Sessions::new(
@@ -944,5 +1170,68 @@ pub(super) mod tests {
         let mut child = earlier.child;
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    /// At the drawing process's end, the session the keeper holds runs on
+    /// and the one it does not hold is hung up. Its program, which takes
+    /// SIGHUP's default, then exits.
+    #[test]
+    fn at_the_drawers_end_a_kept_session_runs_on_and_an_unkept_one_is_hung_up() {
+        let store = Recorded {
+            holds: vec![("left".to_owned(), 1)],
+            ..Recorded::default()
+        };
+        let (watched, wake) = watching();
+        let mut s = Sessions::new(
+            conf(
+                "echo ready; exec sleep 1000",
+                "echo ready; exec sleep 1000",
+                WIDE,
+            ),
+            Box::new(store),
+            wake,
+        );
+        let kept = s
+            .open(&console("left", 1), &GRID, Display::Kms, true)
+            .unwrap();
+        let unkept = s
+            .open(&console("own", 2), &GRID, Display::Kms, true)
+            .unwrap();
+        read_until(&kept, "ready");
+        read_until(&unkept, "ready");
+        // The drawing process has exited, so its copies are gone, and the
+        // test's copy of the kept master stands in for the keeper's.
+        drop(unkept);
+        let keepers = s
+            .master(&console("left", 1))
+            .unwrap()
+            .try_clone_to_owned()
+            .unwrap();
+        s.end();
+        let pidfds: Vec<OwnedFd> = watched
+            .borrow()
+            .iter()
+            .map(|fd| fd.try_clone().unwrap())
+            .collect();
+        let [kept_pidfd, unkept_pidfd] = pidfds.as_slice() else {
+            panic!("two sessions were watched: {pidfds:?}");
+        };
+        let one = Watched::default();
+        one.borrow_mut().push(unkept_pidfd.try_clone().unwrap());
+        wait_for_exits(&one);
+        assert!(!exited(kept_pidfd.as_fd()), "the kept session was hung up");
+        assert_eq!(
+            s.child(&console("own", 2)),
+            None,
+            "the unkept session is still open"
+        );
+        let child = s
+            .child(&console("left", 1))
+            .expect("the kept session is still open");
+        let _ = rustix::process::kill_process(
+            rustix::process::Pid::from_raw(i32::try_from(child).unwrap()).unwrap(),
+            rustix::process::Signal::KILL,
+        );
+        drop((kept, keepers));
     }
 }
