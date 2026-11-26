@@ -23,7 +23,7 @@
 use std::io;
 use std::os::fd::{BorrowedFd, OwnedFd};
 
-use vtium::survive::{Keeper, Kept, Name, describe, storable};
+use vtium::survive::{Keeper, Kept, Name, storable};
 
 /// Where the root process keeps a copy of each master, and the masters an
 /// earlier vtium left there.
@@ -113,10 +113,10 @@ impl Keep for Store {
 
     fn take(&mut self, head: &str, console: u64) -> Option<OwnedFd> {
         let master = self.kept.take(head, console)?;
+        // The line vtium in one process logs for the same event, so the
+        // log reads the same whether vtium splits or not.
         log::info!(
-            target: "broker",
-            "{}: vtium takes back the session that outlived the last vtium",
-            describe(&Name::new(head, console).encode())
+            "head {head}: console {console} takes back the session that outlived the last vtium"
         );
         Some(master)
     }
