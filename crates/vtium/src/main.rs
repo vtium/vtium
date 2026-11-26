@@ -140,7 +140,18 @@ fn main() -> ExitCode {
         // check-config reads a candidate whoever owns it, and judges its
         // ownership apart (ADR-1403 D3)
         let loaded = config::load(&args, &mut config::read_bytes);
-        return ExitCode::from(check::main(&loaded, &*clock()));
+        // The account vtium's drawing process runs as, which must be able
+        // to read vtium.conf, where the build splits vtium (ADR-1400 D4).
+        #[cfg(feature = "split")]
+        let drawer = broker::start::lookup(broker::start::ACCOUNT).map(|account| check::Reader {
+            name: broker::start::ACCOUNT.to_owned(),
+            uid: account.uid,
+            gid: account.gid,
+            groups: account.groups.unwrap_or_default(),
+        });
+        #[cfg(not(feature = "split"))]
+        let drawer = None;
+        return ExitCode::from(check::main(&loaded, &*clock(), drawer));
     }
     for w in check::warnings(&loaded) {
         vtium::warn::warn(w);

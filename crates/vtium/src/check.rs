@@ -29,6 +29,7 @@ use crate::helper;
 use crate::notice::check_config;
 
 mod conf;
+mod drawer;
 mod frits;
 mod notes;
 mod resources;
@@ -40,6 +41,7 @@ pub use conf::{
     AskCoverage, FontSources, HeadCheck, Settings, Squeeze, conf_file, device_findings,
 };
 use conf::{Helpers, same_file};
+pub use drawer::Reader;
 pub use frits::{DraftFrits, with_frit_name};
 use frits::{font_name_frit, frit_layers, named_frit};
 use notes::{counts, warnings_of};
@@ -94,12 +96,17 @@ pub struct Host {
     /// pointer themes:
     /// [`vtium_settings::batch::BATCH_FILE`], or a scratch file in a test.
     pub batch: PathBuf,
+    /// The account vtium's drawing process runs as, which vtium.conf must
+    /// be readable by: `None` in a build without the privilege split, or
+    /// on a machine without the account, where vtium runs as one process.
+    pub drawer: Option<Reader>,
 }
 
 impl Host {
     /// The machine's own, with the vtium.conf and the frits `config`
-    /// names, which the binary takes and nothing overrides.
-    pub fn system(config: &Config) -> Host {
+    /// names, which the binary takes and nothing overrides, and `drawer`,
+    /// the account of vtium's drawing process, which the binary looks up.
+    pub fn system(config: &Config, drawer: Option<Reader>) -> Host {
         Host {
             conf_file: crate::config::path(config),
             udev_control: PathBuf::from(UDEV_CONTROL),
@@ -108,6 +115,7 @@ impl Host {
             frit_trust: font::trust(),
             systemd_root: PathBuf::from("/"),
             batch: PathBuf::from(vtium_settings::batch::BATCH_FILE),
+            drawer,
         }
     }
 }
@@ -245,6 +253,13 @@ fn outcome_with(
     let path = loaded.candidate.as_deref().unwrap_or(&host.conf_file);
     let candidate = loaded.candidate.is_some() && !same_file(path, &host.conf_file);
     let heads = conf_file(path, candidate, &Trust::ROOT, &machine, &settings);
+    // a file that vtium's drawing process cannot read, unless the start
+    // reads none of it anyway
+    let unreadable = host
+        .drawer
+        .as_ref()
+        .filter(|_| !heads.refused)
+        .and_then(|reader| drawer::finding(path, !candidate, reader));
     // a start reads none of an installed file it does not trust, so the
     // file's own top-level reports are no start's
     let from_file = |r: &crate::config::Report| matches!(r.origin, Origin::File { .. });
@@ -324,6 +339,7 @@ fn outcome_with(
         palette_findings(top_palette, path, &heads.palettes, &folders, &gate);
     let stderr: Vec<String> = stderr
         .into_iter()
+        .chain(unreadable)
         .chain(refused)
         .chain(layers)
         .chain(needs.warnings)
@@ -356,8 +372,10 @@ fn outcome_with(
 /// The subcommand as the binary runs it on the machine's own files: it
 /// prints [`outcome`] and returns the exit status. It asks the glyph
 /// helper which of the locale's everyday letters each look's font set
-/// covers, and which fonts each font set lacks, waiting by `clock`.
-pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
+/// covers, and which fonts each font set lacks, waiting by `clock`. It
+/// checks that `drawer`, the account of vtium's drawing process where
+/// the build and the machine split vtium, can read vtium.conf.
+pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant, drawer: Option<Reader>) -> u8 {
     let env: Vec<_> = std::env::vars_os().collect();
     let locale = crate::app::locale(&env);
     let helpers = Helpers {
@@ -377,7 +395,7 @@ pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
     let sources = FontSources { ask: &ask_sources };
     let out = outcome_with(
         loaded,
-        &Host::system(&loaded.config),
+        &Host::system(&loaded.config, drawer),
         Some(squeeze),
         Some(sources),
     );
