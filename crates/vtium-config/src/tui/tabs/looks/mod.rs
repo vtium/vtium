@@ -586,22 +586,22 @@ impl Looks {
     }
 
     /// `w`: asks whether to let programs resize the console's grid, and
-    /// on `y` writes `allow-window-ops = on` into the draft. Where the
-    /// draft already turns it on, the question says so, and `y` leaves the
-    /// draft as it is.
+    /// on `y` turns `allow-window-ops` on in the draft. Where the draft
+    /// already turns it on, a yes would change nothing, so `w` asks nothing
+    /// and says when the console lets programs resize its grid.
     ///
     /// References:
     /// - ADR-1201 D4, "Sizes, live on a vtium console": the notice line
     ///   shows `w`, which asks `Let programs resize the grid?`, and only
     ///   `y` writes the key.
     fn window_ops(shared: &Shared) -> Vec<Command> {
-        let question = if shared.window_ops_drafted() {
-            format!("{} {}", words::WINDOW_OPS_ON, words::WINDOW_OPS_QUESTION)
-        } else {
-            words::WINDOW_OPS_QUESTION.to_owned()
-        };
+        if shared.window_ops_drafted() {
+            return vec![Command::Change(Change::Say(
+                words::WINDOW_OPS_ON.to_owned(),
+            ))];
+        }
         vec![Command::Request(Request::Ask {
-            question,
+            question: words::WINDOW_OPS_QUESTION.to_owned(),
             then: Then::Change(DraftChange::Top {
                 key: vtium_settings::keys::ALLOW_WINDOW_OPS.name,
                 value: Some("on".to_owned()),

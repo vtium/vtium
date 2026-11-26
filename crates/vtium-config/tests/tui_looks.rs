@@ -2936,13 +2936,16 @@ fn picking_the_value_a_look_already_has_counts_no_change() {
     assert!(seen.contains(words::NOTHING_TO_SAVE), "{seen}");
 }
 
-/// `y` at the resize question, where the draft already lets programs
-/// resize the grid, leaves the draft as it is and counts no change.
+/// `w`, where the draft already lets programs resize the grid, asks
+/// nothing, because a yes would change nothing. It says when the console
+/// lets programs resize its grid, and the draft stays as it is.
 #[test]
-fn y_when_the_draft_already_allows_window_ops_counts_no_change() {
+fn w_when_the_draft_already_allows_window_ops_says_so_and_asks_nothing() {
     let conf = window_ops_on();
     let (c, draft) = run_on(&conf, &[TO_LOOKS, b"w", b"y"]);
     let seen = flat(&c.seen.expect("the screen"));
     assert_eq!(draft, conf, "the draft is unchanged");
     assert!(!seen.contains("not saved"), "{seen}");
+    assert!(seen.contains(words::WINDOW_OPS_ON), "{seen}");
+    assert!(!seen.contains("Let programs resize the grid?"), "{seen}");
 }
