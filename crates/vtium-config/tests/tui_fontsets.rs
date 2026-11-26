@@ -672,3 +672,43 @@ fn t_on_a_font_set_whose_fonts_are_not_active_offers_to_activate_them() {
     );
     assert_eq!(c.switches(), Vec::<String>::new(), "{:?}", c.log);
 }
+
+/// The trial of a font set whose text font this machine lacks says, in
+/// its countdown, which font is missing and that vtium's built-in font
+/// draws the text in its place, as the console's log says.
+///
+/// References:
+/// - ADR-1204 D7: what vtium-config reports of each font a set needs.
+#[test]
+fn the_trial_of_a_font_set_whose_text_font_is_missing_names_the_font() {
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{App, Event};
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Font("unifont".into()),
+        Reply::Attributes,
+    ] {
+        app.event(Event::Input(Input::Reply(r)));
+    }
+    app.event(Event::Sourced(vec![(
+        "proof".into(),
+        Sources::LeftOut(vec![LeftOut {
+            missing: true,
+            line: 27,
+            spelling: "font:JetBrains Mono".into(),
+            why: "no such family".into(),
+        }]),
+    )]));
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    for _ in 0..3 {
+        app.event(Event::Input(Input::Key(Key::Down)));
+    }
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(
+            "Trying proof on the console for 10 s. Its text font, the font family JetBrains Mono, is not on this machine, so the console draws the text in vtium's built-in font. Install that font to use the font set. Press k to keep it, or any other key to put the font back."
+        )
+    );
+}

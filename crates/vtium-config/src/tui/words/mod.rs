@@ -84,6 +84,38 @@ pub fn trial_countdown(font: impl Display, left: u32) -> String {
     )
 }
 
+/// [`trial_countdown`], with `note`, what the console draws in place of
+/// the font set's text font, after its first sentence.
+pub fn trial_countdown_noted(font: impl Display, left: u32, note: &str) -> String {
+    format!(
+        "Trying {font} on the console for {left} s. {note} Press k to keep it, or any other key to put the font back."
+    )
+}
+
+/// What the console draws in place of a font set's text font `font`,
+/// which this machine lacks.
+pub fn text_font_missing(font: impl Display) -> String {
+    format!(
+        "Its text font, {font}, is not on this machine, so the console draws the text in vtium's built-in font. Install that font to use the font set."
+    )
+}
+
+/// What the console draws in place of a font set's text font `font`,
+/// which is not active.
+pub fn text_font_inactive(font: impl Display) -> String {
+    format!(
+        "Its text font, {font}, is not active, so the console draws the text in vtium's built-in font. Press Space on the font's file in the Fonts tab to activate it."
+    )
+}
+
+/// What the console draws in place of a font set's text font `font`,
+/// which this machine has and the font helper cannot use, and why.
+pub fn text_font_refused(font: impl Display, why: impl Display) -> String {
+    format!(
+        "The font helper cannot use its text font, {font}, so the console draws the text in vtium's built-in font: {why}."
+    )
+}
+
 /// The live trial's countdown for the font set `font`, which the draft
 /// replaces. The console reads only installed font sets, so the trial
 /// shows the installed version, and the countdown says so.

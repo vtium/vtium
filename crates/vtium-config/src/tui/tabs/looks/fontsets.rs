@@ -381,6 +381,29 @@ pub fn missing(shared: &Shared, name: &str) -> Vec<String> {
     }
 }
 
+/// What the console draws in place of the text font of the font set
+/// `name`, where the font helper left the text font out: the font, why,
+/// and what to do, as a sentence for the trial's countdown. `None` when
+/// the text font is there, or nothing is known yet.
+///
+/// References:
+/// - ADR-1204 D7: vtium-config names each font a set needs and lacks.
+pub fn text_fallback(shared: &Shared, name: &str) -> Option<String> {
+    use vtium_settings::batch::{MISSING_BECAUSE, NOT_ACTIVE};
+    let frit = parsed(shared, name)?;
+    let text = frit.sources.iter().find(|s| s.layer.is_none())?;
+    let Some(Sources::LeftOut(left)) = shared.sources.get(name) else {
+        return None;
+    };
+    let l = left.iter().find(|l| l.spelling == text.spelling)?;
+    let font = words::font_named(&text.origin);
+    Some(match l.why.split_once(MISSING_BECAUSE) {
+        Some((_, NOT_ACTIVE)) => words::text_font_inactive(font),
+        _ if l.missing => words::text_font_missing(font),
+        _ => words::text_font_refused(font, &l.why),
+    })
+}
+
 /// The font files of the font set `name` that the console leaves out
 /// because they are not active, as the font helper found them through the
 /// installed batch, in the font set's order.

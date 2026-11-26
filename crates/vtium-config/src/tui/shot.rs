@@ -234,13 +234,17 @@ pub const COLORS_RESET: &[u8] = b"\x1b]104\x1b\\\x1b]110\x1b\\\x1b]111\x1b\\";
 /// The live trial's countdown for the font set `font` with `left` seconds
 /// to go. The console reads only installed font sets, so on a font set the
 /// draft replaces the countdown also says that the console shows the
-/// installed version.
+/// installed version. Where the font helper left the font set's text font
+/// out, the countdown says which font and that vtium's built-in font draws
+/// the text in its place.
 ///
 /// References:
 /// - ADR-1403 D8, "The live trial": `t` tries an installed frit, since the console reads frits only from the frits' directory.
 fn countdown(shared: &Shared, font: &str, left: u32) -> String {
     if super::tabs::looks::fontsets::replaced(shared, font) {
         words::trial_countdown_installed(font, left)
+    } else if let Some(note) = super::tabs::looks::fontsets::text_fallback(shared, font) {
+        words::trial_countdown_noted(font_shown(font), left, &note)
     } else {
         words::trial_countdown(font_shown(font), left)
     }
@@ -1212,7 +1216,16 @@ impl App {
             .unwrap_or(0);
         let window_ops = self.shared.window_ops();
         let size = (points > 0 && window_ops).then_some(points);
-        let later = (points > 0 && !window_ops).then(|| words::look_size_later(points));
+        let size_later = (points > 0 && !window_ops).then(|| words::look_size_later(points));
+        // what the console draws in place of the font set's text font,
+        // where the font helper left it out
+        let fallback = font
+            .as_deref()
+            .and_then(|f| super::tabs::looks::fontsets::text_fallback(&self.shared, f));
+        let later = match (fallback, size_later) {
+            (Some(f), Some(s)) => Some(format!("{f} {s}")),
+            (f, s) => f.or(s),
+        };
         let unused = super::tabs::looks::list::heads(&self.shared, &name).is_empty();
         let offer = unused.then(|| offer_head(&self.shared)).flatten();
         if font.is_none() && colors.is_none() && size.is_none() {
