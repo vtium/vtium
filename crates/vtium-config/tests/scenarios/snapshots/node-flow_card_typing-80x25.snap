@@ -19,8 +19,8 @@ description: "flow.card.typing at 80×25, keys: 4 Down Enter Enter"
 
  WHAT THIS TERMINAL DRAWS
    Font set from vtium.conf  →  default look (built in)  →  no display
-   Filters and requirements: vtium-config does not read a look's vtlook file
-   yet, so this card names the look and shows no filters.
+   Effects: No filter, the built-in vtlook, which changes no color.
+
 
 
 
