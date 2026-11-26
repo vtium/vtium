@@ -95,10 +95,10 @@ fn clock() -> Clock {
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    // The privilege split, in a build with the `split` feature and behind
-    // its switch `broker::SPLIT`, which is off until the split's later
-    // cards land: a drawer takes its word and its VT's number off the
-    // arguments, and holds its link to the broker for the rest of the run.
+    // The privilege split, in a build with the `split` feature, whose
+    // switch `broker::SPLIT` is on there: a drawer takes its word and its
+    // VT's number off the arguments, and holds its link to the broker for
+    // the rest of the run.
     #[cfg(feature = "split")]
     let mut args = args;
     #[cfg(feature = "split")]
@@ -171,8 +171,9 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     log::info!(target: "log", "{}", vtium::logger::revision());
-    // As root with the account `vtium`, this process becomes the broker
-    // and runs the rest of vtium as the drawer, behind `broker::SPLIT`.
+    // As root with the account `vtium`, and with no seat manager serving
+    // the seat, this process becomes the broker and runs the rest of vtium
+    // as the drawer.
     #[cfg(feature = "split")]
     if broker::SPLIT
         && drawer.is_none()
