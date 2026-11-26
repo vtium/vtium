@@ -158,8 +158,8 @@ pub trait Serve {
 
     /// Runs once a turn of the broker's loop, at `now`: acts on what the
     /// loop saw outside the drawer's requests, such as the VT's switches,
-    /// and sends what follows through `out`. Returns whether the drawer
-    /// must stop, as when the VT hung up.
+    /// and sends what follows through `out`. Returns whether the VT hung
+    /// up. The broker then stops the drawer and exits with a failure.
     fn turn(&mut self, now: Instant, out: &mut Outbox<'_>) -> bool {
         let _ = (now, out);
         false
@@ -709,8 +709,14 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
 ///
 /// `restore` puts the VT back. The broker calls it exactly once, after
 /// any end of the drawer. Once the drawer has said it runs, the broker
-/// exits with the drawer's own status, or with a failure when a signal
-/// killed the drawer.
+/// exits with the drawer's own status. It exits with a failure instead
+/// when a signal killed the drawer, or when the VT hung up, as vtium in
+/// one process does at a hangup.
+///
+/// References:
+/// - ADR-1400 D4, "Start, stop and exit": the broker's exit status.
+/// - ADR-1401 D9: under the closed policy, systemd restarts vtium after a
+///   failure, and no getty takes the VT.
 pub fn run(
     lp: &mut Loop<Seen>,
     link: &Link,
@@ -771,7 +777,10 @@ fn turns(
     let started = clock();
     let ready_by = started.checked_add(bounds.start).unwrap_or(started);
     let mut ready = false;
-    // set once the start fails, whatever the drawer's own status
+    // Set once the start fails or the VT hangs up, whatever the drawer's
+    // own status. vtium in one process exits with a failure at a hangup,
+    // so systemd restarts it under the closed policy, and the broker does
+    // the same.
     let mut failed = false;
     let mut stop_by: Option<Instant> = None;
     let stop_at = |now: Instant| Some(now.checked_add(bounds.stop).unwrap_or(now));
@@ -784,9 +793,10 @@ fn turns(
     };
     loop {
         // What the loop saw besides the drawer's requests, such as the VT's
-        // switches, before the loop waits again; and whether that asks the
-        // drawer to stop.
-        let stop_asked = serve.turn(clock(), &mut out);
+        // switches, before the loop waits again; and whether the VT hung
+        // up, which stops the drawer.
+        let hung_up = serve.turn(clock(), &mut out);
+        failed |= hung_up;
         // While the queue of orders is full, the broker reads no requests
         // and waits for room; while any order waits, it watches for room.
         if let Some(watched) = socket.as_mut()
@@ -798,7 +808,7 @@ fn turns(
             return FAILURE;
         }
         let mut seen = Seen {
-            stop: stop_asked,
+            stop: hung_up,
             ..Seen::default()
         };
         let now = clock();
@@ -1256,14 +1266,16 @@ mod tests {
     }
 
     /// The loop runs the devices' turn when it is due, with no event from
-    /// the drawer or the kernel, and a VT that hung up stops the drawer,
-    /// whose own status is then the broker's.
+    /// the drawer or the kernel, and a VT that hung up stops the drawer.
+    /// The broker then exits with a failure although the drawer stops with
+    /// status 0, as vtium in one process exits at a hangup, so systemd
+    /// restarts vtium under the closed policy.
     #[test]
     fn the_loop_runs_the_devices_turn_when_due_and_a_hangup_stops_the_drawer() {
         let ran = bounded(move || {
-            broker_serving("stop:7", &[], LONG, |_, _| Box::new(HangUpWhenDue(None)))
+            broker_serving("stop:0", &[], LONG, |_, _| Box::new(HangUpWhenDue(None)))
         });
-        assert_eq!((ran.status, ran.restored), (7, 1));
+        assert_eq!((ran.status, ran.restored), (FAILURE, 1));
     }
 
     /// A message that the protocol refuses is dropped, and the broker
