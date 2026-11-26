@@ -333,10 +333,12 @@ def judge_terminus(img, cell, size, glyphs, origin=(0, 0)):
     """(found, faults) for the default set terminus drawn at `size` pixels in
     cells of `cell`, in a grid whose top left lies at `origin`: `found`
     names the sources that match each probe, and `faults` says where they
-    are not the ones ADR-1204 D2 expects, or where a probe has ink outside
-    its own cells, as when the grid is not where vtium places it. Every
-    source of the set is a bitmap font, whose glyphs vtium draws inside
-    their cells. The Nerd Fonts icon draws as a hollow box, because no
+    are not the ones ADR-1204 D2 expects, or where the letter or the
+    Powerline separator has ink outside its own cells, as when the grid is
+    not where vtium places it. Those two come from the Terminus strike that
+    sets the cell, whose glyphs lie inside their cells; Unifont's glyphs sit
+    on Terminus's baseline and can reach into the row above, so they are
+    not checked. The Nerd Fonts icon draws as a hollow box, because no
     source of the set holds it: Terminus lacks it, and the unifont layer
     leaves the private-use areas out."""
     strike = max(s for s in TERMINUS_STRIKES if s <= size)
@@ -349,7 +351,7 @@ def judge_terminus(img, cell, size, glyphs, origin=(0, 0)):
         drawn = ink(img, region(char, cell, origin), background)
         names = matches(set(drawn), glyphs[ord(char)], cell[1])
         found[char] = names
-        if outside(char, cell, drawn):
+        if char in (LETTER, POWERLINE) and outside(char, cell, drawn):
             faults.append("%s has ink outside its cells" % NAMES[char])
         if names != [source]:
             faults.append("%s matches %s, not %s alone" % (
