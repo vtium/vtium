@@ -54,6 +54,7 @@ import t3_heads  # noqa: E402
 import t3_images  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_pictures  # noqa: E402
+import t3_split  # noqa: E402
 import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
 import t3_rootchecks  # noqa: E402
@@ -6139,14 +6140,14 @@ class DefaultVariantsTest(unittest.TestCase):
 
     def test_default_variants(self):
         # Every default variant draws the image screens, so its console is
-        # built with images, and with scroll-pan, as the packages are, and
-        # the GL one, which draws on the GPU path, with gpu too; goldens
-        # judge each one.
+        # built with images, and with scroll-pan and split, as the packages
+        # are, and the GL one, which draws on the GPU path, with gpu too;
+        # goldens judge each one.
         for name in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
-                features = (["gpu", "images", "scroll-pan"] if name == "gl-1280x800"
-                            else ["images", "scroll-pan"])
+                features = (["gpu", "images", "scroll-pan", "split"] if name == "gl-1280x800"
+                            else ["images", "scroll-pan", "split"])
                 self.assertEqual(v["tree_features"], features)
                 self.assertIn(name, t3_scenario.golden_cases())
                 self.assertEqual(t3_scenario.check_tree_features([name], {"tree_features": []}),
@@ -6334,10 +6335,10 @@ class DefaultVariantsTest(unittest.TestCase):
         # variants need, each once.
         for declared, variants, want in (
                 (None, ["2d-potato-min"], []),
-                (None, t3_scenario.DEFAULT_VARIANTS, ["gpu", "images", "scroll-pan"]),
-                (None, ["2d-1280x800", "2d-7680x2160"], ["images", "scroll-pan"]),
-                (["logind"], [self.VARIANT], ["images", "logind", "scroll-pan"]),
-                (["images"], [self.VARIANT, "2d-potato-min"], ["images", "scroll-pan"]),
+                (None, t3_scenario.DEFAULT_VARIANTS, ["gpu", "images", "scroll-pan", "split"]),
+                (None, ["2d-1280x800", "2d-7680x2160"], ["images", "scroll-pan", "split"]),
+                (["logind"], [self.VARIANT], ["images", "logind", "scroll-pan", "split"]),
+                (["images"], [self.VARIANT, "2d-potato-min"], ["images", "scroll-pan", "split"]),
                 ([], ["images-640x480", "2d-640x480-psf16"], ["images"])):
             with self.subTest(declared=declared, variants=variants):
                 self.assertEqual(t3.tree_features(declared, variants), want)
@@ -8322,6 +8323,150 @@ class HandOverTest(unittest.TestCase):
             agent = f.read()
         self.assertIn("        hand-over)\n", agent)
         self.assertIn("t3-probe take-master --check hand-over", agent)
+
+
+class SplitTest(unittest.TestCase):
+    """The privilege split's checks (t3_split.py) and the tree's accounts,
+    without a guest."""
+
+    # The agent's answer to `drawer` for a drawing process set up as
+    # ADR-1400 D4 says.
+    DRAWER = ["root 780 0 0 0 0",
+              "drawer 781 parent 780",
+              "status Uid: 969 969 969 969",
+              "status Gid: 969 969 969 969",
+              "status Groups: 969",
+              "status CapInh: 0000000000000000",
+              "status CapPrm: 0000000000000000",
+              "status CapEff: 0000000000000000",
+              "status CapBnd: 0000000000000000",
+              "status CapAmb: 0000000000000000",
+              "status NoNewPrivs: 1",
+              "status Seccomp: 0",
+              "proc-owner 0:0",
+              "account vtium 969 969"]
+    ACCOUNTS = "account vtium uid 969 gid 969 groups 969, account vtium-session uid 968 gid 968"
+
+    def judge(self, lines):
+        return t3_split.judge_drawer(t3_split.parse_drawer(lines))
+
+    def test_a_drawing_process_set_up_as_the_record_says_passes(self):
+        self.assertIsNone(self.judge(self.DRAWER))
+
+    def test_each_departure_from_the_setup_fails(self):
+        for old, new, why in (
+                ("root 780 0 0 0 0", "root 780 0 0 0 969", "does not run as root"),
+                ("drawer 781 parent 780", "drawer 781 parent 1", "not of the root process"),
+                ("status Uid: 969 969 969 969", "status Uid: 969 969 0 969", "user ids"),
+                ("status Gid: 969 969 969 969", "status Gid: 969 0 969 969", "group ids"),
+                ("status Groups: 969", "status Groups: 969 5", "supplementary groups"),
+                ("status CapEff: 0000000000000000", "status CapEff: 0000000000200000",
+                 "CapEff 0000000000200000"),
+                ("status CapBnd: 0000000000000000", "status CapBnd: 000001ffffffffff",
+                 "CapBnd"),
+                ("status CapAmb: 0000000000000000", "status CapAmb: 0000000000000001",
+                 "CapAmb"),
+                ("status NoNewPrivs: 1", "status NoNewPrivs: 0", "NoNewPrivs is"),
+                ("proc-owner 0:0", "proc-owner 969:969", "dumpable"),
+                ("account vtium 969 969", "account vtium 0 0", "no account vtium")):
+            with self.subTest(new):
+                lines = [new if line == old else line for line in self.DRAWER]
+                self.assertIn(why, self.judge(lines) or "")
+        self.assertIn("runs no drawing process",
+                      self.judge([line for line in self.DRAWER if not line.startswith("drawer")]))
+
+    def test_the_vt_while_vtium_runs_and_after_the_kill(self):
+        running = t3_split.parse_vt(["ROOTCHECK vt tty2: owner=0:5 perm=0620 kd=KD_GRAPHICS "
+                                     "kb=K_OFF switch=VT_PROCESS relsig=10 acqsig=12 "
+                                     "shown=tty2"])
+        self.assertIsNone(t3_split.judge_vt_running(running))
+        self.assertIn("not KD_GRAPHICS", t3_split.judge_vt_running(
+            t3_split.parse_vt(["ROOTCHECK vt tty2: kd=KD_TEXT kb=K_UNICODE switch=VT_AUTO"])))
+        unit = "unit failed exit-code status 1 1"
+        back = "ROOTCHECK vt tty2: owner=0:5 perm=0620 kd=KD_TEXT kb=K_UNICODE switch=VT_AUTO " \
+               "shown=tty2"
+        self.assertIsNone(t3_split.judge_vt_after(t3_split.parse_vt([unit, back])))
+        for lines, why in (
+                (["unit failed signal status 2 9", back], "must exit with a failure"),
+                (["unit inactive success status 1 0", back], "must exit with a failure"),
+                ([back], "not reported"),
+                ([unit, back.replace("KD_TEXT", "KD_GRAPHICS")], "not KD_TEXT"),
+                ([unit, back.replace("switch=VT_AUTO", "switch=VT_PROCESS relsig=10")],
+                 "not VT_AUTO"),
+                ([unit, back.replace("K_UNICODE", "K_OFF")], "keyboard mode is K_OFF")):
+            with self.subTest(lines):
+                self.assertIn(why, t3_split.judge_vt_after(t3_split.parse_vt(lines)) or "")
+
+    def test_the_graphical_program_must_take_the_card_on_vt_1(self):
+        answer = ["ROOTCHECK split-switch open /dev/dri/card0: ok",
+                  "ROOTCHECK split-switch master: yes, after 0 ms", "shown 1"]
+        self.assertIsNone(t3_split.judge_master(answer))
+        self.assertIn("never became", t3_split.judge_master(
+            ["ROOTCHECK split-switch master: no, vtium still held the card after 10 s",
+             "shown 1"]))
+        self.assertIn("VT shown changed", t3_split.judge_master(answer[:-1] + ["shown 2"]))
+
+    def test_the_variants(self):
+        v = t3_scenario.VARIANTS["split-direct"]
+        self.assertTrue(v["agent"] and v["probe"])
+        self.assertEqual(v["tree_features"], ["split"])
+        self.assertEqual(v["checks"], [t3_split.STATUS, t3_split.SWITCH, t3_split.KILL])
+        for check in v["checks"]:
+            self.assertIn(check, t3_scenario.CHECK_RUNS)
+            self.assertEqual(t3_evaluate.describe(check), (t3_split.CHECKS[check], None))
+        fallback = t3_scenario.VARIANTS["split-fallback"]
+        self.assertEqual(fallback["failures"], ["kill", "drawer-kill"])
+        self.assertEqual(t3_heads.FAILURES["drawer-kill"], ("kill-drawer KILL", ("exit-code",)))
+        self.assertEqual(t3_evaluate.GOLDENS_OF["split-direct"], "2d-potato-min")
+        self.assertEqual(t3_evaluate.GOLDENS_OF["split-fallback"], "heads-partly-open")
+
+    def test_the_agent_answers_the_split_requests(self):
+        with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
+            agent = f.read()
+        for request in ("drawer)", '"kill-drawer KILL")', "hold-vt)", "vt-after)", "vt-now)",
+                        "unhold-vt)", "take-master)"):
+            self.assertIn("\n        %s" % request, agent)
+        self.assertIn("Restart=no\\nTTYReset=no\\nTTYVHangup=no\\nTTYVTDisallocate=no", agent)
+
+    def test_split_files(self):
+        # A tree built with split holds the sysusers file of its accounts,
+        # and a tree built without holds none (ADR-1400 D4).
+        base = dict(ImplementationTest.TREE)
+        accounts = {t3_impl.SPLIT_FILES[0]: "x"}
+        with tempfile.TemporaryDirectory() as d:
+            for files, features, why in (
+                    (base, ["split"], "built with split, holds no "
+                                      "/usr/lib/sysusers.d/vtium-split.conf"),
+                    (dict(base, **accounts), [], "built without split, installs "
+                                                 "/usr/lib/sysusers.d/vtium-split.conf")):
+                with self.subTest(features=features):
+                    tree = os.path.join(d, "t%d" % len(os.listdir(d)))
+                    write_tree(tree, files)
+                    with self.assertRaisesRegex(SystemExit, why):
+                        t3_impl.tree(tree, os.path.join(d, "x.tar"), features=features)
+            tree = os.path.join(d, "good")
+            write_tree(tree, dict(base, **accounts))
+            impl = t3_impl.tree(tree, os.path.join(d, "x.tar"), features=["split"])
+            self.assertEqual(impl["tree_features"], ["split"])
+
+    def test_check_guest(self):
+        t3_scenario.check_guest("split-direct", {"split": self.ACCOUNTS})
+        t3_scenario.check_guest("2d-potato-min", {"split": "none"})
+        for accounts in (None, "none", self.ACCOUNTS.replace("uid 969", "uid 0"),
+                         self.ACCOUNTS.replace("vtium-session uid 968 gid 968",
+                                               "vtium-session uid 968 gid 0")):
+            with self.subTest(accounts):
+                installed = {} if accounts is None else {"split": accounts}
+                with self.assertRaisesRegex(RuntimeError, "accounts of the privilege split"):
+                    t3_scenario.check_guest("split-direct", installed)
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            text = f.read()
+        self.assertIn("systemd-sysusers /usr/lib/sysusers.d/vtium-split.conf", text)
+        self.assertIn('"split: $split;"', text)
+        line = ("TIER3-INSTALL-OK packages: ; kernel: 7.2.11-arch1-1; images: none; split: %s; "
+                "tree: %s" % (self.ACCOUNTS, "a" * 64))
+        self.assertEqual(t3_scenario.check_install(line, {"tree_sha256": "a" * 64})["split"],
+                         self.ACCOUNTS)
 
 
 def figures_line(t, frames, echoes=None, head="Virtual-1", pid=505, before=""):

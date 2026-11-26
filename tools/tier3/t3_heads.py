@@ -68,7 +68,11 @@ GETTY_UNITS = (GETTY_UNIT, "serial-getty@tty2.service")
 # exits 1 (crates/vtium/src/app.rs, Exit::Hangup).
 FAILURES = {"kill": ("kill KILL", ("signal",)),
             "crash": ("kill ABRT", ("core-dump", "signal")),
-            "hangup": ("hangup", ("exit-code",))}
+            "hangup": ("hangup", ("exit-code",)),
+            # Under the privilege split, a kill of the drawing process alone:
+            # the root process puts the VT back and exits with a failure
+            # (ADR-1400 D4, "When the drawer dies").
+            "drawer-kill": ("kill-drawer KILL", ("exit-code",))}
 
 # The first systemd that starts a unit's OnFailure= at each failure that its
 # Restart= restarts, as the default RestartMode=normal passes through the
