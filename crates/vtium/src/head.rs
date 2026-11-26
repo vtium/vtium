@@ -3057,6 +3057,41 @@ mod tests {
         assert_eq!(wheel(-1, true, false, true), Wheel::Zoom(Zoom::Out));
     }
 
+    // Each wheel event that scrolls moves the view through the scrollback
+    // by three whole lines, whatever count of notches the event carries:
+    // one notch, 120 (the units a high-resolution wheel counts for one
+    // notch), several events before a frame, and the way back, which stops
+    // at the newest output.
+    //
+    // References:
+    // - ADR-1310 D1: the wheel moves the view through the scrollback.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_wheel_event_moves_the_view_three_whole_lines_whatever_its_notches() {
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let mut head = Head::new(
+            "h",
+            &config,
+            Vec::new(),
+            terminal(&config, (1000, 1000), 1 << 20, clock),
+        );
+        for n in 0..100 {
+            head.console
+                .term
+                .terminal
+                .input(format!("\r\nline {n}").as_bytes());
+        }
+        let mut back = Vec::new();
+        for steps in [1, 120, 1, 1, 1, -1, -7, -1, -1, -1, -1] {
+            let zoom =
+                head.pointer_event(PointerEvent::Wheel(steps), Mods::empty(), false, &mut None);
+            assert_eq!(zoom, None);
+            back.push(head.console.term.terminal.screen().scrolled_back());
+        }
+        assert_eq!(back, [3, 6, 9, 12, 15, 12, 9, 6, 3, 0, 0]);
+    }
+
     // A steady cursor (DECSCUSR 2, 4 and 6, or a blinking style that mode
     // 12 resets) is drawn in the blink timer's off phase, and a blinking
     // one is not.
