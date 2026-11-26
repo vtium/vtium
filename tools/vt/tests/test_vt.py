@@ -3487,6 +3487,18 @@ exec "$@"
         self.assertFalse(os.path.lexists(self.at(self.SPLIT_SYSUSERS)))
         self.assertEqual(self.s.calls_of("systemd-sysusers"), [])
 
+    def test_a_console_built_with_split_refuses_an_accounts_file_not_vt_installs(self):
+        # A sysusers file at the development install's path that vt-install
+        # did not write is someone else's, so a console built with split
+        # leaves it alone and installs nothing.
+        write(self.s.bin, BIN + self.SPLIT)
+        os.makedirs(os.path.dirname(self.at(self.SPLIT_SYSUSERS)), exist_ok=True)
+        write(self.at(self.SPLIT_SYSUSERS), "someone else's\n", 0o644)
+        self.refused(self.vt_install("install", "4"),
+                     f"/{self.SPLIT_SYSUSERS} is there already and vt-install did not write it")
+        self.assertEqual(read(self.at(self.SPLIT_SYSUSERS)), "someone else's\n")
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [])
+
     def test_a_console_without_split_installs_no_accounts(self):
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
