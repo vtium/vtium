@@ -591,7 +591,7 @@ pub fn find_sources(
                 Ok(_) => answers.next().unwrap_or_else(|| {
                     crate::specimen::Sources::Unknown("the font helper did not answer".to_owned())
                 }),
-                Err(why) => crate::specimen::Sources::DrawsNothing(why),
+                Err(why) => crate::specimen::Sources::DrawsNothing(why, Vec::new()),
             };
             (name, found)
         })

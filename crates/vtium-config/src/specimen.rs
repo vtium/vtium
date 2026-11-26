@@ -438,8 +438,9 @@ pub enum Sources {
     /// machine lacks or refuses, none when it has them all.
     LeftOut(Vec<LeftOut>),
     /// The helper read the frit and found no source of it it can draw from,
-    /// or the frit cannot be read: why.
-    DrawsNothing(String),
+    /// or the frit cannot be read: why, and the sources it left out, which
+    /// are none when the frit cannot be read.
+    DrawsNothing(String, Vec<LeftOut>),
     /// No answer came for the frit: the helper did not start, failed, or
     /// stalled before it answered; why. Nothing is known of its sources.
     Unknown(String),
@@ -583,7 +584,7 @@ fn found_in_one(
                             // a frit with no source left says so in a line
                             // of its own, before the sources it lacks
                             let sources = match DrawsNothing::parse(&answer) {
-                                Some(why) => Sources::DrawsNothing(why),
+                                Some(why) => Sources::DrawsNothing(why, left_out.clone()),
                                 None => Sources::LeftOut(left_out.clone()),
                             };
                             break Ok(Found {
@@ -594,7 +595,7 @@ fn found_in_one(
                         }
                         Ok((FRAME_DRAWS_NOTHING, payload)) => {
                             break Ok(Found {
-                                sources: Sources::DrawsNothing(text(&payload)),
+                                sources: Sources::DrawsNothing(text(&payload), Vec::new()),
                                 left_out: Vec::new(),
                                 differs: Vec::new(),
                             });

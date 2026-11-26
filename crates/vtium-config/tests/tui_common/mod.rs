@@ -460,7 +460,7 @@ impl Port for Console {
                         spelling: "font:JetBrains Mono".into(),
                         why: "no such family".into(),
                     }]),
-                    "tiny5" => Sources::DrawsNothing("no source left".into()),
+                    "tiny5" => Sources::DrawsNothing("no source left".into(), Vec::new()),
                     _ => Sources::LeftOut(Vec::new()),
                 };
                 (font, left)

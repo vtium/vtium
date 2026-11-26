@@ -110,7 +110,20 @@ pub fn item(shared: &Shared, at: usize) -> Item {
                 words::sources_left_out(left.len().saturating_sub(inactive), inactive)
             )
         }
-        (FontState::Reads, Some(Sources::DrawsNothing(_))) => words::DRAWS_NOTHING.to_owned(),
+        (FontState::Reads, Some(Sources::DrawsNothing(_, left))) => {
+            // a set that draws nothing because its files are not active
+            // says so, since activating them is what makes it draw
+            let inactive = left.iter().filter(|l| is_inactive(l)).count();
+            if inactive == 0 {
+                words::DRAWS_NOTHING.to_owned()
+            } else {
+                format!(
+                    "{}, {}",
+                    words::DRAWS_NOTHING,
+                    words::sources_left_out(left.len().saturating_sub(inactive), inactive)
+                )
+            }
+        }
         (FontState::Reads, Some(Sources::Unknown(_))) => {
             format!("{}, {}", words::READS, words::SOURCES_UNKNOWN)
         }
@@ -382,7 +395,7 @@ pub fn missing(shared: &Shared, name: &str) -> Vec<String> {
                 }
             })
             .collect(),
-        Some(Sources::DrawsNothing(why)) => vec![words::misses_all(why)],
+        Some(Sources::DrawsNothing(why, _)) => vec![words::misses_all(why)],
         Some(Sources::Unknown(why)) => vec![words::misses_unknown(why)],
         None => vec![words::MISSES_NOT_ASKED.to_owned()],
     }
@@ -442,15 +455,17 @@ pub fn text_fallback(shared: &Shared, name: &str) -> Option<String> {
 
 /// The font files of the font set `name` that the console leaves out
 /// because they are not active, as the font helper found them through the
-/// installed batch, in the font set's order.
+/// installed batch, in the font set's order. A font set that draws nothing
+/// because none of its files is active counts its files too.
 ///
 /// References:
 /// - ADR-1205 D4: a font file that the batch does not list counts as
 ///   missing.
 pub fn inactive(shared: &Shared, name: &str) -> Vec<std::path::PathBuf> {
     use vtium_settings::batch::MISSING_BECAUSE;
-    let Some(Sources::LeftOut(left)) = shared.sources.get(name) else {
-        return Vec::new();
+    let left = match shared.sources.get(name) {
+        Some(Sources::LeftOut(left) | Sources::DrawsNothing(_, left)) => left,
+        _ => return Vec::new(),
     };
     let mut out: Vec<std::path::PathBuf> = Vec::new();
     for l in left.iter().filter(|l| is_inactive(l)) {

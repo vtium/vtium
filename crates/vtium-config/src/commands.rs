@@ -120,7 +120,7 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
             name,
             None,
             Found {
-                sources: Sources::DrawsNothing(why),
+                sources: Sources::DrawsNothing(why, Vec::new()),
                 left_out: Vec::new(),
                 differs: Vec::new(),
             },
@@ -140,7 +140,7 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
                     }
                     match found.sources {
                         Sources::LeftOut(left) => ("reads".to_owned(), left_out_text(&left)),
-                        Sources::DrawsNothing(why) => {
+                        Sources::DrawsNothing(why, _) => {
                             (format!("no font file found: {why}"), String::new())
                         }
                         // no answer came: nothing is known of its sources,
