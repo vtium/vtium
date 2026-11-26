@@ -2,7 +2,8 @@
 //! vtium-config writes to it and refuses what vtium refuses.
 //!
 //! It answers XTVERSION, DA1 and the OSC 50 query as a vtium console with
-//! `allow-font-ops` on does. An OSC 50 switch names a font set, and the
+//! `allow-font-ops` on does, and ignores OSC 50 while the vtium.conf it
+//! last started from turns `allow-font-ops` off. An OSC 50 switch names a font set, and the
 //! console loads that set the way vtium's font helper loads it: through
 //! [`vtium_config::serve::Engine::load_through`], behind the gate that
 //! batch.conf's active fonts open. So a set whose font files are not
@@ -81,6 +82,9 @@ pub struct Console {
     /// Whether the console meets the grid request: the installed
     /// vtium.conf's `allow-window-ops` when vtium last started.
     pub window_ops: bool,
+    /// Whether the console answers OSC 50, switches and queries: the
+    /// installed vtium.conf's `allow-font-ops` when vtium last started.
+    pub font_ops: bool,
     /// Every byte vtium-config wrote, in order.
     pub received: Vec<u8>,
     /// The fonts the helper found missing or refused while the console
@@ -111,6 +115,7 @@ impl Console {
             saved: Vec::new(),
             grid,
             window_ops: false,
+            font_ops: true,
             received: Vec::new(),
             log: Vec::new(),
         };
@@ -131,6 +136,7 @@ impl Console {
             });
         self.colors = named(value("palette").as_deref().unwrap_or("legacy"));
         self.window_ops = vtium_settings::switch(&conf, "allow-window-ops").unwrap_or(false);
+        self.font_ops = vtium_settings::switch(&conf, "allow-font-ops").unwrap_or(true);
         let font = value("font-name").unwrap_or_else(|| "unifont".to_owned());
         self.switch(&font);
     }
@@ -258,6 +264,9 @@ impl Console {
     fn osc(&mut self, body: &str, replies: &mut Vec<Reply>) {
         let (number, text) = body.split_once(';').unwrap_or((body, ""));
         match number {
+            // vtium ignores OSC 50, queries included, while allow-font-ops
+            // is off
+            "50" if !self.font_ops => {}
             "50" if text == "?" => replies.push(Reply::Font(self.font.clone())),
             "50" => self.switch(text),
             "4" => {

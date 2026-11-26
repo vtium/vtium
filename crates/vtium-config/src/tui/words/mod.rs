@@ -71,7 +71,10 @@ pub const TRIAL_ON_FONT_SETS: &str = "live trial on font sets";
 pub const TRIAL_ON_FONTS: &str = "live trial on fonts";
 
 /// Why the live trial does not work, on the message line.
-pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, change allow-font-ops in the Settings tab, then install.";
+/// The running console reads allow-font-ops when vtium makes its head, and
+/// the TUI asks the console once, at its start, so turning the trial on
+/// takes an install, a restart of vtium and a new start of vtium-config.
+pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, change allow-font-ops in the Settings tab, install, and restart vtium and vtium-config.";
 
 pub const NOT_VTIUM: &str = "Live trial is off: this terminal is not a vtium console, so t cannot try a font on it. You can still install fonts.";
 
