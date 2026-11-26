@@ -568,3 +568,77 @@ pub const NO_LOOK_YET: &str = "The draft has no look yet. Press n to make one.";
 /// `p` on a font set vtium cannot read, whose preview stays empty.
 pub const NO_PREVIEW_TO_SWITCH: &str =
     "vtium cannot read this font set, so it has no preview to switch.";
+
+/// The live trial's countdown for the look `name` with `left` seconds to
+/// go, followed by `later`, what of the look waits for the next start.
+pub fn look_countdown(name: impl Display, left: u32, later: Option<&str>) -> String {
+    let mut line = format!(
+        "Trying the look {name} on the console for {left} s. Press k to keep it, or any other key to put the console back."
+    );
+    if let Some(later) = later {
+        line.push(' ');
+        line.push_str(later);
+    }
+    line
+}
+
+/// What the trial of a look says of its size where the console does not
+/// let programs resize its grid.
+pub fn look_size_later(points: u32) -> String {
+    format!(
+        "Its size, {}, takes effect when vtium starts again, because the console does not let programs resize its grid.",
+        self::points(points)
+    )
+}
+
+/// The end of a look's trial: the console's font, colors and grid as they
+/// were.
+pub fn look_back(name: impl Display) -> String {
+    format!("The console is back to how it was before you tried the look {name}.")
+}
+
+/// `k` during a look's trial, for a look that a terminal of the draft
+/// uses.
+pub fn look_kept(name: impl Display) -> String {
+    format!(
+        "The console keeps the look {name} until you quit vtium-config. To keep it after that, press s to save and i to install."
+    )
+}
+
+/// `t` on a look whose font set, color scheme and size the console
+/// already shows, followed by `later`, what of the look waits for the next
+/// start.
+pub fn look_same(name: impl Display, later: Option<&str>) -> String {
+    let mut line = format!(
+        "The console already shows the font set and the color scheme of the look {name}, so t has nothing to try."
+    );
+    if let Some(later) = later {
+        line.push(' ');
+        line.push_str(later);
+    }
+    line
+}
+
+/// The sentence that says no terminal of the draft uses the look `name`.
+pub fn look_unused(name: impl Display) -> String {
+    format!("No terminal uses the look {name}, so no console shows it after you install the draft.")
+}
+
+/// The question that offers the look `name` to the terminal `head`, after
+/// `before`, what the trial or `t` said first.
+pub fn look_use_question(before: &str, name: impl Display, head: impl Display) -> String {
+    format!(
+        "{before} {} Use it for the terminal {head}? y sets it in the draft, and n or Esc leaves the draft as it is.",
+        look_unused(&name)
+    )
+}
+
+/// `before`, then the sentence that says no terminal uses the look `name`
+/// and where to give it one, where vtium-config cannot tell which terminal
+/// the console belongs to.
+pub fn look_unused_flow(before: &str, name: impl Display) -> String {
+    format!(
+        "{before} {} To use it, choose it for a terminal in the Flow tab.",
+        look_unused(&name)
+    )
+}

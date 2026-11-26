@@ -468,6 +468,10 @@ pub struct Shared {
     /// The Looks tab has sent the console a grid request, so leaving
     /// gives the console [`Shared::start_grid`] back.
     pub grid_moved: bool,
+    /// A look's trial set the console's colors and `k` kept them, so
+    /// leaving resets them to the colors the console's configuration
+    /// gives.
+    pub colors_moved: bool,
     /// `u` asked for [`Shared::start_grid`] while another font switch was
     /// in flight, so the grid request waits until the start font's switch
     /// goes: a font switch moves the console's grid too, and would undo a
@@ -717,6 +721,7 @@ impl App {
                 start_grid: (size.cols, size.rows),
                 grid_moved: false,
                 grid_after_font: false,
+                colors_moved: false,
                 size_asked: None,
             },
             size,
@@ -1071,6 +1076,7 @@ impl App {
             self.shared.shown_font = shown.or(self.shared.shown_font.take());
             return Vec::new();
         }
+        let mut reset = Vec::new();
         if let Some(asked) = asked
             && shown.as_ref() != Some(&asked)
         {
@@ -1078,8 +1084,12 @@ impl App {
             if self.shared.want.as_deref() == Some(asked.as_str()) {
                 self.shared.want = shown.clone().or_else(|| self.shared.shown_font.clone());
             }
-            if self.nav.trial.as_ref().is_some_and(|t| t.font == asked) {
-                self.nav.trial = None;
+            if let Some(t) = self.nav.trial.take_if(|t| t.font == asked) {
+                // a look's trial that set the console's colors gives them
+                // back with the font
+                if t.look.as_ref().is_some_and(|l| l.colors) {
+                    reset.extend_from_slice(super::shot::COLORS_RESET);
+                }
                 self.shared.message = Some(if super::shot::is_file(&asked) {
                     super::words::font_file_refused(super::shot::font_shown(&asked))
                 } else {
@@ -1090,8 +1100,14 @@ impl App {
         if shown.is_some() {
             self.shared.shown_font = shown;
         }
-        let mut out = self.follow();
+        let mut out = Vec::new();
+        if !reset.is_empty() {
+            out.push(Effect::Write(reset));
+        }
+        out.extend(self.follow());
         out.extend(self.grid_after_font());
+        // a look's trial tries its size once the console draws its font
+        out.extend(self.look_size());
         out
     }
 
@@ -1101,7 +1117,7 @@ impl App {
     /// request that follows them lands after the font has changed. A font
     /// wanted since then, other than the start font, replaces what `u`
     /// asked for, and the grid then goes back only when the TUI leaves.
-    fn grid_after_font(&mut self) -> Vec<Effect> {
+    pub(crate) fn grid_after_font(&mut self) -> Vec<Effect> {
         if !self.shared.grid_after_font {
             return Vec::new();
         }
@@ -1215,7 +1231,14 @@ impl App {
         if self.shared.leaving.is_some() {
             return Vec::new();
         }
-        self.nav.trial = None;
+        // the colors a look's trial set go back, whether `k` kept them
+        // or the trial still counts down
+        let trial_colors = self
+            .nav
+            .trial
+            .take()
+            .and_then(|t| t.look)
+            .is_some_and(|l| l.colors);
         // the font the console ends in once the switch in flight, if any,
         // is answered: the start font is sent only where it is another
         let last = self
@@ -1235,6 +1258,9 @@ impl App {
             .collect::<Vec<u8>>();
         if mouse {
             bytes.extend_from_slice(MOUSE_OFF);
+        }
+        if std::mem::take(&mut self.shared.colors_moved) || trial_colors {
+            bytes.extend_from_slice(super::shot::COLORS_RESET);
         }
         // the grid the console had at the start goes back after its font,
         // since a font switch can change the grid too
@@ -1348,6 +1374,7 @@ impl App {
                 }
                 Command::Change(Change::Say(line)) => self.shared.message = Some(line),
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
+                Command::Change(Change::TryLook(look)) => effects.extend(self.try_look(look)),
                 Command::Change(Change::TrySize { font, points }) => {
                     effects.extend(self.try_size(font, points));
                 }

@@ -173,6 +173,9 @@ pub enum Change {
     Say(String),
     /// Tries this font on the live console.
     Try(String),
+    /// Tries the look of this name on the live console: its font set, its
+    /// color scheme and its size.
+    TryLook(String),
     /// Tries the size `points` on the live console's grid, measured in the
     /// font set `font`, or the font the console draws where it is `None`.
     TrySize { font: Option<String>, points: u32 },

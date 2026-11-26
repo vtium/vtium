@@ -169,14 +169,67 @@ pub const GRID_MAX: (usize, usize) = (1024, 1024);
 /// The live trial: the font tried, the font it puts back, and the ticks
 /// left before it does. A trial of a size leaves the font as it is, so
 /// its font and the font it puts back are the same, and `grid` holds the
-/// grid it asked the console for.
+/// grid it asked the console for. A trial of a look holds what it tries
+/// beside the font in `look`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Trial {
     pub font: String,
     pub back: String,
     pub left: u32,
     pub grid: Option<GridTrial>,
+    pub look: Option<LookParts>,
 }
+
+/// What the trial of a look tries beside its font set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LookParts {
+    /// The look's name.
+    pub name: String,
+    /// The trial set the console's colors to the look's color scheme.
+    pub colors: bool,
+    /// The look's size in points, still to try once the console draws
+    /// the look's font set.
+    pub size: Option<u32>,
+    /// What of the look waits for vtium's next start, as the countdown
+    /// says it.
+    pub later: Option<String>,
+    /// No terminal of the draft uses the look, and this is the terminal
+    /// that `k` offers it to: the console's own, or the draft's only one.
+    pub offer: Option<String>,
+}
+
+/// The bytes that set the console's sixteen colors and its default
+/// foreground and background to `palette`: OSC 4 for colors 0 to 15, then
+/// OSC 10 and OSC 11. Colors 16 to 255 are the same in every color
+/// scheme, so the request leaves them alone.
+///
+/// References:
+/// - ADR-1000, the rows `color.palette.set` and `color.dynamic.set`: vtium
+///   sets its colors on OSC 4, 10 and 11.
+pub fn colors_request(palette: &vtium_term::Palette) -> Vec<u8> {
+    use std::fmt::Write as _;
+    let spec = |c: vtium_term::Rgb| format!("rgb:{:02x}/{:02x}/{:02x}", c.r, c.g, c.b);
+    let mut out = String::from("\x1b]4");
+    for i in 0..16u8 {
+        let _ = write!(out, ";{i};{}", spec(palette.color(i)));
+    }
+    let _ = write!(
+        out,
+        "\x1b\\\x1b]10;{}\x1b\\\x1b]11;{}\x1b\\",
+        spec(palette.fg()),
+        spec(palette.bg())
+    );
+    out.into_bytes()
+}
+
+/// The bytes that give the console back the colors its configuration
+/// sets: OSC 104, 110 and 111 with no color named reset every color, the
+/// default foreground and the default background.
+///
+/// References:
+/// - ADR-1000, the rows `color.palette.set` and `color.dynamic.set`: OSC
+///   104, 110 and 111 reset the colors to the configured ones.
+pub const COLORS_RESET: &[u8] = b"\x1b]104\x1b\\\x1b]110\x1b\\\x1b]111\x1b\\";
 
 /// The live trial's countdown for the font set `font` with `left` seconds
 /// to go. The console reads only installed font sets, so on a font set the
@@ -1097,6 +1150,7 @@ impl App {
             back,
             left: TRIAL_TICKS,
             grid: None,
+            look: None,
         });
         self.shared.want = Some(name.clone());
         self.shared.message = Some(countdown(&self.shared, &name, TRIAL_TICKS));
@@ -1105,11 +1159,149 @@ impl App {
         out
     }
 
+    /// `t` on the look `name`: tries the whole look on the live console.
+    /// Its font set goes to the console as a font set's trial does, its
+    /// color scheme with OSC 4, 10 and 11, and its size with the grid
+    /// request once the console draws the font set, where the console lets
+    /// programs resize its grid. Where it does not, the countdown says that
+    /// the size takes effect when vtium starts again. A part the console
+    /// already shows is not sent. When the console already shows every
+    /// part, `t` says so, and when no terminal of the draft uses the look,
+    /// it says that too and offers the look to the console's terminal.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "The live trial, on a key": `t` on a look tries it
+    ///   on the live console, and the countdown puts it back.
+    /// - ADR-1201 D4, "Sizes, live on a vtium console": the grid request,
+    ///   which vtium honours under `allow-window-ops`.
+    pub(crate) fn try_look(&mut self, name: String) -> Vec<Effect> {
+        if let Some(off) = self.shared.trial_off() {
+            self.shared.message = Some(off.to_owned());
+            return Vec::new();
+        }
+        let Some(look) = super::tabs::looks::list::look(&self.shared, &name) else {
+            self.shared.message = Some(words::look_gone(&name));
+            return Vec::new();
+        };
+        let back = self
+            .shared
+            .want
+            .clone()
+            .or_else(|| self.shared.shown_font.clone())
+            .unwrap_or_default();
+        let font = look
+            .frit
+            .clone()
+            .or_else(|| self.shared.drafted("font-name"))
+            .filter(|f| *f != back && !self.shared.refused.contains(f));
+        let scheme = look
+            .palette
+            .clone()
+            .or_else(|| self.shared.drafted("palette"));
+        let colors = scheme
+            .as_deref()
+            .and_then(|s| scheme_colors(&self.shared, s))
+            .filter(|p| {
+                Some(p) != scheme_colors(&self.shared, &console_scheme(&self.shared)).as_ref()
+            });
+        let points: u32 = look
+            .size
+            .clone()
+            .or_else(|| self.shared.drafted("font-size"))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let window_ops = self.shared.window_ops();
+        let size = (points > 0 && window_ops).then_some(points);
+        let later = (points > 0 && !window_ops).then(|| words::look_size_later(points));
+        let unused = super::tabs::looks::list::heads(&self.shared, &name).is_empty();
+        let offer = unused.then(|| offer_head(&self.shared)).flatten();
+        if font.is_none() && colors.is_none() && size.is_none() {
+            let same = words::look_same(&name, later.as_deref());
+            match offer {
+                Some(head) => self.ask(
+                    words::look_use_question(&same, &name, &head),
+                    use_look(head, name),
+                ),
+                None if unused => {
+                    self.shared.message = Some(words::look_unused_flow(&same, &name));
+                }
+                None => self.shared.message = Some(same),
+            }
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        if let Some(p) = &colors {
+            out.push(Effect::Write(colors_request(p)));
+        }
+        self.shared.message = Some(words::look_countdown(&name, TRIAL_TICKS, later.as_deref()));
+        self.nav.trial = Some(Trial {
+            font: font.clone().unwrap_or_else(|| back.clone()),
+            back,
+            left: TRIAL_TICKS,
+            grid: None,
+            look: Some(LookParts {
+                name,
+                colors: colors.is_some(),
+                size,
+                later,
+                offer,
+            }),
+        });
+        if let Some(font) = font {
+            self.shared.want = Some(font);
+            out.extend(self.follow());
+        } else {
+            out.extend(self.look_size());
+        }
+        out.push(Effect::Wait(TICK));
+        out
+    }
+
+    /// The size a look's trial still has to try, once the console draws
+    /// the look's font set: the font helper measures the font set's cell
+    /// at the size, and [`App::size_measured`] sends the grid request.
+    pub(crate) fn look_size(&mut self) -> Vec<Effect> {
+        let Some(t) = self.nav.trial.as_mut() else {
+            return Vec::new();
+        };
+        if self.shared.shown_font.as_deref() != Some(t.font.as_str()) {
+            return Vec::new();
+        }
+        let Some(points) = t.look.as_mut().and_then(|l| l.size.take()) else {
+            return Vec::new();
+        };
+        let font = t.font.clone();
+        let height = crate::specimen::pixel_height(points, self.shared.inputs.dpi.0);
+        self.shared.size_asked = Some(SizeAsked {
+            font: font.clone(),
+            height,
+            points,
+        });
+        vec![Effect::Cell { font, height }]
+    }
+
     /// A key while the live trial counts down: `k` keeps the font, Ctrl-C
     /// leaves, and any other key puts the font back and does nothing else.
     pub(crate) fn trial_key(&mut self, key: Key) -> Vec<Effect> {
         match key {
             Key::Char('k') => {
+                if let Some(Trial {
+                    look: Some(look), ..
+                }) = &self.nav.trial
+                {
+                    let look = look.clone();
+                    self.nav.trial = None;
+                    self.shared.colors_moved |= look.colors;
+                    let kept = words::look_kept(&look.name);
+                    match look.offer {
+                        Some(head) => self.ask(
+                            words::look_use_question(&kept, &look.name, &head),
+                            use_look(head, look.name),
+                        ),
+                        None => self.shared.message = Some(kept),
+                    }
+                    return Vec::new();
+                }
                 if let Some(t) = self.nav.trial.take() {
                     self.shared.message = Some(match t.grid {
                         Some(g) => words::size_kept(g.points),
@@ -1130,6 +1322,9 @@ impl App {
         let Some(t) = self.nav.trial.take() else {
             return Vec::new();
         };
+        if let Some(look) = &t.look {
+            return self.put_look_back(&t, look);
+        }
         if let Some(g) = t.grid {
             // a console back at its starting grid needs nothing more when
             // the TUI leaves
@@ -1140,6 +1335,34 @@ impl App {
         self.shared.message = Some(words::trial_back(font_shown(&t.back)));
         self.shared.want = Some(t.back);
         self.follow()
+    }
+
+    /// Ends the trial `t` of the look `look`: the colors, the font and the
+    /// grid it changed go back. The grid request follows the font's switch,
+    /// because a font switch changes the console's grid too.
+    fn put_look_back(&mut self, t: &Trial, look: &LookParts) -> Vec<Effect> {
+        let mut out = Vec::new();
+        if look.colors {
+            out.push(Effect::Write(COLORS_RESET.to_vec()));
+        }
+        let back = words::look_back(&look.name);
+        self.shared.message = Some(match look.offer {
+            Some(_) => format!("{back} {}", words::look_unused(&look.name)),
+            None => back,
+        });
+        self.shared.size_asked = None;
+        if t.font != t.back {
+            self.shared.want = Some(t.back.clone());
+            out.extend(self.follow());
+            if t.grid.is_some() {
+                self.shared.grid_after_font = true;
+                out.extend(self.grid_after_font());
+            }
+        } else if let Some(g) = t.grid {
+            self.shared.grid_moved = g.back != self.shared.start_grid;
+            out.push(Effect::Write(grid_request(g.back)));
+        }
+        out
     }
 
     /// Enter on a size in the shared list of a look's card: in a vtium
@@ -1203,13 +1426,19 @@ impl App {
         }
         let points = asked.points;
         self.shared.size_asked = None;
-        if self.shared.leaving.is_some() || self.nav.trial.is_some() {
+        let look_trial = self.nav.trial.as_ref().is_some_and(|t| t.look.is_some());
+        if self.shared.leaving.is_some() || (self.nav.trial.is_some() && !look_trial) {
             return Some(Vec::new());
         }
         let cell = match cell {
             Ok((cell, _)) => *cell,
             Err(why) => {
-                self.shared.message = Some(words::size_unmeasured(why));
+                // a look's trial goes on without its size, and its
+                // countdown says why
+                match self.nav.trial.as_mut().and_then(|t| t.look.as_mut()) {
+                    Some(look) => look.later = Some(words::size_unmeasured(why)),
+                    None => self.shared.message = Some(words::size_unmeasured(why)),
+                }
                 return Some(Vec::new());
             }
         };
@@ -1221,6 +1450,15 @@ impl App {
             across(display.1, cell.height).clamp(1, GRID_MAX.1),
         );
         let back = (self.size.cols, self.size.rows);
+        if let Some(t) = self.nav.trial.as_mut().filter(|t| t.look.is_some()) {
+            if to == back {
+                return Some(Vec::new());
+            }
+            t.grid = Some(GridTrial { points, to, back });
+            self.shared.grid_moved = true;
+            self.shared.grid_after_font = false;
+            return Some(vec![Effect::Write(grid_request(to))]);
+        }
         if to == back {
             self.shared.message = Some(words::size_same(points));
             return Some(Vec::new());
@@ -1231,6 +1469,7 @@ impl App {
             back: font,
             left: TRIAL_TICKS,
             grid: Some(GridTrial { points, to, back }),
+            look: None,
         });
         self.shared.grid_moved = true;
         // a trial of a size replaces the start grid that `u` asked for
@@ -1249,10 +1488,75 @@ impl App {
         if t.left == 0 {
             return self.put_back();
         }
-        self.shared.message = Some(match t.grid {
-            Some(g) => words::size_countdown(g.points, t.left),
-            None => countdown(&self.shared, &t.font, t.left),
+        self.shared.message = Some(match (&t.look, t.grid) {
+            (Some(look), _) => words::look_countdown(&look.name, t.left, look.later.as_deref()),
+            (None, Some(g)) => words::size_countdown(g.points, t.left),
+            (None, None) => countdown(&self.shared, &t.font, t.left),
         });
         vec![Effect::Wait(TICK)]
     }
+}
+
+/// The colors of the color scheme `name`: a scheme built into vtium, else
+/// a scheme file the Looks tab found that reads.
+fn scheme_colors(shared: &Shared, name: &str) -> Option<vtium_term::Palette> {
+    vtium_term::Palette::named(name).or_else(|| {
+        shared
+            .inputs
+            .effects
+            .palettes
+            .iter()
+            .find(|f| f.name == name)
+            .and_then(|f| f.colors.clone().ok())
+    })
+}
+
+/// The color scheme the console draws now, as the installed vtium.conf
+/// gives it: the `palette` of the look that the console's terminal uses,
+/// else the top level's, else `legacy`, the default.
+fn console_scheme(shared: &Shared) -> String {
+    let conf = shared.inputs.conf.as_deref().unwrap_or_default();
+    let of_look = shared.inputs.head.as_deref().and_then(|head| {
+        let reading = vtium_settings::sections(conf.as_bytes())?;
+        let config = reading.parsed.config;
+        let look = config.heads.iter().find(|h| h.name == head)?.look.clone();
+        config
+            .looks
+            .into_iter()
+            .find(|l| l.name == look)?
+            .settings
+            .into_iter()
+            .find(|s| s.key.name == "palette")
+            .map(|s| s.value)
+    });
+    of_look
+        .or_else(|| vtium_settings::setting(conf, "palette"))
+        .unwrap_or_else(|| "legacy".to_owned())
+}
+
+/// The terminal of the draft that a look no terminal uses is offered to:
+/// the console's own terminal, which `VTIUM_HEAD` names, else the draft's
+/// only terminal. With several terminals and no `VTIUM_HEAD`, there is
+/// none to offer.
+fn offer_head(shared: &Shared) -> Option<String> {
+    let heads: Vec<String> = shared
+        .conf_text()
+        .and_then(|c| vtium_settings::sections(c.as_bytes()))
+        .map(|r| r.parsed.config.heads.into_iter().map(|h| h.name).collect())
+        .unwrap_or_default();
+    match (&shared.inputs.head, heads.as_slice()) {
+        (Some(head), _) if heads.contains(head) => Some(head.clone()),
+        (_, [only]) => Some(only.clone()),
+        _ => None,
+    }
+}
+
+/// What `y` does to the question that offers the look `look` to the
+/// terminal `head`: sets the terminal's `look =` line in the draft.
+fn use_look(head: String, look: String) -> super::model::Then {
+    super::model::Then::Change(super::edit::Change::HeadKey {
+        name: head,
+        key: "look",
+        value: Some(look),
+    })
 }

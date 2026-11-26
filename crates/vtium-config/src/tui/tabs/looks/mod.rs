@@ -529,9 +529,8 @@ impl Looks {
     /// cannot: there is none, the console does not read it, only the
     /// draft adds it, or this machine does not have it. The console reads
     /// font sets only from the frits' directory, so a font set the draft
-    /// adds can be tried once it is installed. The live trial switches the
-    /// console's font alone, so a look's size, color scheme and vtlook
-    /// take effect only once vtium starts with them.
+    /// adds can be tried once it is installed. On a look, [`Self::try_look`]
+    /// checks the look's font set here first.
     ///
     /// References:
     /// - ADR-1403 D8, "The live trial": `t` on a frit only the draft holds says it can be tried once installed.
@@ -552,6 +551,25 @@ impl Looks {
             Some(_) => say(words::try_refused(&name, words::KEPT)),
             None => say(words::try_absent(&name)),
         }
+    }
+
+    /// `t` on the look `name`, whose font set is `font`: tries the whole
+    /// look on the console, its font set, its color scheme and its size,
+    /// or says why its font set cannot be tried. A look that leaves its
+    /// font set to vtium.conf, which names none, still tries its color
+    /// scheme and its size.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "The live trial, on a key": `t` on a look tries it
+    ///   on the live console.
+    fn try_look(shared: &Shared, name: String, font: Option<String>) -> Vec<Command> {
+        if font.is_some() {
+            let checked = Self::try_font(shared, font);
+            if !matches!(checked.as_slice(), [Command::Change(Change::Try(_))]) {
+                return checked;
+            }
+        }
+        vec![Command::Change(Change::TryLook(name))]
     }
 
     /// `w`: asks whether to let programs resize the console's grid, and
@@ -633,7 +651,9 @@ impl Looks {
             (Key::Char('r'), Some(Entry::FontSet(at))) => fontsets::font(shared, at)
                 .map(|f| fontsets::remove(shared, &f.name))
                 .unwrap_or_default(),
-            (Key::Char('t'), Some(Entry::Look(_))) => Self::try_font(shared, self.font_set(shared)),
+            (Key::Char('t'), Some(Entry::Look(name))) => {
+                Self::try_look(shared, name, self.font_set(shared))
+            }
             (Key::Char('t'), Some(Entry::NoLooks)) => {
                 vec![Command::Change(Change::Say(words::TRY_NO_LOOK.to_owned()))]
             }
