@@ -704,3 +704,38 @@ pub fn look_given(head: impl Display, name: impl Display) -> String {
         "The terminal {head} named no look, so vtium-config set it to use the look {name}. Press s to save the change and i to install it."
     )
 }
+
+/// The question that `t` asks on the look `look`, whose color scheme
+/// `scheme` is the file `path`, which the batch does not list. The answer
+/// keys come before what the activation waits for, so that they fit in
+/// the message line.
+pub fn scheme_inactive_question(
+    scheme: impl Display,
+    look: impl Display,
+    path: impl Display,
+) -> String {
+    format!(
+        "The color scheme {scheme} is not active, so t cannot try the look {look}. Activate it in the draft? y activates {path}, and n or Esc leaves it as it is. It takes effect once you install the draft and log in again."
+    )
+}
+
+/// What `t` says on the look `look`, whose color scheme `scheme` is not
+/// active yet and which the draft activates.
+pub fn scheme_drafted(scheme: impl Display, look: impl Display) -> String {
+    format!(
+        "The color scheme {scheme} is not active yet. The draft activates it, so t can try the look {look} once you install the draft and log in again."
+    )
+}
+
+/// What `t` says on the look `look`, whose color scheme `scheme` is a file
+/// the console cannot use, and `why`.
+pub fn scheme_unusable(scheme: impl Display, look: impl Display, why: impl Display) -> String {
+    format!(
+        "The console cannot use the color scheme {scheme}, so t cannot try the look {look}: {why}"
+    )
+}
+
+/// Why the console cannot use a color scheme file in the person's own
+/// folder.
+pub const SCHEME_OWN: &str =
+    "the file is in your own folder, and vtium reads color schemes only from its own folders.";

@@ -567,6 +567,15 @@ impl Looks {
     /// - ADR-1201 D4, "The live trial, on a key": `t` on a look tries it
     ///   on the live console.
     fn try_look(shared: &Shared, name: String, font: Option<String>) -> Vec<Command> {
+        let scheme = list::look(shared, &name)
+            .and_then(|l| l.palette)
+            .or_else(|| shared.drafted("palette"));
+        if let Some(refused) = scheme
+            .as_deref()
+            .and_then(|s| palettes::refuse_trial(shared, &name, s))
+        {
+            return refused;
+        }
         if font.is_some() {
             let checked = Self::try_font(shared, font);
             if !matches!(checked.as_slice(), [Command::Change(Change::Try(_))]) {

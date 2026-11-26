@@ -63,6 +63,76 @@ pub fn file(shared: &Shared, at: usize) -> Option<&SchemeFile> {
     shared.inputs.effects.palettes.get(at)
 }
 
+/// The scheme file that vtium reads for the color scheme `name`: the
+/// administrator's file where it hides the package's file of that name.
+pub fn file_named<'a>(shared: &'a Shared, name: &str) -> Option<&'a SchemeFile> {
+    shared
+        .inputs
+        .effects
+        .palettes
+        .iter()
+        .find(|f| f.name == name && !f.resource.hidden)
+}
+
+/// Whether the console reads the scheme file `f` now: the installed batch
+/// lists it, and it passes the trust rule. A file that fails either check
+/// counts as missing, and the console draws `legacy` in its place.
+///
+/// References:
+/// - ADR-1205 D4: a palette file is a resource under the trust rule, and
+///   the console uses it only while the batch holds it.
+pub fn console_reads(f: &SchemeFile) -> bool {
+    matches!(
+        f.resource.state,
+        State::Always | State::Active | State::Deactivates
+    ) && f.resource.trust.is_ok()
+        && !f.resource.own
+}
+
+/// What `t` on the look `look` says when its color scheme `scheme` is a
+/// file the console does not read now, so the trial would show colors the
+/// console never uses: it offers to activate a file the batch does not
+/// list, says that a file the draft activates waits for an install and a
+/// new login, and says why the console cannot use a file that fails the
+/// trust rule. `None` when the console reads the scheme, or when it is not
+/// a file. vtium reads the batch again at each new login, so an
+/// activation reaches the console only then.
+///
+/// References:
+/// - ADR-1205 D4: a palette file draws only while the batch holds it, and
+///   activating it is an act of trust; its note of 2026-11-19: a change to
+///   the batch takes effect at the next login.
+pub fn refuse_trial(
+    shared: &Shared,
+    look: &str,
+    scheme: &str,
+) -> Option<Vec<super::super::Command>> {
+    use super::super::super::desk::Op;
+    use super::super::{Change, Command, Request};
+    use crate::batch::Change as BatchChange;
+    let f = file_named(shared, scheme)?;
+    if PALETTE_NAMES.contains(&scheme) || console_reads(f) {
+        return None;
+    }
+    let say = |line: String| Some(vec![Command::Change(Change::Say(line))]);
+    if let Err(why) = &f.resource.trust {
+        return say(words::scheme_unusable(scheme, look, why));
+    }
+    if f.resource.own {
+        return say(words::scheme_unusable(scheme, look, words::SCHEME_OWN));
+    }
+    if f.resource.state == State::Activates {
+        return say(words::scheme_drafted(scheme, look));
+    }
+    Some(vec![Command::Request(Request::Ask {
+        question: words::scheme_inactive_question(scheme, look, f.resource.path.display()),
+        then: super::super::super::model::Then::Desks(vec![Op::Resource {
+            path: f.resource.path.clone(),
+            change: BatchChange::Activate,
+        }]),
+    })])
+}
+
 /// How this terminal shows the preview's colors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shown {

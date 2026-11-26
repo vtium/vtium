@@ -2469,6 +2469,46 @@ fn a_look_s_colors_carry_the_cursor_the_selection_and_the_256() {
     assert_eq!(t.palette().color(100), legacy.color(100));
 }
 
+/// `t` on a look whose color scheme is a file the batch does not list
+/// tries nothing, since the console would draw `legacy` in its place, and
+/// offers to activate the file in the draft.
+///
+/// References:
+/// - ADR-1205 D4: a palette file draws only while the batch holds it, and
+///   activating it is an act of trust.
+#[test]
+fn t_on_a_look_whose_color_scheme_is_not_active_offers_to_activate_it() {
+    use vtium_config::batch::Change;
+    use vtium_config::tui::desk::Op;
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look nordic]\nfont-name = proof\npalette = spare\n[head desk]\nlook = nordic\n[rules]\ndisplay * -> desk\n";
+    let (root, inputs) = schemes_on_disk(conf);
+    let spare = root.join("etc/spare.palette");
+    let (mut app, _) = started(inputs);
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert!(
+        !tried.iter().any(|e| matches!(e, Effect::Write(_))),
+        "{tried:?}"
+    );
+    assert_eq!(app.nav.trial, None);
+    let confirm = app.nav.confirm.clone().expect("the question");
+    assert_eq!(
+        confirm.question,
+        format!(
+            "The color scheme spare is not active, so t cannot try the look nordic. Activate it in the draft? y activates {}, and n or Esc leaves it as it is. It takes effect once you install the draft and log in again.",
+            spare.display()
+        )
+    );
+    assert_eq!(
+        confirm.then,
+        model::Then::Desks(vec![Op::Resource {
+            path: spare,
+            change: Change::Activate,
+        }])
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// A stand-in console in which a program has set color 1 and the
 /// background before vtium-config started.
 fn console_with_program_colors(keys: &[&[u8]]) -> Console {

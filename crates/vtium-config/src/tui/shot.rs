@@ -1578,16 +1578,15 @@ impl App {
     }
 }
 
-/// The colors of the color scheme `name`: a scheme built into vtium, else
-/// a scheme file the Looks tab found that reads.
+/// The colors of the color scheme `name` as the console shows them: a
+/// scheme built into vtium, else a scheme file that reads and that the
+/// console reads now. A file the batch does not list, or one that fails
+/// the trust rule, counts as missing.
 fn scheme_colors(shared: &Shared, name: &str) -> Option<vtium_term::Palette> {
+    use super::tabs::looks::palettes;
     vtium_term::Palette::named(name).or_else(|| {
-        shared
-            .inputs
-            .effects
-            .palettes
-            .iter()
-            .find(|f| f.name == name)
+        palettes::file_named(shared, name)
+            .filter(|f| palettes::console_reads(f))
             .and_then(|f| f.colors.clone().ok())
     })
 }
