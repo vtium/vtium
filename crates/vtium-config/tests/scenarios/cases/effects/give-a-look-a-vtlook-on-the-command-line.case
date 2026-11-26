@@ -1,0 +1,32 @@
+kind how-do-i
+title How do I give a look a vtlook on the command line?
+intro `vtium-config look set` sets each setting of a look, and `--vtlook` names the look's vtlook, the file of filters such as an amber tint. It sets the same line as the vtlook line of a look's card.
+see effects/give-a-look-a-vtlook
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [look plain]
+    palette = legacy
+    [head console]
+    vt = 5
+    look = plain
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+file etc/looks/amber.vtlook
+    version = 1
+    [color tint]
+    color = 255,176,0
+    amount = 1.0
+    floor = 0.0
+
+1. Press q to quit.
+2. Run `vtium-config look set plain --vtlook amber`.
+at the vtlook is set
+check draft look plain vtlook amber
+3. Run `vtium-config install`.
+at the install
+check installed look plain vtlook amber
