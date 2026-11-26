@@ -1508,7 +1508,9 @@ impl App {
             return Some(Vec::new());
         }
         let cell = match cell {
-            Ok((cell, _)) => *cell,
+            // a bitmap font set draws its own cell at a whole multiple,
+            // so the grid comes from the cell at that multiple
+            Ok((cell, face_height)) => crate::specimen::drawn_cell(*cell, *face_height),
             Err(why) => {
                 // a look's trial goes on without its size, and its
                 // countdown says why

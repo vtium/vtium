@@ -934,8 +934,10 @@ fn sample_of(
 /// The cell that `cell` is drawn at by a face of `height` pixels: `cell`
 /// at the whole multiple [`SetFace::new`] scales it by, the largest whose
 /// height is not over `height`, at least 1 and with no side past
-/// [`vtium_font::CELL_SIDE_MAX`].
-fn drawn_cell(cell: Cell, height: u32) -> Cell {
+/// [`vtium_font::CELL_SIDE_MAX`]. The helper's cell answer for a bitmap
+/// font set is the font's own cell and the height asked for, so this is
+/// the cell the console draws that set in at that height.
+pub fn drawn_cell(cell: Cell, height: u32) -> Cell {
     let fit = vtium_font::CELL_SIDE_MAX
         .checked_div(cell.width.max(cell.height))
         .unwrap_or(1);
