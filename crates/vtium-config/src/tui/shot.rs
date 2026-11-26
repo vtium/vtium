@@ -278,12 +278,17 @@ pub struct GridTrial {
 }
 
 /// The size a trial waits for the font helper to measure: the font set,
-/// the pixel height and the size in points.
+/// the pixel height and the size in points, and whether the trial of a
+/// look asked for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SizeAsked {
     pub font: String,
     pub height: u32,
     pub points: u32,
+    /// A look's trial asked for the size, so the size belongs to the look:
+    /// it goes to the console with the look's trial, and also after `k`
+    /// kept the look before the cell came.
+    pub look: bool,
 }
 
 /// The grid request, `CSI 8 ; rows ; cols t`, which asks the console for a
@@ -1293,6 +1298,7 @@ impl App {
             font: font.clone(),
             height,
             points,
+            look: true,
         });
         vec![Effect::Cell { font, height }]
     }
@@ -1421,15 +1427,18 @@ impl App {
             font: font.clone(),
             height,
             points,
+            look: false,
         });
         vec![Effect::Cell { font, height }]
     }
 
-    /// The cell of a size that [`App::try_size`] asked for has come, or
-    /// `None` when the cell came for something else: the grid the cell
-    /// gives on the display goes to the console as the grid request, and
-    /// the trial's countdown starts. A size whose grid is the console's
-    /// grid now changes nothing.
+    /// The cell of a size that [`App::try_size`] or a look's trial asked
+    /// for has come, or `None` when the cell came for something else: the
+    /// grid the cell gives on the display goes to the console as the grid
+    /// request. For [`App::try_size`] the trial's countdown starts. A look's
+    /// size joins the look's trial, or, where `k` kept the look before the
+    /// cell came, goes to the console as kept, with no countdown of its own.
+    /// A size whose grid is the console's grid now changes nothing.
     pub(crate) fn size_measured(
         &mut self,
         font: &str,
@@ -1441,6 +1450,7 @@ impl App {
             return None;
         }
         let points = asked.points;
+        let kept_look = asked.look && self.nav.trial.is_none();
         self.shared.size_asked = None;
         let look_trial = self.nav.trial.as_ref().is_some_and(|t| t.look.is_some());
         if self.shared.leaving.is_some() || (self.nav.trial.is_some() && !look_trial) {
@@ -1466,6 +1476,14 @@ impl App {
             across(display.1, cell.height).clamp(1, GRID_MAX.1),
         );
         let back = (self.size.cols, self.size.rows);
+        if kept_look {
+            if to == back {
+                return Some(Vec::new());
+            }
+            self.shared.grid_moved = true;
+            self.shared.grid_after_font = false;
+            return Some(vec![Effect::Write(grid_request(to))]);
+        }
         if let Some(t) = self.nav.trial.as_mut().filter(|t| t.look.is_some()) {
             if to == back {
                 return Some(Vec::new());

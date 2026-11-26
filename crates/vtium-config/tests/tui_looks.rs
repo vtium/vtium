@@ -2445,6 +2445,52 @@ fn t_on_a_look_tries_its_size_where_the_console_lets_programs_resize_it() {
     assert!(find(&c.written, b"\x1b[8;").is_some(), "no grid request");
 }
 
+/// `k` pressed during a look's trial before the font helper measured the
+/// look's size keeps the size with the look: when the cell comes, the grid
+/// request goes to the console with no countdown of its own, and leaving
+/// gives the start grid back.
+#[test]
+fn k_before_the_look_s_size_is_measured_keeps_the_size_with_no_second_trial() {
+    let conf = nordic_conf("allow-window-ops\n", "look = nordic\n");
+    let (mut app, _) = started(with_conf(&conf));
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    let switched = app.event(Event::Input(Input::Reply(Reply::Font("proof".into()))));
+    assert!(
+        switched.contains(&Effect::Cell {
+            font: "proof".into(),
+            height: 21
+        }),
+        "{switched:?}"
+    );
+    app.event(Event::Input(Input::Key(Key::Char('k'))));
+    let kept = app.shared.message.clone();
+    let celled = app.event(Event::Celled {
+        font: "proof".into(),
+        height: 21,
+        cell: Ok((
+            Cell {
+                width: 10,
+                height: 21,
+            },
+            21,
+        )),
+    });
+    assert!(
+        celled
+            .iter()
+            .any(|e| matches!(e, Effect::Write(b) if b.starts_with(b"\x1b[8;"))),
+        "{celled:?}"
+    );
+    assert!(
+        !celled.iter().any(|e| matches!(e, Effect::Wait(_))),
+        "{celled:?}"
+    );
+    assert_eq!(app.nav.trial, None);
+    assert_eq!(app.shared.message, kept);
+    assert!(app.shared.grid_moved, "leaving gives the start grid back");
+}
+
 /// `t` on a look that no terminal uses, whose font set and color scheme
 /// the console already shows, says that no terminal uses it in place of
 /// "already uses", and `y` gives it to the draft's terminal. A look's
