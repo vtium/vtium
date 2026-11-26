@@ -917,7 +917,7 @@ mod draft_flow {
         let ran = run(&b, &[&CHANGE[..], &[b"q"]].concat());
         assert!(
             flat(ran.screen()).contains(
-                "1 change is not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back. Either way, the console goes back to its installed font until you install the draft with i."
+                "1 change is not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back. The console then shows what is installed until you install the draft, with i or vtium-config install."
             ),
             "{}",
             ran.screen()

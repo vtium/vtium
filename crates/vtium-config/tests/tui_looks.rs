@@ -2830,7 +2830,7 @@ fn q_says_the_draft_is_not_installed_and_what_installs_it() {
         .expect("the loop");
     let screen = flat(&c.seen.clone().expect("the screen"));
     assert!(
-        screen.contains("Either way, the console goes back to its installed font until you install the draft with i."),
+        screen.contains("The console then shows what is installed until you install the draft, with i or vtium-config install."),
         "{screen}"
     );
 }

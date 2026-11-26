@@ -346,8 +346,9 @@ pub const NOTHING_TO_SAVE: &str = "Nothing to save: the draft already holds ever
 
 /// The question `q` asks while changes are not saved. Saving writes the
 /// changes into the draft, and only an install puts the draft in use, so
-/// the question says that the console goes back to its installed font and
-/// what installs the draft.
+/// the question says that the console shows what is installed after the
+/// TUI leaves, and what installs the draft: `i` before leaving, or the
+/// command `vtium-config install` after it.
 ///
 /// References:
 /// - ADR-1403 D7: `q` asks before it drops changes that are not saved.
@@ -364,9 +365,8 @@ pub fn quit_question(n: usize) -> String {
 }
 
 /// What the quit question says of the draft: it is not in use until it is
-/// installed.
-pub const QUIT_NOT_INSTALLED: &str =
-    "Either way, the console goes back to its installed font until you install the draft with i.";
+/// installed, and what installs it.
+pub const QUIT_NOT_INSTALLED: &str = "The console then shows what is installed until you install the draft, with i or vtium-config install.";
 
 /// A question that throws the draft away, with the unsaved changes it
 /// also throws away.
