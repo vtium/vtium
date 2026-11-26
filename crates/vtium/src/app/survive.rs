@@ -293,11 +293,23 @@ impl App {
     /// hanging it up, so that the next vtium takes it back, and tells the
     /// keeper nothing from then on. A session the keeper does not hold
     /// stays in its console, and dropping the seat hangs it up.
+    ///
+    /// Under the privilege split, the root process started each session
+    /// and keeps its master, so the drawing process lets every such session
+    /// go, whatever its own keeper. The root process then keeps each
+    /// session its keeper holds and hangs up the rest.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker keeps the pty
+    ///   masters through a restart.
     pub fn release_sessions(&mut self) {
-        if !self.survival.keeper.keeps() || self.survival.released {
+        if self.survival.released {
             return;
         }
-        self.sync_kept();
+        let keeps = self.survival.keeper.keeps();
+        if keeps {
+            self.sync_kept();
+        }
         self.survival.released = true;
         let App {
             heads, survival, ..
@@ -305,9 +317,12 @@ impl App {
         for head in heads.iter_mut() {
             let name = head.name().to_owned();
             for console in head.consoles_mut() {
-                if survival
-                    .ledger
-                    .holds(&Name::new(&name, console.id).encode())
+                let elsewhere = console.pty.as_ref().is_some_and(Pty::started_elsewhere);
+                let held = keeps
+                    && survival
+                        .ledger
+                        .holds(&Name::new(&name, console.id).encode());
+                if (elsewhere || held)
                     && let Some(pty) = console.pty.take()
                 {
                     pty.release();

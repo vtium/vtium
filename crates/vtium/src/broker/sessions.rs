@@ -346,6 +346,28 @@ impl Sessions {
         self.closing.push(Closing { child, pidfd });
     }
 
+    /// Ends the sessions at the drawing process's end, as vtium in one
+    /// process does at its exit: each session the keeper holds runs on for
+    /// the next vtium, which takes it back, and every other session is hung
+    /// up. vtium cannot tell a restart from a stop, so systemd decides what
+    /// becomes of the kept sessions: a restart keeps its store, and a stop
+    /// closes it.
+    ///
+    /// References:
+    /// - ADR-1401 D13, item 9: vtium never hangs up a session that the
+    ///   store or the holder keeps when it exits.
+    pub fn end(&mut self) {
+        let unkept: Vec<ConsoleRef> = self
+            .open
+            .keys()
+            .filter(|c| !self.store.holds(c.head.as_str(), c.console))
+            .cloned()
+            .collect();
+        for console in &unkept {
+            self.close(console);
+        }
+    }
+
     /// Whether vtium.conf, or the built-in configuration, names `head`.
     pub fn knows(&self, head: &str) -> bool {
         self.conf.known.contains(head)
@@ -852,12 +874,14 @@ pub(super) mod tests {
         s.close(&console("left", 1));
     }
 
-    /// A keeper that records what it is told, and holds one master an
-    /// earlier vtium kept.
+    /// A keeper that records what it is told, holds one master an earlier
+    /// vtium kept, and says it holds the masters of the consoles in
+    /// `holds`.
     #[derive(Default)]
     struct Recorded {
         told: Rc<RefCell<Vec<String>>>,
         kept: Option<(String, u64, OwnedFd)>,
+        holds: Vec<(String, u64)>,
     }
 
     impl Keep for Recorded {
@@ -870,6 +894,9 @@ pub(super) mod tests {
             self.told
                 .borrow_mut()
                 .push(format!("forget {head} {console}"));
+        }
+        fn holds(&self, head: &str, console: u64) -> bool {
+            self.holds.iter().any(|(h, c)| h == head && *c == console)
         }
         fn take(&mut self, head: &str, console: u64) -> Option<OwnedFd> {
             let at = self.kept.as_ref()?;
@@ -885,7 +912,7 @@ pub(super) mod tests {
         let told: Rc<RefCell<Vec<String>>> = Rc::default();
         let store = Recorded {
             told: Rc::clone(&told),
-            kept: None,
+            ..Recorded::default()
         };
         let (watched, wake) = watching();
         let mut s = Sessions::new(conf("exit 0", "sleep 1000", WIDE), Box::new(store), wake);
@@ -921,8 +948,8 @@ pub(super) mod tests {
         let earlier = pty::open_session(command, small, Erase::Delete).unwrap();
         read_until(&earlier.master, "ready");
         let store = Recorded {
-            told: Rc::default(),
             kept: Some(("left".to_owned(), 3, earlier.master.try_clone().unwrap())),
+            ..Recorded::default()
         };
         let (_, wake) = watching();
         let mut s = Sessions::new(
@@ -944,5 +971,68 @@ pub(super) mod tests {
         let mut child = earlier.child;
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    /// At the drawing process's end, the session the keeper holds runs on
+    /// and the one it does not hold is hung up. Its program, which takes
+    /// SIGHUP's default, then exits.
+    #[test]
+    fn at_the_drawers_end_a_kept_session_runs_on_and_an_unkept_one_is_hung_up() {
+        let store = Recorded {
+            holds: vec![("left".to_owned(), 1)],
+            ..Recorded::default()
+        };
+        let (watched, wake) = watching();
+        let mut s = Sessions::new(
+            conf(
+                "echo ready; exec sleep 1000",
+                "echo ready; exec sleep 1000",
+                WIDE,
+            ),
+            Box::new(store),
+            wake,
+        );
+        let kept = s
+            .open(&console("left", 1), &GRID, Display::Kms, true)
+            .unwrap();
+        let unkept = s
+            .open(&console("own", 2), &GRID, Display::Kms, true)
+            .unwrap();
+        read_until(&kept, "ready");
+        read_until(&unkept, "ready");
+        // The drawing process has exited, so its copies are gone, and the
+        // test's copy of the kept master stands in for the keeper's.
+        drop(unkept);
+        let keepers = s
+            .master(&console("left", 1))
+            .unwrap()
+            .try_clone_to_owned()
+            .unwrap();
+        s.end();
+        let pidfds: Vec<OwnedFd> = watched
+            .borrow()
+            .iter()
+            .map(|fd| fd.try_clone().unwrap())
+            .collect();
+        let [kept_pidfd, unkept_pidfd] = pidfds.as_slice() else {
+            panic!("two sessions were watched: {pidfds:?}");
+        };
+        let one = Watched::default();
+        one.borrow_mut().push(unkept_pidfd.try_clone().unwrap());
+        wait_for_exits(&one);
+        assert!(!exited(kept_pidfd.as_fd()), "the kept session was hung up");
+        assert_eq!(
+            s.child(&console("own", 2)),
+            None,
+            "the unkept session is still open"
+        );
+        let child = s
+            .child(&console("left", 1))
+            .expect("the kept session is still open");
+        let _ = rustix::process::kill_process(
+            rustix::process::Pid::from_raw(i32::try_from(child).unwrap()).unwrap(),
+            rustix::process::Signal::KILL,
+        );
+        drop((kept, keepers));
     }
 }

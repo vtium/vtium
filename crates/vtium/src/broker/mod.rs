@@ -676,7 +676,7 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
         "vtium runs as two processes: this root process, and drawing process {}, which runs everything else as the account {ACCOUNT}",
         drawer.pid.as_raw_nonzero()
     );
-    Ok(run(
+    let status = run(
         &mut lp,
         &link,
         &drawer,
@@ -684,7 +684,11 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
         &mut restore,
         Bounds::default(),
         &now,
-    ))
+    );
+    // The sessions the keeper holds run on for the next vtium, and the
+    // rest are hung up, as vtium in one process does at its exit.
+    served.jobs.processes.sessions.end();
+    Ok(status)
 }
 
 /// Runs the broker's loop for the started `drawer` until the drawer ends,

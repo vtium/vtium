@@ -34,6 +34,9 @@ pub trait Keep {
     fn forget(&mut self, head: &str, console: u64);
     /// Takes the master an earlier vtium kept for that console, if any.
     fn take(&mut self, head: &str, console: u64) -> Option<OwnedFd>;
+    /// Whether the keeper holds a copy of that console's master, so the
+    /// session outlives vtium.
+    fn holds(&self, head: &str, console: u64) -> bool;
 }
 
 /// Keeps nothing, for the tests that need no keeper.
@@ -46,6 +49,9 @@ impl Keep for Nowhere {
     fn forget(&mut self, _: &str, _: u64) {}
     fn take(&mut self, _: &str, _: u64) -> Option<OwnedFd> {
         None
+    }
+    fn holds(&self, _: &str, _: u64) -> bool {
+        false
     }
 }
 
@@ -99,6 +105,10 @@ impl Keep for Store {
         if let Err(e) = self.keeper.forget(&name) {
             self.give_up(&e);
         }
+    }
+
+    fn holds(&self, head: &str, console: u64) -> bool {
+        !self.gave_up && self.keeper.keeps() && storable(&Name::new(head, console).encode())
     }
 
     fn take(&mut self, head: &str, console: u64) -> Option<OwnedFd> {

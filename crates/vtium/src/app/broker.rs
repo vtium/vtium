@@ -905,6 +905,43 @@ mod tests {
         );
     }
 
+    /// At the drawing process's exit, the sessions the root process
+    /// started run on: the drawing process lets each pty go without asking
+    /// the root process to hang it up, and the root process decides what
+    /// its keeper keeps for the next vtium.
+    ///
+    /// References:
+    /// - ADR-1401 D13, item 9: vtium never hangs up a kept session at its
+    ///   exit.
+    #[test]
+    fn at_its_exit_the_drawer_lets_the_root_processs_sessions_go_without_hanging_them_up() {
+        let (broker, theirs) = Link::pair().unwrap();
+        let seen = stand_in(broker, vec![]);
+        let (lp, mut app) = seat_with(&[], None, no_fonts());
+        app.set_broker(Rc::new(Courier::new(Link::passed(theirs).unwrap())))
+            .unwrap();
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        app.start();
+        shown(&mut app);
+        assert!(app.heads.first().unwrap().console.pty.is_some());
+        app.release_sessions();
+        assert!(
+            app.heads.first().unwrap().console.pty.is_none(),
+            "the drawer still holds the session at its exit"
+        );
+        drop((app, lp));
+        let seen = seen.join().unwrap();
+        assert!(
+            !seen
+                .iter()
+                .any(|r| matches!(r, Request::CloseSession { .. })),
+            "the drawer asked the root process to hang a session up: {seen:?}"
+        );
+    }
+
     #[test]
     #[expect(
         clippy::disallowed_methods,
