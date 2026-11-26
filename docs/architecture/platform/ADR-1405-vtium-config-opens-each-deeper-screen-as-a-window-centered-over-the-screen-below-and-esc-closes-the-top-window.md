@@ -31,6 +31,18 @@ considered:
   - operator: aaronsb
     said: "I've decided this refactor is more important than after 0.1.0"
     via: the maintainer in conversation with the steering session on 2026-11-25, about the stacked windows, which had been filed for after 0.1.0 earlier that day; the change moves into 0.1.0, after the work that fixes vtium-config's looks and the work that writes its use cases as scripts
+  - operator: aaronsb
+    said: "Fit the content (Recommended)"
+    via: question tool, 2026-11-25, after the figure of ADR-1405 at 80x25; the option's wording is the steering session's, on the window size
+    paraphrase: true
+  - operator: aaronsb
+    said: "No dimming (Recommended)"
+    via: question tool, 2026-11-25, after the figure of ADR-1405 at 80x25; the option's wording is the steering session's, on dimming the screen below
+    paraphrase: true
+  - operator: aaronsb
+    said: "Keep the 80x25 minimum (Recommended)"
+    via: question tool, 2026-11-25, after the figure of ADR-1405 at 80x25; the option's wording is the steering session's, on a terminal smaller than 80x25
+    paraphrase: true
 status: proposed
 date: 2026-11-25
 deciders:
