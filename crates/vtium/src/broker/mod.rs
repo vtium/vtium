@@ -7,9 +7,10 @@
 //! broker's answers, is not stopped for it: the broker ignores what it
 //! refuses and never waits for the drawer.
 //! When the drawer ends, the broker puts the VT back and exits with the
-//! drawer's status. vtium splits only when it starts as root and the
-//! account `vtium` exists. Otherwise it runs as one process, as it always
-//! has.
+//! drawer's status, or with a failure when a signal killed the drawer or
+//! the VT hung up. vtium splits only when it starts as root, no seat
+//! manager serves its seat, and the account `vtium` exists, as [`plan`]
+//! decides. Otherwise it runs as one process.
 //!
 //! This module is built only with the feature `split`, and there
 //! [`SPLIT`] is `true`. A build without the feature has no broker and
@@ -67,8 +68,9 @@ use watch::{FAILURE, Seen};
 /// The internal switch that turns the privilege split on. It is on in
 /// every build with the feature `split`, the only builds that carry this
 /// module. vtium then splits whenever [`plan`] says so: when it starts as
-/// root and the account `vtium` exists. The packages install that account
-/// with the sysusers file `vtium-split.conf`.
+/// root, no seat manager serves its seat, and the account `vtium` exists.
+/// The packages install that account with the sysusers file
+/// `vtium-split.conf`.
 ///
 /// References:
 /// - ADR-1400 D4, "The accounts": the sysusers file makes the account.
