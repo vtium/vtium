@@ -395,7 +395,7 @@ pub fn scan_fonts(
         .map_err(|e| words::fonts_unjudged(&e.to_string()))?;
     let euid = crate::batch::rule_user(&paths.targets(), &paths.sudo);
     let found = crate::discover::scan(
-        &crate::discover::Folders::of_user(conf),
+        &font_folders(conf),
         &vtium_settings::cullet::Rule::running_as(euid),
         &mounts,
         &|path| {
@@ -406,6 +406,37 @@ pub fn scan_fonts(
     );
     let note = active.err().map(|fail| words::fonts_unread(fail.text()));
     Ok((found, note))
+}
+
+/// The folders the Fonts tab's font scan looks in: this machine's, with
+/// those that `font-paths` names in `conf`. In a build with the feature
+/// `test-hooks`, a test can aim the scan at folders of its own with
+/// [`aim_font_scan`].
+fn font_folders(conf: Option<&str>) -> crate::discover::Folders {
+    #[cfg(feature = "test-hooks")]
+    if let Some(aimed) = AIMED_FONT_SCAN.with(|a| a.borrow().clone()) {
+        return aimed;
+    }
+    crate::discover::Folders::of_user(conf)
+}
+
+#[cfg(feature = "test-hooks")]
+thread_local! {
+    /// The folders [`aim_font_scan`] set on this thread.
+    static AIMED_FONT_SCAN: std::cell::RefCell<Option<crate::discover::Folders>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A test hook: aims the Fonts tab's font scan on this thread at
+/// `folders`, in place of this machine's font folders, or with `None` back
+/// at this machine's. The scan at start and the scan after an install both
+/// read it, so a test that drives the TUI on this thread sees the font
+/// files it put there. Only a build with the feature `test-hooks` has it,
+/// which the workspace's `--all-features` test run turns on and no shipped
+/// build does.
+#[cfg(feature = "test-hooks")]
+pub fn aim_font_scan(folders: Option<crate::discover::Folders>) {
+    AIMED_FONT_SCAN.with(|a| *a.borrow_mut() = folders);
 }
 
 /// What the Fonts tab lists at start, from [`scan_fonts`], with the
@@ -694,5 +725,31 @@ pub fn run(
             let _ = writeln!(err, "vtium-config: cannot use this terminal: {e}");
             1
         }
+    }
+}
+
+#[cfg(all(test, feature = "test-hooks"))]
+mod tests {
+    use super::*;
+
+    /// A test that aims the font scan at its own folder makes the scan
+    /// read that folder, on its own thread only, until it aims the scan
+    /// back at this machine's folders.
+    #[test]
+    fn aim_font_scan_points_the_font_scan_at_a_test_s_folders() {
+        let mine = crate::discover::Folders {
+            folders: vec![crate::discover::Folder {
+                path: std::path::PathBuf::from("/tmp/test-fonts"),
+                place: crate::discover::Place::User,
+            }],
+            packages: std::path::PathBuf::from("/tmp/test-fonts/packages"),
+            local: std::path::PathBuf::from("/tmp/test-fonts/local"),
+        };
+        aim_font_scan(Some(mine.clone()));
+        assert_eq!(font_folders(None), mine);
+        let other = std::thread::spawn(|| font_folders(None)).join();
+        assert_eq!(other.ok(), Some(crate::discover::Folders::of_user(None)));
+        aim_font_scan(None);
+        assert_eq!(font_folders(None), crate::discover::Folders::of_user(None));
     }
 }
