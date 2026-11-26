@@ -131,8 +131,64 @@ pub struct Shown {
     pub clusters: Vec<Text>,
 }
 
+/// The frame of `term`'s view that the console reads to ask the helper
+/// for the glyphs its displays draw. In a build with `scroll-pan` the frame
+/// holds the rows of history above the screen that the term's views asked
+/// their last frames to hold: the rows the spare lines above the grid and
+/// the overscan draw. A view asks for them as it takes its frame, so the
+/// glyphs of a row that output moves above the screen are asked for in the
+/// turn before the frame that draws it.
+///
+/// References:
+/// - ADR-1310 D2 and D10: the rows above the screen that a view asks for.
+pub fn frame_shown(term: &crate::term::Term) -> vtium_term::Frame<'_> {
+    let palette = term.terminal.palette();
+    let screen = term.terminal.screen();
+    #[cfg(feature = "scroll-pan")]
+    return screen.frame_reaching(
+        palette,
+        vtium_term::Age::NEVER,
+        vtium_term::Reach {
+            above: term.rows_above(),
+            ..vtium_term::Reach::default()
+        },
+    );
+    #[cfg(not(feature = "scroll-pan"))]
+    return screen.frame(palette, vtium_term::Age::NEVER);
+}
+
+/// Adds to `all` what `frame` shows in a build without the bidi feature:
+/// each character and each cluster whole, in each variant a cell draws its
+/// glyph in, on every row the frame holds ([`positions`]), and what each
+/// line of double size shows at its size ([`read_doubled`]).
+#[cfg(not(feature = "bidi"))]
+pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
+    use vtium_term::Glyph;
+    read_doubled(frame, all);
+    for row in positions(frame) {
+        for cell in cells_at(frame, row) {
+            let i = shown_index(all, variant_of(cell.attrs), None);
+            let Some(shown) = all.get_mut(i) else {
+                continue;
+            };
+            match cell.glyph {
+                Glyph::Char(c) => shown.chars.push(c),
+                Glyph::Cluster(text) => {
+                    shown.chars.extend(text.chars());
+                    shown.clusters.push(text.chars().collect());
+                }
+                Glyph::Empty => {}
+            }
+        }
+    }
+}
+
 /// Adds to `all` what `frame` shows, as the console reads it to ask the
-/// helper for the glyphs a display draws. It reads each variant a cell
+/// helper for the glyphs a display draws. It reads every row the frame
+/// holds: the screen's rows, and in a build with `scroll-pan` the rows of
+/// history above the screen that the spare lines and the overscan draw, so
+/// that a row the screen never showed has its glyphs before it is drawn.
+/// It reads each variant a cell
 /// draws its glyph in: bold, italic, both or neither, and normal,
 /// superscript or subscript. It adds each character, every character of a
 /// cluster among them, and each cluster whole. It adds what a
@@ -153,6 +209,7 @@ pub struct Shown {
 ///   mirroring.
 /// - ADR-1203 D3: a syllable's pieces.
 /// - ADR-1308 D8: the programming ligatures.
+/// - ADR-1310 D2 and D10: the rows above the screen that the frame holds.
 #[cfg(feature = "bidi")]
 pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures: bool) {
     use vtium_render::joined;
@@ -162,17 +219,17 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures
     let mut drawn = Vec::new();
     let mut runs = Runs::default();
     read_doubled(frame, all);
-    for row in 0..frame.rows() {
+    for row in positions(frame) {
         // a line of double size asks for what it draws at its size too
-        let doubled = frame.line(row).and_then(|l| doubled_of(l.flags().size()));
+        let doubled = line_at(frame, row).and_then(|l| doubled_of(l.flags().size()));
         let sized = |all: &mut Vec<Shown>, variant: Variant| {
             doubled
                 .filter(|_| variant.script == Script::Baseline)
                 .map(|d| shown_index(all, variant, Some(d)))
         };
-        for (col, cell) in frame.cells(row).enumerate() {
+        for (col, cell) in cells_at(frame, row).enumerate() {
             // a syllable's pieces, once, from its first cell
-            if let Some((run, 0)) = runs.find(frame, (col, row), &cell, ligatures)
+            if let Some((run, 0)) = runs.find_at(frame, (col, row), &cell, ligatures)
                 && let Some(s) = runs.get(run)
             {
                 let mut keys = Vec::new();
@@ -207,8 +264,8 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures
             drawn.clear();
             joined::text(&cell, &mut drawn);
             let mut texts = vec![drawn.clone()];
-            if joined::span(frame, (col, row), &cell, None) == joined::Span::Pair
-                && let Some(lam) = frame.cell(row, col.saturating_add(1))
+            if joined::span_at(frame, (col, row), &cell, None) == joined::Span::Pair
+                && let Some(lam) = cell_at(frame, row, col.saturating_add(1))
             {
                 let mut pair = Vec::new();
                 joined::pair_text(&cell, &lam, &mut pair);
@@ -253,7 +310,7 @@ pub fn shown_index(all: &mut Vec<Shown>, variant: Variant, doubled: Option<Doubl
 }
 
 /// Adds to `all` the characters and the clusters each line of double size
-/// in `frame` shows, at that size and in each cell's variant, which the
+/// in `frame` shows, on the screen or above it, at that size and in each cell's variant, which the
 /// console asks the helper to render at that size (vtium/vtium#61): a
 /// cluster's characters and the cluster whole, as at the normal size, so
 /// an emoji sequence and a letter with its marks draw at that size too.
@@ -264,11 +321,11 @@ pub fn shown_index(all: &mut Vec<Shown>, variant: Variant, doubled: Option<Doubl
 /// forms and syllables those lines draw (`read_shown`).
 pub fn read_doubled(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
     use vtium_term::Glyph;
-    for row in 0..frame.rows() {
-        let Some(doubled) = frame.line(row).and_then(|l| doubled_of(l.flags().size())) else {
+    for row in positions(frame) {
+        let Some(doubled) = line_at(frame, row).and_then(|l| doubled_of(l.flags().size())) else {
             continue;
         };
-        for cell in frame.cells(row) {
+        for cell in cells_at(frame, row) {
             let variant = variant_of(cell.attrs);
             if variant.script != Script::Baseline || cell.glyph == Glyph::Empty {
                 continue;
@@ -287,6 +344,53 @@ pub fn read_doubled(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
             }
         }
     }
+}
+
+/// The positions of the rows `frame` holds: the screen's rows from 0, and
+/// in a build with `scroll-pan` the rows beyond the screen, which lie above
+/// it at negative positions and below it from the screen's row count.
+fn positions(frame: &vtium_term::Frame<'_>) -> core::ops::Range<isize> {
+    #[cfg(feature = "scroll-pan")]
+    return frame.captured();
+    #[cfg(not(feature = "scroll-pan"))]
+    return 0..isize::try_from(frame.rows()).unwrap_or(isize::MAX);
+}
+
+/// The line at position `row` of `frame` ([`positions`]).
+fn line_at<'a>(frame: &vtium_term::Frame<'a>, row: isize) -> Option<&'a vtium_term::Line> {
+    #[cfg(feature = "scroll-pan")]
+    return frame.line_at(row);
+    #[cfg(not(feature = "scroll-pan"))]
+    return usize::try_from(row).ok().and_then(|r| frame.line(r));
+}
+
+/// The cells of the row at position `row` of `frame` as drawn, left to
+/// right ([`positions`]).
+fn cells_at<'a, 'f>(
+    frame: &'f vtium_term::Frame<'a>,
+    row: isize,
+) -> impl Iterator<Item = vtium_term::FrameCell<'a>> + 'f {
+    #[cfg(feature = "scroll-pan")]
+    return frame.cells_at(row);
+    #[cfg(not(feature = "scroll-pan"))]
+    return usize::try_from(row)
+        .ok()
+        .into_iter()
+        .flat_map(move |r| frame.cells(r));
+}
+
+/// The cell at column `col` of the row at position `row` of `frame`
+/// ([`positions`]).
+#[cfg(feature = "bidi")]
+fn cell_at<'a>(
+    frame: &vtium_term::Frame<'a>,
+    row: isize,
+    col: usize,
+) -> Option<vtium_term::FrameCell<'a>> {
+    #[cfg(feature = "scroll-pan")]
+    return frame.cell_at(row, col);
+    #[cfg(not(feature = "scroll-pan"))]
+    return usize::try_from(row).ok().and_then(|r| frame.cell(r, col));
 }
 
 /// The double size a line of `size` draws its glyphs at: `None` for a
@@ -321,7 +425,6 @@ pub fn variant_of(attrs: vtium_term::Attrs) -> Variant {
 
 /// Each of `all`'s characters and clusters sorted and once, white space
 /// left out, as the console asks the helper for them.
-#[cfg(feature = "bidi")]
 pub fn settle(all: &mut [Shown]) {
     for shown in all {
         shown.chars.retain(|c| !c.is_whitespace());
@@ -4925,6 +5028,50 @@ mod tests {
         ];
         for doubled in [Doubled::Width, Doubled::Height] {
             let shown = all.iter().find(|s| s.doubled == Some(doubled)).unwrap();
+            for key in &keys {
+                assert!(shown.clusters.contains(key), "{key:?} in {shown:?}");
+            }
+        }
+    }
+
+    // A row of history above the screen, which the spare lines above the
+    // grid and the overscan draw, asks for its glyphs as a row of the
+    // screen does: salam scrolled off the screen asks for its joined
+    // letters and its lam-alef ligature, which no row of the screen uses,
+    // and so does a line of double width above the screen at its size
+    //
+    // References:
+    // - ADR-1310 D2 and D10: the rows above the screen the frame holds.
+    // - ADR-1004 D6: the keys of joined letters and of the lam-alef
+    //   ligature.
+    #[cfg(all(feature = "bidi", feature = "scroll-pan"))]
+    #[test]
+    fn a_row_of_history_above_the_screen_asks_for_its_glyphs() {
+        const ZWJ: char = '\u{200d}';
+        let (seen, lam, alef) = ('\u{633}', '\u{644}', '\u{627}');
+        let mut t = vtium_term::Terminal::new(10, 2, 1000);
+        t.screen_mut().set_scrollback_max(100);
+        t.input("\x1b#6سلام\r\nسلام\r\nab\r\ncd".as_bytes());
+        let palette = t.palette().clone();
+        let reach = vtium_term::Reach {
+            above: 2,
+            ..vtium_term::Reach::default()
+        };
+        let frame = t
+            .screen()
+            .frame_reaching(&palette, vtium_term::Age::NEVER, reach);
+        assert_eq!(frame.rows_above(), 2, "both lines of salam lie above");
+        let mut all = vec![Shown::default()];
+        read_shown(&frame, &mut all, false);
+        settle(&mut all);
+        let keys = [
+            vec![seen, ZWJ],
+            vec![ZWJ, lam, ZWJ],
+            vec![ZWJ, alef],
+            vec![ZWJ, lam, alef],
+        ];
+        for doubled in [None, Some(Doubled::Width)] {
+            let shown = all.iter().find(|s| s.doubled == doubled).unwrap();
             for key in &keys {
                 assert!(shown.clusters.contains(key), "{key:?} in {shown:?}");
             }

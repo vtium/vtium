@@ -206,17 +206,21 @@ impl App {
             view.pointer = crate::pointer::Pointer::software();
         }
         let key = (node.to_owned(), id);
+        // taken before the display joins, so the layout logs the lines of
+        // the displays it moves, and the new display's line follows below
+        let before = self.layout_of(h);
         if let Some(head) = self.heads.get_mut(h) {
             head.views.insert(key.clone(), view);
         }
         #[cfg(feature = "filters")]
         self.give_colors(h, &key);
-        if !self.relayout(h) {
+        if !self.lay_out(h) {
             if let Some(head) = self.heads.get_mut(h) {
                 head.drop_views(|k| *k == key);
             }
             return;
         }
+        self.layout_moved(h, &before);
         // Lit once it draws, so the focus never starts on a head whose
         // display could not be set up.
         if !self.focus_settled {
@@ -241,11 +245,24 @@ impl App {
         }
     }
 
+    /// Lays head `h` out again, as [`App::lay_out`] does, and then logs the
+    /// display line again for each display the layout moved to another
+    /// grid, cell or orientation ([`App::layout_moved`]). A turn, a new
+    /// mode after a VT switch or a modeset, a display that comes or goes, a
+    /// console that opens, and a change of font or size all lay the head
+    /// out here. Returns what [`App::lay_out`] returns.
+    pub(super) fn relayout(&mut self, h: usize) -> bool {
+        let before = self.layout_of(h);
+        let laid = self.lay_out(h);
+        self.layout_moved(h, &before);
+        laid
+    }
+
     /// Sets each of head `h`'s displays' font and its grid from the base
     /// height, as [`layout::layout`] decides, and its terminal and its pty
     /// at the grid. Returns false, changing nothing, when the base font
     /// cannot be found.
-    pub(super) fn relayout(&mut self, h: usize) -> bool {
+    fn lay_out(&mut self, h: usize) -> bool {
         if self.heads.get(h).is_none_or(|head| head.views.is_empty()) {
             // nothing to lay out, but a switch still changed the font
             let locale = self.locale.as_str();

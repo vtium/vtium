@@ -181,7 +181,7 @@ impl Term {
     /// its frames to hold. The count goes down when the view that asked for
     /// the most goes away or asks for fewer.
     #[cfg(feature = "scroll-pan")]
-    fn rows_above(&self) -> usize {
+    pub(crate) fn rows_above(&self) -> usize {
         self.asks
             .iter()
             .filter_map(std::rc::Weak::upgrade)

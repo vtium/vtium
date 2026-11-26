@@ -2143,6 +2143,111 @@ fn a_display_whose_refresh_rate_changes_in_place_paces_at_its_new_rate() {
     );
 }
 
+/// The display lines among `lines`, each as the display's name and the
+/// character cell its line names, such as `("MEM-1", "8x16")`.
+fn display_cells(lines: &[String]) -> Vec<(String, String)> {
+    lines
+        .iter()
+        .filter_map(|l| {
+            let (name, _) = l.strip_prefix("Display ")?.split_once(' ')?;
+            let (_, cell) = l.rsplit_once("cell size ")?;
+            Some((name.to_owned(), cell.to_owned()))
+        })
+        .collect()
+}
+
+/// A display line for the display `name` that names `cell`, as
+/// [`display_cells`] reads it.
+fn cell_line(name: &str, (w, h): (u32, u32)) -> (String, String) {
+    (name.to_owned(), format!("{w}x{h}"))
+}
+
+/// A display whose mode changes in place, as after a VT switch whose
+/// set-up falls back to another mode, logs its display line again once its
+/// head is laid out at the new size, so the log says how the display draws
+/// after the change.
+#[test]
+fn a_display_whose_mode_changes_in_place_logs_its_display_line_again() {
+    logged();
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(BOUND, |a| shows(a, "ready")), "the session runs");
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0),
+        "the display draws"
+    );
+    assert_eq!(display_cells(&logged()), [cell_line("MEM-1", (8, 16))]);
+    let frames = s.memory("/dev/mem0").frames;
+    s.memory("/dev/mem0").set_mode(640, 320);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the display draws again after its mode changed"
+    );
+    assert_eq!(s.app.grid(), (80, 20), "the grid fills the new size");
+    assert_eq!(display_cells(&logged()), [cell_line("MEM-1", (8, 16))]);
+}
+
+/// A turn of the display lays its head out on a new grid, and vtium logs
+/// the display line again in the same turn.
+#[test]
+fn a_turn_of_the_display_logs_its_display_line_again() {
+    logged();
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(BOUND, |a| shows(a, "ready")), "the session runs");
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0),
+        "the display draws"
+    );
+    assert_eq!(display_cells(&logged()).len(), 1, "the start's line");
+    // Logo+= turns the display a quarter: 160 across, 320 down
+    let turn = InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        unshifted: 0,
+        shifted: 0,
+        base: None,
+        mods: Mods::LOGO,
+        keysyms: vec![0x3d],
+        codepoints: vec![None],
+        repeat: false,
+    });
+    s.app.input_event(turn, now());
+    assert_eq!(s.app.grid(), (20, 20), "the turned grid");
+    assert_eq!(display_cells(&logged()), [cell_line("MEM-1", (8, 16))]);
+}
+
+/// When one of a head's two displays goes, the head is laid out again on
+/// the display that stays, and vtium logs that display's line again with
+/// the cell it draws in now. When the display comes back, both displays
+/// log their lines: the one that joins and the one whose layout it moves.
+#[test]
+fn a_display_that_goes_or_comes_logs_the_line_of_the_display_it_moves() {
+    logged();
+    let mut s = Seat::boot(&[], two_displays(), MODE_SCRIPT);
+    assert!(s.until(BOUND, |a| shows(a, "ready")), "the session runs");
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0));
+    assert!(s.until_memory("/dev/mem1", BOUND, |m| m.frames > 0));
+    assert_eq!(display_cells(&logged()).len(), 2, "the start's lines");
+    let grid = s.app.grid();
+    s.unplug("/dev/mem0", now());
+    assert_ne!(s.app.grid(), grid, "the layout of the display that stays");
+    let cells = s.app.cells();
+    assert_eq!(cells.len(), 1, "{cells:?}");
+    assert_eq!(display_cells(&logged()), [cell_line("MEM-2", cells[0])]);
+    s.plug("/dev/mem0", now());
+    assert_eq!(s.app.grid(), grid, "the layout of both displays");
+    let mut lines = display_cells(&logged());
+    lines.sort();
+    let mut cells = s.app.cells();
+    assert_eq!(cells.len(), 2, "{cells:?}");
+    cells.sort_by_key(|&(w, _)| w);
+    assert_eq!(
+        lines,
+        [cell_line("MEM-1", cells[0]), cell_line("MEM-2", cells[1])]
+    );
+}
+
 /// vtium/vtium#208: a frame composing at the old size while the display's
 /// mode changes is dropped when it comes back, and does not bring the old
 /// renderer back: the frames after it draw the whole new width.
@@ -8244,7 +8349,10 @@ mod gpu_path {
         let before = gpu.set_ups.lock().unwrap().len();
         *gpu.widest.lock().unwrap() = Some(400);
         s.memory("/dev/mem1").set_mode(640, 320);
-        let lines = lines_until(&mut s, |l| renderers(l).len() == 2);
+        // the new mode moves the display to a cell twice the size, and its
+        // line names the GPU path, which draws the head until the set-up at
+        // the new size fails; the head's lines on the CPU path follow
+        let lines = lines_until(&mut s, |l| renderers(l).len() == 3);
         let refused: Vec<&String> = lines
             .iter()
             .filter(|l| l.contains("the GPU path cannot set it up"))
@@ -8254,7 +8362,7 @@ mod gpu_path {
             refused[0].starts_with("display MEM-2: the GPU path cannot set it up at 640x320"),
             "{lines:#?}"
         );
-        assert_eq!(renderers(&lines), ["cpu", "cpu"], "{lines:#?}");
+        assert_eq!(renderers(&lines), ["gpu", "cpu", "cpu"], "{lines:#?}");
         // the head's frames are the CPU path's, and the set-up is not tried
         // again at that size
         let (drawn, tries) = (gpu.drawn.load(SeqCst), gpu.set_ups.lock().unwrap().len());
@@ -8265,8 +8373,11 @@ mod gpu_path {
         assert_eq!(renderers(&logged()), Vec::<&str>::new());
         // a size the GPU path sets up puts the head back on it
         s.memory("/dev/mem1").set_mode(320, 160);
-        let lines = lines_until(&mut s, |l| renderers(l).len() == 2);
-        assert_eq!(renderers(&lines), ["gpu", "gpu"], "{lines:#?}");
+        // the display's line at its old cell names the CPU path, which
+        // draws the head until the set-up succeeds; the head's lines on the
+        // GPU path follow
+        let lines = lines_until(&mut s, |l| renderers(l).len() == 3);
+        assert_eq!(renderers(&lines), ["cpu", "gpu", "gpu"], "{lines:#?}");
         assert!(
             lines.iter().any(|l| l.contains("it draws on the GPU path")),
             "{lines:#?}"
@@ -8290,9 +8401,9 @@ mod gpu_path {
             .unwrap()
             .extend([SetUpFault::Limit, SetUpFault::OutOfMemory]);
         s.memory("/dev/mem1").set_mode(640, 320);
-        let _ = lines_until(&mut s, |l| renderers(l).len() == 2);
+        let _ = lines_until(&mut s, |l| renderers(l).len() == 3);
         s.memory("/dev/mem1").set_mode(400, 200);
-        let mut lines = lines_until(&mut s, |l| renderers(l).len() == 2);
+        let mut lines = lines_until(&mut s, |l| renderers(l).len() == 3);
         draw_both(&mut s, "a");
         lines.extend(logged());
         assert_eq!(count_of(&lines, "the GPU path failed"), 1, "{lines:#?}");
@@ -8301,7 +8412,9 @@ mod gpu_path {
             0,
             "{lines:#?}"
         );
-        assert_eq!(renderers(&lines), ["cpu", "cpu"], "{lines:#?}");
+        // the display's line at its new cell, then the head's lines after
+        // the GPU path failed
+        assert_eq!(renderers(&lines), ["cpu", "cpu", "cpu"], "{lines:#?}");
     }
 
     // A display refused at one size and again at its next keeps its head on
@@ -8315,7 +8428,7 @@ mod gpu_path {
             .unwrap()
             .extend([SetUpFault::Limit, SetUpFault::Compile]);
         s.memory("/dev/mem1").set_mode(640, 320);
-        let _ = lines_until(&mut s, |l| renderers(l).len() == 2);
+        let _ = lines_until(&mut s, |l| renderers(l).len() == 3);
         let drawn = gpu.drawn.load(SeqCst);
         s.memory("/dev/mem1").set_mode(400, 200);
         let mut lines = lines_until(&mut s, |l| count_of(l, "cannot set it up") == 1);
@@ -8343,9 +8456,9 @@ mod gpu_path {
         let mut lines = Vec::new();
         for _ in 0..3 {
             s.memory("/dev/mem1").set_mode(640, 320);
-            lines.extend(lines_until(&mut s, |l| renderers(l).len() == 2));
+            lines.extend(lines_until(&mut s, |l| renderers(l).len() == 3));
             s.memory("/dev/mem1").set_mode(320, 160);
-            lines.extend(lines_until(&mut s, |l| renderers(l).len() == 2));
+            lines.extend(lines_until(&mut s, |l| renderers(l).len() == 3));
         }
         assert_eq!(count_of(&lines, "cannot set it up"), 3, "{lines:#?}");
         assert_eq!(
@@ -8373,7 +8486,16 @@ mod gpu_path {
             0,
             "{lines:#?}"
         );
-        assert!(!renderers(&lines).contains(&"gpu"), "{lines:#?}");
+        // the display's line at its new cell names the GPU path, which
+        // draws the head until the set-up fails, and no line after the
+        // failure names it
+        let after: Vec<String> = lines
+            .iter()
+            .skip_while(|l| !l.contains("the GPU path failed"))
+            .cloned()
+            .collect();
+        assert_eq!(renderers(&lines[..1]), ["gpu"], "{lines:#?}");
+        assert!(!renderers(&after).contains(&"gpu"), "{lines:#?}");
         assert_eq!(gpu.drawn.load(SeqCst), drawn, "a frame on the GPU path");
     }
 
@@ -8385,8 +8507,8 @@ mod gpu_path {
             .unwrap()
             .push_back(SetUpFault::Compile);
         s.memory("/dev/mem1").set_mode(640, 320);
-        let lines = lines_until(&mut s, |l| renderers(l).len() == 2);
-        assert_eq!(renderers(&lines), ["cpu", "cpu"], "{lines:#?}");
+        let lines = lines_until(&mut s, |l| renderers(l).len() == 3);
+        assert_eq!(renderers(&lines), ["gpu", "cpu", "cpu"], "{lines:#?}");
         let drawn = gpu.drawn.load(SeqCst);
         s.unplug("/dev/mem1", now());
         let frames = s.memory("/dev/mem0").frames;

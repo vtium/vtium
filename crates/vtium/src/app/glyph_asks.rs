@@ -474,7 +474,7 @@ impl App {
                 if let Some(head) = self.heads.get_mut(h) {
                     head.refont = true;
                 }
-                self.relayout_font(h);
+                self.relayout(h);
             }
         }
     }
@@ -539,7 +539,7 @@ impl App {
             head.font = Some(fresh);
             head.refont = true;
             self.share(h);
-            self.relayout_font(h);
+            self.relayout(h);
         }
     }
 
