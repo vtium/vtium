@@ -139,8 +139,24 @@ mod tests {
             rustix::net::send(&theirs, b"x", SendFlags::DONTWAIT | SendFlags::NOSIGNAL).is_err(),
             "the drawer's end sends to the root process"
         );
-        // once the drawer has closed its end, the relay ends
+        // Once the drawer has closed its end, the relay ends. A child that
+        // another test forks holds a copy of each descriptor until it
+        // execs, so the test waits, for at most 10 s, until the close has
+        // reached the root process's end, which then polls hung up.
         drop(theirs);
+        let mut fds = [rustix::event::PollFd::new(
+            &relay.ours,
+            rustix::event::PollFlags::empty(),
+        )];
+        let bound = rustix::event::Timespec {
+            tv_sec: 10,
+            tv_nsec: 0,
+        };
+        assert_eq!(
+            rustix::event::poll(&mut fds, Some(&bound)).unwrap(),
+            1,
+            "the drawer's end stays open"
+        );
         log(&kmsg, b"4,2,0,-;two\n");
         assert!(!pass_on(relay.kmsg.as_fd(), relay.ours.as_fd()));
     }
