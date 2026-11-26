@@ -1,0 +1,55 @@
+kind how-do-i
+title How do I save my changes when I quit, and install the draft from the command line?
+intro vtium-config keeps your changes in a draft. When you quit with changes not saved, it asks whether to save them first. You can install the saved draft later with `vtium-config install`.
+see looks/make-a-look-and-use-it-on-the-console
+
+# The machine: vtium runs one head, console, on VT 5, in the built-in
+# font. The font set mono draws the bitmap font mono.bdf, which is
+# installed and active.
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+draft from-installed
+
+1. Go to the Looks tab.
+2. Choose New look.
+3. Erase the name.
+4. Type big.
+5. Press Enter.
+6. Set Font set to mono.
+7. Choose Size.
+8. Choose 24 pt.
+9. Set Color scheme to vga.
+10. Press Esc.
+11. Go to the Flow tab.
+12. Choose console.
+13. Set Look to big.
+14. Press Esc.
+check screen shows "look big"
+
+15. Press q to quit.
+note vtium-config asks whether to save the changes first.
+16. Press y to save and quit.
+at the end of vtium-config
+check exited 0
+check draft head console look big
+check draft look big font-name mono
+check draft look big font-size 24
+check draft look big palette vga
+
+17. Run `vtium-config install`.
+at the install
+check installed head console font-name mono
+check installed head console font-size 24
+check installed head console palette vga
+18. Restart vtium.
+check console draws mono
+check console cell 16x32
+check console palette vga

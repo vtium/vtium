@@ -1,0 +1,21 @@
+kind check-if
+title Check if activating a font file would change anything.
+intro `vtium-config activate --dry-run` says what `vtium-config activate` would add to the draft's active fonts, and saves nothing.
+see fonts/use-a-font-file-that-is-not-active
+waits-for audit 11: `activate --dry-run` prints what `activate` prints
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+font fonts/wide.bdf 10x20
+
+1. Press q to quit.
+2. Run `vtium-config activate ROOT/fonts/wide.bdf --dry-run`.
+at the dry run
+check said shows "wide.bdf"
+check said shows "nothing was saved"

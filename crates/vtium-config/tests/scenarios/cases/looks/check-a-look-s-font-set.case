@@ -1,0 +1,28 @@
+kind check-if
+title Check if a look uses the font set you expect.
+intro A look's card shows its font set, and Enter on the Font set line lists the font sets with the look's own ticked. Picking the ticked one again changes nothing.
+see looks/change-the-font-set-of-a-look
+waits-for audit 1: a pick that changes nothing counts as a change not saved
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [look plain]
+    font-name = mono
+    [head console]
+    vt = 5
+    look = plain
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Go to the Looks tab.
+2. Choose plain.
+3. Choose Font set.
+4. Choose mono.
+5. Press Esc.
+at the Looks tab
+check screen lacks "not saved"
+check screen lacks "look set plain --frit mono"

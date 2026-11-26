@@ -1,4 +1,7 @@
-title Choose a font set for a look in its card and leave the card with Esc: the card said beforehand that Esc keeps the change, and the saved draft holds the font set.
+kind how-do-i
+title How do I change the font set of a look?
+intro A look's card lists its font set, size and color scheme. You change one on the card, and Esc keeps the change for Save.
+see looks/make-a-look-and-use-it-on-the-console
 waits-for CF1 item 6: Esc saves the look, and the screen does not say so
 
 file etc/vtium.conf
@@ -15,14 +18,14 @@ font fonts/mono.bdf 8x16
 frit mono
     source=bdf:ROOT/fonts/mono.bdf
 
-# The Looks tab: Enter opens the look plain's card, and its Font set
-# line's choices; Down and Enter pick mono.
-press 3 Enter Down Enter
-at the font set's choices
-press Down Enter
+1. Go to the Looks tab.
+2. Choose plain.
+3. Choose Font set.
+4. Choose mono.
 at the card, before Esc
 check screen shows "Esc keeps the changes"
 check screen lacks "Esc back"
-press Esc s
+5. Press Esc.
+6. Press s to save.
 at the save
 check draft look plain font-name mono

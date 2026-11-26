@@ -1,0 +1,44 @@
+kind how-do-i
+title How do I try a whole look on the console before I install it?
+intro The live trial shows a look on the console for a few seconds: its font set, its size and its color scheme. A size can only be tried when the console lets programs resize its grid.
+see looks/make-a-look-and-use-it-on-the-console
+waits-for CF1 item 2: the live trial carries only the font set's name
+
+# The console lets programs resize its grid, which is how vtium-config
+# tries a size.
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    allow-window-ops = on
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Go to the Looks tab.
+2. Choose New look.
+3. Erase the name.
+4. Type big.
+5. Press Enter.
+6. Set Font set to mono.
+7. Choose Size.
+8. Choose 24 pt.
+9. Set Color scheme to vga.
+10. Press Esc.
+11. Press t to try live.
+note The console shows mono at 24 pt, 32 pixels high, in the color scheme vga.
+at the trial
+check console received "\e]50;mono"
+check console draws mono
+check console palette vga
+check console grid 50x15
+
+12. Press Esc.
+note Any key but k puts the console back as it was.
+at the end of the trial
+check console draws unifont
+check console palette legacy
+check console grid 100x30

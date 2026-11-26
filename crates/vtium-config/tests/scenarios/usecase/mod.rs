@@ -1,6 +1,8 @@
 //! The use cases: one file for each task a person does in vtium-config,
-//! under `cases/`, run from its first key to its end. The README beside
-//! this module says how a case file reads.
+//! under `cases/`, in one folder for each type of task. Each case is a
+//! how-to in the person's words, run from its first step to its end, and
+//! `steps.rs` follows each step through what the screen shows. The README
+//! beside this module says how a case file reads.
 //!
 //! Each case runs the TUI's state machine on the real desk, vtium-config's
 //! own store, over a machine of the case's own: a temporary folder that
@@ -19,6 +21,7 @@
 //! fails once the case passes, so the line comes out with the fix.
 
 mod console;
+mod steps;
 
 use std::path::PathBuf;
 
@@ -27,6 +30,7 @@ use vtium_config::tui::input::{Input, Key};
 use vtium_config::tui::model::{App, Effect, Event, View};
 
 use console::{Console, Drawn, Places};
+use steps::Step;
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
@@ -38,35 +42,56 @@ fn cases_dir() -> PathBuf {
 /// One case as its file reads.
 #[derive(Debug, Default)]
 struct Case {
+    /// The case's folder and file name, such as `looks/make-a-look`.
     name: String,
+    /// The folder, the type of task the case is: `looks`, `fonts`.
+    folder: String,
+    kind: Kind,
+    /// The task in the person's words: "How do I make a new look?".
     title: String,
     /// The defect the case waits for, which makes it fail today.
     waits: Option<String>,
     grid: (usize, usize),
-    view: Option<View>,
     head: String,
     /// Files of the machine, by their path under the root, `ROOT` in
     /// their text being the root's path.
     files: Vec<(String, String)>,
     /// Bitmap fonts the runner writes, by path, with their cell.
     fonts: Vec<(String, (u32, u32))>,
+    /// The displays and input devices connected to the machine.
+    devices: Vec<Device>,
     /// The draft's text, or `None` for a draft made from the installed
     /// file.
     draft: Option<String>,
-    steps: Vec<(usize, Step)>,
+    steps: Vec<(usize, Line)>,
 }
 
+/// The three kinds of task a case can be.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// "How do I …?": the steps of a task.
+    #[default]
+    HowDoI,
+    /// "I want to …": a goal, and the steps that reach it.
+    IWantTo,
+    /// "Check if …": a lookup that changes nothing, which the runner
+    /// checks at the end.
+    CheckIf,
+}
+
+/// A display or an input device a case connects.
 #[derive(Debug, Clone)]
-enum Step {
-    Press(Vec<String>),
-    Type(String),
-    /// Ticks of the live trial's countdown.
-    Wait(usize),
-    /// The person restarts vtium on the console's head.
-    Restart,
-    /// The person runs vtium-config on the command line with these
-    /// words after the machine's options, such as `install`.
-    Command(Vec<String>),
+struct Device {
+    /// A display's connector, or an input's name.
+    name: String,
+    identity: vtium_settings::Identity,
+}
+
+/// One line of a case's steps and checks, in order.
+#[derive(Debug, Clone)]
+enum Line {
+    /// A numbered step, with its number and its sentence.
+    Step(usize, String, Step),
     /// A name for the checks that follow, which their failures carry.
     At(String),
     Check(Check),
@@ -106,6 +131,16 @@ enum Check {
         text: String,
     },
     Exited(String),
+    /// Where vtium puts a device under the file's rules: the head it
+    /// reaches, or `roams`, `ignored` or `off`.
+    Reaches {
+        file: Which,
+        device: String,
+        place: String,
+    },
+    /// The draft, the installed files and the console are as they were
+    /// at the start.
+    Unchanged,
 }
 
 #[derive(Debug, Clone)]
@@ -133,6 +168,7 @@ fn quoted(s: &str) -> Result<String, String> {
 fn parse(name: &str, text: &str) -> Result<Case, String> {
     let mut case = Case {
         name: name.to_owned(),
+        folder: name.split('/').next().unwrap_or_default().to_owned(),
         grid: (100, 30),
         head: "console".to_owned(),
         ..Case::default()
@@ -144,6 +180,8 @@ fn parse(name: &str, text: &str) -> Result<Case, String> {
         Draft,
     }
     let mut block = Block::None;
+    let mut kind = None;
+    let mut number = 0usize;
     for (n, line) in text.lines().enumerate() {
         let n = n + 1;
         let fail = |why: &str| format!("{name}:{n}: {why}");
@@ -167,10 +205,34 @@ fn parse(name: &str, text: &str) -> Result<Case, String> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
+        // a numbered step: "3. Choose New look."
+        if let Some((num, sentence)) = line.split_once(". ")
+            && let Ok(num) = num.parse::<usize>()
+        {
+            number += 1;
+            if num != number {
+                return Err(fail(&format!("step {num} should be step {number}")));
+            }
+            let step = steps::parse(sentence.trim()).map_err(|e| fail(&e))?;
+            case.steps
+                .push((n, Line::Step(num, sentence.trim().to_owned(), step)));
+            continue;
+        }
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let rest = rest.trim();
         match verb {
+            "kind" => {
+                kind = Some(match rest {
+                    "how-do-i" => Kind::HowDoI,
+                    "i-want-to" => Kind::IWantTo,
+                    "check-if" => Kind::CheckIf,
+                    _ => return Err(fail("kind how-do-i, i-want-to or check-if")),
+                })
+            }
             "title" => case.title = rest.to_owned(),
+            // the help's prose, which the runner does not follow
+            "intro" | "note" => {}
+            "see" => see(rest).map_err(|e| fail(&e))?,
             "waits-for" => case.waits = Some(rest.to_owned()),
             "terminal" => {
                 let (c, r) = rest
@@ -182,17 +244,6 @@ fn parse(name: &str, text: &str) -> Result<Case, String> {
                 );
             }
             "head" => case.head = rest.to_owned(),
-            "view" => {
-                case.view = Some(match rest {
-                    "flow" => View::Flow,
-                    "effects" => View::Effects,
-                    "looks" => View::Looks,
-                    "fonts" => View::Fonts,
-                    "settings" => View::Settings,
-                    "help" => View::Help,
-                    _ => return Err(fail("an unknown view")),
-                })
-            }
             "file" => {
                 case.files.push((rest.to_owned(), String::new()));
                 block = Block::File(case.files.len() - 1);
@@ -213,39 +264,103 @@ fn parse(name: &str, text: &str) -> Result<Case, String> {
                     ),
                 ));
             }
+            "device" => case.devices.push(device(rest).map_err(|e| fail(&e))?),
             "draft" => {
                 if rest != "from-installed" {
                     case.draft = Some(String::new());
                     block = Block::Draft;
                 }
             }
-            "press" => case.steps.push((
-                n,
-                Step::Press(rest.split_whitespace().map(str::to_owned).collect()),
-            )),
-            "type" => case
-                .steps
-                .push((n, Step::Type(quoted(rest).map_err(|e| fail(&e))?))),
-            "wait" => case
-                .steps
-                .push((n, Step::Wait(rest.parse().map_err(|_| fail("wait TICKS"))?))),
-            "restart" => case.steps.push((n, Step::Restart)),
-            "command" => case.steps.push((
-                n,
-                Step::Command(rest.split_whitespace().map(str::to_owned).collect()),
-            )),
-            "at" => case.steps.push((n, Step::At(rest.to_owned()))),
+            "at" => case.steps.push((n, Line::At(rest.to_owned()))),
             "check" => {
                 let check = parse_check(rest).map_err(|e| fail(&e))?;
-                case.steps.push((n, Step::Check(check)));
+                case.steps.push((n, Line::Check(check)));
             }
             _ => return Err(fail(&format!("an unknown line {verb}"))),
         }
     }
-    if case.title.is_empty() {
-        return Err(format!("{name}: a case needs a title line"));
+    case.kind = kind.ok_or_else(|| format!("{name}: a case needs a kind line"))?;
+    let opening = match case.kind {
+        Kind::HowDoI => "How do I ",
+        Kind::IWantTo => "I want to ",
+        Kind::CheckIf => "Check if ",
+    };
+    if !case.title.starts_with(opening) {
+        return Err(format!("{name}: the title of this kind starts {opening:?}"));
+    }
+    if number == 0 {
+        return Err(format!("{name}: a case needs numbered steps"));
     }
     Ok(case)
+}
+
+/// Checks a `see` line's target: another case, by its path under
+/// `cases/` without `.case`, or a page of the repository, by its path.
+fn see(target: &str) -> Result<(), String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let path = if target.ends_with(".md") {
+        manifest.join("../..").join(target)
+    } else {
+        cases_dir().join(format!("{target}.case"))
+    };
+    if path.exists() {
+        Ok(())
+    } else {
+        Err(format!("see {target}: no such case or page"))
+    }
+}
+
+/// A `device` line: `display CONNECTOR [MAKER:PRODUCT:SERIAL]`, or `keyboard VENDOR:PRODUCT NAME`
+/// or `mouse VENDOR:PRODUCT NAME`.
+fn device(rest: &str) -> Result<Device, String> {
+    use vtium_settings::{Class, Identity};
+    let (kind, rest) = rest.split_once(' ').ok_or("device KIND ...")?;
+    if kind == "display" {
+        let mut words = rest.split_whitespace();
+        let connector = words.next().ok_or("device display CONNECTOR")?;
+        let mut identity = Identity::display();
+        identity.connector = Some(connector.to_owned());
+        // the monitor's EDID: MAKER:PRODUCT:SERIAL, the product in hex
+        if let Some(edid) = words.next() {
+            let mut parts = edid.splitn(3, ':');
+            let (Some(maker), Some(product), Some(serial)) =
+                (parts.next(), parts.next(), parts.next())
+            else {
+                return Err("an EDID reads MAKER:PRODUCT:SERIAL".to_owned());
+            };
+            let product = product.trim_start_matches("0x");
+            identity.edid = Some(vtium_settings::Edid {
+                maker: maker.to_owned(),
+                product: u16::from_str_radix(product, 16)
+                    .map_err(|_| format!("{product} is not hex"))?,
+                serial: serial.to_owned(),
+            });
+        }
+        return Ok(Device {
+            name: connector.to_owned(),
+            identity,
+        });
+    }
+    let class = match kind {
+        "keyboard" => Class::Keyboard,
+        "mouse" => Class::Mouse,
+        _ => return Err(format!("{kind} is not display, keyboard or mouse")),
+    };
+    let (id, name) = rest
+        .split_once(' ')
+        .ok_or("device KIND VENDOR:PRODUCT NAME")?;
+    let (v, p) = id.split_once(':').ok_or("VENDOR:PRODUCT")?;
+    let hex = |s: &str| u16::from_str_radix(s, 16).map_err(|_| format!("{s} is not hex"));
+    let mut identity = Identity::input().with_class(class);
+    if class == Class::Keyboard {
+        identity = identity.with_class(Class::Key);
+    }
+    identity.id = Some((hex(v)?, hex(p)?));
+    identity.name = Some(name.to_owned());
+    Ok(Device {
+        name: name.to_owned(),
+        identity,
+    })
 }
 
 fn parse_check(rest: &str) -> Result<Check, String> {
@@ -309,6 +424,20 @@ fn parse_check(rest: &str) -> Result<Check, String> {
             value: (*value).to_owned(),
         },
         ["exited", status] => Check::Exited((*status).to_owned()),
+        [f, kind @ ("display" | "input"), ..] => {
+            // the device's name may have spaces: the words up to "reaches"
+            let at = words
+                .iter()
+                .position(|w| *w == "reaches")
+                .ok_or("display|input NAME reaches PLACE")?;
+            let _ = kind;
+            Check::Reaches {
+                file: file(f)?,
+                device: words[2..at].join(" "),
+                place: words[at + 1..].join(" "),
+            }
+        }
+        ["nothing", "changed"] => Check::Unchanged,
         _ => return Err(format!("an unknown check {rest}")),
     })
 }
@@ -478,6 +607,36 @@ impl Machine {
         said
     }
 
+    /// What the Effects tab lists from the machine's folders: the
+    /// vtlooks under `etc/looks` and the person's own under the home's
+    /// configuration, each color map and shader active when batch.conf
+    /// lists it.
+    fn effects(&self) -> vtium_config::tui::effects_found::Effects {
+        use vtium_config::batch::State;
+        let folders = vtium_config::tui::effects_found::Folders {
+            presets: self.root.join("usr/share/vtium/looks"),
+            looks: self.root.join("etc/looks"),
+            shaders: vec![self.root.join("etc/shaders")],
+            own_looks: Some(self.root.join("home/config/vtium/looks")),
+            own_shaders: Some(self.root.join("home/config/vtium/shaders")),
+        };
+        let batch = std::fs::read_to_string(self.root.join("etc/batch.conf")).unwrap_or_default();
+        let state = |p: &std::path::Path| {
+            if batch.lines().any(|l| std::path::Path::new(l.trim()) == p) {
+                State::Active
+            } else {
+                State::Inactive
+            }
+        };
+        let euid = rustix::process::geteuid().as_raw();
+        vtium_config::tui::effects_found::find(
+            &folders,
+            &vtium_settings::Trust::running_as(euid),
+            &state,
+            &|p| vtium_config::batch::trusted(p, euid),
+        )
+    }
+
     fn installed(&self) -> String {
         std::fs::read_to_string(self.root.join("etc/vtium.conf")).unwrap_or_default()
     }
@@ -502,6 +661,8 @@ struct Run<'a> {
     exited: Option<u8>,
     /// What the privileged step and the step after it printed.
     said: Vec<u8>,
+    /// The devices connected to the machine.
+    devices: Vec<Device>,
 }
 
 /// The most effects one key may cause before the runner calls it a loop.
@@ -642,8 +803,74 @@ impl Run<'_> {
             .join("\n")
     }
 
-    /// Whether `check` holds, or what was found instead.
-    fn check(&self, check: &Check) -> Result<(), String> {
+    /// What a lookup must leave as it was: the saved draft, every file of
+    /// the machine's `etc`, and what the console shows.
+    fn state(&self) -> Vec<(String, String)> {
+        let mut out = vec![("the saved draft".to_owned(), self.machine.draft())];
+        let mut stack = vec![self.machine.root.join("etc")];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in entries.filter_map(Result::ok) {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else {
+                    let rel = p.strip_prefix(&self.machine.root).unwrap_or(&p);
+                    out.push((
+                        rel.display().to_string(),
+                        std::fs::read_to_string(&p).unwrap_or_default(),
+                    ));
+                }
+            }
+        }
+        let c = &self.console;
+        out.push((
+            "the console".to_owned(),
+            format!(
+                "font {} drawn {:?} cell {}x{} palette {} grid {:?}",
+                c.font,
+                c.drawn,
+                c.cell.width,
+                c.cell.height,
+                c.palette(),
+                c.grid
+            ),
+        ));
+        out.sort();
+        out
+    }
+
+    /// Where vtium puts the device `name` under the rules of `text`.
+    fn place(&self, text: &str, name: &str) -> Result<String, String> {
+        use vtium_settings::Place;
+        let config = vtium_settings::parse(text)
+            .map_err(|e| format!("vtium cannot read the file: {e:?}"))?
+            .config;
+        let i = self
+            .devices
+            .iter()
+            .position(|d| d.name == name)
+            .ok_or_else(|| format!("the case connects no device {name:?}"))?;
+        let ids: Vec<_> = self.devices.iter().map(|d| d.identity.clone()).collect();
+        let placement = config.place(&ids, None);
+        Ok(match placement.placed.get(i).map(|p| p.place) {
+            Some(Place::Head(h)) => config
+                .heads
+                .get(h)
+                .map_or_else(|| format!("head {h}"), |h| h.name.clone()),
+            Some(Place::DefaultHead) => "console".to_owned(),
+            Some(Place::Roaming) => "roams".to_owned(),
+            Some(Place::Ignore) => "ignored".to_owned(),
+            Some(Place::Off) => "off".to_owned(),
+            other => format!("{other:?}"),
+        })
+    }
+
+    /// Whether `check` holds, or what was found instead; `start` is the
+    /// state at the case's start.
+    fn check(&self, check: &Check, start: &[(String, String)]) -> Result<(), String> {
         let file = |which: Which| match which {
             Which::Draft => ("the saved draft", self.machine.draft()),
             Which::Installed => ("the installed vtium.conf", self.machine.installed()),
@@ -751,6 +978,36 @@ impl Run<'_> {
                     ));
                 }
             }
+            Check::Reaches {
+                file: which,
+                device,
+                place,
+            } => {
+                let (what, body) = file(*which);
+                let got = self.place(&body, device)?;
+                if got != *place {
+                    return Err(format!(
+                        "under {what}, vtium puts {device} on {got}, not {place}:\n{body}"
+                    ));
+                }
+            }
+            Check::Unchanged => {
+                let now = self.state();
+                let moved: Vec<String> = now
+                    .iter()
+                    .filter(|n| !start.contains(n))
+                    .map(|(what, text)| format!("{what} is now:\n{text}"))
+                    .chain(
+                        start
+                            .iter()
+                            .filter(|(w, _)| !now.iter().any(|(n, _)| n == w))
+                            .map(|(what, _)| format!("{what} is gone")),
+                    )
+                    .collect();
+                if !moved.is_empty() {
+                    return Err(format!("a lookup changed things: {}", moved.join("\n")));
+                }
+            }
             Check::Exited(status) => {
                 let got = self
                     .exited
@@ -786,13 +1043,14 @@ fn run(case: &Case) -> Vec<String> {
         store: store.clone(),
         paths: &paths,
     };
-    let name = session
+    // make gives the new draft's text; the draft's name is mine
+    session
         .make("mine", vtium_config::drafts::From::Installed)
         .expect("the draft mine");
     if let Some(text) = &case.draft {
         store
             .write_draft(
-                &name,
+                "mine",
                 &text.replace("ROOT", &machine.root.to_string_lossy()),
             )
             .expect("the draft's text");
@@ -808,8 +1066,8 @@ fn run(case: &Case) -> Vec<String> {
     inputs.flow = vtium_config::tui::flow::Flow::default();
     inputs.desk = true;
     inputs.head = Some(case.head.clone());
-    inputs.view = case.view.unwrap_or(View::Flow);
-    inputs.effects = Default::default();
+    inputs.view = View::Flow;
+    inputs.effects = machine.effects();
     inputs.font_files = Default::default();
     let (cols, rows) = case.grid;
     // a display whose grid in the built-in font's 8×16 cell is the case's
@@ -829,78 +1087,97 @@ fn run(case: &Case) -> Vec<String> {
         case.grid,
     );
     let (app, first) = App::new(inputs, cols, rows);
+    // the devices the desk reports, as sysfs and udev would on the case's
+    // machine; no udev daemon runs there
+    let present = vtium_config::flowmodel::Present {
+        devices: case.devices.iter().map(|d| d.identity.clone()).collect(),
+        udev: false,
+    };
     let mut run = Run {
         machine: &machine,
         app,
-        desk: Store::new(store, paths.clone(), Box::new(Default::default)),
+        desk: Store::new(store, paths.clone(), Box::new(move || present.clone())),
         console,
         exited: None,
         said: Vec::new(),
+        devices: case.devices.clone(),
     };
     run.answer(first);
+    let start = run.state();
     let show = std::env::var_os("VTIUM_USECASE_SHOW").is_some();
     let mut at = "the start".to_owned();
     let mut failures = Vec::new();
-    for (line, step) in &case.steps {
-        match step {
-            Step::Press(keys) => {
-                for k in keys {
-                    match key(k) {
-                        Ok(k) => run.press(k),
-                        Err(why) => failures.push(format!("{}:{line}: {why}", case.name)),
-                    }
+    let mut lines = case.steps.clone();
+    // a lookup changes nothing, whatever its own checks say
+    if case.kind == Kind::CheckIf {
+        lines.push((0, Line::At("the end, against the start".to_owned())));
+        lines.push((0, Line::Check(Check::Unchanged)));
+    }
+    for (line, entry) in &lines {
+        match entry {
+            Line::Step(num, sentence, step) => {
+                if let Err(why) = run.follow(step) {
+                    failures.push(format!(
+                        "{}:{line}, step {num} {sentence:?}: {why}",
+                        case.name
+                    ));
+                    // the steps after one that cannot be followed mean
+                    // nothing, so the case stops here
+                    break;
+                }
+                if show {
+                    eprintln!(
+                        "--- {}:{line} {num}. {sentence}\n{}\nconsole: font {} drawn {:?} cell {}x{} palette {} grid {:?}",
+                        case.name,
+                        run.screen(),
+                        run.console.font,
+                        run.console.drawn,
+                        run.console.cell.width,
+                        run.console.cell.height,
+                        run.console.palette(),
+                        run.console.grid
+                    );
                 }
             }
-            Step::Type(text) => {
-                for c in text.chars() {
-                    run.press(Key::Char(c));
-                }
-            }
-            Step::Wait(n) => (0..*n).for_each(|_| run.tick()),
-            Step::Restart => run.console.restart(),
-            Step::Command(words) => {
-                let said = machine.command(words);
-                run.said.extend(said.into_bytes());
-            }
-            Step::At(name) => at.clone_from(name),
-            Step::Check(check) => {
-                if let Err(why) = run.check(check) {
+            Line::At(name) => at.clone_from(name),
+            Line::Check(check) => {
+                if let Err(why) = run.check(check, &start) {
                     failures.push(format!("{}:{line}, at {at}: {why}", case.name));
                 }
             }
-        }
-        if show && !matches!(step, Step::Check(_) | Step::At(_)) {
-            eprintln!(
-                "--- {}:{line} {step:?}\n{}\nconsole: font {} drawn {:?} cell {}x{} palette {} grid {:?}",
-                case.name,
-                run.screen(),
-                run.console.font,
-                run.console.drawn,
-                run.console.cell.width,
-                run.console.cell.height,
-                run.console.palette(),
-                run.console.grid
-            );
         }
     }
     failures
 }
 
-/// The cases under `cases/`, by name, or the one `VTIUM_USECASE` names.
+/// The cases under `cases/`, one folder for each type of task, by name,
+/// or the one `VTIUM_USECASE` names.
 fn cases() -> Vec<Case> {
     let only = std::env::var("VTIUM_USECASE").ok();
-    let mut files: Vec<PathBuf> = std::fs::read_dir(cases_dir())
-        .expect("the cases' folder")
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "case"))
-        .collect();
+    let mut files: Vec<PathBuf> = Vec::new();
+    for folder in std::fs::read_dir(cases_dir()).expect("the cases' folder") {
+        let folder = folder.expect("a folder of cases").path();
+        assert!(
+            folder.is_dir(),
+            "{} is not in a folder: each case lives in the folder of its type of task",
+            folder.display()
+        );
+        files.extend(
+            std::fs::read_dir(&folder)
+                .expect("a folder of cases")
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "case")),
+        );
+    }
     files.sort();
     files
         .iter()
         .filter_map(|p| {
-            let name = p.file_stem()?.to_string_lossy().into_owned();
-            if only.as_ref().is_some_and(|o| *o != name) {
+            let stem = p.file_stem()?.to_string_lossy().into_owned();
+            let folder = p.parent()?.file_name()?.to_string_lossy().into_owned();
+            let name = format!("{folder}/{stem}");
+            if only.as_ref().is_some_and(|o| *o != name && *o != stem) {
                 return None;
             }
             let text = std::fs::read_to_string(p).expect("a case file");
@@ -911,12 +1188,17 @@ fn cases() -> Vec<Case> {
 
 /// Every use case: a case with no `waits-for` line passes all its checks,
 /// and a case with one fails at least one, until the defect it names is
-/// fixed. The test prints each case's outcome.
+/// fixed. The test prints each case's outcome, grouped by its folder.
 #[test]
 fn every_use_case_does_what_the_person_asked() {
     let mut wrong = Vec::new();
     let mut table = Vec::new();
+    let mut folder = String::new();
     for case in cases() {
+        if case.folder != folder {
+            folder.clone_from(&case.folder);
+            table.push(format!("{folder}/"));
+        }
         let failures = run(&case);
         let outcome = match (&case.waits, failures.is_empty()) {
             (None, true) => "green".to_owned(),
@@ -938,12 +1220,13 @@ fn every_use_case_does_what_the_person_asked() {
                 "GREEN, but it waits for a fix".to_owned()
             }
         };
-        table.push(format!("{}: {outcome}", case.name));
+        let file = case.name.rsplit('/').next().unwrap_or_default();
+        table.push(format!("  {file}: {outcome}"));
         // an expected-red case lists the first line of each failure, so
         // the report shows what still waits
         if case.waits.is_some() {
             for f in &failures {
-                table.push(format!("    {}", f.lines().next().unwrap_or_default()));
+                table.push(format!("      {}", f.lines().next().unwrap_or_default()));
             }
         }
     }
@@ -955,4 +1238,10 @@ fn every_use_case_does_what_the_person_asked() {
 fn the_case_files_read() {
     let cases = cases();
     assert!(!cases.is_empty());
+    for kind in [Kind::HowDoI, Kind::IWantTo, Kind::CheckIf] {
+        assert!(
+            cases.iter().any(|c| c.kind == kind),
+            "no case of kind {kind:?}"
+        );
+    }
 }

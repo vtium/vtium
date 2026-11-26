@@ -1,4 +1,7 @@
-title Use a font set whose font file is installed but not active, activate the font file on the command line, install, and restart vtium: the console draws the font set only once its font is active.
+kind i-want-to
+title I want to use a font file that is installed but not active.
+intro vtium treats a font file as missing until batch.conf lists it as active. `vtium-config activate` adds the file to the draft's active fonts, and the install writes batch.conf.
+see fonts/try-a-font-set-whose-font-is-not-active
 
 file etc/vtium.conf
     version = 1
@@ -18,11 +21,11 @@ check console font wide
 check console fell-back yes
 check console cell 8x16
 
-press q
-command activate ROOT/fonts/wide.bdf
-command install
+1. Press q to quit.
+2. Run `vtium-config activate ROOT/fonts/wide.bdf`.
+3. Run `vtium-config install`.
 at the install
 check installed has "font-name = wide"
-restart
+4. Restart vtium.
 check console draws wide
 check console cell 10x20

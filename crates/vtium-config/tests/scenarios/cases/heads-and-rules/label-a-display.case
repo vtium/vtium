@@ -1,0 +1,26 @@
+kind how-do-i
+title How do I give a display a label of my own?
+intro A label is a name you give a display or an input device, which the Flow tab shows in place of its connector or its device name. The label waits for Save like any other change.
+see heads-and-rules/show-a-terminal-on-a-display
+waits-for audit 6: "vtium-config wrote it to the draft" while the change still waits for Save
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+device display HDMI-A-1 GSM:0x5b88:LEFT0001
+
+1. Go to the Flow tab.
+2. Choose HDMI-A-1.
+3. Choose Label.
+4. Type Left screen.
+5. Press Enter.
+at the label
+check screen lacks "wrote it to the draft"
+6. Press Esc.
+7. Press s to save.
+check draft has "Left screen"

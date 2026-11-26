@@ -58,36 +58,67 @@ cargo test --release -p vtium-config --test scenarios -- --ignored
 
 ## Use cases
 
-The walk checks each key on its own, and a use case follows one task a person does from its first key to its end. Each use case is a file in `cases/`, named for the task, such as `a-make-a-look-and-install-it.case`. `usecase/mod.rs` runs every file in the folder, with the test `every_use_case_does_what_the_person_asked`.
+The walk checks each key on its own, and a use case follows one task a person does from its first step to its end. Each use case is a how-to, written so that it can become a page of vtium-config's help. `usecase/mod.rs` runs every case with the test `every_use_case_does_what_the_person_asked`, and `usecase/steps.rs` follows each step.
 
-A case runs on the real desk, vtium-config's own store, so Save writes the draft's file and Install installs it. Each case has a machine of its own, a folder under the test target's temporary directory. The folder stands in for `/etc/vtium`, the frits' directory, the font files and the person's home. The install's privileged step runs vtium-config's own binary as `apply DIR` as the user, into that folder, so no case needs sudo or touches the machine's own files. The font helper is vtium-config's binary too, run as `serve`, so the Looks tab learns what each font set lacks the way it does for a person.
+The cases live in `cases/`, in one folder for each type of task. Each file is named for the task in plain words, such as `looks/make-a-look-and-use-it-on-the-console.case`. The runner prints its report folder by folder:
+
+| Folder | The tasks |
+|---|---|
+| `looks/` | Make a look, change it, try it on the console, and see which terminal uses it. |
+| `fonts/` | Try a font set, and make vtium use a font file that is not active. |
+| `effects/` | Give a look a vtlook, the file of filters such as a color tint. |
+| `heads-and-rules/` | Show a terminal on a display, put several displays in one terminal, set up a kiosk, and label a display. |
+| `install-and-restore/` | Save and install the draft, leave without installing, and put back an earlier vtium.conf. |
+
+A case is one of three kinds. A "How do I …?" case walks through the steps of a task. An "I want to …" case starts from a goal, such as using a bigger font on the console. A "Check if …" case looks something up and changes nothing. At the end of such a case, the runner checks that nothing moved. The saved draft, every file under the machine's `etc`, and what the console shows must be as they were at the start.
+
+A case runs on the real desk, vtium-config's own store, so Save writes the draft's file and Install installs it. Each case has a machine of its own, a folder under the test target's temporary directory. The folder stands in for `/etc/vtium`, the frits' directory, the font files and the person's home. The install's privileged step runs vtium-config's own binary as `apply DIR` as the user, into that folder, so no case needs sudo or touches the machine's own files. The font helper is vtium-config's binary too, run as `serve`, so the Looks tab learns what each font set lacks the way it does for a person. The Effects tab lists the vtlooks under the machine's `etc/looks`, and the Flow tab lists the displays and input devices that the case connects.
 
 On the other side of the TUI is a stand-in console, in `usecase/console.rs`, which refuses what vtium refuses. When an OSC 50 switch names a font set, the console loads the set with the font helper's own code, behind the gate of batch.conf's active fonts. A font set whose files are not installed, or are installed but not active, draws nothing, and the console then draws the built-in font. The console follows OSC 4 and OSC 104 for its palette, and the grid request for its size. When a case restarts vtium, the console reads the installed vtium.conf for its head again, through vtium-settings' own reading of a head's keys.
 
-### How a case file reads
+### Steps in the person's words
 
-Each line starts with a word that says what it does. A line that starts with `#` is a comment, and an indented line belongs to the `file`, `frit` or `draft` line above it. In the text of a file, `ROOT` stands for the machine's folder.
+A step is a numbered sentence, such as `2. Choose New look.` The runner follows it through what vtium-config shows. It finds the label on the screen and presses the keys a person would press to reach it. A step that names a label vtium-config does not show fails the case, and the steps after it do not run. A case cannot pass on keys whose labels have changed.
+
+The highlighted line is the one vtium-config draws in reverse video, on any row below the tab bar. In the Flow tab's document, the highlighted box is the one drawn in heavy lines. Down and Up move the highlight through a list or a card, and Right and Left move it from box to box in the Flow tab.
+
+| Step | What the runner does |
+|---|---|
+| `Go to the Looks tab.`, `Start on the Looks tab.` | Finds the tab's name in the tab bar and presses its digit. |
+| `Choose New look.` | Presses the key of the key line's action with that label, or with a label the words begin with, such as `n new`. Otherwise it moves the highlight to the line that begins with the words and presses Enter. |
+| `Highlight mono.` | Moves the highlight to the line or box that begins with the words. |
+| `Set Color scheme to vga.` | Moves the highlight to the line, then presses Right until the line shows the value. On a line of choices marked ● and ○, it then presses Enter to set the one under the highlight. |
+| `Erase the name.` | Presses Backspace until the text being typed is empty. |
+| `Type big.` | Types the words, one character at a time. |
+| `Press y to save and quit.`, `Press y for yes.` | Presses the key once the screen or the key line offers it with that label. `Press Esc.` presses the key alone. |
+| `Wait 5 seconds.` | Lets the live trial's countdown run for five ticks. |
+| ``Run `vtium-config install`.`` | Runs vtium-config on the command line with the machine's folders. |
+| `Restart vtium.` | The person restarts vtium, and the console reads the installed files again. |
+
+### The other lines
+
+Each other line starts with a word that says what it does. A line that starts with `#` is a comment for whoever writes the case. An indented line belongs to the `file`, `frit` or `draft` line above it. In the text of a file and in a command, `ROOT` stands for the machine's folder, which is `/` on a real machine.
 
 | Line | What it does |
 |---|---|
-| `title TEXT` | The task in the person's words, and what they expect to see. Every case has one. |
+| `kind KIND` | `how-do-i`, `i-want-to` or `check-if`. The title must begin "How do I", "I want to" or "Check if" to match. |
+| `title TEXT` | The task in the person's words. |
+| `intro TEXT` | A paragraph of the help page, before the steps. A case can have several. |
+| `note TEXT` | A paragraph of the help page after the step above it, such as what the person sees then. |
+| `see TARGET` | A related page: another case, by its path under `cases/` without `.case`, or a page of the repository ending in `.md`. The runner fails a case whose target does not exist. |
 | `waits-for TEXT` | The defect that makes the case fail today. The runner reports the case as expected-red while a check fails, and the test fails once every check passes, so the line comes out with the fix. |
 | `terminal COLSxROWS` | The size of the terminal, 100×30 unless a case says otherwise. |
 | `head NAME` | The head the console runs, `console` unless a case says otherwise. |
-| `view NAME` | The view the TUI opens in: `flow`, `effects`, `looks`, `fonts`, `settings` or `help`. The Flow view is the default. |
 | `file PATH` | A file of the machine at PATH under its folder, such as `etc/vtium.conf` or `etc/batch.conf`, with the indented lines below as its text. |
 | `frit NAME` | The installed font set NAME, `etc/fonts/NAME.vtfrit`, with the indented lines below as its text. |
 | `font PATH WxH` | A bitmap font of that cell at PATH, which the runner writes in BDF. |
+| `device display CONNECTOR [MAKER:PRODUCT:SERIAL]` | A connected display, with its monitor's EDID if it reports one. No udev daemon runs on the machine, so vtium matches a display only by its EDID. |
+| `device keyboard VENDOR:PRODUCT NAME`, `device mouse VENDOR:PRODUCT NAME` | A connected input device, by its id and its name. |
 | `draft from-installed` | The draft starts as a copy of the installed vtium.conf, as it does without this line. A `draft` line followed by indented lines starts the draft with that text instead. |
-| `press KEYS` | Presses each key in turn: a named key such as `Enter`, `Esc`, `Tab`, `Shift-Tab`, `Up`, `Down`, `Left`, `Right`, `Home`, `End`, `PgUp`, `PgDn`, `Backspace`, `Space` or `Ctrl-C`, or one character such as `q`. |
-| `type "TEXT"` | Types the text, one character at a time. |
-| `wait N` | Lets N seconds of the live trial's countdown pass. |
-| `command WORDS` | Runs vtium-config on the command line with the machine's folders, such as `command install`. |
-| `restart` | The person restarts vtium, and the console reads the installed files again. |
 | `at NAME` | Names the point the checks below belong to, which each failure names. |
 | `check ...` | A check, below. |
 
-The checks:
+The checks say what is true at that point:
 
 | Check | What must hold |
 |---|---|
@@ -96,6 +127,8 @@ The checks:
 | `check draft has "TEXT"`, `check installed lacks "TEXT"` | The saved draft or the installed vtium.conf holds the text, or does not. |
 | `check draft head NAME KEY VALUE` | vtium takes VALUE for KEY on the head NAME when it runs the saved draft. `installed` in place of `draft` reads the installed vtium.conf. The key `look` reads the head's own section. |
 | `check draft look NAME KEY VALUE` | The section `[look NAME]` sets KEY to VALUE. |
+| `check draft display NAME reaches HEAD`, `check draft input NAME reaches HEAD` | Under the file's rules, vtium puts the connected device on the head HEAD, or with `roams`, `ignored` or `off`, it does that with the device. |
+| `check nothing changed` | The saved draft, the machine's `etc` and the console are as they were at the start. Every "Check if" case ends with this check without writing it. |
 | `check console font NAME` | The console was last asked for the font set NAME. |
 | `check console draws NAME` | The console draws the font set NAME, or `built-in` when the set it was asked for draws nothing. |
 | `check console fell-back yes` | The console draws the built-in font in place of the set it was asked for, or with `no`, it does not. |
@@ -106,10 +139,13 @@ The checks:
 
 ### An example
 
-This case, `cases/readme-example.case`, makes a look in the Looks tab, saves it with the quit question, and installs it from the command line:
+This case, `cases/looks/use-a-bigger-font-on-the-console.case`, makes a look in the Looks tab, saves it with the quit question, and installs it from the command line:
 
 ```
-title Make a look with the font set mono at 24 pt, quit with q and save, then install it: the console shows the look.
+kind i-want-to
+title I want to use a bigger font on the console.
+intro A bigger font means a look with a bigger size. This is the example that the scenarios README walks through.
+see looks/make-a-look-and-use-it-on-the-console
 
 file etc/vtium.conf
     version = 1
@@ -122,28 +158,34 @@ font fonts/mono.bdf 8x16
 frit mono
     source=bdf:ROOT/fonts/mono.bdf
 
-# n makes a look, whose name is typed over new-look.
-press 3 n
-press Backspace Backspace Backspace Backspace Backspace Backspace Backspace Backspace
-type "big"
-press Enter Down Right
-press Down Enter End Up Up Enter Esc
-press q
-check screen shows "y save and quit"
-press y
+1. Go to the Looks tab.
+2. Choose New look.
+3. Erase the name.
+4. Type big.
+5. Press Enter.
+6. Set Font set to mono.
+7. Choose Size.
+8. Choose 24 pt.
+9. Press Esc.
+10. Press q to quit.
+11. Press y to save and quit.
 at the end of vtium-config
 check exited 0
 check draft look big font-name mono
 
-command install
-restart
+12. Run `vtium-config install`.
+13. Restart vtium.
 at the restart
 check console draws mono
 check console cell 16x32
 ```
 
-To see the screen and the console after each step while you write a case, run the case alone with `VTIUM_USECASE`:
+While you write a case, you can see the screen and the console after each step. Run the case alone with `VTIUM_USECASE`, which takes the case's file name with or without its folder:
 
 ```sh
-VTIUM_USECASE=a-make-a-look-and-install-it VTIUM_USECASE_SHOW=1 cargo test -p vtium-config --test scenarios every_use_case -- --nocapture
+VTIUM_USECASE=use-a-bigger-font-on-the-console VTIUM_USECASE_SHOW=1 cargo test -p vtium-config --test scenarios every_use_case -- --nocapture
 ```
+
+### What the later runners need
+
+The same case files are meant for a tier 3 runner on a real console in a VM and for vtium-config's help pages. The steps and the checks say what a person does and what is true on the console, so neither depends on this runner. The `device` lines become the VM's virtual displays and keyboards. A `Run` step runs vtium-config in the guest, and `Restart vtium.` restarts the vtium unit. The VM reads the console's font set from the OSC 50 query, its palette from OSC 4 queries, and which device reaches which head from vtium's log.

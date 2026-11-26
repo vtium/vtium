@@ -1,0 +1,36 @@
+kind how-do-i
+title How do I set an effect, such as an amber tint, on a look?
+intro An effect is a vtlook: a file of filters that vtium applies to everything a terminal draws, such as a color tint. A look's card names its vtlook, and the Effects tab lists the vtlooks this machine has.
+see looks/make-a-look-and-use-it-on-the-console
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [look plain]
+    palette = legacy
+    [head console]
+    vt = 5
+    look = plain
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+file etc/looks/amber.vtlook
+    version = 1
+    [color tint]
+    color = 255,176,0
+    amount = 1.0
+    floor = 0.0
+
+1. Go to the Looks tab.
+2. Choose plain.
+3. Set vtlook to amber.
+4. Press Esc.
+5. Press s to save.
+6. Press i to install.
+7. Press y.
+at the install
+check draft look plain vtlook amber
+check installed head console look plain
+check installed look plain vtlook amber
