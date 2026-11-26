@@ -1070,14 +1070,16 @@ fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
 
 /// The terminal's subflow on its card: its look's font set, then the
 /// look, then its displays, left to right, and a grey line under them
-/// about the look's filters and requirements. vtium-config reads no vtlook
-/// file yet, so the look shows by its name, or as the built-in look, and
-/// the grey line says so.
+/// that names the vtlook the look draws, as the Effects tab found it. The
+/// Effects tab lists the vtlook's filters, so the line points there.
 ///
 /// References:
 /// - ADR-1403 D7, "The terminal's subflow: font set and effects": what
 ///   the subflow shows.
-/// - ADR-1304: the vtlook file that chooses the look's filters.
+/// - ADR-1304 D5: the look's vtlook, then the top level's, then the
+///   built-in one.
+/// - ADR-1304 D6: a vtlook that fails puts the terminal on the built-in
+///   vtlook.
 fn subflow(rows: &mut [Row], app: &App, path: &Path, y: usize, bottom: usize) {
     if y.saturating_add(3) > bottom || path.active || path.none {
         return;
@@ -1130,7 +1132,8 @@ fn subflow(rows: &mut [Row], app: &App, path: &Path, y: usize, bottom: usize) {
         let shown = fit(&text, room.saturating_sub(x));
         x = at(rows, x, y.saturating_add(1), &shown, Style::text(color));
     }
-    for (i, line) in wrap(words::SUBFLOW_REQUIRES, app.size.cols.saturating_sub(4), 2)
+    let effects = subflow_effects(&app.shared, section);
+    for (i, line) in wrap(&effects, app.size.cols.saturating_sub(4), 2)
         .iter()
         .enumerate()
     {
@@ -1138,6 +1141,30 @@ fn subflow(rows: &mut [Row], app: &App, path: &Path, y: usize, bottom: usize) {
         if row < bottom {
             at(rows, 3, row, line, Style::text(Color::Grey));
         }
+    }
+}
+
+/// The line under a terminal's subflow: the vtlook that the look
+/// `section` draws, or the top of vtium.conf where the terminal has no
+/// look section, and whether the Effects tab found it and read it. A look
+/// with no `vtlook` line draws the top level's vtlook, and `default`
+/// names the built-in one.
+///
+/// References:
+/// - ADR-1304 D5: the look's vtlook, then the top level's, then the
+///   built-in one.
+fn subflow_effects(shared: &Shared, section: Option<&super::flow::Look>) -> String {
+    let name = section
+        .and_then(|l| l.vtlook.clone())
+        .or_else(|| shared.drafted("vtlook"))
+        .filter(|v| v != vtium_settings::vtlook::DEFAULT);
+    let Some(name) = name else {
+        return words::SUBFLOW_NO_VTLOOK.to_owned();
+    };
+    match shared.inputs.effects.vtlook(&name).map(|v| &v.read) {
+        Some(Ok(_)) => words::subflow_vtlook(&name),
+        Some(Err(_)) => words::subflow_vtlook_broken(&name),
+        None => words::subflow_vtlook_missing(&name),
     }
 }
 
@@ -1723,6 +1750,60 @@ mod tests {
             });
         }
         App::new(i, 80, 25).0
+    }
+
+    /// The line under a terminal's subflow names the vtlook its look
+    /// draws: the look's own, else the top level's, else the built-in
+    /// one. It says when the vtlook has an error or this machine has no
+    /// vtlook of that name, because vtium then renders the built-in one.
+    ///
+    /// References:
+    /// - ADR-1304 D5, D6: which vtlook a look draws, and the built-in
+    ///   vtlook in place of one that fails.
+    #[test]
+    fn the_subflow_names_the_vtlook_its_look_draws() {
+        use super::super::effects_found::{From, Vtlook};
+        let mut i = super::super::fixture::inputs();
+        let vtlook = |name: &str, read: Result<Vec<String>, String>| Vtlook {
+            name: name.to_owned(),
+            file: Some(format!("/etc/vtium/looks/{name}.vtlook").into()),
+            from: From::Administrator,
+            hidden: false,
+            read,
+            files: Vec::new(),
+        };
+        i.effects.vtlooks = vec![
+            vtlook("amber", Ok(vec!["tint".to_owned()])),
+            vtlook("cracked", Err("line 2: no such filter".to_owned())),
+        ];
+        i.conf = Some("version = 1\nvtlook = amber\n".to_owned());
+        let app = App::new(i, 80, 25).0;
+        let look = |vtlook: Option<&str>| super::super::flow::Look {
+            name: "warm".to_owned(),
+            frit: String::new(),
+            points: 0,
+            keys: Vec::new(),
+            vtlook: vtlook.map(str::to_owned),
+            fonts: Vec::new(),
+            problem: None,
+        };
+        let said = |l: Option<super::super::flow::Look>| subflow_effects(&app.shared, l.as_ref());
+        // the look's own vtlook, then the top level's
+        assert_eq!(
+            said(Some(look(Some("amber")))),
+            words::subflow_vtlook("amber")
+        );
+        assert_eq!(said(Some(look(None))), words::subflow_vtlook("amber"));
+        assert_eq!(said(None), words::subflow_vtlook("amber"));
+        assert_eq!(said(Some(look(Some("default")))), words::SUBFLOW_NO_VTLOOK);
+        assert_eq!(
+            said(Some(look(Some("cracked")))),
+            words::subflow_vtlook_broken("cracked")
+        );
+        assert_eq!(
+            said(Some(look(Some("gone")))),
+            words::subflow_vtlook_missing("gone")
+        );
     }
 
     /// The text of a layer's row, in characters from column 0.

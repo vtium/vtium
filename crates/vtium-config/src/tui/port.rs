@@ -325,10 +325,15 @@ pub fn drive_with(
     }
 }
 
-/// The bytes that give the console its start font back, when a switch
-/// changed it, and then its start grid, when the Looks tab changed it.
+/// The bytes that give the console its colors back, when a look's trial
+/// changed them, its start font, when a switch changed it, and then its
+/// start grid, when the Looks tab changed it.
 fn give_back(app: &App) -> Vec<u8> {
-    let mut out = font_back(app);
+    let mut out = Vec::new();
+    if app.shared.colors_saved {
+        out.extend_from_slice(super::shot::COLORS_RESTORE);
+    }
+    out.extend(font_back(app));
     if app.shared.grid_moved {
         out.extend(super::shot::grid_request(app.shared.start_grid));
     }

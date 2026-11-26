@@ -529,9 +529,8 @@ impl Looks {
     /// cannot: there is none, the console does not read it, only the
     /// draft adds it, or this machine does not have it. The console reads
     /// font sets only from the frits' directory, so a font set the draft
-    /// adds can be tried once it is installed. The live trial switches the
-    /// console's font alone, so a look's size, color scheme and vtlook
-    /// take effect only once vtium starts with them.
+    /// adds can be tried once it is installed. On a look, [`Self::try_look`]
+    /// checks the look's font set here first.
     ///
     /// References:
     /// - ADR-1403 D8, "The live trial": `t` on a frit only the draft holds says it can be tried once installed.
@@ -542,6 +541,10 @@ impl Looks {
         };
         if fontsets::only_drafted(shared, &name) {
             return say(words::try_in_draft(&name));
+        }
+        let inactive = fontsets::inactive(shared, &name);
+        if !inactive.is_empty() {
+            return fontsets::offer_activation(shared, &name, &inactive);
         }
         match shared.inputs.fonts.iter().find(|f| f.name == name) {
             Some(f) if fontsets::usable(shared, f) => vec![Command::Change(Change::Try(name))],
@@ -554,23 +557,51 @@ impl Looks {
         }
     }
 
+    /// `t` on the look `name`, whose font set is `font`: tries the whole
+    /// look on the console, its font set, its color scheme and its size,
+    /// or says why its font set cannot be tried. A look that leaves its
+    /// font set to vtium.conf, which names none, still tries its color
+    /// scheme and its size.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "The live trial, on a key": `t` on a look tries it
+    ///   on the live console.
+    fn try_look(shared: &Shared, name: String, font: Option<String>) -> Vec<Command> {
+        let scheme = list::look(shared, &name)
+            .and_then(|l| l.palette)
+            .or_else(|| shared.drafted("palette"));
+        if let Some(refused) = scheme
+            .as_deref()
+            .and_then(|s| palettes::refuse_trial(shared, &name, s))
+        {
+            return refused;
+        }
+        if font.is_some() {
+            let checked = Self::try_font(shared, font);
+            if !matches!(checked.as_slice(), [Command::Change(Change::Try(_))]) {
+                return checked;
+            }
+        }
+        vec![Command::Change(Change::TryLook(name))]
+    }
+
     /// `w`: asks whether to let programs resize the console's grid, and
-    /// on `y` writes `allow-window-ops = on` into the draft. Where the
-    /// draft already turns it on, the question says so, and `y` leaves the
-    /// draft as it is.
+    /// on `y` turns `allow-window-ops` on in the draft. Where the draft
+    /// already turns it on, a yes would change nothing, so `w` asks nothing
+    /// and says when the console lets programs resize its grid.
     ///
     /// References:
     /// - ADR-1201 D4, "Sizes, live on a vtium console": the notice line
     ///   shows `w`, which asks `Let programs resize the grid?`, and only
     ///   `y` writes the key.
     fn window_ops(shared: &Shared) -> Vec<Command> {
-        let question = if shared.window_ops_drafted() {
-            format!("{} {}", words::WINDOW_OPS_ON, words::WINDOW_OPS_QUESTION)
-        } else {
-            words::WINDOW_OPS_QUESTION.to_owned()
-        };
+        if shared.window_ops_drafted() {
+            return vec![Command::Change(Change::Say(
+                words::WINDOW_OPS_ON.to_owned(),
+            ))];
+        }
         vec![Command::Request(Request::Ask {
-            question,
+            question: words::WINDOW_OPS_QUESTION.to_owned(),
             then: Then::Change(DraftChange::Top {
                 key: vtium_settings::keys::ALLOW_WINDOW_OPS.name,
                 value: Some("on".to_owned()),
@@ -633,7 +664,9 @@ impl Looks {
             (Key::Char('r'), Some(Entry::FontSet(at))) => fontsets::font(shared, at)
                 .map(|f| fontsets::remove(shared, &f.name))
                 .unwrap_or_default(),
-            (Key::Char('t'), Some(Entry::Look(_))) => Self::try_font(shared, self.font_set(shared)),
+            (Key::Char('t'), Some(Entry::Look(name))) => {
+                Self::try_look(shared, name, self.font_set(shared))
+            }
             (Key::Char('t'), Some(Entry::NoLooks)) => {
                 vec![Command::Change(Change::Say(words::TRY_NO_LOOK.to_owned()))]
             }

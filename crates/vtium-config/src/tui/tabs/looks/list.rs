@@ -67,22 +67,57 @@ pub fn look(shared: &Shared, name: &str) -> Option<Look> {
 
 /// The heads of the draft that draw the look `name`: those whose
 /// `look =` line names it, and for the look `default` also those with no
-/// `look =` line, which draw `default`. vtium reads what survives of the
+/// `look =` line, which draw `default`. A draft that defines no head and
+/// no rule runs vtium's built-in terminal, whose head `console` names no
+/// look and so draws `default`. vtium reads what survives of the
 /// sections, so a draft with errors elsewhere still answers.
+///
+/// References:
+/// - ADR-1401 D3: vtium runs the built-in default terminal when the file
+///   defines no head and no rule.
 pub fn heads(shared: &Shared, name: &str) -> Vec<String> {
     shared
         .conf_text()
         .and_then(|c| vtium_settings::sections(c.as_bytes()))
         .map(|r| {
-            r.parsed
-                .config
-                .heads
-                .iter()
+            let config = r.parsed.config;
+            let heads = if config.uses_builtin() {
+                vtium_settings::Config::builtin().heads
+            } else {
+                config.heads
+            };
+            heads
+                .into_iter()
                 .filter(|h| h.look == name)
-                .map(|h| h.name.clone())
+                .map(|h| h.name)
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The terminal of the draft that the console belongs to: the one that
+/// `VTIUM_HEAD` names, else the draft's only terminal. With several
+/// terminals and no `VTIUM_HEAD`, vtium-config cannot tell which.
+///
+/// References:
+/// - ADR-1401 D5: vtium sets `VTIUM_HEAD` in each console's session.
+pub fn console_head(shared: &Shared) -> Option<String> {
+    let heads: Vec<String> = shared
+        .conf_text()
+        .and_then(|c| vtium_settings::sections(c.as_bytes()))
+        .map(|r| r.parsed.config.heads.into_iter().map(|h| h.name).collect())
+        .unwrap_or_default();
+    match (&shared.inputs.head, heads.as_slice()) {
+        (Some(head), _) if heads.contains(head) => Some(head.clone()),
+        (_, [only]) => Some(only.clone()),
+        _ => None,
+    }
+}
+
+/// Whether the terminal `head` of the draft names no look of its own, so
+/// it draws the look `default`.
+pub fn names_no_look(shared: &Shared, head: &str) -> bool {
+    heads(shared, words::DEFAULT_LOOK).iter().any(|h| h == head)
 }
 
 /// The look `look` as an item of the tab's list: its name, then the

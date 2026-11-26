@@ -1,0 +1,47 @@
+kind how-do-i
+title How do I turn on the live trial when the console has allow-font-ops off?
+intro The live trial switches the console's font for a few seconds with OSC 50, which a vtium console answers only while allow-font-ops is on. vtium reads allow-font-ops when it starts, and vtium-config asks the console once, when vtium-config starts. So the trial works only after you install the change, restart vtium, and start vtium-config again.
+see fonts/try-a-font-set-whose-font-is-not-active
+
+# The console started with allow-font-ops off.
+file etc/vtium.conf
+    version = 1
+    font-name = mono
+    no-allow-font-ops
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+    ROOT/fonts/wide.bdf
+font fonts/mono.bdf 8x16
+font fonts/wide.bdf 10x20
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+frit wide
+    source=bdf:ROOT/fonts/wide.bdf
+
+1. Go to the Looks tab.
+at the Looks tab
+check screen shows "this vtium console has allow-font-ops turned off"
+check screen shows "install, and restart vtium and vtium-config."
+2. Highlight wide.
+3. Press t.
+at t
+check console never-received "\e]50;wide"
+check console draws mono
+
+4. Go to the Settings tab.
+5. Choose Fonts and text.
+6. Highlight allow-font-ops.
+7. Press Enter.
+8. Highlight on.
+9. Press Enter.
+10. Press Esc.
+11. Press s to save.
+12. Press i to install.
+13. Press y for yes.
+at the install
+check installed lacks "no-allow-font-ops"
+14. Press q to quit.
+15. Restart vtium.
+note vtium now answers OSC 50. Start vtium-config again, and t tries a font set on the console.

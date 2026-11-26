@@ -38,15 +38,27 @@ pub fn does_not_read(why: impl Display) -> String {
     format!("cannot be read: {why}")
 }
 
-pub fn sources_missing(n: usize) -> String {
-    if n == 1 {
-        "1 font file missing".to_owned()
-    } else {
-        format!("{n} font files missing")
+/// What a font set's note says of the font files the font helper left
+/// out: `missing` of them this machine lacks or the trust rule refuses,
+/// and `inactive` of them the batch does not list.
+pub fn sources_left_out(missing: usize, inactive: usize) -> String {
+    let files = |n: usize| {
+        if n == 1 {
+            "1 font file".to_owned()
+        } else {
+            format!("{n} font files")
+        }
+    };
+    match (missing, inactive) {
+        (m, 0) => format!("{} missing", files(m)),
+        (0, i) => format!("{} not active", files(i)),
+        (m, i) => format!("{} missing, {i} not active", files(m)),
     }
 }
 
-pub const DRAWS_NOTHING: &str = "no font file on this machine";
+/// A font set's note where the font helper can use none of its font
+/// files: none is on this machine, active and allowed by the trust rule.
+pub const DRAWS_NOTHING: &str = "no font file vtium can use";
 
 pub const SOURCES_UNKNOWN: &str = "font files not checked";
 

@@ -254,3 +254,27 @@ fn an_edit_vtium_conf_cannot_take_is_said_in_words() {
         "{value}"
     );
 }
+
+/// Enter on a setting's value with the value as it is changes nothing in
+/// the draft, so the status line counts no change.
+///
+/// References:
+/// - ADR-1403 D7: a change waits for Save.
+#[test]
+fn entering_a_setting_s_value_unchanged_counts_no_change() {
+    let mut d = desk();
+    let before = d.draft.clone();
+    let mut keys: Vec<&[u8]> = vec![TO_SETTINGS];
+    keys.extend(to_setting("font-name"));
+    keys.extend([b"\r".as_slice(), b"\r"]);
+    let mut c = console().keys(&keys);
+    run_desk(&mut c, &mut d);
+    let seen = c
+        .seen
+        .expect("the screen")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert_eq!(d.draft, before, "the draft is unchanged");
+    assert!(!seen.contains("not saved"), "{seen}");
+}

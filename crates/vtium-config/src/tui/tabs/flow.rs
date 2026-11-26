@@ -512,6 +512,18 @@ impl Flow {
                 say(words::NO_INPUT_NEEDS_TERMINAL)
             }
             Obj::Pal(Slot::Special(p)) | Obj::New(Slot::Special(p)) => self.pick(shared, p.clone()),
+            Obj::Pal(Slot::Display(sel)) if sel.is_empty() => {
+                // a display with no key vtium can match it by, as one that
+                // reports no EDID where no udev daemon runs, would make a
+                // rule with no match, which vtium refuses, so it is not
+                // picked as itself
+                let name = flow
+                    .displays
+                    .iter()
+                    .find(|d| d.found && paths::own_key(flow, Kind::Display, d).is_empty())
+                    .map_or_else(|| "on this machine".to_owned(), |d| d.name.clone());
+                say(words::display_no_match(&name))
+            }
             Obj::Pal(Slot::Display(sel)) => {
                 // a display is in one path for each VT, so picking it is
                 // refused only when a path that holds it shares a VT with
@@ -1059,7 +1071,7 @@ impl Flow {
                     }
                 }
                 let name = changed.name.clone().unwrap_or_else(|| own.clone());
-                out.extend(say(words::changed_in_draft(&name)));
+                out.extend(say(words::card_changed(&name)));
                 if *line == CardLine::Name {
                     let renamed = Obj::Doc(value, Slot::Terminal);
                     self.state.layer = Some(renamed.clone());

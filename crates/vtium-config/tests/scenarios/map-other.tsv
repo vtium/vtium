@@ -213,11 +213,11 @@ other any.question.window-ops +unsaved	Esc	other looks(no looks) +unsaved
 other any.question.window-ops +unsaved	Shrink	other any.question.window-ops below 80×25 +unsaved	
 other any.question.window-ops +unsaved	n	other looks(no looks) +unsaved	
 other any.question.window-ops +unsaved	y	other looks(no looks) +unsaved	check
-other any.question.window-ops +unsaved +pending	Ctrl-C	other looks(marked) +unsaved +pending	
-other any.question.window-ops +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
+other any.question.window-ops +unsaved +pending	Ctrl-C	other looks(no looks) +unsaved +pending	
+other any.question.window-ops +unsaved +pending	Esc	other looks(no looks) +unsaved +pending	
 other any.question.window-ops +unsaved +pending	Shrink	other any.question.window-ops below 80×25 +unsaved +pending	
-other any.question.window-ops +unsaved +pending	n	other looks(marked) +unsaved +pending	
-other any.question.window-ops +unsaved +pending	y	other looks(marked) +unsaved +pending	check
+other any.question.window-ops +unsaved +pending	n	other looks(no looks) +unsaved +pending	
+other any.question.window-ops +unsaved +pending	y	other looks(no looks) +unsaved +pending	check
 other any.question.window-ops below 80×25	Ctrl-C	other any.too-small	
 other any.question.window-ops below 80×25	Esc	other any.too-small	
 other any.question.window-ops below 80×25	Grow	other any.question.window-ops	
@@ -3551,7 +3551,6 @@ other looks(frit) +unsaved +pending	n	other looks.new-frit(row 0) +unsaved +pend
 other looks(frit) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks(frit) +unsaved +pending	r	other looks(marked) +unsaved +pending	font set
 other looks(frit) +unsaved +pending	s	other looks(frit) +pending	save
-other looks(frit) +unsaved +pending	w	other any.question.window-ops +unsaved +pending	
 other looks(look)	1	other fonts(filter)	
 other looks(look)	2	other effects(filter)	
 other looks(look)	4	other flow(doc display)	mouse on
@@ -3606,7 +3605,6 @@ other looks(look) +unsaved	n	other looks.look.typing +unsaved	check
 other looks(look) +unsaved	q	other any.question.quit +unsaved	
 other looks(look) +unsaved	r	other any.question.confirm +unsaved	
 other looks(look) +unsaved	s	other looks(look)	save
-other looks(look) +unsaved	w	other any.question.window-ops +unsaved	
 other looks(look) +unsaved +pending	1	other fonts(filter) +unsaved +pending	
 other looks(look) +unsaved +pending	2	other effects(filter) +unsaved +pending	
 other looks(look) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
@@ -3625,7 +3623,6 @@ other looks(look) +unsaved +pending	n	other looks.look.typing +unsaved +pending	
 other looks(look) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks(look) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other looks(look) +unsaved +pending	s	other looks(look) +pending	save
-other looks(look) +unsaved +pending	w	other any.question.window-ops +unsaved +pending	
 other looks(marked) +pending	1	other fonts(filter) +pending	
 other looks(marked) +pending	2	other effects(filter) +pending	
 other looks(marked) +pending	4	other flow(doc display) +pending	mouse on
@@ -3668,7 +3665,6 @@ other looks(marked) +unsaved +pending	n	other looks.new-frit(row 0) +unsaved +pe
 other looks(marked) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks(marked) +unsaved +pending	r	other looks(refused) +unsaved	font set
 other looks(marked) +unsaved +pending	s	other looks(marked) +pending	save
-other looks(marked) +unsaved +pending	w	other any.question.window-ops +unsaved +pending	
 other looks(no looks)	1	other fonts(filter)	
 other looks(no looks)	2	other effects(filter)	
 other looks(no looks)	4	other flow(doc display)	mouse on
@@ -4807,22 +4803,22 @@ other looks.look(vtlook) +unsaved +pending	Shrink	other any.too-small +unsaved +
 other looks.look(vtlook) +unsaved +pending	Up	other looks.look(color scheme) +unsaved +pending	
 other looks.look(vtlook) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.look.list	Ctrl-C	other left	exit 130
-other looks.look.list	Enter	other looks.look(font set) +unsaved	check
+other looks.look.list	Enter	other looks.look(font set)	
 other looks.look.list	Esc	other looks.look(font set)	
 other looks.look.list	Shrink	other any.too-small	
 other looks.look.list	q	other left	exit 0
 other looks.look.list +pending	Ctrl-C	other left	exit 130
-other looks.look.list +pending	Enter	other looks.look(font set) +unsaved +pending	check
+other looks.look.list +pending	Enter	other looks.look(font set) +pending	
 other looks.look.list +pending	Esc	other looks.look(font set) +pending	
 other looks.look.list +pending	Shrink	other any.too-small +pending	
 other looks.look.list +pending	q	other left	exit 0
 other looks.look.list +unsaved	Ctrl-C	other left	save, exit 130
-other looks.look.list +unsaved	Enter	other looks.look(font set) +unsaved	check
+other looks.look.list +unsaved	Enter	other looks.look(font set) +unsaved	
 other looks.look.list +unsaved	Esc	other looks.look(font set) +unsaved	
 other looks.look.list +unsaved	Shrink	other any.too-small +unsaved	
 other looks.look.list +unsaved	q	other any.question.quit +unsaved	
 other looks.look.list +unsaved +pending	Ctrl-C	other left	save, exit 130
-other looks.look.list +unsaved +pending	Enter	other looks.look(font set) +unsaved +pending	check
+other looks.look.list +unsaved +pending	Enter	other looks.look(font set) +unsaved +pending	
 other looks.look.list +unsaved +pending	Esc	other looks.look(font set) +unsaved +pending	
 other looks.look.list +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.look.list +unsaved +pending	q	other any.question.quit +unsaved +pending	
@@ -5561,7 +5557,7 @@ other settings.section.list +pending	Esc	other settings.section(choice) +pending
 other settings.section.list +pending	Shrink	other any.too-small +pending	
 other settings.section.list +pending	q	other left	exit 0
 other settings.section.list +unsaved	Ctrl-C	other left	save, exit 130
-other settings.section.list +unsaved	Enter	other settings.section(choice) +unsaved	check
+other settings.section.list +unsaved	Enter	other settings.section(choice) +unsaved	
 other settings.section.list +unsaved	Esc	other settings.section(choice) +unsaved	
 other settings.section.list +unsaved	Shrink	other any.too-small +unsaved	
 other settings.section.list +unsaved	q	other any.question.quit +unsaved	
@@ -5571,18 +5567,18 @@ other settings.section.list +unsaved +pending	Esc	other settings.section(choice)
 other settings.section.list +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other settings.section.list +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other settings.section.typing	Ctrl-C	other left	exit 130
-other settings.section.typing	Enter	other settings.section(value) +unsaved	check
+other settings.section.typing	Enter	other settings.section(value)	
 other settings.section.typing	Esc	other settings.section(value)	
 other settings.section.typing	Shrink	other any.too-small	
 other settings.section.typing +pending	Ctrl-C	other left	exit 130
-other settings.section.typing +pending	Enter	other settings.section(value) +unsaved +pending	check
+other settings.section.typing +pending	Enter	other settings.section(value) +pending	
 other settings.section.typing +pending	Esc	other settings.section(value) +pending	
 other settings.section.typing +pending	Shrink	other any.too-small +pending	
 other settings.section.typing +unsaved	Ctrl-C	other left	save, exit 130
-other settings.section.typing +unsaved	Enter	other settings.section(value) +unsaved	check
+other settings.section.typing +unsaved	Enter	other settings.section(value) +unsaved	
 other settings.section.typing +unsaved	Esc	other settings.section(value) +unsaved	
 other settings.section.typing +unsaved	Shrink	other any.too-small +unsaved	
 other settings.section.typing +unsaved +pending	Ctrl-C	other left	save, exit 130
-other settings.section.typing +unsaved +pending	Enter	other settings.section(value) +unsaved +pending	check
+other settings.section.typing +unsaved +pending	Enter	other settings.section(value) +unsaved +pending	
 other settings.section.typing +unsaved +pending	Esc	other settings.section(value) +unsaved +pending	
 other settings.section.typing +unsaved +pending	Shrink	other any.too-small +unsaved +pending	

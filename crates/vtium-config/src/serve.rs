@@ -943,6 +943,31 @@ pub struct ActiveAsk {
 }
 
 impl ActiveAsk {
+    /// The active fonts that `batch` lists, whose files pass the trust
+    /// rule when root or `owner` owns them. A path that the helper would
+    /// refuse, one that is not absolute UTF-8, holds a NUL byte or is
+    /// longer than [`ACTIVE_PATH_MAX`], is left out, so the other paths
+    /// still reach the helper, and the paths stop before they would pass
+    /// [`ACTIVE_BYTES_MAX`], as the console's request does.
+    pub fn of_batch(owner: u32, batch: &vtium_settings::batch::Batch) -> ActiveAsk {
+        let mut paths = Vec::new();
+        let mut total = 0usize;
+        for vtium_settings::batch::Entry::Path(path) in batch.entries() {
+            let Some(text) = path
+                .to_str()
+                .filter(|t| t.starts_with('/') && !t.contains('\0') && t.len() <= ACTIVE_PATH_MAX)
+            else {
+                continue;
+            };
+            total = total.saturating_add(text.len());
+            if total > ACTIVE_BYTES_MAX {
+                break;
+            }
+            paths.push(path.clone());
+        }
+        ActiveAsk { owner, paths }
+    }
+
     /// The request's bytes.
     pub fn encode(&self) -> Vec<u8> {
         let mut out = REQUEST_MAGIC.to_vec();

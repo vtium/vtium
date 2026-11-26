@@ -184,17 +184,19 @@ pub fn top_choice(what: &str, value: impl Display) -> String {
 pub const TOP_NONE: &str = "none";
 
 /// What the font set line shows where neither the look nor vtium.conf
-/// names a font set.
-pub const FRIT_NONE: &str =
-    "none, so vtium uses the font that vconsole.conf names, or else its built-in font";
+/// names a font set: vtium's order of fonts after `font-name`.
+///
+/// References:
+/// - ADR-1204 D2: vconsole's font, then the default set `terminus`, then
+///   the built-in font.
+pub const FRIT_NONE: &str = "none, so vtium uses the font that vconsole.conf names, else the font set terminus where it is installed, or else its built-in font";
 
 /// The note of the font set list's first choice where vtium.conf names no
 /// font set.
-pub const FRIT_NONE_NOTE: &str =
-    "vtium uses the font that vconsole.conf names, or else its built-in font";
+pub const FRIT_NONE_NOTE: &str = "vtium uses the font that vconsole.conf names, else the font set terminus where it is installed, or else its built-in font";
 
 /// The text role where neither the look nor vtium.conf names a font set.
-pub const ROLE_TEXT_NONE: &str = "the font that vconsole.conf names, or else vtium's built-in font";
+pub const ROLE_TEXT_NONE: &str = "the font that vconsole.conf names, else the font set terminus where it is installed, or else vtium's built-in font";
 
 pub const TOP_FRIT: &str = "font set";
 pub const TOP_SIZE: &str = "size";
@@ -407,10 +409,20 @@ pub fn size_kept(points: u32) -> String {
     )
 }
 
-/// The end of a size's trial: the console's grid as it was.
-pub fn size_back((cols, rows): (usize, usize)) -> String {
-    format!("The console's grid is back to {cols}×{rows}.")
+/// The end of a size's trial: the console's grid as it was, and the size
+/// `points` that the look keeps as a change to save, since Enter on the
+/// size both picked it for the look and tried it.
+pub fn size_back((cols, rows): (usize, usize), points: u32) -> String {
+    format!(
+        "The console's grid is back to {cols}×{rows}. The look still holds {} as a change to save. Pick another size to change it.",
+        self::points(points)
+    )
 }
+
+/// Enter on a size choice that sets no size of its own, such as
+/// Automatic, in a console that lets programs resize its grid.
+pub const SIZE_NOTHING_TO_TRY: &str =
+    "This choice sets no size of its own, so there is nothing to try on the console.";
 
 /// A size whose grid on the display is the console's grid now.
 pub fn size_same(points: u32) -> String {
@@ -429,6 +441,11 @@ pub fn size_unmeasured(why: impl Display) -> String {
 /// its grid, where the live trial is on, so the preview is the console's
 /// own text at its current size.
 pub const SIZE_AT_NEXT_START: &str = "The console does not let programs resize its grid, so the size takes effect once you install the draft and vtium starts again. Press w in the Looks tab to let programs resize the grid.";
+
+/// [`SIZE_AT_NEXT_START`] where the draft already lets programs resize
+/// the grid: the running console read `allow-window-ops` when vtium
+/// started, so only a new start turns it on.
+pub const SIZE_AT_RESTART: &str = "The console does not let programs resize its grid until vtium starts again, because vtium reads allow-window-ops when it starts. The size takes effect once you install the draft and vtium starts again.";
 
 /// Enter on a size in a vtium console that does not let programs resize
 /// its grid, where the live trial is off, so the preview is a picture or
@@ -568,3 +585,175 @@ pub const NO_LOOK_YET: &str = "The draft has no look yet. Press n to make one.";
 /// `p` on a font set vtium cannot read, whose preview stays empty.
 pub const NO_PREVIEW_TO_SWITCH: &str =
     "vtium cannot read this font set, so it has no preview to switch.";
+
+/// The live trial's countdown for the look `name` with `left` seconds to
+/// go, followed by `later`, what of the look waits for the next start.
+pub fn look_countdown(name: impl Display, left: u32, later: Option<&str>) -> String {
+    let mut line = format!(
+        "Trying the look {name} for {left} s. Press k to keep it, or any other key to put the console back."
+    );
+    if let Some(later) = later {
+        line.push(' ');
+        line.push_str(later);
+    }
+    line
+}
+
+/// What the trial of a look says of its size where the console does not
+/// let programs resize its grid.
+pub fn look_size_later(points: u32) -> String {
+    format!(
+        "Its size, {}, takes effect when vtium starts again, because the console does not let programs resize its grid.",
+        self::points(points)
+    )
+}
+
+/// The end of a look's trial: the console's font, colors and grid as they
+/// were.
+pub fn look_back(name: impl Display) -> String {
+    format!("The console is back to how it was before you tried the look {name}.")
+}
+
+/// `k` during a look's trial, for a look that a terminal of the draft
+/// uses.
+pub fn look_kept(name: impl Display) -> String {
+    format!(
+        "The console keeps the look {name} until you quit vtium-config. To keep it after that, press s to save and i to install."
+    )
+}
+
+/// `t` on a look whose font set, color scheme and size the console
+/// already shows, followed by `later`, what of the look waits for the next
+/// start.
+pub fn look_same(name: impl Display, later: Option<&str>) -> String {
+    let mut line = format!(
+        "The console already shows the font set and the color scheme of the look {name}, so t has nothing to try."
+    );
+    if let Some(later) = later {
+        line.push(' ');
+        line.push_str(later);
+    }
+    line
+}
+
+/// The sentence that says no terminal of the draft uses the look `name`.
+pub fn look_unused(name: impl Display) -> String {
+    format!("No terminal uses the look {name}, so no console shows it after you install the draft.")
+}
+
+/// Why a look that no terminal uses comes up after `t` or `k`, as the
+/// first sentence of what the message line says next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unused {
+    /// `t` found nothing to try: the console already shows the look's
+    /// font set and color scheme.
+    Shown,
+    /// `k` kept the look's trial on the console.
+    Kept,
+}
+
+/// The first sentence of what the message line says of the look `name`,
+/// which no terminal uses, after `t` or `k`.
+fn unused_first(name: impl Display, why: Unused) -> String {
+    match why {
+        Unused::Shown => format!(
+            "No terminal uses the look {name}, and the console already shows its font set and color scheme."
+        ),
+        Unused::Kept => format!(
+            "No terminal uses the look {name}, so the console shows it only until you quit vtium-config."
+        ),
+    }
+}
+
+/// The question that offers the look `name`, which no terminal uses, to
+/// the terminal `head`. The question comes first and stays short, so
+/// that its answer keys fit in the message line's three rows at 80×25.
+pub fn look_use_question(name: impl Display, why: Unused, head: impl Display) -> String {
+    format!(
+        "{} Use it for the terminal {head}? y sets it in the draft, and n or Esc leaves the draft as it is.",
+        unused_first(name, why)
+    )
+}
+
+/// What the message line says of the look `name`, which no terminal uses,
+/// where vtium-config cannot tell which terminal the console belongs to.
+pub fn look_unused_flow(name: impl Display, why: Unused) -> String {
+    format!(
+        "{} To use the look, choose it for a terminal in the Flow tab.",
+        unused_first(name, why)
+    )
+}
+
+/// The question that `t` asks on the font set `name`, whose fonts `paths`
+/// are not active. The answer keys come before what the activation waits
+/// for, so that they fit in the message line.
+pub fn inactive_question(name: impl Display, paths: &[String]) -> String {
+    format!(
+        "The font set {name} needs fonts that are not active, so t cannot try it. Activate them in the draft? y activates {}, and n or Esc leaves them as they are. They take effect once you install the draft and log in again.",
+        and_list(paths)
+    )
+}
+
+/// What `t` says on the font set `name`, whose fonts `paths` are not
+/// active yet and which the draft activates.
+pub fn inactive_drafted(name: impl Display, paths: &[String]) -> String {
+    format!(
+        "The font set {name} needs fonts that are not active yet: {}. The draft activates them, so t can try the font set once you install the draft and log in again.",
+        and_list(paths)
+    )
+}
+
+/// What the card's list of font sets notes beside a set whose text font
+/// this machine lacks.
+pub const CHOICE_TEXT_MISSING: &str = "its text font is not on this machine";
+
+/// What the card's list of font sets notes beside a set whose text font
+/// is not active.
+pub const CHOICE_TEXT_INACTIVE: &str = "its text font is not active";
+
+/// What the card's list of font sets notes beside a set whose text font
+/// the font helper cannot use.
+pub const CHOICE_TEXT_REFUSED: &str = "its text font cannot be used";
+
+/// What the message line says when choosing a font set or a size for the
+/// look `name` gave the look to the terminal `head`, which named none.
+pub fn look_given(head: impl Display, name: impl Display) -> String {
+    format!(
+        "The terminal {head} named no look, so vtium-config set it to use the look {name}. Press s to save the change and i to install it."
+    )
+}
+
+/// The question that `t` asks on the look `look`, whose color scheme
+/// `scheme` is the file `path`, which the batch does not list. The answer
+/// keys come before what the activation waits for, so that they fit in
+/// the message line.
+pub fn scheme_inactive_question(
+    scheme: impl Display,
+    look: impl Display,
+    path: impl Display,
+) -> String {
+    format!(
+        "The color scheme {scheme} is not active, so t cannot try the look {look}. Activate it in the draft? y activates {path}, and n or Esc leaves it as it is. It takes effect once you install the draft and log in again."
+    )
+}
+
+/// What `t` says on the look `look`, whose color scheme `scheme` is not
+/// active yet and which the draft activates.
+pub fn scheme_drafted(scheme: impl Display, look: impl Display) -> String {
+    format!(
+        "The color scheme {scheme} is not active yet. The draft activates it, so t can try the look {look} once you install the draft and log in again."
+    )
+}
+
+/// What `t` says on the look `look`, whose color scheme `scheme` is a file
+/// the console cannot use, and `why`.
+pub fn scheme_unusable(scheme: impl Display, look: impl Display, why: impl Display) -> String {
+    format!(
+        "The console cannot use the color scheme {scheme}, so t cannot try the look {look}: {why}"
+    )
+}
+
+/// Why the console cannot use a color scheme file in the person's own
+/// folder.
+pub const SCHEME_OWN: &str =
+    "the file is in your own folder, and vtium reads color schemes only from its own folders.";

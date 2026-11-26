@@ -202,17 +202,17 @@ fn small(app: &App) -> Vec<String> {
     // wrapped to the width, so it shows whole however narrow the screen;
     // while it is open the screen's own keys give way to the question's,
     // since q does nothing under a question
-    let question: Vec<String> = match app.nav.confirm.as_ref().map(|c| &c.then) {
+    let question: Vec<String> = match app.nav.confirm.as_ref() {
         None => Vec::new(),
-        Some(Then::Quit(_)) => item_rows(
-            &format!(
-                "{}  {}",
-                words::small_question(app.shared.unsaved),
-                key_line(app)
-            ),
-            cols,
-        ),
-        Some(_) => item_rows(key_line(app), cols),
+        Some(c) => {
+            // the quit question keeps to one row here; any other question,
+            // asked before the terminal shrank, says in full what y does
+            let asked = match c.then {
+                Then::Quit(_) => words::small_question(app.shared.unsaved),
+                _ => c.question.clone(),
+            };
+            item_rows(&format!("{asked}  {}", key_line(app)), cols)
+        }
     };
     // the screen's own generated key line, at the bottom, while no
     // question is open. Where its rows outnumber the screen's, its first

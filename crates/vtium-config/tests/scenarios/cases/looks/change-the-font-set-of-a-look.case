@@ -1,0 +1,30 @@
+kind how-do-i
+title How do I change the font set of a look?
+intro A look's card lists its font set, size and color scheme. You change one on the card, and Esc keeps the change for Save.
+see looks/make-a-look-and-use-it-on-the-console
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [look plain]
+    palette = legacy
+    [head console]
+    vt = 5
+    look = plain
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Go to the Looks tab.
+2. Choose plain.
+3. Choose Font set.
+4. Choose mono.
+at the card, before Esc
+check screen shows "Esc keeps the changes"
+check screen shows "Esc back, keep changes"
+5. Press Esc.
+6. Press s to save.
+at the save
+check draft look plain font-name mono
