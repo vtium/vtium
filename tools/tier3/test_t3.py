@@ -2764,21 +2764,59 @@ class PointerTest(unittest.TestCase):
         # a 64-pixel cell: a hotspot of 3, the grid 1344x768 at 11,0
         self.assertEqual(t3_pointer.corner((0, 0), self.DISPLAY, (32, 64)), (11 - 3, -3))
 
-    def test_the_corner_counts_the_spare_lines_above_the_grid(self):
-        # 640x480 in 6x9 cells: a grid of 636x477, centred across with 2
-        # spare columns on each side, its last row on the display's bottom
-        # edge and the 3 spare lines above it, so at 2,3; a hotspot of 1
+    def test_the_grid_is_centred_while_smooth_scrolling_is_off(self):
+        # 640x480 in 6x9 cells: a grid of 636x477, with 2 spare columns on
+        # each side, and of the 3 spare lines 1 above it and 2 below, so at
+        # 2,1; a hotspot of 1
         display, cell = (640, 480), (6, 9)
-        self.assertEqual(t3_pointer.origin(display, cell), (2, 3))
-        self.assertEqual(t3_pointer.corner((0, 0), display, cell), (2 - 1, 3 - 1))
+        self.assertEqual(t3_pointer.origin(display, cell), (2, 1))
+        self.assertEqual(t3_pointer.corner((0, 0), display, cell), (2 - 1, 1 - 1))
         self.assertEqual(t3_pointer.corner((t3_pointer.ABS_MAX,) * 2, display, cell),
-                         (2 + 635 - 1, 3 + 476 - 1))
-        # 1280x800 in 10x19 cells: 798 lines of grid, 2 spare lines above
-        self.assertEqual(t3_pointer.origin((1280, 800), (10, 19)), (0, 2))
-        self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 19)), (3, 8))
+                         (2 + 635 - 1, 1 + 476 - 1))
+        # 1280x800 in 10x19 cells: 798 lines of grid, 1 spare line above
+        # and 1 below; 1366x768 in 8x19 cells: 8 spare lines, 4 above
+        self.assertEqual(t3_pointer.origin((1280, 800), (10, 19)), (0, 1))
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 19)), (3, 4))
+        # 1366x768 in 8x18 cells, as tier3-minimal's pointer case draws:
+        # 12 spare lines, 6 above the grid
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 18)), (3, 6))
         # 1366 across in 9-pixel cells leaves 7 spare columns: 3 on the
         # left and the odd one with the other 3 on the right
         self.assertEqual(t3_pointer.origin(self.DISPLAY, (9, 16)), (3, 0))
+
+    def test_the_grid_is_flush_to_the_bottom_while_smooth_scrolling_is_on(self):
+        # the same displays with smooth scrolling on: every spare line lies
+        # above the grid, and the spare columns still split
+        display, cell = (640, 480), (6, 9)
+        self.assertEqual(t3_pointer.origin(display, cell, smooth=True), (2, 3))
+        self.assertEqual(t3_pointer.corner((0, 0), display, cell, smooth=True), (2 - 1, 3 - 1))
+        self.assertEqual(t3_pointer.origin((1280, 800), (10, 19), smooth=True), (0, 2))
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 19), smooth=True), (3, 8))
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (9, 16), smooth=True), (3, 0))
+
+    def test_smooth_scrolling_is_read_from_the_head_its_look_and_the_top_level(self):
+        on = ["smooth-scroll"]
+        smooth = t3_pointer.smooth_scrolls
+        # off by default, and on only in a build with the feature
+        self.assertFalse(smooth("", on))
+        self.assertTrue(smooth("smooth-scroll=on\n", on))
+        self.assertFalse(smooth("smooth-scroll=on\n", ["images", "scroll-pan"]))
+        self.assertFalse(smooth("smooth-scroll = off\n", on))
+        # a look's value wins over the top level's, and a head's over its
+        # look's; a head with no look uses the look default
+        look = "smooth-scroll=on\n[look big]\nsmooth-scroll=off\n"
+        self.assertFalse(smooth(look + "[head console]\nlook = big\n", on))
+        self.assertTrue(smooth(look + "[head console]\nlook = big\nsmooth-scroll = on\n", on))
+        self.assertTrue(smooth(look + "[head console]\n", on))
+        self.assertFalse(smooth("[look default]\nsmooth-scroll=off\n[head a]\n"
+                                "smooth-scroll=off\n", on))
+        self.assertTrue(smooth("[look default]\nsmooth-scroll=on\n[head a]\n", on))
+        # a comment and another section's lines set nothing
+        self.assertFalse(smooth("#smooth-scroll=on\n[rules]\nsmooth-scroll=on\n", on))
+        # every tier 3 variant runs with smooth scrolling off
+        for name, variant in t3_scenario.VARIANTS.items():
+            with self.subTest(variant=name):
+                self.assertFalse(t3_pointer.variant_smooth(variant))
 
     def test_the_planes_are_read_from_the_dump(self):
         planes = t3_pointer.planes(self.STATE)
@@ -2828,12 +2866,15 @@ class PointerTest(unittest.TestCase):
                 at = t3_pointer.aim(target, display, cell)
                 self.assertTrue(all(0 <= v <= t3_pointer.ABS_MAX for v in at), at)
                 hot = t3_pointer.hotspot(cell[1])
-                # centred across, and the spare lines above the grid
+                # centred on both axes, and with smooth scrolling on, the
+                # spare lines above the grid
                 (w, h), (cw, ch) = display, cell
-                off = [(w - w // cw * cw) // 2, h - h // ch * ch]
-                want = tuple(o + n * c + c // 2 - hot
-                             for o, n, c in zip(off, target, cell))
-                self.assertEqual(t3_pointer.corner(at, display, cell), want)
+                for smooth, top in ((False, (h - h // ch * ch) // 2), (True, h - h // ch * ch)):
+                    off = [(w - w // cw * cw) // 2, top]
+                    want = tuple(o + n * c + c // 2 - hot
+                                 for o, n, c in zip(off, target, cell))
+                    self.assertEqual(t3_pointer.corner(at, display, cell, smooth=smooth), want)
+                want = t3_pointer.corner(at, display, cell)
                 # each value is the smallest that reaches the pixel
                 self.assertNotEqual(t3_pointer.corner((at[0] - 1, at[1]), display, cell)[0],
                                     want[0])
@@ -8853,7 +8894,7 @@ class FontSourcesTest(unittest.TestCase):
         # cells of 8 with 6 left over, and 768 pixels 19 rows of 40 with 8
         for size, cell, grid in ((16, (8, 16), (3, 0)), (40, (20, 40), (3, 4))):
             img = self.terminus_screen(size, cell, glyphs, grid=grid)
-            self.assertEqual(t3_fonts.judge_terminus(img, cell, size, glyphs)[1], [], size)
+            self.assertEqual(t3_fonts.judge_terminus(img, cell, size, glyphs, grid)[1], [], size)
         # the next smaller strike in a 24-pixel cell
         img = self.terminus_screen(24, (12, 24), glyphs, strike=22)
         _, faults = t3_fonts.judge_terminus(img, (12, 24), 24, glyphs)
@@ -8884,6 +8925,25 @@ class FontSourcesTest(unittest.TestCase):
         _, faults = t3_fonts.judge_terminus(img, (8, 16), 16, glyphs)
         self.assertEqual(faults, ["the emoji U+1F600 is drawn in 2 colors, not in 1 bit",
                                   "the Nerd Fonts icon U+F121 is not a hollow box"])
+
+    def test_the_probes_are_judged_from_the_grid_s_origin(self):
+        glyphs = self.sources()
+        # 1366x768 in 8x18 cells leaves 6 spare columns and 12 spare lines:
+        # with smooth scrolling off, the grid starts at 3,6
+        cell, origin = (8, 18), (3, 6)
+        img = self.terminus_screen(16, cell, glyphs, grid=origin)
+        img = t3img.Image(img.width, img.height + 18, img.data + b"\x10\x10\x10" * img.width * 18)
+        self.assertEqual(t3_fonts.judge_terminus(img, cell, 16, glyphs, origin)[1], [])
+        # the same probes drawn with the spare lines all above the grid, as
+        # with smooth scrolling on, stand 6 lines below their cells
+        img = self.terminus_screen(16, cell, glyphs, grid=(3, 12))
+        img = t3img.Image(img.width, img.height + 18, img.data + b"\x10\x10\x10" * img.width * 18)
+        _, faults = t3_fonts.judge_terminus(img, cell, 16, glyphs, origin)
+        self.assertIn("the letter g has ink outside its cells", faults)
+        # the origin comes from the variant's display and configuration
+        variant = t3_fonts.variants()["default-font-40"]
+        self.assertEqual(t3_fonts.grid_origin(variant, (20, 40)), (3, 4))
+        self.assertEqual(t3_fonts.grid_origin(variant, (12, 24)), (5, 0))
 
     def cullet_screens(self, cell, glyphs):
         """A capture of cullet-mono and the reference's, as Cullet Mono,
@@ -9008,10 +9068,12 @@ class FontSourcesTest(unittest.TestCase):
         # a fault must leave the capture out.
         glyphs = self.sources()
         cell = (8, 16)
-        good = self.terminus_screen(16, cell, glyphs)
+        # the variants' 1366 pixels hold 170 cells of 8, and vtium centres
+        # them, so the grid starts 3 pixels right of the display's edge
+        good = self.terminus_screen(16, cell, glyphs, grid=(3, 0))
         caps, errors, typed = self.check("default-font-16", [self.screen(cell), good], cell)
         self.assertEqual((list(caps), errors, typed), ([t3_fonts.CASE], {}, ["t3 font-probe\n"]))
-        wrong = self.terminus_screen(16, cell, glyphs, strike=14)
+        wrong = self.terminus_screen(16, cell, glyphs, strike=14, grid=(3, 0))
         caps, errors, _ = self.check("default-font-16", [self.screen(cell), wrong], cell)
         self.assertEqual(caps, {})
         self.assertRegex(errors[t3_fonts.CASE], r"^in a 8x16 cell, the letter g matches "
