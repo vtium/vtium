@@ -208,6 +208,10 @@ pub trait Serve {
     /// It sends nothing while the queue of orders is full, and keeps what
     /// it holds for a later turn.
     fn tick(&mut self, _out: &mut Outbox<'_>) {}
+
+    /// Runs once, after the drawer has ended and the VT is back, however
+    /// the drawer ended.
+    fn end(&mut self) {}
 }
 
 /// The broker's requests as the broker serves them: the devices and the VT
@@ -236,6 +240,10 @@ impl Serve for Served {
 
     fn due(&self) -> Option<Instant> {
         self.devices.due()
+    }
+
+    fn end(&mut self) {
+        self.jobs.end();
     }
 }
 
@@ -297,6 +305,12 @@ impl Serve for Jobs {
 
     fn tick(&mut self, out: &mut Outbox<'_>) {
         self.processes.tick(out);
+    }
+
+    /// The sessions the keeper holds run on for the next vtium, and the
+    /// rest are hung up, as vtium in one process does at its exit.
+    fn end(&mut self) {
+        self.processes.sessions.end();
     }
 }
 
@@ -733,7 +747,7 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
         "vtium runs as two processes: this root process, and drawing process {}, which runs everything else as the account {ACCOUNT}",
         drawer.pid.as_raw_nonzero()
     );
-    let status = run(
+    Ok(run(
         &mut lp,
         &link,
         &drawer,
@@ -741,11 +755,7 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
         &mut restore,
         Bounds::default(),
         &now,
-    );
-    // The sessions the keeper holds run on for the next vtium, and the
-    // rest are hung up, as vtium in one process does at its exit.
-    served.jobs.processes.sessions.end();
-    Ok(status)
+    ))
 }
 
 /// Runs the broker's loop for the started `drawer` until the drawer ends,
@@ -769,10 +779,10 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
 /// - A drawer still running at the end of the stop bound gets `SIGKILL`.
 ///
 /// `restore` puts the VT back. The broker calls it exactly once, after
-/// any end of the drawer. Once the drawer has said it runs, the broker
-/// exits with the drawer's own status. It exits with a failure instead
-/// when a signal killed the drawer, or when the VT hung up, as vtium in
-/// one process does at a hangup.
+/// any end of the drawer, and then [`Serve::end`] once. Once the drawer
+/// has said it runs, the broker exits with the drawer's own status. It
+/// exits with a failure instead when a signal killed the drawer, or when
+/// the VT hung up, as vtium in one process does at a hangup.
 ///
 /// References:
 /// - ADR-1400 D4, "Start, stop and exit": the broker's exit status.
@@ -801,6 +811,7 @@ pub fn run(
     if let Some(line) = refusals.end() {
         log::warn!(target: "broker", "{line}");
     }
+    serve.end();
     status
 }
 
@@ -1337,6 +1348,44 @@ mod tests {
             broker_serving("stop:0", &[], LONG, |_, _| Box::new(HangUpWhenDue(None)))
         });
         assert_eq!((ran.status, ran.restored), (FAILURE, 1));
+    }
+
+    /// Serves as [`StopOnPower`] does, and counts the calls of
+    /// [`Serve::end`].
+    struct CountsEnd(StopOnPower, Arc<std::sync::atomic::AtomicU32>);
+
+    impl Serve for CountsEnd {
+        fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()> {
+            self.0.serve(request, out)
+        }
+
+        fn end(&mut self) {
+            self.1.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// However the drawer ends, the broker ends what it runs for the drawer
+    /// once, after the drawer: the sessions the keeper holds run on, and
+    /// the broker hangs up the rest. A drawer that stops when told, one
+    /// that a signal kills, and one that exits before it says it runs all
+    /// count.
+    #[test]
+    fn the_broker_ends_the_sessions_once_after_any_end_of_the_drawer() {
+        for (mode, status) in [("stop:7", 7), ("signal", FAILURE), ("early:3", FAILURE)] {
+            let ended = Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let counts = Arc::clone(&ended);
+            let ran = bounded(move || {
+                broker_serving(mode, &[], LONG, |ping, _| {
+                    Box::new(CountsEnd(StopOnPower(ping), counts))
+                })
+            });
+            assert_eq!((ran.status, ran.restored), (status, 1), "{mode}");
+            assert_eq!(
+                ended.load(Ordering::SeqCst),
+                1,
+                "{mode}: the sessions were not ended once"
+            );
+        }
     }
 
     /// A message that the protocol refuses is dropped, and the broker

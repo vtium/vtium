@@ -224,6 +224,58 @@ mod tests {
         );
     }
 
+    /// A keeper that is systemd's store behind a socket in the abstract
+    /// namespace named `name`, and the socket systemd would read, when
+    /// `listen` is set.
+    fn systemd(name: &str, listen: bool) -> (Keeper, Option<OwnedFd>) {
+        use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType};
+        let abstract_name = format!("vtium-store-test-{}-{name}", std::process::id());
+        let path = format!("@{abstract_name}");
+        let listener = listen.then(|| {
+            let fd = rustix::net::socket_with(
+                AddressFamily::UNIX,
+                SocketType::DGRAM,
+                SocketFlags::CLOEXEC,
+                None,
+            )
+            .unwrap();
+            let addr = SocketAddrUnix::new_abstract_name(abstract_name.as_bytes()).unwrap();
+            rustix::net::bind(&fd, &addr).unwrap();
+            fd
+        });
+        let store = vtium::survive::notify::Store::open(path.as_bytes(), 8).unwrap();
+        (Keeper::Store(store), listener)
+    }
+
+    /// The store holds a session's master, so the session outlives vtium,
+    /// only while a keeper keeps, the keeper has not failed, and systemd
+    /// takes the master's name.
+    #[test]
+    fn the_store_holds_a_master_only_where_a_working_keeper_takes_its_name() {
+        let off = Store::new(Keeper::Off, Vec::new());
+        assert!(!off.holds("left", 1), "no keeper keeps");
+
+        let (keeper, _listener) = systemd("on", true);
+        let mut on = Store::new(keeper, Vec::new());
+        let (a, _b) = rustix::pipe::pipe().unwrap();
+        on.keep("left", 1, a.as_fd());
+        assert!(on.holds("left", 1));
+        let long = "h".repeat(300);
+        assert!(
+            !on.holds(&long, 1),
+            "systemd takes no name of more than 255 bytes"
+        );
+
+        let (keeper, _) = systemd("gone", false);
+        let mut failed = Store::new(keeper, Vec::new());
+        assert!(failed.holds("left", 1), "the keeper has not failed yet");
+        failed.keep("left", 1, a.as_fd());
+        assert!(
+            !failed.holds("left", 1),
+            "a keeper that failed still holds the sessions"
+        );
+    }
+
     /// Of the masters an earlier vtium kept, those of a head vtium.conf
     /// names wait for their consoles, in order. The root process closes its
     /// copy of each other one at once: a head that is gone, a name vtium
