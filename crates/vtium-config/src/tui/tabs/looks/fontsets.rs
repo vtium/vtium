@@ -395,8 +395,13 @@ pub enum TextFont {
 }
 
 /// Why the font helper left out the text font of the font set `name`, the
-/// first font outside a layer. `None` when the text font is there, or
-/// nothing is known yet.
+/// first font outside a layer. The helper calls a file missing both when
+/// the batch does not list it and when it fails the trust rule, so the
+/// reason after [`MISSING_BECAUSE`] tells the two apart, and only a font
+/// it cannot find at all is missing from this machine. `None` when the
+/// text font is there, or nothing is known yet.
+///
+/// [`MISSING_BECAUSE`]: vtium_settings::batch::MISSING_BECAUSE
 pub fn text_font_left_out(shared: &Shared, name: &str) -> Option<TextFont> {
     use vtium_settings::batch::{MISSING_BECAUSE, NOT_ACTIVE};
     let frit = parsed(shared, name)?;
@@ -408,6 +413,7 @@ pub fn text_font_left_out(shared: &Shared, name: &str) -> Option<TextFont> {
     let font = words::font_named(&text.origin);
     Some(match l.why.split_once(MISSING_BECAUSE) {
         Some((_, NOT_ACTIVE)) => TextFont::Inactive(font),
+        Some((_, reason)) => TextFont::Refused(font, reason.to_owned()),
         _ if l.missing => TextFont::Missing(font),
         _ => TextFont::Refused(font, l.why.clone()),
     })
@@ -423,7 +429,7 @@ pub fn text_fallback(shared: &Shared, name: &str) -> Option<String> {
     Some(match text_font_left_out(shared, name)? {
         TextFont::Missing(font) => words::text_font_missing(font),
         TextFont::Inactive(font) => words::text_font_inactive(font),
-        TextFont::Refused(font, why) => words::text_font_refused(font, why),
+        TextFont::Refused(font, why) => words::text_font_refused(font, &why),
     })
 }
 

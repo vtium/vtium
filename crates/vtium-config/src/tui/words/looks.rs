@@ -668,10 +668,11 @@ pub fn look_unused_flow(name: impl Display, why: Unused) -> String {
 }
 
 /// The question that `t` asks on the font set `name`, whose fonts `paths`
-/// are not active.
+/// are not active. The answer keys come before what the activation waits
+/// for, so that they fit in the message line.
 pub fn inactive_question(name: impl Display, paths: &[String]) -> String {
     format!(
-        "The font set {name} needs fonts that are not active, so t cannot try it. Activate them in the draft? They take effect once you install the draft and log in again. y activates {}, and n or Esc leaves them as they are.",
+        "The font set {name} needs fonts that are not active, so t cannot try it. Activate them in the draft? y activates {}, and n or Esc leaves them as they are. They take effect once you install the draft and log in again.",
         and_list(paths)
     )
 }

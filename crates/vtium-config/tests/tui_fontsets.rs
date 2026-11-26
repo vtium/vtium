@@ -602,6 +602,61 @@ fn the_finder_reads_font_sets_through_the_active_fonts() {
     );
 }
 
+/// The countdown of a font set whose text font is left out names why. A
+/// file that fails the trust rule is on this machine, so the countdown
+/// gives the font helper's reason, with no second full stop after a
+/// reason that ends in one. The sentence for a file that is not active
+/// says how to activate and install it.
+#[test]
+fn the_trial_says_why_the_text_font_is_left_out() {
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{App, Event};
+    use vtium_settings::batch::MISSING_BECAUSE;
+    // a font set's own trial asks to activate an inactive file first, so
+    // the inactive sentence shows on a look's trial whose check passed
+    assert_eq!(
+        vtium_config::tui::words::text_font_inactive("the font family JetBrains Mono"),
+        "Its text font, the font family JetBrains Mono, is not active, so vtium's built-in font draws the text. To use it, press Space on its file in the Fonts tab, i to install the draft, and log in again."
+    );
+    let path = "/usr/share/fonts/JetBrainsMono.ttf";
+    for (why, note) in [(
+        format!("{path}{MISSING_BECAUSE}a folder above it is one other accounts can write."),
+        "The font helper cannot use its text font, the font family JetBrains Mono, so vtium's built-in font draws the text: a folder above it is one other accounts can write.",
+    )] {
+        let (mut app, _) = App::new(inputs(), 80, 25);
+        for r in [
+            Reply::Version("vtium(test)".into()),
+            Reply::Font("unifont".into()),
+            Reply::Attributes,
+        ] {
+            app.event(Event::Input(Input::Reply(r)));
+        }
+        app.event(Event::Sourced(vec![(
+            "proof".into(),
+            Sources::LeftOut(vec![LeftOut {
+                missing: true,
+                line: 27,
+                spelling: "font:JetBrains Mono".into(),
+                why,
+            }]),
+        )]));
+        app.event(Event::Input(Input::Key(Key::Char('3'))));
+        for _ in 0..3 {
+            app.event(Event::Input(Input::Key(Key::Down)));
+        }
+        app.event(Event::Input(Input::Key(Key::Char('t'))));
+        assert_eq!(
+            app.shared.message.as_deref(),
+            Some(
+                format!(
+                    "Trying proof on the console for 10 s. Press k to keep it, or any other key to put the font back. {note}"
+                )
+                .as_str()
+            )
+        );
+    }
+}
+
 /// The finder reads a font set through the active-fonts request that the
 /// console sends, which names account 0: a font file the person owns,
 /// listed in the batch, fails the trust rule, as the root-run console
@@ -696,8 +751,7 @@ fn t_on_a_font_set_whose_fonts_are_not_active_offers_to_activate_them() {
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     for part in [
         "The font set tiny5 needs fonts that are not active, so t cannot try it.",
-        "Activate them in the draft? They take effect once you install the draft and log in again.",
-        "y activates /usr/share/fonts/misc/ter-u16n.otb,",
+        "Activate them in the draft? y activates /usr/share/fonts/misc/ter-u16n.otb, and n or Esc leaves them as they are.",
     ] {
         assert!(text.contains(part), "{part:?}:\n{screen}");
     }

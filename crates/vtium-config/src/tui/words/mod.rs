@@ -100,18 +100,21 @@ pub fn text_font_missing(font: impl Display) -> String {
 }
 
 /// What the console draws in place of a font set's text font `font`,
-/// which is not active.
+/// which is not active, and what makes it active: Space activates it in
+/// the draft, and the console reads it after an install and a new login.
 pub fn text_font_inactive(font: impl Display) -> String {
     format!(
-        "Its text font, {font}, is not active, so the console draws the text in vtium's built-in font. Press Space on the font's file in the Fonts tab to activate it."
+        "Its text font, {font}, is not active, so vtium's built-in font draws the text. To use it, press Space on its file in the Fonts tab, i to install the draft, and log in again."
     )
 }
 
 /// What the console draws in place of a font set's text font `font`,
-/// which this machine has and the font helper cannot use, and why.
-pub fn text_font_refused(font: impl Display, why: impl Display) -> String {
+/// which this machine has and the font helper cannot use, and `why`, a
+/// sentence that may end in its own full stop.
+pub fn text_font_refused(font: impl Display, why: &str) -> String {
     format!(
-        "The font helper cannot use its text font, {font}, so the console draws the text in vtium's built-in font: {why}."
+        "The font helper cannot use its text font, {font}, so vtium's built-in font draws the text: {}.",
+        why.trim_end().trim_end_matches('.')
     )
 }
 
