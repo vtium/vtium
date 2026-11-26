@@ -273,8 +273,12 @@ impl Run<'_> {
         } else {
             [forward, back]
         };
+        // the first way stops at a highlight it has seen; the other way
+        // walks back over those, so it stops only where the highlight
+        // no longer moves
         let mut seen = vec![start];
-        for dir in order {
+        for (way, dir) in order.into_iter().enumerate() {
+            let mut last = None;
             for _ in 0..200 {
                 self.press(dir);
                 let Some(now) = self.mark() else {
@@ -285,10 +289,11 @@ impl Run<'_> {
                 if now.is(label) {
                     return Ok(());
                 }
-                if seen.contains(&now) {
+                if (way == 0 && seen.contains(&now)) || last.as_ref() == Some(&now) {
                     break;
                 }
-                seen.push(now);
+                seen.push(now.clone());
+                last = Some(now);
             }
         }
         Err(format!(

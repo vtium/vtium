@@ -665,6 +665,14 @@ pub fn display_off(display: &str) -> String {
     )
 }
 
+/// Space on a display that vtium cannot match as itself: it reports no
+/// EDID, and without a udev daemon vtium knows no connector to match.
+pub fn display_no_match(display: &str) -> String {
+    format!(
+        "The display {display} reports no EDID, and without a udev daemon vtium has no other way to tell it apart, so vtium-config cannot pick it as itself. To show a terminal on it, open the Display template, choose All displays, and press Space on it."
+    )
+}
+
 /// A display that a path on the same VT holds (ADR-1403 D7): the topic,
 /// the display, first, then the terminal that holds it and the VT where
 /// the two clash, `None` when both run on every VT.
