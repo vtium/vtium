@@ -129,6 +129,8 @@ mod batch;
 #[cfg(test)]
 mod batch_login;
 mod blanking;
+#[cfg(feature = "split")]
+pub mod broker;
 #[cfg(test)]
 mod colorterm;
 #[cfg(test)]
@@ -429,6 +431,18 @@ pub struct App {
     retaking: BTreeSet<PathBuf>,
     /// Devices a release waits on.
     releasing: Option<BTreeSet<PathBuf>>,
+    /// Under the privilege split, vtium's root process, which starts the
+    /// sessions and runs the power keys; `None` when vtium runs as one
+    /// process.
+    #[cfg(feature = "split")]
+    broker: Option<Rc<vtium_broker_protocol::Courier>>,
+    /// Under the privilege split, the helpers vtium's root process starts
+    /// for this process, and their exits.
+    #[cfg(feature = "split")]
+    root_helpers: Option<Rc<broker::RootHelpers>>,
+    /// The same, as what starts and stops each font helper's process.
+    #[cfg(feature = "split")]
+    font_root: Option<Rc<dyn helper::Root>>,
     /// Device events a test hands the next turn, as udev would.
     #[cfg(test)]
     queued_devices: Vec<DeviceEvent>,
@@ -696,6 +710,12 @@ impl App {
             retake_owed: false,
             retaking: BTreeSet::new(),
             releasing: None,
+            #[cfg(feature = "split")]
+            broker: None,
+            #[cfg(feature = "split")]
+            root_helpers: None,
+            #[cfg(feature = "split")]
+            font_root: None,
             #[cfg(test)]
             queued_devices: Vec::new(),
             wait,
@@ -810,6 +830,38 @@ impl App {
         self.kernel = Some(crate::kernel::Messages::new(kernel, self.kernel_deferral));
     }
 
+    /// Reads the kernel's messages from `system` through the loop, for the
+    /// app to show: from the descriptor the root process passes under the
+    /// privilege split, or from the one vtium opens itself in one process.
+    ///
+    /// References:
+    /// - ADR-1401 D15: the kernel's messages on the console.
+    pub fn watch_kernel(&mut self, system: crate::kernel::System) {
+        use vtium_platform::calloop::generic::Generic;
+        use vtium_platform::calloop::{Interest, Mode, PostAction};
+        let watched = system.watched().and_then(|fd| {
+            self.handle
+                .insert_source(
+                    Generic::new(fd, Interest::READ, Mode::Level),
+                    |_, _, app: &mut App| {
+                        Ok(if app.kernel_ready() {
+                            PostAction::Continue
+                        } else {
+                            PostAction::Remove
+                        })
+                    },
+                )
+                .map_err(|e| std::io::Error::other(e.error))
+        });
+        match watched {
+            Ok(_) => self.set_kernel(Box::new(system)),
+            Err(e) => log::info!(
+                "vtium cannot read the kernel's messages from {}: {e}. It does not show them on screen.",
+                crate::kernel::KMSG
+            ),
+        }
+    }
+
     /// The kernel has messages to read (ADR-1401 D15). vtium reads every
     /// one, and shows those it keeps over the console of the head that
     /// holds the boot display, while its VT is shown, as the kernel's own
@@ -922,6 +974,15 @@ impl App {
         #[cfg(feature = "libseat")]
         if let Some(seat) = self.vt.get::<vtium_platform::seat::LibseatVt>() {
             input.open_through(seat.input());
+        }
+        // Under the privilege split, through vtium's root process.
+        //
+        // References:
+        // - ADR-1400 D4, "What the broker does": the broker opens the
+        //   input devices.
+        #[cfg(feature = "split")]
+        if let Some(vt) = self.vt.get::<vtium_platform::vt::BrokerVt>() {
+            input.open_through_broker(vt.input());
         }
         if self.vt.get::<FakeVt>().is_some() {
             input.wake_up();
@@ -1079,7 +1140,7 @@ fn to_usize(n: u64) -> usize {
 
 /// The locale in `env`, found as locale(7) says: the first of `LC_ALL`,
 /// `LC_CTYPE` and `LANG` set and not empty, else `C`.
-pub(crate) fn locale(env: &[(OsString, OsString)]) -> String {
+pub fn locale(env: &[(OsString, OsString)]) -> String {
     ["LC_ALL", "LC_CTYPE", "LANG"]
         .iter()
         .find_map(|name| {

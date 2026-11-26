@@ -54,6 +54,11 @@ impl App {
             if key.repeat {
                 return;
             }
+            // Under the privilege split, vtium's root process runs the key.
+            #[cfg(feature = "split")]
+            if self.broker_power(power_key) {
+                return;
+            }
             if let Some(child) = power::press(power_key, self.power.as_mut(), self.sleeping.get()) {
                 let sleeping = Rc::clone(&self.sleeping);
                 if let Err(e) = vtium_platform::power::watch(&self.handle, child, sleeping) {

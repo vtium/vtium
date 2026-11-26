@@ -36,10 +36,18 @@
     clippy::todo
 )]
 
+pub mod devices;
+pub mod kmsg;
 pub mod outbox;
 pub mod refusals;
 pub mod start;
 pub mod watch;
+
+// The process jobs: sessions, helpers, the power keys and the store.
+pub mod helpers;
+pub mod power;
+pub mod sessions;
+pub mod store;
 
 pub use vtium_broker_protocol as protocol;
 
@@ -142,6 +150,55 @@ pub fn plan(facts: &dyn Facts) -> Plan {
 /// full.
 pub trait Serve {
     fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()>;
+
+    /// Runs once a turn of the broker's loop, at `now`: acts on what the
+    /// loop saw outside the drawer's requests, such as the VT's switches,
+    /// and sends what follows through `out`. Returns whether the drawer
+    /// must stop, as when the VT hung up.
+    fn turn(&mut self, now: Instant, out: &mut Outbox<'_>) -> bool {
+        let _ = (now, out);
+        false
+    }
+
+    /// When the loop must run [`Serve::turn`] again, at the latest.
+    fn due(&self) -> Option<Instant> {
+        None
+    }
+
+    /// Sends the orders that no request asked for, such as a session's
+    /// exit, once each turn of the loop while the drawer's socket is open.
+    /// It sends nothing while the queue of orders is full, and keeps what
+    /// it holds for a later turn.
+    fn tick(&mut self, _out: &mut Outbox<'_>) {}
+}
+
+/// The broker's requests as the broker serves them: the devices and the VT
+/// through [`devices::Devices`], and the rest through [`Jobs`].
+pub struct Served {
+    pub devices: devices::Devices,
+    pub jobs: Jobs,
+}
+
+impl Serve for Served {
+    fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()> {
+        // The devices and the VT.
+        if devices::Devices::serves(&request) {
+            return self.devices.serve(request, now(), out);
+        }
+        self.jobs.serve(request, out)
+    }
+
+    fn tick(&mut self, out: &mut Outbox<'_>) {
+        self.jobs.tick(out);
+    }
+
+    fn turn(&mut self, now: Instant, out: &mut Outbox<'_>) -> bool {
+        self.devices.turn(now, out)
+    }
+
+    fn due(&self) -> Option<Instant> {
+        self.devices.due()
+    }
 }
 
 /// The broker before it serves any request: each request that waits for
@@ -181,16 +238,360 @@ impl Serve for Unserved {
     }
 }
 
+/// The broker's jobs: each request goes to the job that serves it.
+pub struct Jobs {
+    pub processes: Processes,
+}
+
+impl Serve for Jobs {
+    fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()> {
+        match request {
+            // The process jobs: sessions, helpers and the power keys.
+            Request::OpenSession { .. }
+            | Request::CloseSession { .. }
+            | Request::Winch { .. }
+            | Request::StartHelper { .. }
+            | Request::StopHelper { .. }
+            | Request::Power { .. } => self.processes.serve(request, out),
+            other => Unserved.serve(other, out),
+        }
+    }
+
+    fn tick(&mut self, out: &mut Outbox<'_>) {
+        self.processes.tick(out);
+    }
+}
+
+/// The broker's process jobs: the sessions, the helpers, the power keys,
+/// and `vtium blank` and `vtium wake`, which reach the broker as signals
+/// because the broker holds the VT open.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the sessions, the helpers, the
+///   power keys, reaping, the exits reported, and `vtium blank` and
+///   `vtium wake` passed on.
+pub struct Processes {
+    pub sessions: sessions::Sessions,
+    pub helpers: helpers::Helpers,
+    pub power: power::PowerKeys,
+    /// The orders no request asked for, in the order they came: the exits
+    /// of sessions and helpers, and blank and wake. They are at most as
+    /// many as the sessions and helpers that can end, and one blank or
+    /// wake.
+    unasked: std::collections::VecDeque<Order>,
+    /// The blanks and wakes that signals asked for since the last turn.
+    signalled: std::rc::Rc<std::cell::RefCell<Vec<vtium::blank::Order>>>,
+}
+
+impl Processes {
+    pub fn new(
+        sessions: sessions::Sessions,
+        helpers: helpers::Helpers,
+        power: power::PowerKeys,
+    ) -> Processes {
+        Processes {
+            sessions,
+            helpers,
+            power,
+            unasked: std::collections::VecDeque::new(),
+            signalled: std::rc::Rc::default(),
+        }
+    }
+
+    /// Takes `SIGRTMIN+1` and `SIGRTMIN+2`, which `vtium blank` and
+    /// `vtium wake` send to the process that holds the VT, through `lp`,
+    /// and passes each on to the drawer as [`Order::Blank`] or
+    /// [`Order::Wake`].
+    pub fn listen(&self, lp: &Loop<Seen>) -> io::Result<()> {
+        let signalled = std::rc::Rc::clone(&self.signalled);
+        vtium::blank::listen_with(&lp.handle(), move |order, _: &mut Seen| {
+            signalled.borrow_mut().push(order);
+        })
+    }
+
+    fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()> {
+        match request {
+            Request::OpenSession {
+                console,
+                grid,
+                display,
+                truecolor,
+            } => match self.sessions.open(&console, &grid, display, truecolor) {
+                Ok(master) => {
+                    self.helpers.stop_login_picture(&console.head);
+                    out.order(
+                        Order::Pty {
+                            console,
+                            opened: Ok(()),
+                        },
+                        Some(master),
+                    )
+                }
+                Err(errno) => out.order(
+                    Order::Pty {
+                        console,
+                        opened: Err(errno),
+                    },
+                    None,
+                ),
+            },
+            Request::CloseSession { console } => {
+                self.sessions.close(&console);
+                self.helpers.stop_console(&console);
+                Ok(())
+            }
+            Request::Winch { console } => {
+                self.sessions.winch(&console);
+                Ok(())
+            }
+            Request::StartHelper { helper, kind } => {
+                match self.helpers.start(helper, &kind, &self.sessions) {
+                    Ok(socket) => out.order(
+                        Order::Helper {
+                            helper,
+                            started: Ok(()),
+                        },
+                        Some(socket),
+                    ),
+                    Err(errno) => out.order(
+                        Order::Helper {
+                            helper,
+                            started: Err(errno),
+                        },
+                        None,
+                    ),
+                }
+            }
+            Request::StopHelper { helper } => {
+                self.helpers.stop(helper);
+                Ok(())
+            }
+            Request::Power { key } => {
+                self.power.run(key);
+                Ok(())
+            }
+            other => Unserved.serve(other, out),
+        }
+    }
+
+    fn tick(&mut self, out: &mut Outbox<'_>) {
+        for (console, status) in self.sessions.reap() {
+            self.helpers.stop_console(&console);
+            self.unasked
+                .push_back(Order::SessionExit { console, status });
+        }
+        for (helper, status) in self.helpers.reap() {
+            self.unasked.push_back(Order::HelperExit { helper, status });
+        }
+        // Of several blanks and wakes still unsent, the last holds, as it
+        // does for vtium in one process, so a flood of signals while the
+        // drawer reads nothing keeps one order waiting.
+        if let Some(order) = self.signalled.borrow_mut().drain(..).next_back() {
+            self.unasked
+                .retain(|o| !matches!(o, Order::Blank | Order::Wake));
+            self.unasked.push_back(match order {
+                vtium::blank::Order::Blank => Order::Blank,
+                vtium::blank::Order::Wake => Order::Wake,
+            });
+        }
+        while !out.full()
+            && let Some(order) = self.unasked.pop_front()
+        {
+            if let Err(e) = out.order(order, None) {
+                log::warn!(target: "broker", "vtium's root process cannot tell its drawing process: {e}");
+            }
+        }
+    }
+}
+
+/// What the root process reads and sets up for its process jobs before
+/// it starts the drawer.
+///
+/// References:
+/// - ADR-1400 D4, "vtium.conf under the split": the broker reads the login
+///   command, the power keys and the closed policy from vtium.conf itself.
+/// - ADR-1401 D9: the closed policy's marker, written before the loop and
+///   the VT.
+/// - ADR-1401 D10: the VT's run directory.
+/// - ADR-1401 D13: the keeper of the pty masters.
+pub struct Begun {
+    loaded: vtium::config::Loaded,
+    vt: Option<u16>,
+    env: Vec<(OsString, OsString)>,
+    store: store::Store,
+    /// The orders that pass the drawer its end of the kernel's messages
+    /// and the kernel's font, each with its descriptor.
+    kernel: Vec<(Order, std::os::fd::OwnedFd)>,
+    /// What relays the kernel's messages to the drawer.
+    relay: Option<kmsg::Relay>,
+}
+
+impl Begun {
+    /// Reads vtium.conf through its ownership check, finds the VT, writes
+    /// or removes the closed policy's marker, makes the VT's run directory
+    /// and starts the keeper of the pty masters.
+    pub fn read(args: &[OsString]) -> Begun {
+        use std::path::Path;
+        let loaded = vtium::config::load(args, &mut vtium::config::read_file);
+        // Only the VT's path is read from the start's settings.
+        let tty = vtium::start::Start::new(&loaded.config, String::new())
+            .vt
+            .or_else(|| vtium_platform::vt::Tty::find().ok().flatten());
+        let vt = tty.as_deref().and_then(vtium::getty::vt_number);
+        let dir = Path::new(vtium::getty::DIR);
+        let policy = vtium::head::rules(&loaded.path, &loaded.file)
+            .on_vt(vt)
+            .outcome
+            .policy;
+        vtium::getty::mark(dir, tty.as_deref(), policy);
+        if let Some(vt) = vt
+            && let Err(e) = vtium::survive::hold::run_dir(&dir.join(format!("tty{vt}")))
+        {
+            log::warn!(target: "broker", "vtium cannot make its run directory for tty{vt}: {e}");
+        }
+        let mut kernel = Vec::new();
+        let mut relay = None;
+        match vtium::kernel::open_kmsg().and_then(kmsg::relay) {
+            Ok((ours, theirs)) => {
+                kernel.push((Order::Kmsg, theirs));
+                relay = Some(ours);
+            }
+            Err(e) => log::info!(
+                target: "broker",
+                "vtium cannot read the kernel's messages from {}: {e}. It does not show them on screen.",
+                vtium::kernel::KMSG
+            ),
+        }
+        if let Some(font) = tty.as_deref().and_then(kernel_font) {
+            kernel.push(font);
+        }
+        let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+        let (keeper, kept) = vtium::survive::start(
+            &env,
+            tty.as_deref(),
+            dir,
+            Path::new("/proc/self/exe"),
+            vtium_platform::take_passed,
+        );
+        Begun {
+            loaded,
+            vt,
+            env,
+            store: store::Store::new(keeper, kept),
+            kernel,
+            relay,
+        }
+    }
+
+    /// The orders that pass the drawer its end of the kernel's messages
+    /// and the kernel's font, which the broker sends first, before any
+    /// answer. The kernel's messages are relayed through `lp` from now on.
+    pub fn kernel(&mut self, lp: &Loop<Seen>) -> Vec<(Order, std::os::fd::OwnedFd)> {
+        if let Some(relay) = self.relay.take()
+            && let Err(e) = relay.listen(lp)
+        {
+            log::info!(target: "broker", "vtium cannot relay the kernel's messages to its drawing process: {e}. It does not show them on screen.");
+        }
+        std::mem::take(&mut self.kernel)
+    }
+
+    /// The process jobs, whose processes `lp` watches.
+    pub fn processes(self, lp: &Loop<Seen>) -> Processes {
+        let wake = |lp: &Loop<Seen>| -> sessions::Wake {
+            let handle = lp.handle();
+            Box::new(move |pidfd| sessions::wake_at_exit(&handle, pidfd))
+        };
+        let config = &self.loaded.config;
+        let font = match vtium::helper::Launcher::configured(config) {
+            Ok(launcher) => Some(launcher.with_locale(&vtium::app::locale(&self.env))),
+            Err(why) => {
+                log::warn!(target: "broker", "{why}");
+                None
+            }
+        };
+        #[cfg(feature = "images")]
+        let images = match helpers::Images::configured(config, &self.env) {
+            Ok(images) => Some(images),
+            Err(why) => {
+                log::warn!(target: "broker", "{why}; vtium's root process starts no image helper");
+                None
+            }
+        };
+        #[cfg(not(feature = "images"))]
+        let images = None;
+        let power =
+            power::PowerKeys::new(config, Box::new(vtium::power::System), Some(lp.handle()));
+        let conf = sessions::Conf::read(&self.loaded, self.vt, self.env);
+        Processes::new(
+            sessions::Sessions::new(conf, Box::new(self.store), wake(lp)),
+            helpers::Helpers::new(font, images, wake(lp)),
+            power,
+        )
+    }
+}
+
+/// The kernel's font on the VT at `tty`, read while the VT is still in
+/// text mode, as the order that passes it and its sealed file. A VT in
+/// graphics mode, or a font past the protocol's bounds, gives none, logged
+/// at debug.
+///
+/// References:
+/// - ADR-1200 D8: the kernel's font, read once at start, which a frit's
+///   `console:` source draws from.
+fn kernel_font(tty: &std::path::Path) -> Option<(Order, std::os::fd::OwnedFd)> {
+    use vtium_platform::vt::font::{ConsoleTty, read};
+    let font = ConsoleTty::open(tty)
+        .map_err(|e| e.to_string())
+        .and_then(|t| read(&t).map_err(|e| e.to_string()));
+    let font = match font {
+        Ok(font) => font,
+        Err(e) => {
+            log::debug!(target: "broker", "the kernel's font is not read from {}: {e}", tty.display());
+            return None;
+        }
+    };
+    let pairs: Vec<(u16, u16)> = font.unimap.iter().map(|p| (p.unicode, p.fontpos)).collect();
+    match protocol::KernelFont::file(font.width, font.height, &font.data, &pairs) {
+        Ok(Some((shape, file))) => Some((Order::Font(shape), file)),
+        Ok(None) => {
+            log::debug!(target: "broker", "the kernel's font is past what vtium's drawing process takes");
+            None
+        }
+        Err(e) => {
+            log::debug!(target: "broker", "the kernel's font cannot be passed on: {e}");
+            None
+        }
+    }
+}
+
 /// When the drawer is running as the drawer, its first step: it takes
-/// [`DRAWER`] off the front of `args`, so the rest of vtium reads the
-/// broker's own arguments, and returns its link to the broker. Any other
-/// run returns `None` and leaves `args` as they are.
-pub fn drawer(args: &mut Vec<OsString>) -> io::Result<Option<Link>> {
-    if args.first().is_none_or(|a| a != DRAWER) {
+/// [`DRAWER`] and the VT's number off the front of `args`, so the rest of
+/// vtium reads the broker's own arguments, and returns its link to the
+/// broker and the number of the VT the broker holds. Any other run
+/// returns `None` and leaves `args` as they are.
+pub fn drawer(args: &mut Vec<OsString>) -> io::Result<Option<(Link, u16)>> {
+    let Some(vt) = drawers_vt(args) else {
         return Ok(None);
+    };
+    let vt = vt?;
+    start::begin().map(|link| Some((link, vt)))
+}
+
+/// Takes [`DRAWER`] and the VT's number off the front of `args`: `None`
+/// when the run is not the drawer's, and an error when the number is
+/// missing or is not a VT's.
+fn drawers_vt(args: &mut Vec<OsString>) -> Option<io::Result<u16>> {
+    if args.first().is_none_or(|a| a != DRAWER) {
+        return None;
     }
     args.remove(0);
-    start::begin().map(Some)
+    let vt = (!args.is_empty())
+        .then(|| args.remove(0))
+        .and_then(|n| n.to_str().and_then(|n| n.parse::<u16>().ok()))
+        .filter(|&n| (1..=u16::from(protocol::VT_MAX)).contains(&n));
+    Some(vt.ok_or_else(|| {
+        io::Error::other("vtium's root process gave its drawing process no VT number")
+    }))
 }
 
 /// Splits vtium when [`plan`] says so: starts the drawer, runs the broker
@@ -224,6 +625,9 @@ fn now() -> Instant {
 }
 
 fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
+    // Before the loop blocks any signal, since a holder of the pty masters
+    // started here inherits the mask.
+    let mut begun = Begun::read(args);
     let mut lp: Loop<Seen> = Loop::new()?;
     for signal in [Signal::SIGTERM, Signal::SIGINT] {
         lp.on_signal(signal, |seen: &mut Seen| seen.stop = true)?;
@@ -231,25 +635,47 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     // A write to a drawer gone returns an error in place of ending the
     // broker.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
+    let env = begun.env.clone();
+    let kernel = begun.kernel(&lp);
+    let processes = begun.processes(&lp);
+    processes.listen(&lp)?;
+    // The broker holds the VT before it says it is ready and before the
+    // drawer starts, and puts the VT back after any end of the drawer.
+    let path = devices::vt_path(args)?;
+    let vt = vtium::getty::vt_number(&path)
+        .ok_or_else(|| io::Error::other(format!("{} is not a VT", path.display())))?;
+    let mut served = Served {
+        devices: devices::Devices::open(&mut lp, &path)?,
+        jobs: Jobs { processes },
+    };
+    let mut restore = served.devices.give_back();
     let (link, theirs) = Link::pair()?;
     let arg0 = std::env::args_os()
         .next()
         .unwrap_or_else(|| OsString::from("vtium"));
-    let drawer = start::spawn(&Program::vtium(arg0, args), account, theirs, true)?;
+    // systemd starts the display manager only once vtium holds its VT, so
+    // the broker says it is ready once it holds the VT open, and before
+    // the drawer starts.
+    if let Err(e) = vtium::survive::notify::ready(&env) {
+        log::warn!(target: "broker", "vtium cannot tell systemd that it is ready: {e}");
+    }
+    let drawer = start::spawn(&Program::vtium(arg0, vt, args), account, theirs, true)?;
+    // The socket is empty, so these first orders fit in it.
+    for (order, fd) in &kernel {
+        if let Err(e) = link.order(order, Some(fd.as_fd())) {
+            log::warn!(target: "broker", "vtium cannot pass its drawing process {order:?}: {e}");
+        }
+    }
     log::info!(
         target: "broker",
         "vtium runs as two processes: this root process, and drawing process {}, which runs everything else as the account {ACCOUNT}",
         drawer.pid.as_raw_nonzero()
     );
-    // The broker does not hold the VT yet, so there is nothing to put
-    // back. The card that moves the VT into the broker passes its restore
-    // here.
-    let mut restore = || {};
     Ok(run(
         &mut lp,
         &link,
         &drawer,
-        &mut Unserved,
+        &mut served,
         &mut restore,
         Bounds::default(),
         &now,
@@ -352,6 +778,10 @@ fn turns(
         }
     };
     loop {
+        // What the loop saw besides the drawer's requests, such as the VT's
+        // switches, before the loop waits again; and whether that asks the
+        // drawer to stop.
+        let stop_asked = serve.turn(clock(), &mut out);
         // While the queue of orders is full, the broker reads no requests
         // and waits for room; while any order waits, it watches for room.
         if let Some(watched) = socket.as_mut()
@@ -362,12 +792,20 @@ fn turns(
             back.run();
             return FAILURE;
         }
+        let mut seen = Seen {
+            stop: stop_asked,
+            ..Seen::default()
+        };
         let now = clock();
-        let deadline = [stop_by, (!ready).then_some(ready_by), refusals.due()]
-            .into_iter()
-            .flatten()
-            .min();
-        let mut seen = Seen::default();
+        let deadline = [
+            stop_by,
+            (!ready).then_some(ready_by),
+            refusals.due(),
+            serve.due(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         if let Err(e) = lp.dispatch(
             deadline.map(|d| d.saturating_duration_since(now)),
             &mut seen,
@@ -416,6 +854,9 @@ fn turns(
                     }
                 }
             }
+        }
+        if socket.is_some() {
+            serve.tick(&mut out);
         }
         if (seen.exited || socket.is_none())
             && let Ok(Some(ended)) = watch::ended(pidfd)
@@ -782,6 +1223,42 @@ mod tests {
             stop: Duration::ZERO,
         };
         assert_eq!(broker("stubborn", short), (FAILURE, 1));
+    }
+
+    /// Serves as [`Unserved`] does, and stands in for the VT's holder: a
+    /// power key sets a time 20 ms on, and the first turn at or after that
+    /// time reports a hung-up VT. Nothing else wakes the loop then, so only
+    /// a loop that waits for [`Serve::due`] and runs [`Serve::turn`] stops
+    /// the drawer.
+    struct HangUpWhenDue(Option<Instant>);
+
+    impl Serve for HangUpWhenDue {
+        fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()> {
+            if matches!(request, Request::Power { .. }) {
+                self.0 = Some(now() + Duration::from_millis(20));
+                return Ok(());
+            }
+            Unserved.serve(request, out)
+        }
+
+        fn turn(&mut self, now: Instant, _: &mut Outbox<'_>) -> bool {
+            self.0.is_some_and(|due| now >= due)
+        }
+
+        fn due(&self) -> Option<Instant> {
+            self.0
+        }
+    }
+
+    /// The loop runs the devices' turn when it is due, with no event from
+    /// the drawer or the kernel, and a VT that hung up stops the drawer,
+    /// whose own status is then the broker's.
+    #[test]
+    fn the_loop_runs_the_devices_turn_when_due_and_a_hangup_stops_the_drawer() {
+        let ran = bounded(move || {
+            broker_serving("stop:7", &[], LONG, |_, _| Box::new(HangUpWhenDue(None)))
+        });
+        assert_eq!((ran.status, ran.restored), (7, 1));
     }
 
     /// A message that the protocol refuses is dropped, and the broker
@@ -1221,5 +1698,25 @@ mod tests {
         let mut args: Vec<OsString> = vec!["--vt=tty3".into()];
         assert!(drawer(&mut args).unwrap().is_none());
         assert_eq!(args, [OsString::from("--vt=tty3")]);
+    }
+
+    /// The drawer takes the VT's number that follows its word, and the
+    /// broker's own arguments stay; a number that is missing or is no
+    /// VT's is an error.
+    #[test]
+    fn the_drawer_takes_the_vts_number_after_its_word() {
+        let words = |w: &[&str]| -> Vec<OsString> { w.iter().map(OsString::from).collect() };
+        let mut args = words(&["drawer", "3", "--vt=tty3"]);
+        assert_eq!(drawers_vt(&mut args).unwrap().unwrap(), 3);
+        assert_eq!(args, words(&["--vt=tty3"]));
+        for bad in [
+            &["drawer"][..],
+            &["drawer", "x"],
+            &["drawer", "0"],
+            &["drawer", "64"],
+        ] {
+            let mut args = words(bad);
+            assert!(drawers_vt(&mut args).unwrap().is_err(), "{bad:?}");
+        }
     }
 }

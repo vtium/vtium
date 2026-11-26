@@ -32,8 +32,17 @@
 //! name, and its udev properties, bounded by `UDEV_PROPERTIES_MAX` and
 //! `UDEV_PROPERTY_MAX`.
 
+#[cfg(feature = "split")]
+mod split;
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "split")]
+use split::Sysfs;
+#[cfg(feature = "split")]
+pub use split::{DRM_MAJOR, FB_MAJOR, INPUT_MAJOR, NodeRefusal, open_seat_node};
+#[cfg(all(test, feature = "split"))]
+pub(crate) use split::{NodeFacts, admit};
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -596,6 +605,10 @@ fn open(node: &Path) -> io::Result<OwnedFd> {
 pub struct Udev {
     socket: udev::MonitorSocket,
     monitor: Monitor,
+    /// Read each card's driver and each framebuffer's id from sysfs
+    /// instead of opening the node, as a process without root must.
+    #[cfg(feature = "split")]
+    sysfs: bool,
 }
 
 impl std::fmt::Debug for Udev {
@@ -621,11 +634,35 @@ impl Udev {
         Ok(Udev {
             socket,
             monitor: Monitor::new(seat).with_udev_daemon(Path::new(UDEV_CONTROL).exists()),
+            #[cfg(feature = "split")]
+            sysfs: false,
         })
+    }
+
+    /// From here on, reads each card's driver and each framebuffer's id
+    /// from sysfs, and opens no node. The drawer runs without root and
+    /// cannot open a card or a framebuffer itself, so it probes this way.
+    /// A card the kernel is still adding then reads as added, since sysfs
+    /// has no answer that tells it apart, and the broker's open of it
+    /// answers `ENODEV`.
+    ///
+    /// References:
+    /// - ADR-1400 D1: the driver probe's open, which needs root.
+    #[cfg(feature = "split")]
+    #[must_use]
+    pub fn probing_sysfs(self) -> Udev {
+        Udev {
+            sysfs: true,
+            ..self
+        }
     }
 
     /// Reports every device of the seat present now.
     pub fn scan(&mut self) -> io::Result<()> {
+        #[cfg(feature = "split")]
+        if self.sysfs {
+            return self.scan_with(&mut Sysfs::default());
+        }
         self.scan_with(&mut Nodes)
     }
 
@@ -654,7 +691,13 @@ impl Udev {
                 Some("change") => Action::Change,
                 _ => Action::Other,
             };
-            self.monitor.handle(action, &uevent(&event), &mut Nodes);
+            let dev = uevent(&event);
+            #[cfg(feature = "split")]
+            if self.sysfs {
+                self.monitor.handle(action, &dev, &mut Sysfs::default());
+                continue;
+            }
+            self.monitor.handle(action, &dev, &mut Nodes);
         }
     }
 

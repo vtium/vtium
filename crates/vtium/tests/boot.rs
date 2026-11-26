@@ -7560,7 +7560,8 @@ fn osc_50_switches_to_an_outline_font_by_its_path_and_draws_from_it() {
 
 // The same switch by the path of a PSF console font compressed with gzip
 // makes a font set whose source reads a console font. The helper draws it
-// in the font's own 16×32 cell.
+// in the font's own 16×32 cell, and the display line is logged again with
+// that cell.
 //
 // References:
 // - ADR-1200 D5, "A qualifying font".
@@ -7584,6 +7585,11 @@ fn osc_50_switches_to_a_console_font_by_its_path_and_draws_from_it() {
     let lines = logged();
     assert_eq!(switches(&lines), [path.as_str()], "{lines:?}");
     assert_eq!(h.app.font_name(), path);
+    assert_eq!(
+        last_display_cell(&lines),
+        Some("16x32"),
+        "a display line names the new cell: {lines:?}"
+    );
     let cell = vtium_font::Cell {
         width: 16,
         height: 32,
@@ -7643,8 +7649,10 @@ fn fills_asked(kinds: &Path) -> Vec<(u32, u32)> {
 /// cell, and the helper still draws the font, so no line says that vtium
 /// gave the font up. The console asked for a fill at 16×32 alone, and none
 /// at the display's 8×8 cell while it waited, because the font gives no
-/// glyph at 8×8 and the helper refuses a fill that brings none. The
-/// result is the lines logged since the go FIFO opened.
+/// glyph at 8×8 and the helper refuses a fill that brings none. After the
+/// line about the late cell, a display line names the 16×32 cell, so the
+/// log says which cell the console draws in now. The result is the lines
+/// logged since the go FIFO opened.
 fn takes_the_late_console_font_cell(
     h: &mut Harness,
     go: &Path,
@@ -7681,7 +7689,30 @@ fn takes_the_late_console_font_cell(
         "{lines:?}"
     );
     assert_eq!(fills_asked(kinds), [(16, 32)], "{lines:?}");
+    let late = lines
+        .iter()
+        .position(|l| {
+            l.starts_with(&format!(
+                "the frit {font}'s own 16x32 cell came after the wait"
+            ))
+        })
+        .unwrap_or_else(|| panic!("the late cell's line: {lines:?}"));
+    assert_eq!(
+        last_display_cell(lines.get(late..).unwrap_or_default()),
+        Some("16x32"),
+        "a display line after the late cell names it: {lines:?}"
+    );
     lines
+}
+
+/// The cell, as `WxH`, that the last display line of `lines` names: the
+/// line vtium logs for each display it draws, ending `cell size WxH`.
+fn last_display_cell(lines: &[String]) -> Option<&str> {
+    lines
+        .iter()
+        .rev()
+        .filter(|l| l.starts_with("Display "))
+        .find_map(|l| l.rsplit_once("cell size ").map(|(_, cell)| cell))
 }
 
 // A program switches to a PSF console font by its path, and the font
@@ -7753,6 +7784,81 @@ fn a_console_font_named_at_the_start_whose_cell_comes_late_draws_in_that_cell() 
         "{lines:?}"
     );
     takes_the_late_console_font_cell(&mut h, &go, &kinds, path);
+}
+
+// The pointer follows the grid that a late cell answer moves the display
+// to. The display is 330×170, so neither cell fills it: the 8×8 cell vtium
+// draws in while it waits makes a grid of 41 by 21 at (1, 2), and the
+// font's own 16×32 cell makes one of 20 by 5 at (5, 10). Each grid is
+// centred across the display, with the spare column on the right, and its
+// last row touches the display's bottom edge. After the late answer, the
+// pointer on the grid's first pixel shows on the cursor plane at the new
+// grid's top left, and the pointer moved far past the bottom-right corner
+// shows at the new grid's last pixel, (324, 169). Under the 8×8 layout
+// those would be (1, 2) and (328, 169).
+//
+// References:
+// - ADR-1310 D10: the grid lies flush to the display's bottom edge and is
+//   centred across it.
+// - ADR-1310 D11: the pointer is kept inside the grid and mapped through
+//   the picture to the display.
+// - ADR-1200 D17: an answer that comes after the wait is kept and used.
+#[test]
+fn the_pointer_moves_within_the_grid_a_late_cell_answer_lays_out() {
+    let dir = Scratch::new("boot-psf-late-pointer");
+    let kinds = dir.join("kinds");
+    let go = go_fifo(&dir);
+    let fonts = Sources {
+        frits: dir.join("frits"),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    let path = std::fs::canonicalize(terminus_psf()).expect("the fixture");
+    let path = path.to_str().expect("a UTF-8 path");
+    let name = format!("--font-name={path}");
+    let planed = Planed {
+        memory: Memory::sized(330, 170),
+        set_ups: 0,
+        shown: None,
+    };
+    logged();
+    let mut h = Harness::boot_with(
+        &[
+            name.as_str(),
+            "--font-size=0",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x",
+        ],
+        FakeVt::new(),
+        Some(Box::new(planed)),
+        fonts,
+    );
+    assert_eq!(
+        (h.app.cells(), h.app.grid()),
+        (vec![(8, 8)], (41, 21)),
+        "the display's cell"
+    );
+    takes_the_late_console_font_cell(&mut h, &go, &kinds, path);
+    assert_eq!(h.app.grid(), (20, 5), "the font's own cell");
+    let shown_at = |h: &mut Harness, x: i32, y: i32| {
+        h.point([PointerEvent::Moved { x, y, held: None }], Mods::empty());
+        h.drawn_now();
+        h.app
+            .videos
+            .get_mut(Path::new("/dev/mem0"))
+            .and_then(|v| v.as_any().downcast_mut::<Planed>())
+            .expect("the planed device")
+            .shown
+    };
+    assert_eq!(shown_at(&mut h, 0, 0), Some((5, 10)), "the grid's top left");
+    assert_eq!(
+        shown_at(&mut h, 10_000, 10_000),
+        Some((324, 169)),
+        "the grid's last pixel"
+    );
 }
 
 // A font set of a PSF console font with its own 16×32 cell, then a font

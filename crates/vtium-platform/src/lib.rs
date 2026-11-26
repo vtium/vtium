@@ -96,6 +96,8 @@ pub mod udev;
 pub mod vt;
 pub mod watch;
 
+#[cfg(feature = "split")]
+pub use bounds::RELEASE_BOUND_MS;
 pub use bounds::{
     DAMAGE_CLIPS_MAX, EXIT_FEED_MAX, FLIP_WAIT_MS, IMAGE_CRASHES_MAX, IMAGE_HELPER_BASE,
     INPUT_READS_PER_TURN, MOTION_COALESCE_AT, READ_BUDGET, READ_MAX, READS_PER_TURN, REPLY_HIGH,

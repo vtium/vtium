@@ -58,6 +58,10 @@ use std::io::{self, IoSlice, IoSliceMut};
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
+mod courier;
+
+pub use courier::{Arrived, CALL_BOUND_MS, Courier};
+
 use rustix::net::{
     AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags,
     SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketFlags, SocketType,
@@ -88,6 +92,20 @@ pub const SIGNAL_MAX: u8 = 64;
 
 /// The highest error number. Linux's errors run from 1 to 4095.
 pub const ERRNO_MAX: u16 = 4095;
+
+/// The most bytes an image helper's request may name, as its budget or as
+/// its largest reply file: 4 GiB, past any budget vtium.conf names.
+pub const IMAGE_BYTES_MAX: u64 = 1 << 32;
+
+/// The widest kernel font, in pixels, that the kernel's font call gives.
+pub const FONT_WIDTH_MAX: u8 = 32;
+
+/// The tallest kernel font, in pixels, that the kernel's tall font call
+/// gives.
+pub const FONT_HEIGHT_MAX: u8 = 64;
+
+/// The most glyphs a kernel font holds.
+pub const FONT_GLYPHS_MAX: u16 = 512;
 
 /// `EINVAL`, the error in the answer to a refused request.
 const EINVAL: u16 = 22;
@@ -205,10 +223,157 @@ pub enum Display {
 /// The helper the drawer asks for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Helper {
-    /// The image helper of one console.
-    Image(ConsoleRef),
+    /// The image helper of one console, for one request. Its account and
+    /// its limits depend on the request, so the broker chooses them from
+    /// these fields.
+    Image {
+        console: ConsoleRef,
+        /// The request's budget, 1 to [`IMAGE_BYTES_MAX`] bytes, from which
+        /// the helper's memory cap follows.
+        max_bytes: u64,
+        /// The largest file the helper may write for its reply, 1 to
+        /// [`IMAGE_BYTES_MAX`] bytes.
+        largest_file: u64,
+        /// Whether the request reads a file, which needs the account of
+        /// the session's user, rather than bytes the program sent inline.
+        file: bool,
+    },
     /// A font helper.
     Font,
+    /// The image helper that decodes the login picture of one head, before
+    /// any session of that head opens. The broker runs it as the pre-login
+    /// account, for inline bytes only, under limits it sets itself, so the
+    /// request names only the head.
+    ///
+    /// References:
+    /// - ADR-1100 D17: the login picture, decoded before the head's first
+    ///   login prompt starts.
+    /// - ADR-1400 D4: the broker starts the login picture's helper itself.
+    LoginPicture { head: Head },
+}
+
+/// The kernel's font, as the broker read it from the VT while the VT was
+/// still in text mode. The glyphs and the Unicode map travel in a sealed
+/// memory file that comes with the order: `glyphs` glyphs of `height`
+/// rows of `width.div_ceil(8)` bytes, then `pairs` pairs of a codepoint
+/// and a glyph's place, each two little-endian `u16`s.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KernelFont {
+    /// 1 to [`FONT_WIDTH_MAX`] pixels.
+    pub width: u8,
+    /// 1 to [`FONT_HEIGHT_MAX`] pixels.
+    pub height: u8,
+    /// 1 to [`FONT_GLYPHS_MAX`].
+    pub glyphs: u16,
+    /// The Unicode map's pairs, any number the kernel's map call can give.
+    pub pairs: u16,
+}
+
+/// A kernel font's glyphs, and its Unicode map as `(codepoint, place)`.
+pub type FontFile = (Vec<u8>, Vec<(u16, u16)>);
+
+impl KernelFont {
+    /// How many bytes the glyphs fill.
+    pub fn glyph_bytes(&self) -> usize {
+        let row = usize::from(self.width).div_ceil(8);
+        row.saturating_mul(usize::from(self.height))
+            .saturating_mul(usize::from(self.glyphs))
+    }
+
+    /// How many bytes the memory file holds: the glyphs, then the pairs.
+    pub fn bytes(&self) -> usize {
+        self.glyph_bytes()
+            .saturating_add(usize::from(self.pairs).saturating_mul(4))
+    }
+
+    /// The font of `width` by `height` pixels whose glyphs are `glyphs`
+    /// and whose Unicode map is `pairs`, as `(codepoint, place)`, in a
+    /// sealed memory file the broker passes with [`Order::Font`]. `None`
+    /// when the shape is outside the protocol's bounds or `glyphs` does not
+    /// fill whole glyphs of that shape.
+    pub fn file(
+        width: u32,
+        height: u32,
+        glyphs: &[u8],
+        pairs: &[(u16, u16)],
+    ) -> io::Result<Option<(KernelFont, OwnedFd)>> {
+        let row = usize::try_from(width.div_ceil(8)).unwrap_or(usize::MAX);
+        let glyph = row.saturating_mul(usize::try_from(height).unwrap_or(usize::MAX));
+        let count = glyphs.len().checked_div(glyph).unwrap_or(0);
+        let font = (|| {
+            Some(KernelFont {
+                width: u8::try_from(width)
+                    .ok()
+                    .filter(|w| (1..=FONT_WIDTH_MAX).contains(w))?,
+                height: u8::try_from(height)
+                    .ok()
+                    .filter(|h| (1..=FONT_HEIGHT_MAX).contains(h))?,
+                glyphs: u16::try_from(count)
+                    .ok()
+                    .filter(|g| (1..=FONT_GLYPHS_MAX).contains(g))?,
+                pairs: u16::try_from(pairs.len()).ok()?,
+            })
+        })();
+        let Some(font) = font.filter(|f| f.glyph_bytes() == glyphs.len()) else {
+            return Ok(None);
+        };
+        use rustix::fs::{MemfdFlags, SealFlags};
+        let fd = rustix::fs::memfd_create(
+            "vtium-kernel-font",
+            MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
+        )?;
+        let mut bytes = glyphs.to_vec();
+        for &(codepoint, place) in pairs {
+            bytes.extend_from_slice(&codepoint.to_le_bytes());
+            bytes.extend_from_slice(&place.to_le_bytes());
+        }
+        let mut written = 0;
+        while let Some(rest) = bytes.get(written..).filter(|r| !r.is_empty()) {
+            written = written.saturating_add(rustix::io::write(&fd, rest)?);
+        }
+        rustix::fs::fcntl_add_seals(
+            &fd,
+            SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE | SealFlags::SEAL,
+        )?;
+        Ok(Some((font, fd)))
+    }
+
+    /// The glyphs and the Unicode map in `file`, the memory file that came
+    /// with [`Order::Font`]. The file must be sealed against writes and
+    /// against a change of size, and hold exactly [`KernelFont::bytes`].
+    pub fn read(&self, file: &OwnedFd) -> io::Result<FontFile> {
+        use rustix::fs::SealFlags;
+        let wanted = SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE;
+        if !rustix::fs::fcntl_get_seals(file)?.contains(wanted) {
+            return Err(io::Error::other("the kernel font's file is not sealed"));
+        }
+        let size = usize::try_from(rustix::fs::fstat(file)?.st_size).unwrap_or(usize::MAX);
+        if size != self.bytes() {
+            return Err(io::Error::other(
+                "the kernel font's file does not hold the font the order names",
+            ));
+        }
+        let mut bytes = vec![0u8; size];
+        let mut got = 0;
+        while let Some(rest) = bytes.get_mut(got..).filter(|r| !r.is_empty()) {
+            let offset = u64::try_from(got).unwrap_or(u64::MAX);
+            match rustix::io::pread(file, rest, offset)? {
+                0 => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
+                n => got = got.saturating_add(n),
+            }
+        }
+        let pairs_at = self.glyph_bytes();
+        let pairs = bytes
+            .get(pairs_at..)
+            .unwrap_or_default()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&[a, b, c, d]| (u16::from_le_bytes([a, b]), u16::from_le_bytes([c, d])))
+            .collect();
+        bytes.truncate(pairs_at);
+        Ok((bytes, pairs))
+    }
 }
 
 /// A power key that vtium.conf binds.
@@ -311,6 +476,12 @@ pub enum Order {
     Wake,
     /// Stop: the unit is stopping.
     Stop,
+    /// The drawer's end of the socket over which the broker relays each
+    /// new record of `/dev/kmsg`, one record a message, from which the
+    /// drawer reads the kernel's messages.
+    Kmsg,
+    /// The kernel's font, with the sealed memory file that holds it.
+    Font(KernelFont),
 }
 
 impl Order {
@@ -319,6 +490,7 @@ impl Order {
         match self {
             Order::Device { opened, .. } | Order::Pty { opened, .. } => opened.is_ok(),
             Order::Helper { started, .. } => started.is_ok(),
+            Order::Kmsg | Order::Font(_) => true,
             _ => false,
         }
     }
@@ -352,6 +524,8 @@ const HELPER_EXIT: u16 = 0x108;
 const BLANK: u16 = 0x109;
 const WAKE: u16 = 0x10a;
 const STOP: u16 = 0x10b;
+const KMSG: u16 = 0x10c;
+const FONT: u16 = 0x10d;
 
 /// A message being written. Every kind's fields fit in [`SIZE`] bytes,
 /// which a test checks for the largest of each, so no write runs past the
@@ -536,6 +710,13 @@ impl<'a> In<'a> {
         }
     }
 
+    fn image_bytes(&mut self, field: &'static str) -> Result<u64, Refusal> {
+        match self.u64(field)? {
+            n @ 1..=IMAGE_BYTES_MAX => Ok(n),
+            _ => Err(Refusal::Field(field)),
+        }
+    }
+
     fn cells(&mut self, field: &'static str) -> Result<u16, Refusal> {
         match self.u16(field)? {
             0 => Err(Refusal::Field(field)),
@@ -598,11 +779,23 @@ impl Request {
                 let mut o = Out::new(START_HELPER);
                 o.u32(*helper);
                 match kind {
-                    Helper::Image(console) => {
+                    Helper::Image {
+                        console,
+                        max_bytes,
+                        largest_file,
+                        file,
+                    } => {
                         o.u8(1);
                         o.console(console);
+                        o.u64(*max_bytes);
+                        o.u64(*largest_file);
+                        o.u8(u8::from(*file));
                     }
                     Helper::Font => o.u8(2),
+                    Helper::LoginPicture { head } => {
+                        o.u8(3);
+                        o.text(head.as_str(), NAME_MAX);
+                    }
                 }
                 o
             }
@@ -676,8 +869,16 @@ impl Request {
             START_HELPER => {
                 let helper = r.id("helper")?;
                 let kind = match r.u8("helper kind")? {
-                    1 => Helper::Image(r.console()?),
+                    1 => Helper::Image {
+                        console: r.console()?,
+                        max_bytes: r.image_bytes("max bytes")?,
+                        largest_file: r.image_bytes("largest file")?,
+                        file: r.bool("file")?,
+                    },
                     2 => Helper::Font,
+                    3 => Helper::LoginPicture {
+                        head: Head::new(r.text(NAME_MAX, "head")?).ok_or(Refusal::Field("head"))?,
+                    },
                     _ => return Err(Refusal::Field("helper kind")),
                 };
                 Request::StartHelper { helper, kind }
@@ -777,6 +978,15 @@ impl Order {
             Order::Blank => Out::new(BLANK),
             Order::Wake => Out::new(WAKE),
             Order::Stop => Out::new(STOP),
+            Order::Kmsg => Out::new(KMSG),
+            Order::Font(font) => {
+                let mut o = Out::new(FONT);
+                o.u8(font.width);
+                o.u8(font.height);
+                o.u16(font.glyphs);
+                o.u16(font.pairs);
+                o
+            }
         };
         out.bytes
     }
@@ -815,6 +1025,28 @@ impl Order {
             BLANK => Order::Blank,
             WAKE => Order::Wake,
             STOP => Order::Stop,
+            KMSG => Order::Kmsg,
+            FONT => {
+                let width = r.u8("font width")?;
+                let height = r.u8("font height")?;
+                let glyphs = r.u16("glyphs")?;
+                let pairs = r.u16("pairs")?;
+                if !(1..=FONT_WIDTH_MAX).contains(&width) {
+                    return Err(Refusal::Field("font width"));
+                }
+                if !(1..=FONT_HEIGHT_MAX).contains(&height) {
+                    return Err(Refusal::Field("font height"));
+                }
+                if !(1..=FONT_GLYPHS_MAX).contains(&glyphs) {
+                    return Err(Refusal::Field("glyphs"));
+                }
+                Order::Font(KernelFont {
+                    width,
+                    height,
+                    glyphs,
+                    pairs,
+                })
+            }
             other => return Err(Refusal::Kind(other)),
         };
         r.end(order)
@@ -1162,11 +1394,31 @@ mod tests {
             Request::Winch { console: console() },
             Request::StartHelper {
                 helper: 9,
-                kind: Helper::Image(long_console()),
+                kind: Helper::Image {
+                    console: long_console(),
+                    max_bytes: IMAGE_BYTES_MAX,
+                    largest_file: IMAGE_BYTES_MAX,
+                    file: true,
+                },
+            },
+            Request::StartHelper {
+                helper: 11,
+                kind: Helper::Image {
+                    console: console(),
+                    max_bytes: 1,
+                    largest_file: 1,
+                    file: false,
+                },
             },
             Request::StartHelper {
                 helper: 10,
                 kind: Helper::Font,
+            },
+            Request::StartHelper {
+                helper: 12,
+                kind: Helper::LoginPicture {
+                    head: long_console().head,
+                },
             },
             Request::StopHelper { helper: 9 },
             Request::Power {
@@ -1238,6 +1490,19 @@ mod tests {
             Order::Blank,
             Order::Wake,
             Order::Stop,
+            Order::Kmsg,
+            Order::Font(KernelFont {
+                width: FONT_WIDTH_MAX,
+                height: FONT_HEIGHT_MAX,
+                glyphs: FONT_GLYPHS_MAX,
+                pairs: u16::MAX,
+            }),
+            Order::Font(KernelFont {
+                width: 1,
+                height: 1,
+                glyphs: 1,
+                pairs: 0,
+            }),
         ]
     }
 
@@ -1297,7 +1562,19 @@ mod tests {
         let g = AFTER_HEAD + 8;
         let helper = Request::StartHelper {
             helper: 1,
-            kind: Helper::Image(console()),
+            kind: Helper::Image {
+                console: console(),
+                max_bytes: 4096,
+                largest_file: 4096,
+                file: false,
+            },
+        }
+        .encode();
+        let login_picture = Request::StartHelper {
+            helper: 1,
+            kind: Helper::LoginPicture {
+                head: Head::new("a").unwrap(),
+            },
         }
         .encode();
         let path = |p: &[u8]| {
@@ -1396,7 +1673,39 @@ mod tests {
             ),
             (with(helper, BODY, &[0; 4]), Refusal::Field("helper")),
             (with(helper, BODY + 4, &[0]), Refusal::Field("helper kind")),
-            (with(helper, BODY + 4, &[3]), Refusal::Field("helper kind")),
+            (with(helper, BODY + 4, &[4]), Refusal::Field("helper kind")),
+            // a login picture's helper names a head vtium.conf allows
+            (with(login_picture, BODY + 6, b"/"), Refusal::Field("head")),
+            (with(login_picture, BODY + 5, &[0]), Refusal::Field("head")),
+            // and nothing past its head
+            (with(login_picture, AFTER_HEAD + 5, &[1]), Refusal::Padding),
+            // the image's budget, its largest file and whether it reads a
+            // file follow the console
+            (
+                with(helper, AFTER_HEAD + 13, &0u64.to_le_bytes()),
+                Refusal::Field("max bytes"),
+            ),
+            (
+                with(
+                    helper,
+                    AFTER_HEAD + 13,
+                    &(IMAGE_BYTES_MAX + 1).to_le_bytes(),
+                ),
+                Refusal::Field("max bytes"),
+            ),
+            (
+                with(helper, AFTER_HEAD + 21, &0u64.to_le_bytes()),
+                Refusal::Field("largest file"),
+            ),
+            (
+                with(
+                    helper,
+                    AFTER_HEAD + 21,
+                    &(IMAGE_BYTES_MAX + 1).to_le_bytes(),
+                ),
+                Refusal::Field("largest file"),
+            ),
+            (with(helper, AFTER_HEAD + 29, &[2]), Refusal::Field("file")),
             (with(helper, BODY + 5, &[0]), Refusal::Field("head")),
             (
                 with(Request::StopHelper { helper: 1 }.encode(), BODY, &[0; 4]),
@@ -1464,8 +1773,33 @@ mod tests {
             taken: true,
         }
         .encode();
+        let font = Order::Font(KernelFont {
+            width: 8,
+            height: 16,
+            glyphs: 256,
+            pairs: 0,
+        })
+        .encode();
         let errno = (ERRNO_MAX + 1).to_le_bytes();
         let cases: Vec<([u8; SIZE], Refusal)> = vec![
+            (with(font, BODY, &[0]), Refusal::Field("font width")),
+            (
+                with(font, BODY, &[FONT_WIDTH_MAX + 1]),
+                Refusal::Field("font width"),
+            ),
+            (with(font, BODY + 1, &[0]), Refusal::Field("font height")),
+            (
+                with(font, BODY + 1, &[FONT_HEIGHT_MAX + 1]),
+                Refusal::Field("font height"),
+            ),
+            (
+                with(font, BODY + 2, &0u16.to_le_bytes()),
+                Refusal::Field("glyphs"),
+            ),
+            (
+                with(font, BODY + 2, &(FONT_GLYPHS_MAX + 1).to_le_bytes()),
+                Refusal::Field("glyphs"),
+            ),
             (with(device, BODY, &[0; 4]), Refusal::Field("device")),
             (with(device, BODY + 4, &errno), Refusal::Field("errno")),
             (with(master, BODY, &[0; 4]), Refusal::Field("device")),
@@ -1519,8 +1853,8 @@ mod tests {
             Err(Refusal::Kind(15))
         );
         assert_eq!(
-            Order::decode(&with(ready, 0, &[0x0c, 1])),
-            Err(Refusal::Kind(0x10c))
+            Order::decode(&with(ready, 0, &[0x0e, 1])),
+            Err(Refusal::Kind(0x10e))
         );
         assert_eq!(
             Request::decode(&with(ready, 2, &[1])),
@@ -1754,6 +2088,90 @@ mod tests {
         }
     }
 
+    /// The kernel's log and its font each come with their descriptor, and
+    /// the reader refuses either without one.
+    #[test]
+    fn the_kernels_log_and_font_come_with_a_descriptor() {
+        let (broker, theirs) = Link::pair().unwrap();
+        let drawer = Link::passed(theirs).unwrap();
+        let (file, _other) = rustix::pipe::pipe().unwrap();
+        let font = Order::Font(KernelFont {
+            width: 8,
+            height: 16,
+            glyphs: 256,
+            pairs: 3,
+        });
+        if let Order::Font(f) = &font {
+            assert_eq!(f.bytes(), 16 * 256 + 3 * 4);
+        }
+        for order in [Order::Kmsg, font] {
+            assert!(order.carries_descriptor(), "{order:?}");
+            assert!(
+                broker.order(&order, None).is_err(),
+                "{order:?} went without its descriptor"
+            );
+            broker.order(&order, Some(file.as_fd())).unwrap();
+            match drawer.next_order().unwrap() {
+                Got::Message(Ok((got, Some(_)))) => assert_eq!(got, order),
+                other => panic!("{other:?}"),
+            }
+            // sent bare past the writer's check, the reader refuses it
+            broker.send(&order.encode(), None).unwrap();
+            assert!(matches!(
+                drawer.next_order().unwrap(),
+                Got::Message(Err(Refusal::Descriptors(0)))
+            ));
+        }
+    }
+
+    /// The kernel's font goes through its sealed file whole, and a file
+    /// that is not sealed, or does not hold the font the order names, is
+    /// refused.
+    #[test]
+    fn the_kernels_font_goes_through_a_sealed_file() {
+        let glyphs: Vec<u8> = (0..16 * 256)
+            .map(|i| u8::try_from(i % 251).unwrap())
+            .collect();
+        let pairs = [(0x41, 65), (0x2500, 196), (0xfffd, 0)];
+        let (font, file) = KernelFont::file(8, 16, &glyphs, &pairs).unwrap().unwrap();
+        assert_eq!(
+            font,
+            KernelFont {
+                width: 8,
+                height: 16,
+                glyphs: 256,
+                pairs: 3
+            }
+        );
+        assert_eq!(font.read(&file).unwrap(), (glyphs.clone(), pairs.to_vec()));
+        assert!(
+            rustix::io::write(&file, b"x").is_err(),
+            "the file takes writes"
+        );
+        let other = KernelFont { pairs: 2, ..font };
+        assert!(
+            other.read(&file).is_err(),
+            "a file of another size is taken"
+        );
+        let open = rustix::fs::memfd_create("open", rustix::fs::MemfdFlags::CLOEXEC).unwrap();
+        rustix::io::write(&open, &vec![0u8; font.bytes()]).unwrap();
+        assert!(
+            font.read(&open).is_err(),
+            "a file that is not sealed is taken"
+        );
+        // shapes outside the bounds, and glyphs that fill no whole glyph
+        assert!(KernelFont::file(33, 16, &glyphs, &[]).unwrap().is_none());
+        assert!(KernelFont::file(8, 65, &glyphs, &[]).unwrap().is_none());
+        assert!(
+            KernelFont::file(8, 16, &glyphs[1..], &[])
+                .unwrap()
+                .is_none()
+        );
+        assert!(KernelFont::file(8, 16, &[], &[]).unwrap().is_none());
+        let many = vec![0u8; 16 * 513];
+        assert!(KernelFont::file(8, 16, &many, &[]).unwrap().is_none());
+    }
+
     /// Each seed of the fuzz target is a message one reader accepts, so a
     /// run starts from whole messages of every layout the seeds cover.
     #[test]
@@ -1768,7 +2186,7 @@ mod tests {
             );
             seen += 1;
         }
-        assert_eq!(seen, 10);
+        assert_eq!(seen, 12);
     }
 
     /// The drawer takes descriptor 3 only when it is a Unix

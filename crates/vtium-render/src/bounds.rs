@@ -160,9 +160,17 @@ const COPY_LOG: Bound = Bound {
     cite: "ADR-1310 D6 and ADR-1401 D2: the copy keeps its ring in system memory; `display-buffers` allows at most 3 buffers a display",
 };
 
+const OVERSCAN: Bound = Bound {
+    name: "OVERSCAN_ROWS",
+    value: 4,
+    what: "Rows of the scrollback above the screen that a frame asks vtium-term to hand it at least, in a build with `scroll-pan`; spare pixel lines above the grid that show more rows ask for as many as they show",
+    past: "A row further up is drawn only when the spare lines show it, or once it scrolls into view",
+    cite: "ADR-1310 D2: K is 4 rows on each side, fixed, and the snapshot captures one row more for the ink of the rows next to it",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 18] = [
+pub(crate) const BOUNDS: [Bound; 19] = [
     POOL_BYTES,
     ROW_SCRATCH,
     TIMER_SAMPLES,
@@ -181,7 +189,16 @@ pub(crate) const BOUNDS: [Bound; 18] = [
     COLOR_TABLE,
     TWINS,
     COPY_LOG,
+    OVERSCAN,
 ];
+
+/// Rows of the scrollback above the screen that a frame asks for at
+/// least.
+///
+/// References:
+/// - ADR-1310 D2: this bound is K, 4 rows on each side, fixed.
+#[cfg(feature = "scroll-pan")]
+pub(crate) const OVERSCAN_ROWS: usize = OVERSCAN.value;
 
 /// Nodes on each side of a look's color table.
 #[cfg(feature = "filters")]

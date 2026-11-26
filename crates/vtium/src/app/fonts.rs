@@ -261,6 +261,20 @@ impl App {
         self.frits.retain(|name, _| used.contains(name));
     }
 
+    /// Lays head `h` out again after its font or its size changed, as
+    /// [`App::relayout`] does. Each display that the layout moves to a new
+    /// character cell then gets its display line again, so the log names
+    /// the cell the display draws in now. A late answer of the font helper,
+    /// an OSC 50 switch, the end of a session that returns the font, and a
+    /// zoom all lay the head out here. Returns what [`App::relayout`]
+    /// returns.
+    pub(super) fn relayout_font(&mut self, h: usize) -> bool {
+        let before = self.cells_of(h);
+        let laid = self.relayout(h);
+        self.cells_moved(h, &before);
+        laid
+    }
+
     /// The name of the font set the shown head draws, as OSC 50's query
     /// reports it.
     pub fn font_name(&self) -> &str {
@@ -314,7 +328,7 @@ impl App {
             if let Some(head) = self.heads.get_mut(h) {
                 head.refont = true;
             }
-            if self.relayout(h) {
+            if self.relayout_font(h) {
                 return Ok(());
             }
             let Some(head) = self.heads.get_mut(h) else {
@@ -323,7 +337,7 @@ impl App {
             head.font = old;
             head.refont = true;
             let size = head.font_size;
-            self.relayout(h);
+            self.relayout_font(h);
             Err(format!("it draws nothing at {size} pixels"))
         });
         self.prune();
@@ -490,7 +504,7 @@ impl App {
         {
             frit.own.retain(|_, answer| answer.is_ok());
         }
-        if self.relayout(h) {
+        if self.relayout_font(h) {
             return true;
         }
         if let Some(head) = self.heads.get_mut(h) {
@@ -587,13 +601,13 @@ impl App {
             let fresh = head.fresh_fit();
             head.configured_size(id, fresh);
         }
-        if (shown || left.is_some()) && !self.relayout(h) {
+        if (shown || left.is_some()) && !self.relayout_font(h) {
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
             let tried = head.font_size;
             head.put_back(kept);
-            self.relayout(h);
+            self.relayout_font(h);
             self.prune();
             if let Some(head) = self.heads.get(h) {
                 log::warn!(

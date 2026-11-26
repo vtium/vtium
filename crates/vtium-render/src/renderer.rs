@@ -44,6 +44,41 @@ mod wider;
 
 pub use testing::TestInk;
 
+/// What the change reads of a cell take: the row's pass, which counts the
+/// rows of history above the screen, in a build with `scroll-pan`, and the
+/// frame in a build without it.
+#[cfg(feature = "scroll-pan")]
+macro_rules! changed_arg {
+    ($p:expr) => {
+        $p
+    };
+}
+
+/// What the change reads of a cell take: the frame.
+#[cfg(not(feature = "scroll-pan"))]
+macro_rules! changed_arg {
+    ($p:expr) => {
+        $p.frame
+    };
+}
+
+/// The cell of the frame without its selection that the ink of a glyph is
+/// drawn as, through the pass's rows in a build with `scroll-pan`.
+#[cfg(feature = "scroll-pan")]
+macro_rules! plain_cell {
+    ($p:expr, $r:expr, $k:expr) => {
+        $p.plain_cell($r, $k)
+    };
+}
+
+/// The cell of the frame without its selection.
+#[cfg(not(feature = "scroll-pan"))]
+macro_rules! plain_cell {
+    ($p:expr, $r:expr, $k:expr) => {
+        $p.plain().cell($r, $k)
+    };
+}
+
 /// How many pixels wide a bar cursor is in a cell `cw` pixels wide: one
 /// eighth of the cell, rounded to the nearest pixel, and at least one. It
 /// is the width vtium-font gives its sprite for U+258F, LEFT ONE EIGHTH
@@ -213,6 +248,15 @@ struct Grid {
     off_y: i64,
     max_x: i64,
     max_y: i64,
+    /// The rows of history the CPU path draws above the screen's first
+    /// row, which `rows` counts with the screen's: the rows the spare lines
+    /// above the grid show, and one more above them, which only sends its
+    /// ink down. The screen's row `y` is the grid's row `y + above`.
+    ///
+    /// References:
+    /// - ADR-1310 D10: the spare lines show the bottom of the rows above, which take ink from their real neighbours.
+    #[cfg(feature = "scroll-pan")]
+    above: usize,
 }
 
 /// The display's size, the cell's and the orientation: where the grid's
@@ -285,7 +329,106 @@ impl Layout {
             off_y,
             max_x: off_x.saturating_add(across),
             max_y: off_y.saturating_add(down),
+            #[cfg(feature = "scroll-pan")]
+            above: 0,
         }
+    }
+
+    /// The grid `s` with the rows of history above the screen that the
+    /// CPU path draws in a build with `scroll-pan`: as many as the spare
+    /// lines above the grid show, a part of a row included, and one more
+    /// above them, whose ink reaches down into the rows below it. The grid
+    /// keeps its place on the display: it reaches further up the text by
+    /// those rows.
+    ///
+    /// References:
+    /// - ADR-1310 D10, "A strip taller than a row": as many rows of history as fit fill the spare lines.
+    /// - ADR-1310 D10, "Ink at the top edge": the screen's top row takes ink from the row above it.
+    #[cfg(feature = "scroll-pan")]
+    fn with_rows_above(&self, s: Grid) -> Grid {
+        let above = self.strip_rows(&s).saturating_add(1);
+        let by = int(above).saturating_mul(self.ch);
+        let mut g = Grid {
+            rows: s.rows.saturating_add(above),
+            above,
+            ..s
+        };
+        match self.orientation {
+            Orientation::Normal => g.off_y = s.off_y.saturating_sub(by),
+            Orientation::UpsideDown => g.max_y = s.max_y.saturating_add(by),
+            Orientation::Right => g.max_x = s.max_x.saturating_add(by),
+            Orientation::Left => g.off_x = s.off_x.saturating_sub(by),
+        }
+        g
+    }
+
+    /// The screen's own grid within the grid `g`, without the rows above.
+    #[cfg(feature = "scroll-pan")]
+    fn screen_of(&self, g: &Grid) -> Grid {
+        match g.above {
+            0 => *g,
+            above => self.grid_of(g.cols, g.rows.saturating_sub(above)),
+        }
+    }
+
+    /// How many rows the spare lines above the screen's grid `s` show,
+    /// the topmost perhaps in part: the lines between the text's top edge
+    /// and the grid's first row, in rows rounded up.
+    #[cfg(feature = "scroll-pan")]
+    fn strip_rows(&self, s: &Grid) -> usize {
+        let rows = self
+            .spare_lines(s)
+            .saturating_add(self.ch.saturating_sub(1))
+            .checked_div(self.ch)
+            .unwrap_or(0);
+        usize::try_from(rows).unwrap_or(0)
+    }
+
+    /// The spare lines above the screen's grid `s`: the pixel lines between
+    /// the text's top edge and the grid's first row.
+    #[cfg(feature = "scroll-pan")]
+    fn spare_lines(&self, s: &Grid) -> i64 {
+        let (sw, sh) = (int(self.width), int(self.height));
+        let spare = match self.orientation {
+            Orientation::Normal => s.off_y,
+            Orientation::UpsideDown => sh.saturating_sub(s.max_y),
+            Orientation::Right => sw.saturating_sub(s.max_x),
+            Orientation::Left => s.off_x,
+        };
+        spare.max(0)
+    }
+
+    /// The display area of the grid's rows from `r0` up to `r1`, across
+    /// the grid's columns, cut to the display; `None` where it holds no
+    /// pixel of the display.
+    #[cfg(feature = "scroll-pan")]
+    fn rows_rect(&self, g: &Grid, (r0, r1): (usize, usize)) -> Option<Rect> {
+        let a = self.area(
+            g,
+            0,
+            int(r0).saturating_mul(self.ch),
+            int(g.cols).saturating_mul(self.cw),
+            int(r1.saturating_sub(r0)).saturating_mul(self.ch),
+        );
+        self.on_display(a)
+    }
+
+    /// The part of the display area `a` that lies on the display, as a
+    /// rectangle; `None` when no part does.
+    #[cfg(feature = "scroll-pan")]
+    fn on_display(&self, a: Area) -> Option<Rect> {
+        let (w, h) = (int(self.width), int(self.height));
+        let (x0, y0) = (a.x.clamp(0, w), a.y.clamp(0, h));
+        let x1 = a.x.saturating_add(a.w).clamp(0, w);
+        let y1 = a.bottom().clamp(0, h);
+        let side = |v: i64| u32::try_from(v).unwrap_or(0);
+        let r = Rect {
+            x: side(x0),
+            y: side(y0),
+            width: side(x1.saturating_sub(x0)),
+            height: side(y1.saturating_sub(y0)),
+        };
+        (r.area() > 0).then_some(r)
     }
 
     /// The display area of the grid's pixels `lx`, `ly`, `lw` by `lh`.
@@ -436,12 +579,119 @@ struct Pass<'p, 'f> {
     /// whether it draws joined.
     #[cfg(feature = "bidi")]
     runs: core::cell::RefCell<Runs>,
+    /// The grid's rows above the screen's first row ([`Grid::above`]).
+    #[cfg(feature = "scroll-pan")]
+    above: usize,
+}
+
+/// A grid's rows as the frame counts them: the screen's row `y` is the
+/// grid's row `y + above`, and the rows of history above it are negative.
+#[cfg(feature = "scroll-pan")]
+impl<'f> Pass<'_, 'f> {
+    /// The frame's position of the grid's row `row`: negative above the
+    /// screen.
+    fn at(&self, row: usize) -> isize {
+        let row = isize::try_from(row).unwrap_or(isize::MAX);
+        row.saturating_sub(isize::try_from(self.above).unwrap_or(isize::MAX))
+    }
+
+    /// The screen's row that the grid's row `row` is, or `None` for a row
+    /// of history above the screen.
+    fn screen_row(&self, row: usize) -> Option<usize> {
+        row.checked_sub(self.above)
+    }
+
+    /// Whether the grid's row `row` lies wholly past the spare lines: the
+    /// topmost row of history, which only sends its ink down into the row
+    /// below it and draws nothing.
+    fn hidden(&self, row: usize) -> bool {
+        self.above > 0 && row == 0
+    }
+}
+
+/// A grid's cells at the frame's positions, which the ligatures and the
+/// syllables read the rows through, so a row above the screen joins its
+/// letters as a row of the screen does.
+#[cfg(feature = "bidi")]
+impl Pass<'_, '_> {
+    /// The frame's position of the grid's cell `at`: its column, and its
+    /// row counted from the screen's first, negative above the screen.
+    fn frame_at(&self, (col, row): (usize, usize)) -> (usize, isize) {
+        #[cfg(feature = "scroll-pan")]
+        return (col, self.at(row));
+        #[cfg(not(feature = "scroll-pan"))]
+        (col, isize::try_from(row).unwrap_or(isize::MAX))
+    }
+
+    /// Where the visible cursor stands, at the frame's position.
+    fn held_at(&self) -> Option<(usize, isize)> {
+        self.held.map(|at| self.frame_at(at))
+    }
+
+    /// Whether the overlay row showing the hovered link covers the cell at
+    /// `col` of the grid's row `row`.
+    fn covered(&self, col: usize, row: usize) -> bool {
+        #[cfg(feature = "scroll-pan")]
+        return self.link_covers(col, row);
+        #[cfg(not(feature = "scroll-pan"))]
+        self.link_row.is_some_and(|o| o.covers(col, row))
+    }
+}
+
+/// The frame's rows through the pass's count of the rows above the screen,
+/// the overlay row's included.
+#[cfg(feature = "scroll-pan")]
+impl<'f> Pass<'_, 'f> {
+    /// The sized runs of the grid's row `row`.
+    fn sized_runs(&self, row: usize) -> &'f [vtium_term::SizedRun] {
+        self.frame.line_at(self.at(row)).map_or(&[], |l| l.runs())
+    }
+
+    /// The line of the grid's row `row`.
+    fn line(&self, row: usize) -> Option<&'f vtium_term::Line> {
+        self.frame.line_at(self.at(row))
+    }
+
+    /// The frame's own cell at `row`, column `col`, which the overlay row
+    /// does not cover.
+    fn frame_cell(&self, row: usize, col: usize) -> Option<FrameCell<'f>> {
+        self.frame.cell_at(self.at(row), col)
+    }
+
+    /// The cell at `row`, column `col` of the frame without its selection.
+    fn plain_cell(&self, row: usize, col: usize) -> Option<FrameCell<'f>> {
+        self.plain().cell_at(self.at(row), col)
+    }
+
+    /// Whether the overlay row showing the hovered link covers the cell at
+    /// `col` of the grid's row `row`.
+    fn link_covers(&self, col: usize, row: usize) -> bool {
+        let Some(row) = self.screen_row(row) else {
+            return false;
+        };
+        self.link_row.is_some_and(|o| o.covers(col, row))
+    }
+
+    /// Whether the grid's row `row` is the overlay row's.
+    fn link_on(&self, row: usize) -> bool {
+        let Some(row) = self.screen_row(row) else {
+            return false;
+        };
+        self.link_row.is_some_and(|o| o.row() == row)
+    }
 }
 
 impl<'f> Pass<'_, 'f> {
     /// The share of the sized run that the cell at `col`, `row` belongs
     /// to, if any: the block of cells that one OSC 66 sequence writes.
     fn run_at(&self, row: usize, col: usize) -> Option<vtium_term::SizedRun> {
+        #[cfg(feature = "scroll-pan")]
+        return self
+            .sized_runs(row)
+            .iter()
+            .copied()
+            .find(|r| r.span().contains(&col));
+        #[cfg(not(feature = "scroll-pan"))]
         self.frame
             .sized_runs(row)
             .iter()
@@ -454,6 +704,9 @@ impl<'f> Pass<'_, 'f> {
     /// `None` for a cell of no run.
     fn run_piece(&self, row: usize, col: usize) -> Option<(RunPiece, FrameCell<'f>)> {
         let run = self.run_at(row, col)?;
+        #[cfg(feature = "scroll-pan")]
+        let first = self.frame_cell(row, run.col())?;
+        #[cfg(not(feature = "scroll-pan"))]
         let first = self.frame.cell(row, run.col())?;
         Some((RunPiece::at(run, col)?, first))
     }
@@ -490,6 +743,9 @@ impl<'f> Pass<'_, 'f> {
         // the run's rows below this one; its top may lie above the screen
         let below = run.rows().saturating_sub(run.row());
         let top = row.saturating_sub(run.row());
+        // the cursor stays on the screen's rows
+        #[cfg(feature = "scroll-pan")]
+        let top = top.max(self.above);
         let bottom = row.saturating_add(below).min(self.g.rows);
         Some((top..bottom, run.span()))
     }
@@ -507,33 +763,75 @@ impl<'f> Pass<'_, 'f> {
     /// cursor covers.
     fn pair_cells(&self, at: Option<(usize, usize)>) -> Option<(usize, core::ops::Range<usize>)> {
         let (col, row) = at?;
+        #[cfg(feature = "scroll-pan")]
+        let cells = match self.frame_cell(row, col).map(|c| c.width) {
+            Some(Width::Wide) => 2,
+            _ => 1,
+        };
+        #[cfg(not(feature = "scroll-pan"))]
         let cells = match self.frame.cell(row, col).map(|c| c.width) {
             Some(Width::Wide) => 2,
             _ => 1,
         };
+        // the cursor stands on the screen's rows, which the extent counts
+        #[cfg(feature = "scroll-pan")]
+        let (row, above) = (self.screen_row(row)?, self.above);
         let other = self
             .frame
             .cursor_extent(row, cells)
             .rows
             .find(|&r| r != row)?;
+        #[cfg(feature = "scroll-pan")]
+        let other = other.saturating_add(above);
         Some((other, col..col.saturating_add(cells)))
     }
 
     /// The frame without its selection.
     fn plain(&self) -> &Frame<'f> {
+        #[cfg(feature = "scroll-pan")]
+        return self.plain.get_or_init(|| {
+            self.frame
+                .clone()
+                .with_selection(Vec::new())
+                .with_selection_beyond(Vec::new(), Vec::new())
+        });
+        #[cfg(not(feature = "scroll-pan"))]
         self.plain
             .get_or_init(|| self.frame.clone().with_selection(Vec::new()))
     }
 
     /// The cell drawn at `row`, column `col`, the overlay row's where it
     /// covers the cell ([`Frame::cell`]).
+    #[cfg(not(feature = "scroll-pan"))]
     fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'f>> {
         let fc = self.frame.cell(row, col)?;
         Some(self.link_row.map_or(fc, |o| o.cell(col, row, fc)))
     }
 
+    /// The cell drawn at `row`, column `col`, the overlay row's where it
+    /// covers the cell ([`Frame::cell_at`]).
+    #[cfg(feature = "scroll-pan")]
+    fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'f>> {
+        let fc = self.frame_cell(row, col)?;
+        Some(match (self.link_row, self.screen_row(row)) {
+            (Some(o), Some(y)) => o.cell(col, y, fc),
+            _ => fc,
+        })
+    }
+
     /// The size `row` draws at: its line's, or the normal size under the
     /// overlay row, which draws over the row at the normal size.
+    #[cfg(feature = "scroll-pan")]
+    fn size(&self, row: usize) -> LineSize {
+        if self.link_on(row) {
+            return LineSize::Single;
+        }
+        self.frame.size_at(self.at(row))
+    }
+
+    /// The size `row` draws at: its line's, or the normal size under the
+    /// overlay row, which draws over the row at the normal size.
+    #[cfg(not(feature = "scroll-pan"))]
     fn size(&self, row: usize) -> LineSize {
         if self.link_row.is_some_and(|o| o.row() == row) {
             return LineSize::Single;
@@ -543,12 +841,24 @@ impl<'f> Pass<'_, 'f> {
 
     /// The cells of `row` as drawn, left to right, the overlay row's where
     /// it covers them ([`Frame::cells`]).
+    #[cfg(not(feature = "scroll-pan"))]
     fn cells(&self, row: usize) -> impl Iterator<Item = FrameCell<'f>> + '_ {
         let link_row = self.link_row;
         self.frame
             .cells(row)
             .enumerate()
             .map(move |(col, fc)| link_row.map_or(fc, |o| o.cell(col, row, fc)))
+    }
+
+    /// The cells of `row` as drawn, left to right, the overlay row's where
+    /// it covers them ([`Frame::cells_at`]).
+    #[cfg(feature = "scroll-pan")]
+    fn cells(&self, row: usize) -> impl Iterator<Item = FrameCell<'f>> + '_ {
+        let link_row = self.link_row.zip(self.screen_row(row));
+        self.frame
+            .cells_at(self.at(row))
+            .enumerate()
+            .map(move |(col, fc)| link_row.map_or(fc, |(o, y)| o.cell(col, y, fc)))
     }
 }
 
@@ -600,6 +910,11 @@ struct Plan {
     full: bool,
     /// The areas of the border it lacks, when not the whole.
     border: Vec<Rect>,
+    /// The display area the frame's rows cover, which the border leaves:
+    /// the screen's grid and the rows of history above it that exist.
+    /// `None` for an empty grid.
+    #[cfg(feature = "scroll-pan")]
+    drawn: Option<Area>,
 }
 
 /// How a frame's pixels are made: the border and each row's cell jobs.
@@ -910,12 +1225,10 @@ fn paired(p: &Pass<'_, '_>, at: (usize, usize), fc: &FrameCell<'_>) -> Option<us
     // the overlay's characters join nothing, and the letter beside them
     // joins none of them
     let (col, row) = at;
-    if p.link_row
-        .is_some_and(|o| o.covers(col.saturating_sub(1), row))
-    {
+    if p.covered(col.saturating_sub(1), row) {
         return None;
     }
-    match crate::joined::span(p.frame, at, fc, p.held) {
+    match crate::joined::span_at(p.frame, p.frame_at(at), fc, p.held_at()) {
         crate::joined::Span::Pair => Some(2),
         crate::joined::Span::Tail => Some(0),
         crate::joined::Span::One => None,
@@ -941,14 +1254,15 @@ fn joined_syllable<F: Face>(
 ) -> Option<(Syllable, Piece)> {
     // a cell under the link overlay draws the overlay's text, so it joins
     // nothing, and its text stays out of the row's runs
-    let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
+    let covered = |c: usize| p.covered(c, row);
     if covered(col) {
         return None;
     }
+    let (at, held) = (p.frame_at((col, row)), p.held_at());
     let mut runs = p.runs.borrow_mut();
-    let (run, index) = runs.find(p.frame, (col, row), fc, p.ligatures)?;
+    let (run, index) = runs.find_at(p.frame, at, fc, p.ligatures)?;
     let joined = runs.verdict(run, |s| {
-        s.joined(row, p.held, covered)
+        s.joined(at.1, held, covered)
             && (0..s.len()).all(|i| {
                 out.clear();
                 s.key(i, out).is_some() && font.holds(out, s.variant())
@@ -978,7 +1292,7 @@ fn drawn_text<F: Face>(
     match joined_syllable(font, p, at, fc, &mut scratch) {
         Some((s, piece)) => piece.key(s.text(), out),
         None => {
-            crate::joined::drawn(p.frame, at, fc, p.held, out);
+            crate::joined::drawn_at(p.frame, p.frame_at(at), fc, p.held_at(), out);
         }
     }
 }
@@ -1400,6 +1714,8 @@ impl<F: Face> Renderer<F> {
     /// before the first frame, or with no grid.
     pub fn pointer_at(&self, (x, y): (u32, u32)) -> Option<(i32, i32)> {
         let g = self.grid?;
+        #[cfg(feature = "scroll-pan")]
+        let g = self.layout.screen_of(&g);
         let (px, py) = self.pointer_pixel(&g, (x, y))?;
         let a = self.layout.area(&g, px, py, 1, 1);
         Some((
@@ -1472,6 +1788,8 @@ impl<F: Face> Renderer<F> {
         let start = Instant::now();
         #[cfg(feature = "gpu")]
         self.gpu.drew_on_cpu();
+        #[cfg(feature = "scroll-pan")]
+        self.ring.draw_above();
         let plan = self.plan(frame, age, state);
         #[cfg(feature = "scroll-pan")]
         let (counts, missing) = self.paint_through(&plan, frame, state, target, None);
@@ -1541,10 +1859,13 @@ impl<F: Face> Renderer<F> {
         let palette = frame.palette();
         self.deco = (d.underline.resolve(palette), d.strike.resolve(palette));
         let grid = self.layout.grid_for(frame);
+        // the CPU path draws the rows of history above the screen
+        #[cfg(feature = "scroll-pan")]
+        let (screen, grid) = (grid, self.with_rows_above(frame, grid));
         // a frame drawn through the ring may move the grid's lines, or rest
         // the window and draw whole
         #[cfg(feature = "scroll-pan")]
-        let (rest, scrolled) = self.ring_scroll(frame, &grid);
+        let (rest, scrolled) = self.ring_scroll(frame, &screen);
         #[cfg(not(feature = "scroll-pan"))]
         let rest = false;
         let reset = rest || self.grid != Some(grid) || self.background != Some(state.background);
@@ -1563,6 +1884,8 @@ impl<F: Face> Renderer<F> {
         if !reset && scrolled != 0 {
             self.scroll_rows(&grid, scrolled);
         }
+        #[cfg(feature = "scroll-pan")]
+        self.rows_above_exist(&grid, reset);
         let pointer = state.pointer.and_then(|p| self.place_pointer(&grid, p));
         if pointer != self.pointer {
             // it appeared, moved or hid: the cells it left
@@ -1589,6 +1912,8 @@ impl<F: Face> Renderer<F> {
             pointer,
             full,
             border,
+            #[cfg(feature = "scroll-pan")]
+            drawn: self.drawn_area(&grid),
         }
     }
 
@@ -1610,12 +1935,15 @@ impl<F: Face> Renderer<F> {
         let whole_border = [all];
         let bg = mono::border(self.config.depth, state.background);
         let g = &plan.grid;
+        #[cfg(not(feature = "scroll-pan"))]
         let grid = (g.cols > 0 && g.rows > 0).then_some(Area {
             x: g.off_x,
             y: g.off_y,
             w: g.max_x.saturating_sub(g.off_x),
             h: g.max_y.saturating_sub(g.off_y),
         });
+        #[cfg(feature = "scroll-pan")]
+        let grid = plan.drawn;
         for &r in if plan.full {
             &whole_border[..]
         } else {
@@ -1649,6 +1977,14 @@ impl<F: Face> Renderer<F> {
             height: layout.height,
         });
         let counts = self.compose.cache.take_counts();
+        // a row of history above the screen lies partly past the display's
+        // edge, and its damage is the part on the display
+        #[cfg(feature = "scroll-pan")]
+        let damage = self.cells.collect(whole, &plan.border, |col, row| {
+            let a = layout.cells_area(&grid, col, row, 1);
+            layout.on_display(a).unwrap_or_default()
+        });
+        #[cfg(not(feature = "scroll-pan"))]
         let damage = self.cells.collect(whole, &plan.border, |col, row| {
             layout.cell_rect(&grid, col, row)
         });
@@ -1671,11 +2007,16 @@ impl<F: Face> Renderer<F> {
     /// display is planned for the rows to draw.
     #[cfg(feature = "images")]
     fn plan_pictures(&mut self, frame: &Frame<'_>, g: &Grid) {
-        let placements = frame.placements();
+        #[cfg(feature = "scroll-pan")]
+        let (placements, above) = Self::placements_above(frame, g);
+        #[cfg(not(feature = "scroll-pan"))]
+        let (placements, above) = (frame.placements(), 0);
         let cells = &mut self.cells;
         self.compose
             .pictures
-            .damage(placements, (g.cols, g.rows), |c, r| cells.stamp(c, r));
+            .damage(placements, (g.cols, g.rows), above, |c, r| {
+                cells.stamp(c, r)
+            });
         let l = self.layout;
         let grid_px = (
             int(g.cols).saturating_mul(l.cw),
@@ -1688,7 +2029,7 @@ impl<F: Face> Renderer<F> {
         let g = *g;
         let pictures = &mut self.compose.pictures;
         pictures.display(l.width, l.height, l.orientation);
-        pictures.plan(placements, cell, grid_px, g.rows, |a| {
+        pictures.plan(placements, cell, grid_px, g.rows, above, |a| {
             l.area(&g, a.x, a.y, a.w, a.h)
         });
     }
@@ -1720,12 +2061,21 @@ impl<F: Face> Renderer<F> {
         state: &DrawState,
     ) -> (u32, u32) {
         let cursor = frame.cursor();
+        // the overlay row and the cursor stand on the screen's rows, which
+        // the grid counts from the rows of history above them
+        #[cfg(feature = "scroll-pan")]
+        let (rows, above) = (g.rows.saturating_sub(g.above), g.above);
+        #[cfg(feature = "scroll-pan")]
+        let link_row = LinkRow::new(frame, g.cols, rows);
+        #[cfg(not(feature = "scroll-pan"))]
         let link_row = LinkRow::new(frame, g.cols, g.rows);
         // the cursor is not drawn under the overlay row
         let held = cursor
             .visible
             .then(|| Self::cursor_cell(frame, link_row, &cursor))
             .filter(|&(c, r)| !link_row.is_some_and(|o| o.covers(c, r)));
+        #[cfg(feature = "scroll-pan")]
+        let held = held.map(|(c, r)| (c, r.saturating_add(above)));
         let at = held.filter(|_| state.cursor_on);
         let phases = (state.blink_hidden, state.rapid_hidden);
         let blink_toggled = phases != self.blink_hidden;
@@ -1747,6 +2097,8 @@ impl<F: Face> Renderer<F> {
             ligatures: self.config.ligatures,
             #[cfg(feature = "bidi")]
             runs: core::cell::RefCell::new(core::mem::take(&mut self.runs)),
+            #[cfg(feature = "scroll-pan")]
+            above,
         };
         pass.at_pair = pass.pair_cells(at);
         pass.at_run = pass.run_block(at);
@@ -1761,6 +2113,20 @@ impl<F: Face> Renderer<F> {
         let on = |c: Option<(usize, usize)>, row: usize| c.is_some_and(|(_, r)| r == row);
         let (mut drawn, mut scanned) = (0u32, 0u32);
         for row in 0..g.rows {
+            #[cfg(feature = "scroll-pan")]
+            let scan = self.cells.row_stale(row)
+                || self.row_shows_changed(&pass, row, g.cols)
+                || link_row.is_some_and(|o| {
+                    pass.link_on(row) && o.chars().any(|c| self.shows_changed(&Glyph::Char(c)))
+                })
+                || blink_toggled
+                || self.row_changed(&pass, row)
+                || [at, last_cursor, held, last_held]
+                    .into_iter()
+                    .chain(pairs)
+                    .any(|c| on(c, row))
+                || run_rows.iter().flatten().any(|rows| rows.contains(&row));
+            #[cfg(not(feature = "scroll-pan"))]
             let scan = self.cells.row_stale(row)
                 || self.row_shows_changed(frame, row, g.cols)
                 || link_row.is_some_and(|o| {
@@ -1817,33 +2183,89 @@ impl<F: Face> Renderer<F> {
     /// drawn through the ring, whose lines keep their pixels as they move,
     /// asks whether the row changed in place; every other frame asks
     /// whether it changed at its place on the screen.
-    fn row_changed(&self, frame: &Frame<'_>, row: usize) -> bool {
-        #[cfg(feature = "scroll-pan")]
+    #[cfg(feature = "scroll-pan")]
+    fn row_changed(&self, p: &Pass<'_, '_>, row: usize) -> bool {
+        let frame = p.frame;
+        let Some(row) = p.screen_row(row) else {
+            return self.above_changed(frame, p.at(row));
+        };
         if self.ring.in_place() {
             return frame.row_changed_in_place(row);
         }
         frame.row_changed(row)
     }
 
+    /// Whether a cell of `row` changed for the buffer being drawn, at its
+    /// place on the screen.
+    #[cfg(not(feature = "scroll-pan"))]
+    fn row_changed(&self, frame: &Frame<'_>, row: usize) -> bool {
+        frame.row_changed(row)
+    }
+
+    /// Whether the row of history at the frame's position `at`, above the
+    /// screen, changed for the buffer being drawn. A frame drawn through
+    /// the ring keeps the row's pixels as its line moves, so the row
+    /// changed only when the frame says so. Every other frame draws each
+    /// row at its place on the display, and the rows above the screen
+    /// hold other lines whenever the screen moved, or may hold them when
+    /// the frame cannot say how it moved.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "What the capture holds under `scroll-pan`": a row beyond the screen reads as changed only in a frame drawn whole.
+    #[cfg(feature = "scroll-pan")]
+    fn above_changed(&self, frame: &Frame<'_>, at: isize) -> bool {
+        frame.row_changed_at(at) || (!self.ring.in_place() && frame.scrolled() != Some(0))
+    }
+
     /// Whether the cell `fc` drawn at `col`, `row` changed for the buffer
     /// being drawn, read in place or at its place on the screen as
     /// [`Renderer::row_changed`] reads a row.
+    #[cfg(feature = "scroll-pan")]
+    fn cell_changed(
+        &self,
+        p: &Pass<'_, '_>,
+        (col, row): (usize, usize),
+        fc: &FrameCell<'_>,
+    ) -> bool {
+        let frame = p.frame;
+        let Some(row) = p.screen_row(row) else {
+            return self.above_changed(frame, p.at(row));
+        };
+        if self.ring.in_place() {
+            return frame.changed_in_place(row, col);
+        }
+        fc.changed
+    }
+
+    /// Whether the cell `fc` drawn at `col`, `row` changed for the buffer
+    /// being drawn, at its place on the screen.
+    #[cfg(not(feature = "scroll-pan"))]
     fn cell_changed(
         &self,
         frame: &Frame<'_>,
         (col, row): (usize, usize),
         fc: &FrameCell<'_>,
     ) -> bool {
-        #[cfg(feature = "scroll-pan")]
-        if self.ring.in_place() {
-            return frame.changed_in_place(row, col);
-        }
         let _ = (frame, col, row);
         fc.changed
     }
 
     /// Whether `row` shows a glyph that changed since the last frame
     /// ([`Renderer::shows_changed`]), read from its line's glyphs alone.
+    #[cfg(feature = "scroll-pan")]
+    fn row_shows_changed(&self, p: &Pass<'_, '_>, row: usize, cols: usize) -> bool {
+        !self.changed.is_empty()
+            && p.line(row).is_some_and(|line| {
+                line.cells()
+                    .iter()
+                    .take(cols)
+                    .any(|&c| self.shows_changed(&line.glyph(c)))
+            })
+    }
+
+    /// Whether `row` shows a glyph that changed since the last frame
+    /// ([`Renderer::shows_changed`]), read from its line's glyphs alone.
+    #[cfg(not(feature = "scroll-pan"))]
     fn row_shows_changed(&self, frame: &Frame<'_>, row: usize, cols: usize) -> bool {
         !self.changed.is_empty()
             && frame.line(row).is_some_and(|line| {
@@ -1888,7 +2310,7 @@ impl<F: Face> Renderer<F> {
             true => p.run_piece(row, col).map(|(_, first)| first),
             false => None,
         };
-        let mut changed = self.cell_changed(p.frame, (col, row), fc)
+        let mut changed = self.cell_changed(changed_arg!(p), (col, row), fc)
             || self.shows_changed(&fc.glyph)
             || run.is_some_and(|first| self.shows_changed(&first.glyph));
         if let Some(s) = self.cells.get_mut(col, row) {
@@ -1921,7 +2343,7 @@ impl<F: Face> Renderer<F> {
             let tail = col.saturating_add(1);
             changed |= p
                 .cell(row, tail)
-                .is_some_and(|t| self.cell_changed(p.frame, (tail, row), &t));
+                .is_some_and(|t| self.cell_changed(changed_arg!(p), (tail, row), &t));
             if let Some(t) = self.cells.get_mut(tail, row) {
                 changed |= t.replace_span(0) != 0;
             }
@@ -1940,7 +2362,7 @@ impl<F: Face> Renderer<F> {
                 changed |= s.cols().any(|c| {
                     c != col
                         && p.cell(row, c)
-                            .is_some_and(|m| self.cell_changed(p.frame, (c, row), &m))
+                            .is_some_and(|m| self.cell_changed(changed_arg!(p), (c, row), &m))
                 });
             }
         }
@@ -2154,6 +2576,9 @@ impl<F: Face> Renderer<F> {
         self.reaches_kept &= reads;
         let mut count = 0u32;
         let mut before = None;
+        #[cfg(feature = "scroll-pan")]
+        let runs = !p.sized_runs(row).is_empty();
+        #[cfg(not(feature = "scroll-pan"))]
         let runs = !p.frame.sized_runs(row).is_empty();
         self.row_runs = runs;
         for (here, fc) in p.cells(row).take(g.cols).enumerate() {
@@ -2169,7 +2594,16 @@ impl<F: Face> Renderer<F> {
             if !self.scan_cell(p, (here, row), &fc, (ncells, reads), back) {
                 continue;
             }
+            #[cfg(feature = "scroll-pan")]
+            if p.hidden(row) {
+                continue;
+            }
             count = count.saturating_add(self.push_cell(p, (here, row), &fc, ncells));
+        }
+        // no row lies above the hidden row for its ink to reach
+        #[cfg(feature = "scroll-pan")]
+        if p.hidden(row) {
+            return count;
         }
         // the cells this row's ink reached once the scan had passed them
         let reached = core::mem::take(&mut self.reached);
@@ -2206,8 +2640,19 @@ impl<F: Face> Renderer<F> {
             {
                 continue;
             }
+            #[cfg(feature = "scroll-pan")]
+            if p.hidden(above) {
+                continue;
+            }
             let mut first = true;
-            self.row_runs = !p.frame.sized_runs(above).is_empty();
+            #[cfg(feature = "scroll-pan")]
+            {
+                self.row_runs = !p.sized_runs(above).is_empty();
+            }
+            #[cfg(not(feature = "scroll-pan"))]
+            {
+                self.row_runs = !p.frame.sized_runs(above).is_empty();
+            }
             for b in reached.iter().filter(|b| meets(b, above)) {
                 if core::mem::take(&mut first) {
                     self.compose.jobs.clear();
@@ -2341,7 +2786,13 @@ impl<F: Face> Renderer<F> {
         let last = usize::try_from(c1.max(0))
             .unwrap_or(0)
             .min(cols.saturating_sub(1));
+        #[cfg(feature = "scroll-pan")]
+        let line = p.line(row);
+        #[cfg(feature = "scroll-pan")]
+        let covered = |c: usize| p.link_covers(c, row);
+        #[cfg(not(feature = "scroll-pan"))]
         let line = p.frame.line(row);
+        #[cfg(not(feature = "scroll-pan"))]
         let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
         let width = |c: usize| {
             line.filter(|_| c < cols).map(|l| {
@@ -2415,6 +2866,9 @@ impl<F: Face> Renderer<F> {
         let reads = B::RECEIVES && back.reaching(&self.compose);
         self.reaches_kept &= reads;
         let mut before = None;
+        #[cfg(feature = "scroll-pan")]
+        let runs = !p.sized_runs(row).is_empty();
+        #[cfg(not(feature = "scroll-pan"))]
         let runs = !p.frame.sized_runs(row).is_empty();
         self.row_runs = runs;
         for (here, fc) in p.cells(row).take(g.cols).enumerate() {
@@ -2434,7 +2888,12 @@ impl<F: Face> Renderer<F> {
             }
         }
         let mut count = 0u32;
-        if self.cells.stale_cells(0, row, g.cols) {
+        // the hidden row above the spare lines draws nothing
+        #[cfg(feature = "scroll-pan")]
+        let shown = !p.hidden(row);
+        #[cfg(not(feature = "scroll-pan"))]
+        let shown = true;
+        if shown && self.cells.stale_cells(0, row, g.cols) {
             self.compose.jobs.clear();
             self.compose.text.clear();
             self.compose.sources.clear();
@@ -2449,6 +2908,8 @@ impl<F: Face> Renderer<F> {
             // are drawn by the cells before it
             self.cells.mark_drawn(0, row, g.cols);
             self.double_jobs(g, row, size);
+            #[cfg(feature = "scroll-pan")]
+            self.cut_to_display(p, row);
             #[cfg(feature = "images")]
             {
                 self.compose.pictures.row = row;
@@ -2520,11 +2981,36 @@ impl<F: Face> Renderer<F> {
         if B::RECEIVES {
             self.gather(p, row);
         }
+        #[cfg(feature = "scroll-pan")]
+        self.cut_to_display(p, row);
         #[cfg(feature = "images")]
         {
             self.compose.pictures.row = row;
         }
         back.row(&mut self.compose, &self.font, self.layout.strip(), row);
+    }
+
+    /// Cuts the jobs of the grid's row `row` to the display, when it is a
+    /// row of history above the screen: such a row shows only its part in
+    /// the spare lines, and the rest lies past the display's edge. Every
+    /// row the spare lines show keeps a part on the display, so no job is
+    /// left empty.
+    #[cfg(feature = "scroll-pan")]
+    fn cut_to_display(&mut self, p: &Pass<'_, '_>, row: usize) {
+        if p.screen_row(row).is_some() {
+            return;
+        }
+        let l = self.layout;
+        for job in &mut self.compose.jobs {
+            if let Some(r) = l.on_display(job.r) {
+                job.r = Area {
+                    x: int(r.x),
+                    y: int(r.y),
+                    w: int(r.width),
+                    h: int(r.height),
+                };
+            }
+        }
     }
 
     /// Finds, for each of the row's jobs, the neighbours whose glyphs send
@@ -2662,7 +3148,7 @@ impl<F: Face> Renderer<F> {
         let own = if self.config.depth == Depth::One {
             mono::opposite(job.bg)
         } else if fc.selected {
-            p.plain().cell(r, k).map_or(fc.fg, |c| c.fg)
+            plain_cell!(p, r, k).map_or(fc.fg, |c| c.fg)
         } else {
             fc.fg
         };
@@ -2710,6 +3196,7 @@ impl<F: Face> Renderer<F> {
     /// At 1 bit, whether `fc`, at `col` in `row`, draws its background lit
     /// (`mono::marked`): the selection inverts what the cell draws
     /// unselected. `None` at any other depth.
+    #[cfg(not(feature = "scroll-pan"))]
     fn one_bit_lit(
         &self,
         p: &Pass<'_, '_>,
@@ -2726,6 +3213,30 @@ impl<F: Face> Renderer<F> {
         Some(if fc.selected {
             !plain
                 .cell(row, col)
+                .map_or_else(|| natural(fc), |c| natural(&c))
+        } else {
+            natural(fc)
+        })
+    }
+
+    /// At 1 bit, whether `fc`, at `col` in `row`, draws its background lit
+    /// (`mono::marked`): the selection inverts what the cell draws
+    /// unselected. `None` at any other depth.
+    #[cfg(feature = "scroll-pan")]
+    fn one_bit_lit(
+        &self,
+        p: &Pass<'_, '_>,
+        fc: &FrameCell<'_>,
+        row: usize,
+        col: usize,
+    ) -> Option<bool> {
+        if self.config.depth != Depth::One {
+            return None;
+        }
+        let natural =
+            |c: &FrameCell<'_>| mono::marked(c.bg, c.fg, c.attrs.contains(Attrs::INVERSE));
+        Some(if fc.selected {
+            !p.plain_cell(row, col)
                 .map_or_else(|| natural(fc), |c| natural(&c))
         } else {
             natural(fc)
@@ -3072,8 +3583,18 @@ impl<F: Face> Renderer<F> {
     /// grid's pixel, kept inside the grid; the rest may reach into the
     /// border and past the display, where nothing is drawn.
     fn place_pointer(&self, g: &Grid, at: (u32, u32)) -> Option<Pointer> {
+        // the pointer's tip stays on the screen's grid, and the arrow covers
+        // the cells of the rows above it too
+        #[cfg(feature = "scroll-pan")]
+        let s = self.layout.screen_of(g);
+        #[cfg(feature = "scroll-pan")]
+        let (px, py) = self.pointer_pixel(&s, at)?;
+        #[cfg(not(feature = "scroll-pan"))]
         let (px, py) = self.pointer_pixel(g, at)?;
         let l = self.layout;
+        #[cfg(feature = "scroll-pan")]
+        let tip = l.area(&s, px, py, 1, 1);
+        #[cfg(not(feature = "scroll-pan"))]
         let tip = l.area(g, px, py, 1, 1);
         let (hx, hy) = self.arrow.hot();
         let at = Area {
@@ -3105,6 +3626,14 @@ impl<F: Face> Renderer<F> {
             past(b.bottom(), l.ch, g.rows),
         );
         let outside = b.x < 0 || b.y < 0 || b.x.saturating_add(b.w) > gw || b.bottom() > gh;
+        // where no row of history exists above the screen the spare lines
+        // show the border, so an arrow that reaches past the screen's grid
+        // draws the border again there
+        #[cfg(feature = "scroll-pan")]
+        let outside = outside || {
+            let up = int(g.above).saturating_mul(l.ch);
+            b.y < up
+        };
         Some(Pointer {
             at,
             cells,
@@ -3336,5 +3865,156 @@ mod tests {
             assert_eq!(r.cell_rect((6, 2), 0, 2), None, "{o:?}: past the last row");
             assert_eq!(r.cell_rect((0, 2), 0, 0), None, "{o:?}: an empty grid");
         }
+    }
+
+    /// A terminal of 6 by 4 cells that ran `bytes`, and its screen drawn on
+    /// a display with 7 spare lines above the grid, with the rows of
+    /// history above the screen that a build with `scroll-pan` asks for.
+    fn spare_lines_drawn(bytes: &[u8]) -> Canvas {
+        let mut t = vtium_term::Terminal::new(6, 4, 1000);
+        t.screen_mut().set_scrollback_max(100);
+        t.input(bytes);
+        let (w, h) = (6 * 8, 4 * 16 + 7);
+        let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, Config::default());
+        let palette = t.palette().clone();
+        #[cfg(feature = "scroll-pan")]
+        let frame = {
+            let reach = vtium_term::Reach {
+                above: r.rows_above_asked((6, 4)),
+                ..vtium_term::Reach::default()
+            };
+            t.screen().frame_reaching(&palette, Age::NEVER, reach)
+        };
+        #[cfg(not(feature = "scroll-pan"))]
+        let frame = t.screen().frame(&palette, Age::NEVER);
+        let state = DrawState {
+            background: palette.bg(),
+            ..DrawState::default()
+        };
+        let mut c = Canvas::new(w, h, 0x00ab_cdef);
+        r.draw(&frame, &mut c, 0, &state);
+        c
+    }
+
+    // The spare lines above the grid show the bottom of the row of history
+    // above the screen in a build with `scroll-pan`, drawn as that line
+    // draws on the screen beside the same neighbours; a build without it
+    // shows the border's color there.
+    //
+    // References:
+    // - ADR-1310 D10, "Every build": a build without `scroll-pan` keeps no row above, so its spare lines show the border's color.
+    #[test]
+    fn the_spare_lines_show_the_row_above_or_the_border() {
+        // a red line, then four more, so the red line lies above the screen
+        let red = b"\x1b[41mAAAAAA\x1b[0m\r\nB";
+        let history = spare_lines_drawn(&[red.as_slice(), b"\r\nC\r\nD\r\nE"].concat());
+        let strip: Vec<u32> = (0..7)
+            .flat_map(|y| (0..48).map(move |x| (x, y)))
+            .map(|(x, y)| history.pixel(x, y).unwrap_or_default())
+            .collect();
+        #[cfg(feature = "scroll-pan")]
+        {
+            // the red line on the screen's first row, with the same line
+            // below it: its last 7 lines, from the grid's 16th line
+            let screen = spare_lines_drawn(red);
+            let want: Vec<u32> = (16..23)
+                .flat_map(|y| (0..48).map(move |x| (x, y)))
+                .map(|(x, y)| screen.pixel(x, y).unwrap_or_default())
+                .collect();
+            assert_eq!(strip, want, "the spare lines show the red line's bottom");
+        }
+        #[cfg(not(feature = "scroll-pan"))]
+        {
+            let bg = vtium_term::Terminal::new(6, 4, 0).palette().bg();
+            let border = crate::blend::pixel(bg);
+            assert!(
+                strip.iter().all(|&p| p == border),
+                "the spare lines show the border's color"
+            );
+        }
+    }
+
+    // A row of history above the screen joins its letters as a row of the
+    // screen does: in the spare lines, a lam-alef pair draws its ligature
+    // and an Arabic word draws its joined forms, as the same line draws on
+    // the screen's first row beside the same neighbours.
+    //
+    // References:
+    // - ADR-1310 D10, "Every build": every way of drawing shows the same pixels in the spare lines.
+    // - ADR-1004 D6 and D7: the lam-alef ligature and the joined forms.
+    #[cfg(all(feature = "scroll-pan", feature = "bidi"))]
+    #[test]
+    fn the_spare_lines_join_the_letters_of_the_row_above() {
+        let line = "\u{644}\u{627} \u{628}\u{64a}\u{62a}";
+        let screen = spare_lines_drawn(line.as_bytes());
+        let history = spare_lines_drawn(format!("{line}\r\nB\r\nC\r\nD\r\nE").as_bytes());
+        let rows = |c: &Canvas, from: u32| -> Vec<u32> {
+            (from..from + 7)
+                .flat_map(|y| (0..48).map(move |x| (x, y)))
+                .map(|(x, y)| c.pixel(x, y).unwrap_or_default())
+                .collect()
+        };
+        let border = rows(&spare_lines_drawn(b""), 0);
+        let want = rows(&screen, 16);
+        assert_ne!(want, border, "the line's bottom shows ink");
+        assert_eq!(rows(&history, 0), want, "the spare lines join the letters");
+    }
+
+    // When the scrollback is cleared, the rows of history above the screen
+    // go, and the next frame drawn into the same buffer puts the border's
+    // color back where they were, as a frame drawn afresh shows: on a
+    // display whose spare lines are taller than a row, no history pixel
+    // stays in them.
+    //
+    // References:
+    // - ADR-1310 D10, "A strip taller than a row": the border's color shows only above the oldest line.
+    #[cfg(feature = "scroll-pan")]
+    #[test]
+    fn clearing_the_scrollback_puts_the_border_back_in_the_spare_lines() {
+        let mut t = vtium_term::Terminal::new(6, 4, 1000);
+        t.screen_mut().set_scrollback_max(100);
+        for i in 0..20 {
+            t.input(format!("\x1b[4{}m{i:02}xxxx\x1b[0m\r\n", 1 + i % 6).as_bytes());
+        }
+        // 4 rows and 7 lines of spare lines above the grid's 4 rows
+        let (w, h) = (6 * 8, 8 * 16 + 7);
+        let strip = h - 4 * 16;
+        let palette = t.palette().clone();
+        let state = DrawState {
+            background: palette.bg(),
+            ..DrawState::default()
+        };
+        let draw =
+            |t: &vtium_term::Terminal, r: &mut Renderer<Unifont>, c: &mut Canvas, since, age| {
+                let reach = vtium_term::Reach {
+                    above: r.rows_above_asked((6, 4)),
+                    ..vtium_term::Reach::default()
+                };
+                let frame = t.screen().frame_reaching(&palette, since, reach);
+                r.draw(&frame, c, age, &state);
+            };
+        let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, Config::default());
+        let mut kept = Canvas::new(w, h, 0x00ab_cdef);
+        draw(&t, &mut r, &mut kept, Age::NEVER, 0);
+        let border = crate::blend::pixel(palette.bg());
+        let lit = |c: &Canvas| {
+            (0..strip)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .filter(|&(x, y)| c.pixel(x, y) != Some(border))
+                .count()
+        };
+        assert!(lit(&kept) > 0, "the spare lines show the history");
+        let since = t.screen_mut().checkpoint();
+        t.input(b"\x1b[3J");
+        draw(&t, &mut r, &mut kept, since, 1);
+        let mut fresh = Canvas::new(w, h, 0x00ab_cdef);
+        let mut afresh = Renderer::new(Font::new(Unifont::new(16)), w, h, Config::default());
+        draw(&t, &mut afresh, &mut fresh, Age::NEVER, 0);
+        assert_eq!(lit(&fresh), 0, "a frame drawn afresh shows the border");
+        assert_eq!(lit(&kept), 0, "no history pixel stays in the spare lines");
+        assert!(
+            kept == fresh,
+            "the buffer shows what a frame drawn afresh shows"
+        );
     }
 }

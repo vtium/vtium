@@ -630,10 +630,45 @@ const fn scrolls(name: &'static str, orientation: Orientation) -> Case {
             orientation,
             display: Some((48 * 8 + 5, 10 * 16 + 7)),
             next: Some(SCROLL_NEXT),
+            scrollback: 100,
             ..Screen::new(name, SCROLL_DESC, SCROLL, 48, 10)
         },
     }
 }
+
+/// Thirteen numbered lines on the main screen, three in the scrollback,
+/// then the alternate screen with two lines of its own.
+const ROWS_ABOVE_ALT: &[u8] = concat!(
+    "line 0\r\nline 1\r\nline 2\r\nline 3\r\nline 4\r\nline 5\r\nline 6\r\n",
+    "line 7\r\nline 8\r\nline 9\r\nline 10\r\nline 11\r\nline 12",
+    "\x1b[?1049h\x1b[Hon the alternate screen\r\nno row lies above it",
+)
+.as_bytes();
+
+const ROWS_ABOVE_ALT_DESC: &str = "The rows above the screen on the alternate screen: a grid of 48 by 10 cells on a display of 389x167 pixels, with 7 spare lines above the grid. Thirteen numbered lines on the main screen put three in its scrollback, then the program switches to the alternate screen (DEC mode 1049) and writes two lines there. In unifont. Correct: `on the alternate screen` on the top row and `no row lies above it` below it; the 7 spare lines above the grid in the border's color across the whole display, since the alternate screen has no scrollback; the grid's last row on the display's bottom edge.";
+
+/// Thirteen numbered lines, three in the scrollback, each line in its own
+/// background color so the row above shows in the spare lines.
+const ROWS_ABOVE_NOTICE: &[u8] = concat!(
+    "\x1b[44mline 0\x1b[K\r\n\x1b[45mline 1\x1b[K\r\n\x1b[46mline 2\x1b[K\r\n",
+    "\x1b[0mline 3\r\nline 4\r\nline 5\r\nline 6\r\nline 7\r\nline 8\r\n",
+    "line 9\r\nline 10\r\nline 11\r\nline 12",
+)
+.as_bytes();
+
+const ROWS_ABOVE_NOTICE_DESC: &str = "A notice ending over the spare lines: a grid of 48 by 10 cells on a display of 389x167 pixels, with 7 spare lines above the grid. Thirteen numbered lines put three in the scrollback, the third, line 2, on a cyan background. A notice is drawn over the first frame at the display's top, across the spare lines and the top rows, then it goes, and two more frames are drawn, one into each buffer. In unifont. Correct: no trace of the notice; the spare lines show the bottom of line 2's cyan row across the grid's width, with the border's color beside it; `line 3` to `line 12` on the screen; the grid's last row on the display's bottom edge.";
+
+/// A line of cedillas and hooks, which goes into the scrollback, above a
+/// line of capitals with accents, which the screen's top row shows.
+const ROWS_ABOVE_INK: &[u8] = "çç ƒ çç ç\r\nÀÉÎẤỘ ÀÉ\r\nrow two\r\nrow three".as_bytes();
+
+const ROWS_ABOVE_INK_DESC: &str = "Ink across the screen's top edge: a grid of 20 by 3 cells in the ink test font at 16 pixels, on a display of 240x72 pixels, which leaves spare lines above the grid. The first line, cedillas and the hooked f, has scrolled into the scrollback, so it is the row above the screen; the screen's top row holds capitals whose accents rise above the row. Correct: the spare lines show the bottom of the line of cedillas, with the tips of the top row's accents reaching up into it; the cedillas reach down into the top row's cells, crossing the accented capitals there; `row two` and `row three` below; the grid's last row on the display's bottom edge.";
+
+/// A double-height pair whose top line has scrolled into the scrollback,
+/// so the screen's top row shows the pair's bottom line.
+const ROWS_ABOVE_DHL: &[u8] = b"\x1b#3Tall AaGg\r\n\x1b#4Tall AaGg\r\nline 2\r\nline 3";
+
+const ROWS_ABOVE_DHL_DESC: &str = "A double-height pair split at the screen's top edge: a grid of 24 by 3 cells on a display of 197x55 pixels, with 7 spare lines above the grid. The pair's top line (ESC # 3) has scrolled into the scrollback, and its bottom line (ESC # 4) is the screen's top row, both reading Tall AaGg. In unifont. Correct: the spare lines show the last 7 pixel lines of the pair's top half, the middle of each doubled letter, which join without a gap or a step to the bottom half on the top row; `line 2` and `line 3` below at the normal size; the grid's last row on the display's bottom edge.";
 
 /// A light theme set by OSC 10 and 11, for a 1-bit display: default
 /// text, a red word, colored and reversed cells, decorations and sprites
@@ -2012,6 +2047,55 @@ const BASE: &[Case] = &[
     edges("edges-left", Orientation::Left),
     scrolls("scroll-unifont", Orientation::Normal),
     scrolls("scroll-unifont-right", Orientation::Right),
+    // ADR-1310 D10: the rows of history above the screen in the spare lines
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            display: Some((48 * 8 + 5, 10 * 16 + 7)),
+            ..Screen::new(
+                "rows-above-alt",
+                ROWS_ABOVE_ALT_DESC,
+                ROWS_ABOVE_ALT,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            overlay: Some(shown(&[notices::no_keyboard])),
+            overlay_ends: true,
+            display: Some((48 * 8 + 5, 10 * 16 + 7)),
+            ..Screen::new(
+                "rows-above-notice",
+                ROWS_ABOVE_NOTICE_DESC,
+                ROWS_ABOVE_NOTICE,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            display: Some((240, 72)),
+            ..ink(
+                "rows-above-ink",
+                ROWS_ABOVE_INK_DESC,
+                ROWS_ABOVE_INK,
+                (20, 3),
+                &AT_16,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            display: Some((24 * 8 + 5, 3 * 16 + 7)),
+            ..Screen::new("rows-above-dhl", ROWS_ABOVE_DHL_DESC, ROWS_ABOVE_DHL, 24, 3)
+        },
+    },
     Case {
         screen: Screen::new(
             "erase-pen",

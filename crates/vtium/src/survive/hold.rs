@@ -256,7 +256,7 @@ impl Client {
 
 /// Makes the VT's run directory `dir`, owned by vtium's user and writable
 /// by no one else (ADR-1401 D10), or checks the one there.
-fn run_dir(dir: &Path) -> io::Result<()> {
+pub fn run_dir(dir: &Path) -> io::Result<()> {
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o755)

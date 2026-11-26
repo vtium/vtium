@@ -361,9 +361,13 @@ fn in_file(reply: Reply) -> Reply {
     }
 }
 
-/// Each console's stand-in host, in the order the consoles took them.
+/// Each console's stand-in host, in the order the consoles took them, and
+/// the head's name and the console's id each was made for.
 #[derive(Clone, Default)]
-struct Hosts(Rc<RefCell<Vec<Rc<RefCell<Asked>>>>>);
+struct Hosts(
+    Rc<RefCell<Vec<Rc<RefCell<Asked>>>>>,
+    Rc<RefCell<Vec<(String, u64)>>>,
+);
 
 impl Hosts {
     fn count(&self) -> usize {
@@ -523,9 +527,12 @@ impl Seat {
         }
         app.set_image_helpers(hosts.map(|hosts| {
             let hosts = hosts.clone();
-            let make: vtium::head::images::Helpers = Rc::new(move || {
+            let make: vtium::head::images::Helpers = Rc::new(move |head, host| {
                 let asked = Rc::new(RefCell::new(Asked::new()));
                 hosts.0.borrow_mut().push(Rc::clone(&asked));
+                if let vtium::head::images::Host::Console(id) = host {
+                    hosts.1.borrow_mut().push((head.to_owned(), id));
+                }
                 Box::new(StandIn(asked)) as Box<dyn Helper>
             });
             make
@@ -785,6 +792,31 @@ fn a_console_switch_draws_each_consoles_own_pictures() {
         "console 1 shows its own picture: {} red and {} green pixels",
         s.memory("/dev/mem0").count(RED),
         s.memory("/dev/mem0").count(GREEN)
+    );
+}
+
+/// Each console's host is made for its own console: the name of the
+/// console's head and the console's id, which vtium's root process needs
+/// under the privilege split to start the console's helpers as the right
+/// account.
+#[test]
+fn each_consoles_host_is_made_for_its_head_and_its_id() {
+    let heads = "version = 1\n[head main]\nconsoles = 2\n[rules]\ndisplay card:mem -> main\n";
+    let hosts = Hosts::default();
+    let mut s = Seat::boot(
+        &[],
+        Some(heads),
+        Memory::new(320, 160, "mem"),
+        AFTER_A_KEY,
+        Some(&hosts),
+    );
+    assert!(s.until(|s| s.shows("ready1")), "{:?}", s.app.screen_text());
+    s.app.input_event(next_console(), s.at());
+    assert!(s.until(|s| s.shows("ready2")), "{:?}", s.app.screen_text());
+    s.host(&hosts, 1);
+    assert_eq!(
+        *hosts.1.borrow(),
+        [("main".to_owned(), 1), ("main".to_owned(), 2)]
     );
 }
 

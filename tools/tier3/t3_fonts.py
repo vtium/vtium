@@ -411,9 +411,9 @@ OUTLINE_CELL = re.compile(r"the frit (\S+) draws in its outline font's (\d+)x(\d
 LATE_OUTLINE_CELL = re.compile(r"the frit ([^\s']+)'s (\d+)x(\d+) cell at \d+ pixels came "
                                r"after the wait: it draws in it from the next frame")
 # Lines that say a set's cell is now known without naming the display's
-# cell. vtium logs no display line when a late answer moves the console to
-# a new cell, so after a bitmap set's late answer no line names the cell
-# the console draws in until a display line comes.
+# cell. When a late answer moves the console to a new cell, vtium logs the
+# display line again after this line, and that display line names the cell
+# the console draws in. Until it comes, no line names that cell.
 BITMAP_CELL = (
     re.compile(r"the font set (\S+) draws its \d+x\d+ strike at \d+ pixels"),
     re.compile(r"the frit (\S+) draws in its fonts' own \d+x\d+ cell"),

@@ -9,6 +9,7 @@ The crate forbids unsafe code and depends on std and rustix alone. The broker ru
 | Path | What it is |
 |---|---|
 | `src/lib.rs` | The bounds; the field types `Head`, `DevicePath`, `ConsoleRef`, `Grid`, `Display`, `Helper`, `PowerKey`, `Status` and `Errno`; the drawer's `Request` and the broker's `Order`, with their encoders and readers; `Refusal` and `Got`, what a read gives; and `Link`, the socket that sends and receives them. The unit tests are at the end of the file. |
+| `src/courier.rs` | `Courier`, the drawer's one reader of its socket. A request that waits for its answer blocks in `Courier::call` for at most `CALL_BOUND_MS` of quiet. Every other order read meanwhile waits in a queue, with its descriptor, in the order it came, and `Courier::next` hands the queued orders on before it reads the socket again. It tells the socket's close once, after the queued orders, and calls the loop's waker when a call leaves orders queued. |
 | `fuzz/` | The fuzz target `protocol`, which feeds any input to both readers. Its README says how to run it. |
 
 The feature `test-support` adds `Link::wait_for_close`, which the broker's tests in the vtium crate use. Only a dev-dependency turns it on.

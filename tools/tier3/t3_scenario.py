@@ -36,10 +36,16 @@ from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 # (ADR-1303 D10): cpu for the 2D variants, and gpu for the two that draw on
 # the GPU path under virgl, gl-1280x800 and gpu-1280x800. Each draws every
 # screen, the image ones included (t3_evaluate.IMAGE_SCREENS), so its
-# console is built with images ("tree_features"). Every variant's cases are
-# judged by the goldens in goldens/VARIANT/, but those of a variant judged
-# by another's goldens (t3_evaluate.GOLDENS_OF) and those of a variant
-# judged another way ("verdict").
+# console is built with images ("tree_features"). The five default variants
+# build it with scroll-pan too, as the packages do, so their goldens show
+# the rows of history above the screen in the spare lines above the grid.
+# Every variant's cases are judged by the goldens in goldens/VARIANT/, but
+# those of a variant judged by another's goldens (t3_evaluate.GOLDENS_OF)
+# and those of a variant judged another way ("verdict").
+#
+# References:
+# - ADR-1310, Verification, "scroll-draw": the default variants build with
+#   scroll-pan, as the packages do.
 # The screens the frit variants draw: Latin text the frit's font holds, and
 # CJK it lacks, which the built-in unifont draws in its place (#141); cjk
 # last, as vt-restore compares with it.
@@ -69,7 +75,7 @@ VARIANTS = {
         "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
-        "tree_features": ["images"],
+        "tree_features": ["images", "scroll-pan"],
     },
     # The minspec machine: one vCPU and 512 MB at a common laptop size.
     # The vCPU is a core of the host, so it bounds parallelism and memory
@@ -82,7 +88,7 @@ VARIANTS = {
         "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
-        "tree_features": ["images"],
+        "tree_features": ["images", "scroll-pan"],
     },
     # The same machine with the minimal configuration: unifont, and a PSF
     # console font, which make tier3-minimal runs. Their image screens draw
@@ -189,7 +195,7 @@ VARIANTS = {
         "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
-        "tree_features": ["images"],
+        "tree_features": ["images", "scroll-pan"],
     },
     # The 7680x2160 display with DejaVu Sans Mono at 32 points, a 20x38 cell
     # near the 20x40 of Monoid at 30 the
@@ -203,7 +209,7 @@ VARIANTS = {
         "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
-        "tree_features": ["images"],
+        "tree_features": ["images", "scroll-pan"],
     },
     # The GL variant, run on vtium's GPU path: 2d-1280x800's
     # display on virtio-gpu with virgl, with hwaccel on (vtium-gl.conf).
@@ -221,7 +227,7 @@ VARIANTS = {
         "capture": "vnc",
         "cpus": 4,
         "memory_mb": 4096,
-        "tree_features": ["gpu", "images"],
+        "tree_features": ["gpu", "images", "scroll-pan"],
     },
     # The GPU path on the installed console (ADR-1303): 2d-1280x800's
     # display on virtio-gpu with virgl, whose render node in the guest the
@@ -1237,11 +1243,22 @@ def console_startup_ms(serial):
 
 
 def console_cell(serial):
-    """The [width, height] of a character cell, from the "cell size WxH" log
-    line, or None when the console logged none."""
+    """The [width, height] of the character cell the console draws in, or
+    None when the console logged no "cell size WxH" line. The cell is the one
+    the console's last display line names: vtium logs a display line when it
+    sets the display up, and again when a cell answer that came after its
+    wait moves the display to the font's own cell. Only the lines of the
+    first console process count, the one whose revision line comes first,
+    so a console started later on another VT does not change the answer."""
     with open(serial, "rb") as f:
-        m = re.search(rb"cell size (\d+)x(\d+)", f.read())
-    return [int(m.group(1)), int(m.group(2))] if m else None
+        text = f.read().decode(errors="replace")
+    first = re.search(r"\] ((?:kmscon|vtium)\[\d+\]): log: \w+ Revision", text)
+    if first:
+        lines = [l for l in text.splitlines() if "] %s: " % first.group(1) in l]
+    else:
+        lines = text.splitlines()
+    cells = [m for m in (re.search(r"cell size (\d+)x(\d+)", l) for l in lines) if m]
+    return [int(cells[-1].group(1)), int(cells[-1].group(2))] if cells else None
 
 
 def run_variant(variant, timing, impl, log):

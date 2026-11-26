@@ -19,7 +19,53 @@ use crate::video::Video;
 
 use super::{App, BRIEF_NEVER, after, scale};
 
+/// The character cell that each display of a head draws in, keyed by the
+/// display, as [`App::cells_of`] gives it.
+pub(super) type Cells = Vec<((PathBuf, DisplayId), vtium_font::Cell)>;
+
 impl App {
+    /// The character cell that each of head `h`'s displays draws in now,
+    /// for [`App::cells_moved`] to compare with after a layout.
+    pub(super) fn cells_of(&self, h: usize) -> Cells {
+        self.heads
+            .get(h)
+            .map(|head| {
+                head.views
+                    .iter()
+                    .map(|(key, view)| (key.clone(), view.cell()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Logs the display line again for each of head `h`'s displays whose
+    /// character cell differs from the one it had in `before`, as
+    /// [`App::relayout_font`] asks after a change of font or size. While
+    /// the head's render thread has not yet said which path draws it, vtium
+    /// logs nothing here, since every display line of the head follows once
+    /// the thread has said so.
+    ///
+    /// References:
+    /// - ADR-1303 D10: the display line names the path that draws the display.
+    pub(super) fn cells_moved(&self, h: usize, before: &Cells) {
+        let Some(head) = self.heads.get(h) else {
+            return;
+        };
+        let path = match &head.painter {
+            Some(p) if !p.known() => return,
+            Some(p) => p.path(),
+            None => crate::painter::Path::default(),
+        };
+        for (key, cell) in before {
+            if let Some(view) = head.views.get(key)
+                && view.cell() != *cell
+                && let Some(video) = self.videos.get(&key.0)
+            {
+                display_line(&video.name(key.1), video.backend(), path, view);
+            }
+        }
+    }
+
     /// What `render-timer` asks for: whether the console writes each
     /// display's figures to the log, and whether it draws them on screen.
     /// The figures describe the state of the system, which `osd = silent`

@@ -1730,6 +1730,30 @@ class VariantTest(unittest.TestCase):
         self.assertIn("found images not offered (T3-NO-SIXEL)", got["mpv-sixel"]["error"])
         self.assertIn("no benchmark window", got["tmux-2x2"]["error"])
 
+    def test_console_cell(self):
+        # The cell the console draws in is the one its last display line
+        # names. A late cell answer logs the display line again with the
+        # font's own cell, and a second console started later (another
+        # VT's) logs lines of its own, which do not count.
+        log = ("[    9.422219] vtium[759]: log: vtium Revision v0.1\n"
+               "[    9.615129] vtium[759]: Display Virtual-1 with backend [drm2d] "
+               "text renderer [cpu], cell size 8x19\n"
+               "[    9.639941] vtium[759]: the frit terminus's own 10x18 cell came after "
+               "the wait: it draws in it from the next frame\n"
+               "[    9.642988] vtium[759]: Display Virtual-1 with backend [drm2d] "
+               "text renderer [cpu], cell size 10x18\n"
+               "[   81.007692] vtium[1397]: log: vtium Revision v0.1\n"
+               "[   81.195906] vtium[1397]: Display Virtual-1 with backend [drm2d] "
+               "text renderer [cpu], cell size 8x16\n")
+        for text, want in [(log, [10, 18]), ("[    1.0] vtium[5]: started\n", None),
+                           ("Display a, cell size 8x16\n", [8, 16])]:
+            with tempfile.NamedTemporaryFile("w", delete=False) as f:
+                f.write(text)
+            try:
+                self.assertEqual(t3_scenario.console_cell(f.name), want, text)
+            finally:
+                os.unlink(f.name)
+
     def test_startup(self):
         # from the console's revision line to its display line, same process
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
@@ -6115,12 +6139,14 @@ class DefaultVariantsTest(unittest.TestCase):
 
     def test_default_variants(self):
         # Every default variant draws the image screens, so its console is
-        # built with images, and the GL one, which draws on the GPU path,
-        # with gpu too; goldens judge each one.
+        # built with images, and with scroll-pan, as the packages are, and
+        # the GL one, which draws on the GPU path, with gpu too; goldens
+        # judge each one.
         for name in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
-                features = ["gpu", "images"] if name == "gl-1280x800" else ["images"]
+                features = (["gpu", "images", "scroll-pan"] if name == "gl-1280x800"
+                            else ["images", "scroll-pan"])
                 self.assertEqual(v["tree_features"], features)
                 self.assertIn(name, t3_scenario.golden_cases())
                 self.assertEqual(t3_scenario.check_tree_features([name], {"tree_features": []}),
@@ -6308,10 +6334,10 @@ class DefaultVariantsTest(unittest.TestCase):
         # variants need, each once.
         for declared, variants, want in (
                 (None, ["2d-potato-min"], []),
-                (None, t3_scenario.DEFAULT_VARIANTS, ["gpu", "images"]),
-                (None, ["2d-1280x800", "2d-7680x2160"], ["images"]),
-                (["logind"], [self.VARIANT], ["images", "logind"]),
-                (["images"], [self.VARIANT, "2d-potato-min"], ["images"]),
+                (None, t3_scenario.DEFAULT_VARIANTS, ["gpu", "images", "scroll-pan"]),
+                (None, ["2d-1280x800", "2d-7680x2160"], ["images", "scroll-pan"]),
+                (["logind"], [self.VARIANT], ["images", "logind", "scroll-pan"]),
+                (["images"], [self.VARIANT, "2d-potato-min"], ["images", "scroll-pan"]),
                 ([], ["images-640x480", "2d-640x480-psf16"], ["images"])):
             with self.subTest(declared=declared, variants=variants):
                 self.assertEqual(t3.tree_features(declared, variants), want)

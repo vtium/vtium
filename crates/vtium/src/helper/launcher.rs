@@ -188,7 +188,7 @@ impl Launcher {
     /// The process that starts a helper: the opened program, through
     /// `/proc/self/fd`, which the kernel lets a process read as any
     /// account, with the program's path as its name.
-    pub(super) fn process(&self) -> Process {
+    pub fn process(&self) -> Process {
         let c = &self.command;
         let mut process = Process::new(format!("/proc/self/fd/{}", self.program.as_raw_fd()));
         process
@@ -214,7 +214,7 @@ impl Launcher {
     /// that holds any supplementary group is refused. A console that keeps
     /// its own account checks nothing, since the helper holds what the
     /// console holds.
-    pub(super) fn dropped(&self, pid: u32) -> Result<(), String> {
+    pub fn dropped(&self, pid: u32) -> Result<(), String> {
         let Some(account) = self.command.account else {
             return Ok(());
         };
@@ -228,7 +228,7 @@ impl Launcher {
     /// opened, through `/proc/self/fd`, so the message says `/proc` must be
     /// mounted: with `/proc` unmounted the start fails there, not at the
     /// program's path.
-    pub(super) fn failed(&self, e: &std::io::Error) -> String {
+    pub fn failed(&self, e: &std::io::Error) -> String {
         format!(
             "vtium cannot start the font helper {}: {e}. vtium starts it through /proc/self/fd, so /proc must be mounted.",
             self.command.program.display(),

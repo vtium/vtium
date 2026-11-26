@@ -2528,18 +2528,23 @@ fn a_crash_with_an_ask_and_a_fill_under_way_fails_one_source() {
     assert!(!s.helper.busy(), "the fill is done");
 }
 
-/// Polls `s` as the loop does, moving the clock 9 s each time the
-/// helper sends a frame, so no answer is ever past ANSWER_MS, until the
-/// helper has nothing outstanding or is given up.
+/// Polls `s` as the loop does, moving the clock 9 s after each poll that
+/// took one of the helper's frames, so no answer is ever past ANSWER_MS,
+/// until the helper has nothing outstanding or is given up. The clock
+/// follows the frames taken, not the reader's wake-ups: a poll can take a
+/// frame whose wake-up comes after it, and that wake-up then brings no
+/// frame.
 fn drive_slowly(s: &mut StandIn, now: &mut Instant) {
     for _ in 0..200 {
+        let taken = s.helper.taken;
         let _ = s.helper.poll(*now);
         if s.helper.failed().is_some() || !s.helper.busy() {
             break;
         }
-        while s.woke.try_recv().is_ok() {}
-        if s.woke.recv_timeout(Duration::from_secs(10)).is_ok() {
+        if s.helper.taken > taken {
             *now += Duration::from_secs(9);
+        } else {
+            let _ = s.woke.recv_timeout(Duration::from_secs(10));
         }
     }
 }
@@ -4354,4 +4359,105 @@ fn nobody_is_read_from_passwd() {
     let passwd = "root:x:0:0::/root:/bin/sh\nnobody:x:65534:65534:Nobody:/:/usr/bin/nologin\n";
     assert_eq!(nobody(passwd), Some((65534, 65534)));
     assert_eq!(nobody("nobody:x:0:0::/:/bin/sh\n"), None);
+}
+
+/// A stand-in for vtium's root process: it starts each font helper from
+/// `script` on one end of a stream socket, records each start and stop,
+/// and reports the exit status the test gives in place of the helper's
+/// own.
+#[cfg(feature = "split")]
+struct StandInRoot {
+    script: String,
+    fixture: PathBuf,
+    reports: std::process::ExitStatus,
+    asked: RefCell<Vec<String>>,
+    children: RefCell<Vec<std::process::Child>>,
+}
+
+#[cfg(feature = "split")]
+impl Root for StandInRoot {
+    fn start_font(&self) -> std::io::Result<Launched> {
+        use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
+        let (ours, theirs) = socketpair(
+            AddressFamily::UNIX,
+            SocketType::STREAM,
+            SocketFlags::CLOEXEC,
+            None,
+        )?;
+        let child = Process::new(stand_in_shell())
+            .args(["-c", &undumpable(&self.script), "stand-in"])
+            .arg(&self.fixture)
+            .stdin(std::process::Stdio::from(theirs.try_clone()?))
+            .stdout(std::process::Stdio::from(theirs))
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
+        let id = u32::try_from(self.children.borrow().len()).unwrap() + 1;
+        self.children.borrow_mut().push(child);
+        self.asked.borrow_mut().push(format!("start {id}"));
+        let (tell, exit) = mpsc::channel();
+        // the stand-in reports its end at once; the reader still waits
+        // for the socket to close first
+        tell.send(self.reports).unwrap();
+        Ok(Launched {
+            id,
+            socket: ours,
+            exit,
+        })
+    }
+
+    fn stop(&self, id: u32) {
+        self.asked.borrow_mut().push(format!("stop {id}"));
+    }
+}
+
+#[cfg(feature = "split")]
+impl Drop for StandInRoot {
+    fn drop(&mut self) {
+        for child in self.children.get_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+// Under the privilege split, vtium's root process starts the font helper
+// and reaps it. The helper's end then counts by the status the root
+// process reports: here the helper itself exits 3 at its idle time, and
+// the root process reports 0, so no chance is used.
+#[cfg(feature = "split")]
+#[test]
+fn the_root_process_starts_the_font_helper_and_reports_its_end() {
+    use std::os::unix::process::ExitStatusExt;
+    let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, &['A']));
+    fixture.extend(frame_bytes(FRAME_DONE, &[]));
+    let mut s = StandIn::new("root", "head -c 1 >/dev/null; cat \"$1\"; exit 3", &fixture);
+    let root = Rc::new(StandInRoot {
+        script: "head -c 1 >/dev/null; cat \"$1\"; exit 3".to_owned(),
+        fixture: s.dir.join("answer"),
+        reports: std::process::ExitStatus::from_raw(0),
+        asked: RefCell::default(),
+        children: RefCell::default(),
+    });
+    let placeholder = Helper::new(
+        s.helper.launcher.clone(),
+        Arc::new(|| {}),
+        t0(),
+        frit("source=builtin:unscii-8\n"),
+        None,
+        Shared::default(),
+        64 << 20,
+    );
+    let helper = std::mem::replace(&mut s.helper, placeholder);
+    s.helper = helper.through_root(Rc::clone(&root) as Rc<dyn Root>);
+    let now = t0();
+    s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+    assert_eq!(s.run(now).len(), 1);
+    s.until_gone(now);
+    assert_eq!(s.helper.failed(), None);
+    assert_eq!(s.helper.restarts(), 0, "the root process's status counts");
+    assert_eq!(*root.asked.borrow(), ["start 1"]);
+    // a helper that runs is stopped through the root process
+    s.helper.ask(CELL, Band::NONE, &shown(&['B']), now);
+    s.helper.stop();
+    assert_eq!(*root.asked.borrow(), ["start 1", "start 2", "stop 2"]);
 }

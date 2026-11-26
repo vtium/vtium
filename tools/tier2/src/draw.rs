@@ -678,6 +678,19 @@ pub struct Screen {
     /// References:
     /// - ADR-1205 D10: palette files and their format.
     pub palette: Option<&'static [u8]>,
+    /// The lines of scrollback the terminal keeps, 0 for none. Lines that
+    /// scroll off the screen into it are the rows of history above the
+    /// screen, which a renderer built with `scroll-pan` draws into the
+    /// spare lines above the grid.
+    ///
+    /// References:
+    /// - ADR-1310 D10: the spare lines show the rows of history above the screen.
+    pub scrollback: usize,
+    /// The overlay ends: it is drawn over the first frame's buffer, as the
+    /// console draws a notice, then goes, and the console hands its areas
+    /// to the renderer, which draws them again in two more frames, one
+    /// into each buffer. The screen shows what lies under the overlay.
+    pub overlay_ends: bool,
 }
 
 impl Screen {
@@ -729,6 +742,8 @@ impl Screen {
             cube: None,
             vtlook: None,
             palette: None,
+            scrollback: 0,
+            overlay_ends: false,
         }
     }
 }
@@ -1126,6 +1141,27 @@ fn draw_with<F: Face>(
     Ok(want)
 }
 
+/// The terminal's frame since `since`, with the rows of history above the
+/// screen that the renderer `r` asks for, which it draws into the spare
+/// lines above the grid, as the console's snapshot holds them. The screen
+/// is told the reach first, as the console tells it.
+///
+/// References:
+/// - ADR-1310 D10: the spare lines show the rows of history above the screen.
+fn frame_reaching<'a, F: Face>(
+    term: &'a mut Terminal,
+    r: &Renderer<F>,
+    since: Age,
+) -> vtium_term::Frame<'a> {
+    let screen = term.screen();
+    let reach = vtium_term::Reach {
+        above: r.rows_above_asked((screen.cols(), screen.rows())),
+        ..vtium_term::Reach::default()
+    };
+    term.screen_mut().set_reach(reach);
+    term.screen().frame_reaching(term.palette(), since, reach)
+}
+
 /// A display of two buffers, each knowing the frame it holds, which shows
 /// its frames `way`'s way: over the pan, each buffer is taller than the
 /// screen and shows the window its last frame was drawn for.
@@ -1188,7 +1224,7 @@ impl Display {
         };
         let age = self.age();
         let drew = {
-            let frame = term.screen().frame(term.palette(), *since);
+            let frame = frame_reaching(term, r, *since);
             let scrolled = frame.scrolled();
             let whole = scrolled.is_none();
             let n = scrolled.and_then(|n| i64::try_from(n).ok()).unwrap_or(0);
@@ -1213,6 +1249,43 @@ impl Display {
             self.shown[self.back] = Some(self.swaps);
             self.back ^= 1;
         }
+    }
+
+    /// Draws `overlay` over the buffer shown last, as the console draws its
+    /// notices over a frame: through the pan's window on a pan, and
+    /// straight into the buffer the redraw and the copy draw. Returns the
+    /// display areas the overlay covered.
+    fn draw_over<F: Face>(
+        &mut self,
+        r: &mut Renderer<F>,
+        overlay: &vtium::term::Overlay,
+        (grid, orientation): ((usize, usize), Orientation),
+    ) -> Vec<vtium_render::Rect> {
+        let front = self.back ^ 1;
+        let size = self.screen;
+        let buffer = &mut self.buffers[front];
+        let drawn = match self.way {
+            Way::Pan => {
+                let mut over = r.pan_overlay(buffer);
+                overlay.draw_into(r, grid, orientation, size, &mut over)
+            }
+            Way::Redraw | Way::Copy => overlay.draw_into(r, grid, orientation, size, buffer),
+        };
+        let areas: Vec<vtium_render::Rect> = drawn
+            .iter()
+            .map(|a| vtium_render::Rect {
+                x: a.x,
+                y: a.y,
+                width: a.width,
+                height: a.height,
+            })
+            .collect();
+        if self.way == Way::Pan {
+            for &a in &areas {
+                r.pan_damage(a);
+            }
+        }
+        areas
     }
 
     /// What buffer `b` shows: its window of the screen's size.
@@ -1297,7 +1370,14 @@ pub(crate) fn picture_cell(screen: &Screen, cell: Cell) -> (u32, u32) {
 /// `screen`'s terminal with its bytes fed and, for a picture screen, its
 /// pictures, made in cells of `made`, before the first frame.
 fn terminal(screen: &Screen, made: (u32, u32)) -> Result<Terminal, String> {
-    let mut term = Terminal::new(screen.cols, screen.rows, 0);
+    let mut term = match screen.scrollback {
+        0 => Terminal::new(screen.cols, screen.rows, 0),
+        lines => {
+            let mut term = Terminal::new(screen.cols, screen.rows, 1000);
+            term.screen_mut().set_scrollback_max(lines);
+            term
+        }
+    };
     if let Some(bytes) = screen.palette {
         let (palette, _, _) = vtium_settings::palette::parse(bytes)
             .map_err(|(faults, _)| format!("the screen's palette file: {faults:?}"))?;
@@ -1489,6 +1569,24 @@ fn draw_config<F: Face>(
     let mut display = Display::new(w, h, way, &r);
     let mut since = Age::NEVER;
     display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
+    if screen.overlay_ends {
+        // the overlay lies over the first frame, then goes: the renderer
+        // draws its areas again into each buffer
+        let overlay = console_overlay(screen)?.ok_or("an overlay that ends, and none")?;
+        let grid = (screen.cols, screen.rows);
+        let drawn = display.draw_over(&mut r, &overlay, (grid, screen.orientation));
+        if drawn.is_empty() {
+            return Err("the overlay drew nothing".to_owned());
+        }
+        for area in drawn {
+            r.redraw_area(area);
+        }
+        display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
+        display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
+        if display.showing(0).pixels() != display.showing(1).pixels() {
+            return Err("the two buffers differ once the overlay ended".to_owned());
+        }
+    }
     if let Some(next) = screen.next {
         later(screen, &mut term, 1, made)?;
         display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
@@ -1509,7 +1607,7 @@ fn draw_config<F: Face>(
         }
     }
     let mut front = display.front();
-    if let Some(overlay) = console_overlay(screen)? {
+    if let Some(overlay) = console_overlay(screen)?.filter(|_| !screen.overlay_ends) {
         let grid = (screen.cols, screen.rows);
         let drawn = overlay.draw(&r, grid, screen.orientation, &mut front);
         if drawn.is_empty() {

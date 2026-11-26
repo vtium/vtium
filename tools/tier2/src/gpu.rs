@@ -36,6 +36,13 @@ pub fn waits(screen: &Screen) -> Option<&'static str> {
     if screen.depth == Depth::One {
         return Some("a 1-bit display waits for present's depth reduction (ADR-1301)");
     }
+    // the CPU path draws the rows of history above the screen into the
+    // spare lines, and the GPU path still draws the border's color there
+    if screen.scrollback > 0 {
+        return Some(
+            "the GPU path waits for the rows of history above the screen in the spare lines (ADR-1310 D10)",
+        );
+    }
     None
 }
 

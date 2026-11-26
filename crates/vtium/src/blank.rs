@@ -69,12 +69,27 @@ impl Order {
 /// any thread starts. With both pending at once the kernel gives
 /// `SIGRTMIN+1` first, so the wake holds.
 pub fn listen(handle: &LoopHandle<'static, App>) -> io::Result<()> {
+    listen_with(handle, |order, app: &mut App| app.order(order))
+}
+
+/// Takes `SIGRTMIN+1` and `SIGRTMIN+2` through the loop behind `handle`,
+/// each handed to `on`. vtium's root process takes them this way under the
+/// privilege split, since it holds the VT open, and passes each on to its
+/// drawing process.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": `vtium blank` and `vtium wake`
+///   through the broker.
+pub fn listen_with<D: 'static>(
+    handle: &LoopHandle<'static, D>,
+    mut on: impl FnMut(Order, &mut D) + 'static,
+) -> io::Result<()> {
     let offsets = [Order::Blank.offset(), Order::Wake.offset()];
     let source = RtSignals::new(&offsets)?;
     handle
-        .insert_source(source, |offset, _, app: &mut App| {
+        .insert_source(source, move |offset, _, data: &mut D| {
             if let Some(order) = Order::from_offset(offset) {
-                app.order(order);
+                on(order, data);
             }
         })
         .map_err(|e| e.error)?;
