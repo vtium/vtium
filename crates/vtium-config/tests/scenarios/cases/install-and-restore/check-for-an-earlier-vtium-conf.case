@@ -2,7 +2,6 @@ kind i-want-to
 title I want to see whether an install replaced a vtium.conf that I can put back.
 intro The Flow tab's o lists the vtium.conf files that installs replaced. On a machine whose first install wrote vtium.conf, no install has replaced one yet.
 see install-and-restore/put-back-the-vtium-conf-from-before-an-install
-waits-for audit 5: "vtium-config has not installed anything yet" after it has
 
 # No vtium.conf is installed yet: the first install writes it.
 file etc/batch.conf
@@ -18,4 +17,5 @@ draft
 3. Press o to restore.
 at the list
 check screen lacks "has not installed anything yet"
+check screen shows "no install has replaced a vtium.conf yet"
 4. Press Esc.

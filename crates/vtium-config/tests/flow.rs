@@ -292,6 +292,26 @@ fn install_installs_the_draft_and_keeps_the_file_it_replaced() {
     assert_eq!(f.draft(), INSTALLED);
 }
 
+/// An install over no vtium.conf replaces no file, so `history` lists
+/// nothing, and says so in the words the TUI's Restore uses.
+#[test]
+fn history_says_so_when_no_install_has_replaced_a_vtium_conf() {
+    let f = fixture("history-first");
+    std::fs::remove_file(f.path("etc/vtium.conf")).expect("no vtium.conf");
+    f.desk();
+    assert_eq!(f.run(&["set", "font-size", "14"]).status, 0);
+    let ran = f.run(&["install"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    let history = f.run(&["history"]);
+    assert_eq!(
+        (history.status, history.out.as_str()),
+        (
+            0,
+            "Nothing to restore: no install has replaced a vtium.conf yet, so there is no earlier file.\n"
+        )
+    );
+}
+
 #[test]
 fn edit_installs_nothing_when_the_editor_adds_a_bad_line() {
     let f = fixture("edit");

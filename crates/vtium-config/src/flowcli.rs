@@ -825,12 +825,17 @@ impl Command<'_, '_> {
         }
     }
 
-    /// `history`: the installed history, newest first.
+    /// `history`: the installed history, newest first, or the line that
+    /// says no install has replaced a vtium.conf yet.
     fn history(&mut self, words: &[String]) -> Result<(), Fail> {
         if !words.is_empty() {
             return Err(Fail::Usage("history takes no argument".to_owned()));
         }
-        for (i, h) in self.session.store.history()?.iter().enumerate() {
+        let history = self.session.store.history()?;
+        if history.is_empty() {
+            self.say(crate::tui::words::NO_HISTORY);
+        }
+        for (i, h) in history.iter().enumerate() {
             let when = crate::report::utc_text(h.when);
             self.say(&format!(
                 "{}\t{}\t{when}",

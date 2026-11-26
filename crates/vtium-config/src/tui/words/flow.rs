@@ -101,7 +101,8 @@ pub fn deleted_draft(next: &str) -> String {
     format!("Draft deleted. Draft {next} starts again from the installed vtium.conf.")
 }
 
-pub const NO_HISTORY: &str = "Nothing to restore: vtium-config has not installed anything yet.";
+pub const NO_HISTORY: &str =
+    "Nothing to restore: no install has replaced a vtium.conf yet, so there is no earlier file.";
 
 pub fn restore_question(n: usize, added: usize, removed: usize) -> String {
     format!(
