@@ -693,6 +693,15 @@ VARIANTS["seat-logind-survive"] = dict(VARIANTS["heads-survive"],
 # under the open policy as ADR-1401 D9 says.
 VARIANTS["split-fallback"] = dict(VARIANTS["heads-partly-open"], tree_features=["split"],
                                   checks=["getty-fallback"], failures=["kill", "drawer-kill"])
+# heads-survive on a tree built with split, under an open policy, which
+# lets key-console-open open a console. Its check opened-survives logs in on
+# a console that the head does not open at its start, beside console 1, and
+# finds both sessions back after a restart: the root process keeps the
+# masters and names their consoles to the drawing process (ADR-1400 D4,
+# "What the broker does").
+VARIANTS["split-survive"] = dict(VARIANTS["heads-survive"], tree_features=["split"],
+                                 heads="tools/tier3/guest/heads/survive-open.conf",
+                                 policy="open", checks=["opened-survives"])
 VARIANTS["seat-logind-two"] = dict(VARIANTS["seat-logind-survive"],
                                    checks=["seat", "login-session", "two-logins"])
 SEAT_VARIANTS += ["seat-logind-survive", "seat-logind-two"]

@@ -4580,6 +4580,32 @@ esac
         self.assertIn("still run", t3_heads.judge_stopped(
             before, t3_heads.parse_ptys([prompt])))
 
+    def test_every_session_survives_judged_both_ways(self):
+        one, two = "pty 700 pts/0 80x30 bash", "pty 702 pts/2 80x30 bash"
+        prompt = "pty 701 pts/1 80x30 login"
+        before = t3_heads.parse_ptys([one, prompt, two, "pty 703 pts/3 80x30 vim",
+                                      "masters 410 3"])
+        good = t3_heads.parse_ptys([one, prompt, two, "masters 512 3"])
+        self.assertEqual(set(t3_heads.sessions_of(before)), {700, 701, 702})
+        self.assertIsNone(t3_heads.judge_all_survived(before, good, 512, []))
+        for start, after, vtium, missing, why in (
+                (before, good, 512, [3], "console 3"),
+                (t3_heads.parse_ptys([one, prompt, "masters 410 2"]), good, 512, [],
+                 "fewer than two shells"),
+                (before, t3_heads.parse_ptys([one, prompt, "masters 512 2"]), 512, [],
+                 "bash 702 is gone"),
+                (before, t3_heads.parse_ptys([one, two, "masters 512 2"]), 512, [],
+                 "login 701 is gone"),
+                (before, t3_heads.parse_ptys([one, prompt, "pty 702 pts/3 80x30 bash",
+                                              "masters 512 3"]), 512, [], "not pts/2"),
+                (before, t3_heads.parse_ptys([one, prompt, "pty 702 pts/2 40x10 bash",
+                                              "masters 512 3"]), 512, [], "not 80x30"),
+                (before, t3_heads.parse_ptys([one, prompt, two, "masters 512 2"]), 512, [],
+                 "does not hold the 3 pty masters"),
+                (before, good, 513, [], "does not hold")):
+            with self.subTest(why):
+                self.assertIn(why, t3_heads.judge_all_survived(start, after, vtium, missing))
+
     def test_parse_state(self):
         st = t3_heads.parse_state(agent_state(tty2="agetty", fallback=("inactive", "success",
                                                                        "yes", 99)))
@@ -8443,6 +8469,15 @@ class SplitTest(unittest.TestCase):
         for check in v["checks"]:
             self.assertIn(check, t3_scenario.CHECK_RUNS)
             self.assertEqual(t3_evaluate.describe(check), (t3_split.CHECKS[check], None))
+        survive = t3_scenario.VARIANTS["split-survive"]
+        self.assertEqual(survive["tree_features"], ["split"])
+        self.assertEqual(survive["checks"], ["opened-survives"])
+        self.assertEqual(survive["policy"], "open")
+        with open(t3_heads.head_file(survive)) as f:
+            self.assertRegex(f.read(), r"(?m)^policy = open$")
+        self.assertIn("opened-survives", t3_scenario.CHECK_RUNS)
+        self.assertEqual(t3_evaluate.describe("opened-survives"),
+                         (t3_heads.CHECKS["opened-survives"], None))
         fallback = t3_scenario.VARIANTS["split-fallback"]
         self.assertEqual(fallback["failures"], ["kill", "drawer-kill"])
         self.assertEqual(t3_heads.FAILURES["drawer-kill"], ("kill-drawer KILL", ("exit-code",)))

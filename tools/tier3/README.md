@@ -377,7 +377,7 @@ After the key, the driver waits for vtium's line and the kernel's trace (`t3_pow
 
 ## The privilege split
 
-A console built with `split` starts as root and runs as two processes: a root process, which ADR-1400 D4 calls the broker, and a drawing process under the account `vtium`. The default variants build with it, as the packages do. Two variants check the split itself on the minspec machine, on a tree built with split. Each runs only when named, as in `make tier3 VARIANTS="split-direct split-fallback"`.
+A console built with `split` starts as root and runs as two processes: a root process, which ADR-1400 D4 calls the broker, and a drawing process under the account `vtium`. The default variants build with it, as the packages do. Three variants check the split itself on the minspec machine, on a tree built with split. Each runs only when named, as in `make tier3 VARIANTS="split-direct split-fallback split-survive"`.
 
 `split-direct` logs in, draws `seat-seatd`'s screens and switches VTs, judged by `2d-potato-min`'s goldens. Then its three checks (`t3_split.py`) ask the agent, which runs as root:
 
@@ -386,6 +386,8 @@ A console built with `split` starts as root and runs as two processes: a root pr
 - `drawer-kill` reads tty2 while vtium runs (`KD_GRAPHICS`, `K_OFF`, `VT_PROCESS`). Then the agent adds a drop-in to the unit that turns off its restart, its getty fallback and its reset of the VT, and sends SIGKILL to the drawing process. Once the unit stopped, the unit must have failed with its main process's exit status other than 0, and tty2 must be in `KD_TEXT`, `VT_AUTO` and `K_UNICODE` or `K_XLATE`. The agent then takes the drop-in away and starts vtium, which must run as two processes again.
 
 `split-fallback` is `heads-partly-open` on a tree built with split, under the open policy. Its `getty-fallback` check kills the root process, as before the split, and then the drawing process alone (the failure `drawer-kill`). After each, systemd must log a failure and start the getty fallback (ADR-1401 D9).
+
+`split-survive` is `heads-survive` on a tree built with split, with the head file `survive-open.conf`, whose open policy lets `key-console-open` open a console. Its check `opened-survives` (`t3_heads.py`) opens console 2, which the head does not open at its start, and logs in there beside console 1. Then the agent restarts vtium's unit. The new vtium must log that it took back the sessions of consoles 1 and 2. Both shells must still lead their sessions on the same ptys at the same sizes, and the root process must hold their masters. A line typed on console 1, which the new vtium shows, must reach the first shell. A stop of the unit must then end every session.
 
 Seen red: a build with `broker::SPLIT` false, which runs as one process, fails `drawer-status` ("runs no drawing process") and `drawer-kill`. A drawing process that skips `PR_SET_DUMPABLE` fails `drawer-status`, a root process that never drops DRM master fails `split-switch`, and a root process that puts nothing of the VT back fails `drawer-kill` (`KD_GRAPHICS`).
 
