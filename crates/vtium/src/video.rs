@@ -43,7 +43,7 @@ pub const FEATURE_BUFFERS: Buffers = if any_on(&FEATURES_ON_TOP) {
 /// adds on top of minspec, and whether this build has it on. A test holds
 /// the names equal to Cargo.toml's, so a feature added there fails it
 /// until it is named here too.
-pub const FEATURES_ON_TOP: [(&str, bool); 8] = [
+pub const FEATURES_ON_TOP: [(&str, bool); 9] = [
     ("bidi", cfg!(feature = "bidi")),
     ("filters", cfg!(feature = "filters")),
     ("gpu", cfg!(feature = "gpu")),
@@ -51,6 +51,7 @@ pub const FEATURES_ON_TOP: [(&str, bool); 8] = [
     ("libseat", cfg!(feature = "libseat")),
     ("logind", cfg!(feature = "logind")),
     ("scroll-pan", cfg!(feature = "scroll-pan")),
+    ("smooth-scroll", cfg!(feature = "smooth-scroll")),
     ("split", cfg!(feature = "split")),
 ];
 
@@ -638,6 +639,7 @@ mod tests {
         feature = "libseat",
         feature = "logind",
         feature = "scroll-pan",
+        feature = "smooth-scroll",
         feature = "split"
     )))]
     #[test]

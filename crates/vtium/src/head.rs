@@ -270,6 +270,9 @@ pub struct Head {
     /// References:
     /// - ADR-1308 D8: the programming ligatures and their setting.
     ligatures: bool,
+    /// Where the grid sits on the head's displays, from the head's
+    /// configured `smooth-scroll` and `partial-row` ([`placement`]).
+    placement: vtium_render::Placement,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -480,6 +483,32 @@ pub(crate) fn configured_size(config: &Config) -> (Option<u32>, bool, bool) {
     (points, auto_size, !auto_size)
 }
 
+/// Where the grid sits on a display of a head whose configuration is
+/// `config`. Smooth scrolling is on for the head when its `smooth-scroll`,
+/// from its own section, its look's or the top level, is `on` in a build
+/// with the `smooth-scroll` feature. The grid then sits at the bottom, and
+/// the spare lines above it show what `partial-row` says. Otherwise vtium
+/// centres the grid on both axes. A program that switches DECSCLM changes
+/// only whether a scroll slides, so the layout never moves with it.
+///
+/// References:
+/// - ADR-1310 D7: `smooth-scroll` at three levels, the head's winning, and `partial-row`.
+/// - ADR-1310 D10, "Every build": the configured key sets the placement, and DECSCLM does not.
+/// - ADR-1310 D12, "With smooth scrolling off": the grid centred on both axes.
+pub(crate) fn placement(config: &Config) -> vtium_render::Placement {
+    use vtium_render::{PartialRow, Placement};
+    let partial = match config.text(&keys::PARTIAL_ROW) {
+        Some("blank") => PartialRow::Blank,
+        Some("fade") => PartialRow::Fade,
+        _ => PartialRow::History,
+    };
+    let on = config.text(&keys::SMOOTH_SCROLL) == Some("on");
+    match cfg!(feature = "smooth-scroll") && on {
+        true => Placement::Bottom(partial),
+        false => Placement::Centred,
+    }
+}
+
 /// The cell the head's look states, from the head's configuration
 /// `config`, the one [`Config::for_head`] gives.
 pub(crate) fn look_cell(config: &Config) -> Option<vtium_font::Cell> {
@@ -575,6 +604,7 @@ impl Head {
             look_cell: look_cell(config),
             line_spacing: config.font_line_spacing().map(u32::from),
             ligatures: config.font_ligatures(),
+            placement: placement(config),
             has_font: false,
             step: 16,
             cell: CELL,
@@ -1220,6 +1250,7 @@ impl Head {
                 .char(&keys::POINTER_CHAR)
                 .map_or(PointerShape::Arrow, PointerShape::Glyph),
             ligatures: self.ligatures,
+            placement: self.placement,
             ..RenderConfig::default()
         }
     }
@@ -2377,6 +2408,81 @@ mod tests {
             !regular.chars.contains(&ZWJ),
             "U+200D is asked for in keys alone"
         );
+    }
+
+    // `smooth-scroll` sets where a head's grid sits: a head's own value wins
+    // over its look's, and both win over the top level's. Smooth scrolling
+    // on puts the grid at the bottom, with the spare lines as `partial-row`
+    // says, from the look or else the top level. Off, by default or by any
+    // level, centres the grid. A build without the `smooth-scroll` feature
+    // centres it on every head.
+    //
+    // References:
+    // - ADR-1310 D7: the three levels of `smooth-scroll`, the head's winning.
+    // - ADR-1310 D12, "With smooth scrolling off": the grid centred whatever `partial-row` says.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn smooth_scroll_from_the_head_its_look_or_the_top_level_places_the_grid() {
+        use vtium_render::{PartialRow, Placement};
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let text = "version = 1\nsmooth-scroll = off\npartial-row = fade\n\
+                    [look on]\nsmooth-scroll = on\npartial-row = blank\n\
+                    [look off]\nsmooth-scroll = off\n\
+                    [head a]\nlook = on\n[head b]\nlook = off\nsmooth-scroll = on\n\
+                    [head c]\nlook = on\nsmooth-scroll = off\n[head d]\n";
+        let top = crate::config::load(&[], &mut |p: &std::path::Path| {
+            Ok((p == path).then(|| text.as_bytes().to_vec()))
+        })
+        .config;
+        let rules = vtium_settings::sections(text.as_bytes())
+            .map(|s| s.parsed.config)
+            .unwrap_or_default();
+        let under = |name: &str| {
+            let settings: Vec<vtium_settings::Setting> = rules
+                .head(name)
+                .map(|h| {
+                    rules
+                        .settings(h)
+                        .into_iter()
+                        .map(|(_, s)| s.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            top.for_head(path, &settings).0
+        };
+        let none = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let built = |p: Placement| match cfg!(feature = "smooth-scroll") {
+            true => p,
+            false => Placement::Centred,
+        };
+        for (config, want, what) in [
+            (
+                under("a"),
+                built(Placement::Bottom(PartialRow::Blank)),
+                "on in the look, over the top level's off",
+            ),
+            (
+                under("b"),
+                built(Placement::Bottom(PartialRow::Fade)),
+                "on in the head, over its look's off",
+            ),
+            (
+                under("c"),
+                Placement::Centred,
+                "off in the head, over its look's on",
+            ),
+            (under("d"), Placement::Centred, "off at the top level"),
+            (none, Placement::Centred, "unset"),
+        ] {
+            let clock: Clock = std::rc::Rc::new(Instant::now);
+            let head = Head::new(
+                "h",
+                &config,
+                Vec::new(),
+                terminal(&config, (0, 0), 0, clock),
+            );
+            assert_eq!(head.render_config(&config).placement, want, "{what}");
+        }
     }
 
     // ADR-1308 D8: `font-ligatures` in vtium.conf reaches the console. With

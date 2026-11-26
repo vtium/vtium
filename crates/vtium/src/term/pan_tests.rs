@@ -330,6 +330,15 @@ impl Video for Panning {
     }
 }
 
+/// The grid placed at the bottom, as a console with smooth scrolling on
+/// places it, so the spare lines above the grid show the rows of history
+/// that these tests count.
+///
+/// References:
+/// - ADR-1310 D10: the rows of history in the spare lines while smooth scrolling is on.
+const PLACED: vtium_render::Placement =
+    vtium_render::Placement::Bottom(vtium_render::PartialRow::History);
+
 /// A terminal of `screen`'s size in cells and a view of it that draws a
 /// scroll as `scroll` says, turned as `orientation` says.
 fn view(screen: (u32, u32), scroll: ScrollDraw, orientation: Orientation) -> (Term, View) {
@@ -351,6 +360,7 @@ fn view(screen: (u32, u32), scroll: ScrollDraw, orientation: Orientation) -> (Te
         None,
         RenderConfig {
             orientation,
+            placement: PLACED,
             ..RenderConfig::default()
         },
         false,
@@ -665,6 +675,7 @@ fn refont(term: &mut Term, view: &mut View, height: u32, orientation: Orientatio
     let face: DisplayFace = Box::new(Unifont::new(height));
     let config = RenderConfig {
         orientation,
+        placement: PLACED,
         ..RenderConfig::default()
     };
     view.rebuild(Font::new(face), height, config);
