@@ -1746,8 +1746,24 @@ class VariantTest(unittest.TestCase):
                "[   81.007692] vtium[1397]: log: vtium Revision v0.1\n"
                "[   81.195906] vtium[1397]: Display Virtual-1 with backend [drm2d] "
                "text renderer [cpu], cell size 8x16\n")
+        # Under the privilege split, the root process logs the revision and
+        # names its drawing process, which logs the display lines; a second
+        # console's drawing process still does not count.
+        split = ("[    7.79] vtium[780]: log: vtium Revision v0.1\n"
+                 "[    7.79] vtium[780]: broker: vtium runs as two processes: this root "
+                 "process, and drawing process 781, which runs everything else as the "
+                 "account vtium\n"
+                 "[    7.80] vtium[781]: log: vtium Revision v0.1\n"
+                 "[    7.87] vtium[781]: Display Virtual-1 with backend [drm2d] "
+                 "text renderer [cpu], cell size 10x19\n"
+                 "[  132.54] vtium[5170]: log: vtium Revision v0.1\n"
+                 "[  132.54] vtium[5170]: broker: vtium runs as two processes: this root "
+                 "process, and drawing process 5171, which runs everything else as the "
+                 "account vtium\n"
+                 "[  132.60] vtium[5171]: Display Virtual-1 with backend [drm2d] "
+                 "text renderer [cpu], cell size 8x16\n")
         for text, want in [(log, [10, 18]), ("[    1.0] vtium[5]: started\n", None),
-                           ("Display a, cell size 8x16\n", [8, 16])]:
+                           ("Display a, cell size 8x16\n", [8, 16]), (split, [10, 19])]:
             with tempfile.NamedTemporaryFile("w", delete=False) as f:
                 f.write(text)
             try:
@@ -1770,6 +1786,19 @@ class VariantTest(unittest.TestCase):
             f.write("[    6.663227] kmscon[459]: log: kmscon Revision v10\n")
         try:
             self.assertIsNone(t3_scenario.console_startup_ms(f.name))
+        finally:
+            os.unlink(f.name)
+        # under the privilege split, the root process's revision line to its
+        # drawing process's display line
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write("[    7.797109] vtium[780]: log: vtium Revision v0.1\n"
+                    "[    7.797200] vtium[780]: broker: vtium runs as two processes: this root "
+                    "process, and drawing process 781, which runs everything else as the "
+                    "account vtium\n"
+                    "[    7.870848] vtium[781]: Display Virtual-1 with backend [drm2d] "
+                    "text renderer [cpu], cell size 10x19\n")
+        try:
+            self.assertEqual(t3_scenario.console_startup_ms(f.name), 73.7)
         finally:
             os.unlink(f.name)
 

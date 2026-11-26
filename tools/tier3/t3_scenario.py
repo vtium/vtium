@@ -1259,22 +1259,46 @@ def resident(rss_kb, screens=SCREENS):
             "peak_kib": rss_kb.get(peak), "peak_screen": peak}
 
 
+# The line with which a console built with split names its drawing process
+# (crates/vtium/src/broker/mod.rs): the root process logs it once the
+# drawing process has started (ADR-1400 D4).
+DRAWER_LINE = re.compile(r"\] (?:kmscon|vtium)\[(\d+)\]: broker: vtium runs as two processes: "
+                         r"this root process, and drawing process (\d+)")
+
+
+def first_console(text):
+    """The first console process in the console log `text`, the one whose
+    revision line comes first, as (the kernel's timestamp of that line, its
+    name, and its process ids), or None. Under the privilege split the
+    console is two processes: the root process, which logs the revision
+    first, and the drawing process it names, which sets up the displays and
+    draws. Both count as the console."""
+    first = re.search(r"\[\s*([0-9.]+)\] (kmscon|vtium)\[(\d+)\]: log: \w+ Revision", text)
+    if not first:
+        return None
+    pids = [first.group(3)]
+    pids += [m.group(2) for m in DRAWER_LINE.finditer(text) if m.group(1) == first.group(3)][:1]
+    return float(first.group(1)), first.group(2), pids
+
+
 def console_startup_ms(serial):
     """Milliseconds from the first console process's first log line (its
     revision) to its "Display ... with backend" line, the display set up and
     its terminal drawing, by the kernel's timestamps on the console; None
     without both. The time before the console logs (exec and dynamic
-    linking) is not in it."""
+    linking) is not in it. Under the privilege split the display line is
+    the drawing process's (first_console)."""
     with open(serial, "rb") as f:
         text = f.read().decode(errors="replace")
-    first = re.search(r"\[\s*([0-9.]+)\] (kmscon|vtium)\[(\d+)\]: log: \w+ Revision", text)
+    first = first_console(text)
     if not first:
         return None
-    shown = re.search(r"\[\s*([0-9.]+)\] %s\[%s\]: (?:terminal: )?Display .* with backend"
-                      % (first.group(2), first.group(3)), text)
+    at, name, pids = first
+    shown = re.search(r"\[\s*([0-9.]+)\] %s\[(?:%s)\]: (?:terminal: )?Display .* with backend"
+                      % (name, "|".join(pids)), text)
     if not shown:
         return None
-    return round((float(shown.group(1)) - float(first.group(1))) * 1000, 1)
+    return round((float(shown.group(1)) - at) * 1000, 1)
 
 
 def console_cell(serial):
@@ -1284,12 +1308,15 @@ def console_cell(serial):
     sets the display up, and again when a cell answer that came after its
     wait moves the display to the font's own cell. Only the lines of the
     first console process count, the one whose revision line comes first,
-    so a console started later on another VT does not change the answer."""
+    with its drawing process under the privilege split (first_console), so
+    a console started later on another VT does not change the answer."""
     with open(serial, "rb") as f:
         text = f.read().decode(errors="replace")
-    first = re.search(r"\] ((?:kmscon|vtium)\[\d+\]): log: \w+ Revision", text)
+    first = first_console(text)
     if first:
-        lines = [l for l in text.splitlines() if "] %s: " % first.group(1) in l]
+        _, name, pids = first
+        tags = ["] %s[%s]: " % (name, pid) for pid in pids]
+        lines = [l for l in text.splitlines() if any(t in l for t in tags)]
     else:
         lines = text.splitlines()
     cells = [m for m in (re.search(r"cell size (\d+)x(\d+)", l) for l in lines) if m]
