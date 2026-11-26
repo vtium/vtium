@@ -1058,6 +1058,7 @@ fn change(
     let before = resources.changes.clone();
     let mut said = Vec::new();
     let mut refused = Vec::new();
+    let mut changed = false;
     for word in &asked.paths {
         if builtin(word) {
             match change {
@@ -1088,6 +1089,7 @@ fn change(
             Ok(Done::Changed { warnings }) => {
                 said.push(format!("{command}	{line}"));
                 said.extend(warnings);
+                changed = true;
             }
             Err(why) => refused.push(why),
         }
@@ -1110,9 +1112,30 @@ fn change(
         let _ = writeln!(out, "{line}");
     }
     if asked.dry_run {
+        let _ = writeln!(out, "nothing was saved (--dry-run)");
         return Ok(());
     }
     resources.save()?;
+    // a change waits beside the draft for the install, which the state
+    // line counts; a check that cannot run is said and fails nothing,
+    // since the change is kept whatever the check says
+    if changed {
+        let path = session.store.draft_path(name)?;
+        let report = session
+            .check(name, &resources.text, &path)
+            .and_then(|checked| session.report(name, &resources.text, &checked));
+        match report {
+            Ok(lines) => {
+                for line in lines {
+                    let _ = writeln!(out, "{line}");
+                }
+            }
+            Err(fail) if !asked.install => {
+                let _ = writeln!(out, "{}", fail.text());
+            }
+            Err(fail) => return Err(fail),
+        }
+    }
     if asked.install {
         session.install(
             name,

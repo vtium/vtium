@@ -126,6 +126,28 @@ fn fresh_fonts() -> Vec<String> {
         .collect()
 }
 
+/// `activate --dry-run` says what it would change and that it saved
+/// nothing, and writes nothing. A real `activate` ends with the draft's
+/// state line, which counts the change that waits for the install.
+#[test]
+fn a_dry_run_saves_nothing_and_says_so_and_a_real_run_prints_the_state() {
+    let f = fixture("activate-dry");
+    f.desk();
+    let mine = f.arg("res/mine.ttf");
+    let dry = f.ok(&["activate", &mine, "--dry-run"]);
+    assert_eq!(
+        dry.out,
+        "activate\tfont\tROOT/res/mine.ttf\nnothing was saved (--dry-run)\n"
+    );
+    assert!(!f.changes("desk").exists());
+    let ran = f.ok(&["activate", &mine]);
+    assert_eq!(
+        ran.out,
+        "activate\tfont\tROOT/res/mine.ttf\ndraft desk: 1 change to the active resources · no problems\n"
+    );
+    assert!(f.changes("desk").exists());
+}
+
 #[test]
 fn an_activation_waits_in_the_draft_and_installs_with_it() {
     let f = fixture("activate");
@@ -133,7 +155,8 @@ fn an_activation_waits_in_the_draft_and_installs_with_it() {
     let mine = f.arg("res/mine.ttf");
     let ran = f.ok(&["activate", &mine]);
     assert_eq!(
-        ran.out, "activate\tfont\tROOT/res/mine.ttf\n",
+        ran.out,
+        "activate\tfont\tROOT/res/mine.ttf\ndraft desk: 1 change to the active resources · no problems\n",
         "{}",
         ran.err
     );
@@ -185,7 +208,8 @@ fn an_activation_waits_in_the_draft_and_installs_with_it() {
     let before = f.listed();
     let ran = f.ok(&["deactivate", &mine]);
     assert_eq!(
-        ran.out, "deactivate\tfont\tROOT/res/mine.ttf\n",
+        ran.out,
+        "deactivate\tfont\tROOT/res/mine.ttf\ndraft desk: 1 change to the active resources · no problems\n",
         "{}",
         ran.err
     );
@@ -418,7 +442,10 @@ fn deactivating_a_font_that_a_look_uses_warns_and_names_the_look() {
     std::fs::write(g.path("etc/batch.conf"), format!("{other}\n")).expect("a batch file");
     g.desk();
     let ran = g.ok(&["deactivate", &other]);
-    assert_eq!(ran.out, "deactivate\tfont\tROOT/res/other.ttf\n");
+    assert_eq!(
+        ran.out,
+        "deactivate\tfont\tROOT/res/other.ttf\ndraft desk: 1 change to the active resources · no problems\n"
+    );
     // a resource that is not active has nothing to deactivate
     let ran = g.run(&["deactivate", &g.arg("res/mine.ttf")]);
     assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);

@@ -303,10 +303,7 @@ impl Command<'_, '_> {
     /// What waits beside the draft `name`, as the state line counts it:
     /// its changes to the active resources and its font set changes.
     fn beside(&self, name: &str) -> Result<(usize, usize), Fail> {
-        Ok((
-            self.session.store.batch_changes(name)?.len(),
-            self.session.frit_changes(name)?.0.len(),
-        ))
+        self.session.beside(name)
     }
 
     /// `install [--force]`: installs the draft. A draft whose only problem
@@ -441,7 +438,6 @@ impl Command<'_, '_> {
     /// says, unless the draft is to be installed.
     fn after_write(&mut self, name: &str, new: &str, install: bool) -> Result<(), Fail> {
         let path = self.session.store.draft_path(name)?;
-        let state = self.session.state(name, new)?;
         let checked = match self.session.check(name, new, &path) {
             Ok(checked) => checked,
             // the draft is written whatever the check says, even when it
@@ -452,14 +448,9 @@ impl Command<'_, '_> {
             }
             Err(fail) => return Err(fail),
         };
-        self.print_check(&checked);
-        let beside = self.beside(name)?;
-        self.say(&flowmodel::state_line(
-            name,
-            &state,
-            beside,
-            checked.count(),
-        ));
+        for line in self.session.report(name, new, &checked)? {
+            self.say(&line);
+        }
         self.unused_looks(new);
         if install {
             self.session

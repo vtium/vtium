@@ -2,7 +2,6 @@ kind check-if
 title Check if activating a font file would change anything.
 intro `vtium-config activate --dry-run` says what `vtium-config activate` would add to the draft's active fonts, and saves nothing.
 see fonts/use-a-font-file-that-is-not-active
-waits-for audit 11: `activate --dry-run` prints what `activate` prints
 
 file etc/vtium.conf
     version = 1

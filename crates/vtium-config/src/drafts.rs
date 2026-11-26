@@ -516,6 +516,35 @@ impl Session<'_> {
         Ok(())
     }
 
+    /// How many changes wait beside the draft `name`: to the active
+    /// resources, and to its font sets.
+    pub fn beside(&self, name: &str) -> Result<(usize, usize), Fail> {
+        Ok((
+            self.store.batch_changes(name)?.len(),
+            self.frit_changes(name)?.0.len(),
+        ))
+    }
+
+    /// The lines a command prints after it changes the draft `name`, whose
+    /// text is now `text` and which `checked` judged: what the check finds,
+    /// then the draft's state line.
+    pub fn report(&self, name: &str, text: &str, checked: &Checked) -> Result<Vec<String>, Fail> {
+        let state = self.state(name, text)?;
+        let mut lines: Vec<String> = checked
+            .problems
+            .iter()
+            .chain(&checked.notes)
+            .cloned()
+            .collect();
+        lines.push(crate::flowmodel::state_line(
+            name,
+            &state,
+            self.beside(name)?,
+            checked.count(),
+        ));
+        Ok(lines)
+    }
+
     /// Runs `vtium check-config` on `text`, a copy of the draft `name` at
     /// `shown`, against the configuration directory, with the font set
     /// changes the install makes ([`Session::frit_changes`]); each line it
