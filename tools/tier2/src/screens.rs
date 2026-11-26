@@ -4719,7 +4719,10 @@ fn login_base64(bytes: &[u8]) -> String {
 /// a display of `display`, placed as the console places it: a kitty
 /// transmission with no id at the lowest z that keeps the cursor, at the
 /// top left of the placement's box, and for a banner a cursor move to the
-/// row where the login prompt starts.
+/// row where the login prompt starts. The grid's origin comes from the
+/// renderer's own rule, as the console takes it. Every login screen draws
+/// with the default placement, the grid centred, and a screen with a
+/// display of its own is unturned; a turned one's grid fills its display.
 fn login_place(
     f: &mut Feed,
     form: vtium_term::images::login::Form,
@@ -4728,10 +4731,13 @@ fn login_place(
 ) -> Result<(), String> {
     use vtium_term::images::login::{Geometry, make};
     let (cw, ch) = f.cell;
+    let pixels = (grid.0 * cw, grid.1 * ch);
+    let display = display.unwrap_or(pixels);
     let geometry = Geometry {
-        display: display.unwrap_or((grid.0 * cw, grid.1 * ch)),
+        display,
         cell: f.cell,
         grid,
+        origin: vtium_render::grid_origin(Placement::Centred, Orientation::Normal, display, pixels),
     };
     let (size, source) = login_source();
     let made = make(&form, &geometry, size, &source).ok_or("the login picture has no room")?;

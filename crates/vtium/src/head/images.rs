@@ -686,19 +686,14 @@ mod built {
         /// display, as text reads on it, the head's cell and its grid.
         /// `None` while the head has no display.
         fn login_geometry(&self) -> Option<vtium_image::login::Geometry> {
-            use vtium_render::Orientation;
             let view = self.views.values().next()?;
-            let (w, h) = view.size;
-            let display = match view.orientation {
-                Orientation::Right | Orientation::Left => (h, w),
-                Orientation::Normal | Orientation::UpsideDown => (w, h),
-            };
-            let (cols, rows) = self.grid;
-            Some(vtium_image::login::Geometry {
-                display,
-                cell: self.cell,
-                grid: (u32::try_from(cols).ok()?, u32::try_from(rows).ok()?),
-            })
+            login_geometry(
+                view.size,
+                view.orientation,
+                self.placement,
+                self.cell,
+                self.grid,
+            )
         }
 
         /// Whether the head's first login prompt waits for its login
@@ -786,6 +781,40 @@ mod built {
             .collect()
     }
 
+    /// The screen the login picture is made for on a display `size` pixels
+    /// in its own pixels, turned by `orientation`, which draws a grid of
+    /// `grid` columns and rows of `cell` pixels where `placement` puts it:
+    /// the display and the grid as the text reads, and the grid's origin
+    /// from the renderer's own rule, so the picture lines up with the grid
+    /// the renderer draws. `None` for a grid too large to count.
+    ///
+    /// References:
+    /// - ADR-1310 D10 and D12: where the grid sits with smooth scrolling on
+    ///   and off.
+    /// - ADR-1100 D17: the login picture fitted to the grid on the display.
+    fn login_geometry(
+        size: (u32, u32),
+        orientation: vtium_render::Orientation,
+        placement: vtium_render::Placement,
+        cell: (u32, u32),
+        (cols, rows): (usize, usize),
+    ) -> Option<vtium_image::login::Geometry> {
+        use vtium_render::Orientation;
+        let (w, h) = size;
+        let display = match orientation {
+            Orientation::Right | Orientation::Left => (h, w),
+            Orientation::Normal | Orientation::UpsideDown => (w, h),
+        };
+        let grid = (u32::try_from(cols).ok()?, u32::try_from(rows).ok()?);
+        let pixels = (grid.0.checked_mul(cell.0)?, grid.1.checked_mul(cell.1)?);
+        Some(vtium_image::login::Geometry {
+            display,
+            cell,
+            grid,
+            origin: vtium_render::grid_origin(placement, orientation, size, pixels),
+        })
+    }
+
     #[cfg(test)]
     thread_local! {
         /// The lines the image log wrote on this thread, with their level.
@@ -806,6 +835,31 @@ mod built {
                 sixel: true,
                 kitty: true,
             }
+        }
+
+        // The login picture's screen names where the renderer draws the
+        // grid. A display 35x53 in its own pixels, turned left, holds a grid
+        // of 6x2 cells of 8x16 with 3 spare columns and 5 spare lines.
+        // Centred, the odd line goes to the display's bottom, the text's
+        // left, so the grid starts at 3,1 as the text reads. With smooth
+        // scrolling on, all 3 spare columns of the display lie above the
+        // text, so the grid starts at 3,3.
+        //
+        // References:
+        // - ADR-1310 D10 and D12: where the grid sits with smooth scrolling
+        //   on and off.
+        #[test]
+        fn the_login_picture_s_screen_starts_where_the_renderer_draws_the_grid() {
+            use vtium_render::{Orientation, PartialRow, Placement};
+            let screen = |placement| {
+                login_geometry((35, 53), Orientation::Left, placement, (8, 16), (6, 2))
+                    .map(|g| (g.display, g.grid, g.origin))
+            };
+            assert_eq!(screen(Placement::Centred), Some(((53, 35), (6, 2), (3, 1))));
+            assert_eq!(
+                screen(Placement::Bottom(PartialRow::History)),
+                Some(((53, 35), (6, 2), (3, 3)))
+            );
         }
 
         // The setting helper-sandbox=off reaches each image helper as

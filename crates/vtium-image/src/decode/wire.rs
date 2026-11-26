@@ -42,7 +42,8 @@
 //! | 88 | the login picture's fit, `u8`: 0 for none, 1 `cover`, 2 `contain`, 3 `stretch`, 4 `none`, 5 `banner`; its position, `u8`: 0 unset, then 1 to 9 for `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom` and `bottom-right`; its scale, `u8`, 1 to 100; a reserved byte |
 //! | 92 | the banner's rows, `u32`, 0 for its own size |
 //! | 96 | the display's width and height, the cell's, and the grid's columns and rows, `u32` each |
-//! | 120 | the name |
+//! | 120 | the grid's origin on the display, across and down, `u32` each |
+//! | 128 | the name |
 //!
 //! A described picture's zlib compression travels as the [`INFLATE`] flag.
 //!
@@ -57,7 +58,7 @@ use super::{Alpha, Description, FrameLimits, Layout, Medium, Request};
 use crate::login::{Fit, Fitting, Form, Geometry, Position};
 
 /// The wire's version, which both ends of one build share.
-pub const VERSION: u32 = 5;
+pub const VERSION: u32 = 6;
 
 /// The helper's first packet.
 pub const KIND_HELLO: u32 = 1;
@@ -92,7 +93,7 @@ pub const HEADER: usize = 8;
 /// The bytes of a hello.
 pub const HELLO_BYTES: usize = 28;
 /// The bytes of a request before its name.
-pub const REQUEST_FIXED: usize = 120;
+pub const REQUEST_FIXED: usize = 128;
 /// The bytes of a reply before its delays and its reason.
 pub const REPLY_FIXED: usize = 52;
 /// The most frames a reply counts: ADR-1102's `FRAMES_MAX`.
@@ -509,10 +510,10 @@ pub fn decode_request(packet: &[u8]) -> Result<(u64, Request), Malformed> {
     Ok((get64(packet, 16), request))
 }
 
-/// The login picture's fitting, at offsets 88 to 120.
+/// The login picture's fitting, at offsets 88 to 128.
 fn put_fitting(out: &mut Vec<u8>, fit: Option<&Fitting>) {
     let Some(f) = fit else {
-        out.extend_from_slice(&[0; 32]);
+        out.extend_from_slice(&[0; 40]);
         return;
     };
     let kind = match f.form.fit {
@@ -540,12 +541,14 @@ fn put_fitting(out: &mut Vec<u8>, fit: Option<&Fitting>) {
         g.cell.1,
         g.grid.0,
         g.grid.1,
+        g.origin.0,
+        g.origin.1,
     ] {
         put32(out, v);
     }
 }
 
-/// The login picture's fitting at offsets 88 to 120: `None` when its kind
+/// The login picture's fitting at offsets 88 to 128: `None` when its kind
 /// is 0 and every byte is 0, and refused with an unknown kind or position,
 /// a scale outside 1 to 100, or a reserved byte that is not 0.
 fn fitting(packet: &[u8]) -> Result<Option<Fitting>, Malformed> {
@@ -593,6 +596,7 @@ fn fitting(packet: &[u8]) -> Result<Option<Fitting>, Malformed> {
             display: (at(96), at(100)),
             cell: (at(104), at(108)),
             grid: (at(112), at(116)),
+            origin: (at(120), at(124)),
         },
     }))
 }
@@ -1211,6 +1215,7 @@ mod tests {
                 display: (1920, 1080),
                 cell: (8, 16),
                 grid: (240, 67),
+                origin: (3, 4),
             },
         };
         let request = Request {
@@ -1318,6 +1323,7 @@ mod tests {
                     display: (1920, 1080),
                     cell: (8, 16),
                     grid: (240, 67),
+                    origin: (3, 4),
                 },
             }),
         };

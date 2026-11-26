@@ -164,19 +164,23 @@ pub struct Form {
 }
 
 /// The screen the picture is made for: the display's size in pixels, as
-/// the text reads on it, the character cell in pixels, and the grid in
-/// cells. The renderer centers the grid across the display, with the odd
-/// spare pixel after it, and puts the grid's last row on the display's
-/// bottom edge, so the spare pixel rows lie above the grid.
+/// the text reads on it, the character cell in pixels, the grid in cells,
+/// and where the grid starts on the display. The console takes the origin
+/// from the renderer's own placement (`vtium_render::grid_origin`), so the
+/// picture lines up with the grid whether the renderer centres the grid or
+/// puts it flush to the bottom, and on a turned display too.
 ///
 /// References:
-/// - ADR-1310 D10: the grid flush to the text's bottom edge, and centered
-///   across.
+/// - ADR-1310 D10 and D12: where the grid sits with smooth scrolling on and
+///   off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Geometry {
     pub display: (u32, u32),
     pub cell: (u32, u32),
     pub grid: (u32, u32),
+    /// The pixel, as the text reads, of the grid's top-left corner, from
+    /// the display's top-left corner as the text reads.
+    pub origin: (u32, u32),
 }
 
 /// What the image helper is asked to make of a decoded login picture: the
@@ -275,7 +279,7 @@ pub fn fit(
         return Some((tw, th, pixels));
     }
     let display = shown_display(geometry, grid_px);
-    let origin = grid_origin(display, grid_px);
+    let origin = grid_origin(geometry, display, grid_px);
     let scaled = shrunk(fitted(form.fit, size, display)?, form.scale);
     let (across, down) = sides(form.position);
     // along each side, how much of the scaled picture shows, and where the
@@ -374,7 +378,7 @@ pub fn place(fitting: &Fitting, size: (u32, u32)) -> Option<Spot> {
         return None;
     }
     let display = shown_display(geometry, grid_px);
-    let origin = grid_origin(display, grid_px);
+    let origin = grid_origin(geometry, display, grid_px);
     let (across, down) = sides(form.position);
     let x = inset(across, display.0, origin.0, grid_px.0, w)?;
     let y = inset(down, display.1, origin.1, grid_px.1, h)?;
@@ -485,17 +489,14 @@ fn sides(position: Option<Position>) -> (Side, Side) {
     position.map_or((Side::Middle, Side::Middle), |p| (p.across(), p.down()))
 }
 
-/// Where the grid starts on the `display` that holds it, across and down,
-/// as the renderer places it: centered across, with the odd spare pixel
-/// after it, and its last row on the display's bottom edge.
-///
-/// References:
-/// - ADR-1310 D10: the grid flush to the text's bottom edge, and centered
-///   across.
-fn grid_origin((dw, dh): (u32, u32), (gw, gh): (u32, u32)) -> (i64, i64) {
+/// Where the grid starts on the `display` that holds it, across and down:
+/// the origin `geometry` gives, kept where the whole grid fits on the
+/// display.
+fn grid_origin(geometry: &Geometry, (dw, dh): (u32, u32), (gw, gh): (u32, u32)) -> (i64, i64) {
+    let (x, y) = geometry.origin;
     (
-        centered(dw, gw),
-        i64::from(dh).saturating_sub(i64::from(gh)),
+        i64::from(x.min(dw.saturating_sub(gw))),
+        i64::from(y.min(dh.saturating_sub(gh))),
     )
 }
 
@@ -903,6 +904,7 @@ mod tests {
         display: (80, 48),
         cell: (8, 16),
         grid: (10, 3),
+        origin: (0, 0),
     };
 
     #[test]
@@ -929,6 +931,7 @@ mod tests {
         let src = picture(84, 50);
         let geo = Geometry {
             display: (84, 50),
+            origin: (2, 2),
             ..SCREEN
         };
         let made = make(&form(Fit::Cover), &geo, (84, 50), &src).expect("made");
@@ -973,6 +976,35 @@ mod tests {
         assert_eq!(at(41, 25), 0xff00_ff00);
         assert_eq!(at(42, 25), 0);
         assert_eq!(at(38, 26), 0);
+    }
+
+    // The picture lines up with the grid where the renderer placed it. On
+    // a display turned left with 3 spare columns and 5 spare lines in its
+    // own pixels, the renderer centres a 6x2 grid of 8x16 cells with the
+    // odd line at the display's bottom, which is the text's left: the grid
+    // starts 3 pixels in from the text's left and 1 below its top. A 4x4
+    // picture centred on the display starts at 24,15 as the text reads,
+    // so at 21,14 on the grid.
+    //
+    // References:
+    // - ADR-1310 D12, "With smooth scrolling off": the grid centred on both
+    //   axes in the display's own pixels.
+    // - ADR-1100 D17: the login picture fitted to the grid on the display.
+    #[test]
+    fn a_picture_starts_from_the_origin_the_renderer_gives() {
+        let turned_left = Geometry {
+            display: (53, 35),
+            cell: (8, 16),
+            grid: (6, 2),
+            origin: (3, 1),
+        };
+        let src = vec![0xff00_ff00; 4 * 4];
+        let made = make(&form(Fit::Natural), &turned_left, (4, 4), &src).expect("made");
+        let at = |x, y| shown(&made, turned_left.cell, (x, y));
+        assert_eq!(at(21, 14), 0xff00_ff00);
+        assert_eq!(at(24, 17), 0xff00_ff00);
+        assert_eq!((at(20, 14), at(21, 13)), (0, 0));
+        assert_eq!((at(25, 17), at(24, 18)), (0, 0));
     }
 
     #[test]
@@ -1053,6 +1085,7 @@ mod tests {
             display: (640, 160),
             cell: (8, 16),
             grid: (80, 10),
+            origin: (0, 0),
         };
         let at = |position| {
             let f = Form {
@@ -1129,11 +1162,18 @@ mod tests {
         for case in 0..4000 {
             let cell = (dice.roll(0, 12), dice.roll(0, 20));
             let grid = (dice.roll(0, 24), dice.roll(0, 12));
+            // the origins the renderer gives: centred, its odd pixel on
+            // either side as the display's turn puts it, or down, flush to
+            // the text's bottom edge
             let spare = (dice.roll(0, 12), dice.roll(0, 12));
             let geometry = Geometry {
                 display: (grid.0 * cell.0 + spare.0, grid.1 * cell.1 + spare.1),
                 cell,
                 grid,
+                origin: (
+                    [spare.0 / 2, spare.0.div_ceil(2)][dice.roll(0, 1) as usize],
+                    [spare.1 / 2, spare.1.div_ceil(2), spare.1][dice.roll(0, 2) as usize],
+                ),
             };
             let position = match dice.roll(0, 9) {
                 9 => None,
@@ -1275,6 +1315,7 @@ mod tests {
         display: (100, 60),
         cell: (7, 10),
         grid: (12, 5),
+        origin: (8, 10),
     };
 
     // A picture of 15×30 under contain on the display of 100×60 scales
@@ -1417,6 +1458,7 @@ mod tests {
             display: (1920, 1080),
             cell: (8, 16),
             grid: (240, 67),
+            origin: (0, 8),
         };
         let src = vec![0xff40_8020; 1000 * 1000];
         let made = make(
@@ -1481,6 +1523,7 @@ mod tests {
             display: (40, 20),
             cell: (4, 4),
             grid: (10, 5),
+            origin: (0, 0),
         };
         let src = vec![0xffff_ffff; 5 * 3];
         for position in Position::ALL {
@@ -1519,6 +1562,7 @@ mod tests {
             display: (80, 96),
             cell: (8, 16),
             grid: (10, 6),
+            origin: (0, 0),
         };
         let f = Form {
             position,
@@ -1582,6 +1626,7 @@ mod tests {
             display: (80, 96),
             cell: (8, 16),
             grid: (10, 6),
+            origin: (0, 0),
         };
         let src = vec![0xff00_ff00; 20 * 20];
         let made = make(

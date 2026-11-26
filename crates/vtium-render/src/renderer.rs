@@ -374,13 +374,7 @@ impl Layout {
             (gw, gh)
         };
         let (spare_x, spare_y) = (sw.saturating_sub(across), sh.saturating_sub(down));
-        let (off_x, off_y) = match (self.placement, self.orientation) {
-            (Placement::Centred, _) => (spare_x / 2, spare_y / 2),
-            (Placement::Bottom(_), Orientation::Normal) => (spare_x / 2, spare_y),
-            (Placement::Bottom(_), Orientation::UpsideDown) => (spare_x / 2, 0),
-            (Placement::Bottom(_), Orientation::Right) => (0, spare_y / 2),
-            (Placement::Bottom(_), Orientation::Left) => (spare_x, spare_y / 2),
-        };
+        let (off_x, off_y) = offsets(self.placement, self.orientation, (spare_x, spare_y));
         Grid {
             cols,
             rows,
@@ -635,6 +629,65 @@ impl Layout {
             height: u32::try_from(a.h).unwrap_or(0),
         }
     }
+}
+
+/// Where the grid's first display pixel lies, across and down the display,
+/// for `spare` (columns, lines) of the display's own pixels left over
+/// around it. Placed at the bottom, the grid's last row touches the
+/// text's bottom edge: the display's bottom upright, its top upside down,
+/// its left turned right and its right turned left. Across the rows it
+/// stays centred. Centred, the grid is centred on both axes. Either way an
+/// odd spare pixel goes to the display's right or bottom edge.
+///
+/// References:
+/// - ADR-1310 D10: the grid flush to the text's bottom edge while smooth scrolling is on, and centred across the rows.
+/// - ADR-1310 D12, "With smooth scrolling off": the grid centred on both axes in the display's own pixels.
+fn offsets(
+    placement: Placement,
+    orientation: Orientation,
+    (spare_x, spare_y): (i64, i64),
+) -> (i64, i64) {
+    match (placement, orientation) {
+        (Placement::Centred, _) => (spare_x / 2, spare_y / 2),
+        (Placement::Bottom(_), Orientation::Normal) => (spare_x / 2, spare_y),
+        (Placement::Bottom(_), Orientation::UpsideDown) => (spare_x / 2, 0),
+        (Placement::Bottom(_), Orientation::Right) => (0, spare_y / 2),
+        (Placement::Bottom(_), Orientation::Left) => (spare_x, spare_y / 2),
+    }
+}
+
+/// Where the renderer places a grid `grid` pixels wide and high, as the
+/// text reads, on a display `display` pixels wide and high in its own
+/// pixels, turned by `orientation`: the pixel, as the text reads, of the
+/// grid's top-left corner, counted from the display's top-left corner as
+/// the text reads. The login picture is fitted to this origin, so the
+/// picture and the grid share one rule. A grid larger than the display
+/// starts at 0 on that axis.
+///
+/// References:
+/// - ADR-1310 D10 and D12: where the grid sits with smooth scrolling on and off.
+/// - ADR-1100 D17: the login picture fitted to the grid on the display.
+pub fn grid_origin(
+    placement: Placement,
+    orientation: Orientation,
+    display: (u32, u32),
+    grid: (u32, u32),
+) -> (u32, u32) {
+    let (across, down) = if orientation.turned() {
+        (grid.1, grid.0)
+    } else {
+        grid
+    };
+    let spare_x = int(display.0).saturating_sub(int(across)).max(0);
+    let spare_y = int(display.1).saturating_sub(int(down)).max(0);
+    let (off_x, off_y) = offsets(placement, orientation, (spare_x, spare_y));
+    let (x, y) = match orientation {
+        Orientation::Normal => (off_x, off_y),
+        Orientation::UpsideDown => (spare_x.saturating_sub(off_x), spare_y.saturating_sub(off_y)),
+        Orientation::Right => (off_y, spare_x.saturating_sub(off_x)),
+        Orientation::Left => (spare_y.saturating_sub(off_y), off_x),
+    };
+    (u32::try_from(x).unwrap_or(0), u32::try_from(y).unwrap_or(0))
 }
 
 /// One frame's inputs, as each row reads them.
@@ -3999,6 +4052,55 @@ mod tests {
                 "{o:?}: left, right, top, bottom"
             );
         }
+    }
+
+    // grid_origin names the pixel, as the text reads, where the drawn grid
+    // starts, at every turn and in both placements, with an odd margin on
+    // both axes. The login picture is fitted to this origin, so a picture
+    // on a display turned left with an odd margin starts on the pixel
+    // where the renderer draws the grid's first cell.
+    //
+    // References:
+    // - ADR-1310 D10 and D12: where the grid sits with smooth scrolling on and off.
+    // - ADR-1100 D17: the login picture fitted to the grid on the display.
+    #[test]
+    fn grid_origin_is_where_the_grid_is_drawn_as_the_text_reads() {
+        use super::grid_origin;
+        let (gw, gh) = (6 * 8, 2 * 16);
+        for placement in [Placement::Centred, Placement::Bottom(PartialRow::History)] {
+            for o in [
+                Orientation::Normal,
+                Orientation::UpsideDown,
+                Orientation::Right,
+                Orientation::Left,
+            ] {
+                let size = match o.turned() {
+                    true => (gh + 3, gw + 5),
+                    false => (gw + 5, gh + 3),
+                };
+                let [left, right, top, bottom] = margins(o, placement, size);
+                let drawn = match o {
+                    Orientation::Normal => (left, top),
+                    Orientation::UpsideDown => (right, bottom),
+                    Orientation::Right => (top, right),
+                    Orientation::Left => (bottom, left),
+                };
+                assert_eq!(
+                    grid_origin(placement, o, size, (gw, gh)),
+                    drawn,
+                    "{placement:?}, {o:?}"
+                );
+            }
+        }
+        // turned left and centred, 3 spare columns and 5 spare lines: the
+        // display's odd line lies at its bottom, which is the text's left
+        let left = grid_origin(
+            Placement::Centred,
+            Orientation::Left,
+            (gh + 3, gw + 5),
+            (gw, gh),
+        );
+        assert_eq!(left, (3, 1));
     }
 
     // A display 4,320 lines high with rows 41 pixels high holds 105 rows
