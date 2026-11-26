@@ -1,0 +1,26 @@
+kind how-do-i
+title How do I show a terminal on a display that reports no EDID?
+intro Without a udev daemon, vtium can match a display only by its monitor's EDID, its identity. A display that reports none can still show a terminal through a rule for every display. vtium-config says which of the two a path can use before it calls the path complete.
+see heads-and-rules/show-a-terminal-on-a-display
+waits-for a new finding of this card: NEW PATH calls a path with such a display complete, and a then refuses it as a rule the person never wrote
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+device display HDMI-A-1
+device keyboard 046d:c31c USB Keyboard
+
+1. Go to the Flow tab.
+2. Highlight HDMI-A-1.
+3. Press Space to pick.
+4. Highlight USB Keyboard.
+5. Press Space to pick.
+6. Press a to add path.
+at the path
+check screen lacks "This is not a valid rule"
+check screen lacks "Write it as `display MATCH -> TARGET`"

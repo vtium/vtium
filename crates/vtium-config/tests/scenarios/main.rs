@@ -12,6 +12,7 @@ mod snapshots;
 mod state;
 mod tables;
 mod tabs;
+mod usecase;
 mod walk;
 
 use std::collections::{BTreeMap, BTreeSet};

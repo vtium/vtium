@@ -1,0 +1,40 @@
+kind how-do-i
+title How do I set up a private kiosk with two screens, each with its own keyboard?
+intro A kiosk of two screens is two paths: each joins one display and one keyboard to a terminal of its own. Under the closed policy, vtium ignores a keyboard that no rule names, so a keyboard plugged in later types into neither terminal.
+see heads-and-rules/show-a-terminal-on-a-display
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+device display HDMI-A-1 GSM:0x5b88:LEFT0001
+device display DP-1 DEL:0xa0c1:RIGHT0001
+device keyboard 046d:c31c Left keyboard
+device keyboard 04d9:0169 Right keyboard
+device keyboard 1a2c:2124 Visitor keyboard
+
+1. Go to the Flow tab.
+2. Highlight HDMI-A-1.
+3. Press Space to pick.
+4. Highlight Left keyboard.
+5. Press Space to pick.
+6. Press a to add path.
+7. Highlight DP-1.
+8. Press Space to pick.
+9. Highlight Right keyboard.
+10. Press Space to pick.
+11. Press a to add path.
+12. Press q to quit.
+13. Press y to save and quit.
+14. Run `vtium-config set policy closed`.
+at the policy
+check said lacks "error"
+check draft display HDMI-A-1 reaches terminal-1
+check draft input Left keyboard reaches terminal-1
+check draft display DP-1 reaches terminal-2
+check draft input Right keyboard reaches terminal-2
+check draft input Visitor keyboard reaches ignored

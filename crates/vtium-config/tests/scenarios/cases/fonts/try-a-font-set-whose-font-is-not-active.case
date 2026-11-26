@@ -1,0 +1,34 @@
+kind how-do-i
+title How do I try a font set whose font file is installed but not active?
+intro vtium draws only the font files that batch.conf lists as active, and treats every other font file as missing. vtium-config says when a font set's file is not active, and offers to activate it.
+see fonts/use-a-font-file-that-is-not-active
+waits-for CF1 item 3 and item 4: a trial offers font sets whose fonts vtium refuses, and nothing says why the built-in font draws
+
+# wide.bdf is installed, but batch.conf lists only mono.bdf, so vtium
+# treats wide.bdf as missing.
+file etc/vtium.conf
+    version = 1
+    font-name = mono
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+font fonts/wide.bdf 10x20
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+frit wide
+    source=bdf:ROOT/fonts/wide.bdf
+
+at the start
+check console draws mono
+
+1. Go to the Looks tab.
+2. Highlight wide.
+at wide is highlighted
+check screen shows "not among the active fonts"
+
+3. Press t to try live.
+at the trial
+check console fell-back no
+check screen shows "active"

@@ -1,0 +1,27 @@
+kind how-do-i
+title How do I show a terminal on a display, and type into it from a keyboard?
+intro A path joins a display, a terminal and an input device. vtium writes it as rules that name the display and the keyboard, and the terminal they reach.
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+device display HDMI-A-1 GSM:0x5b88:LEFT0001
+device keyboard 046d:c31c USB Keyboard
+
+1. Go to the Flow tab.
+note The Flow tab lists the connected displays and input devices under PARTS. NEW PATH collects the parts of the path you are making.
+2. Highlight HDMI-A-1.
+3. Press Space to pick.
+4. Highlight USB Keyboard.
+5. Press Space to pick.
+note NEW PATH now holds the display and the keyboard, and makes a new terminal for them.
+6. Press a to add path.
+7. Press s to save.
+at the save
+check draft display HDMI-A-1 reaches terminal-1
+check draft input USB Keyboard reaches terminal-1

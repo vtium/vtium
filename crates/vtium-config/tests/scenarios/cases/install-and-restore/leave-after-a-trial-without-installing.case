@@ -1,0 +1,40 @@
+kind how-do-i
+title How do I leave vtium-config after a trial without installing the look yet?
+intro When you quit, vtium-config saves your changes into the draft. The console keeps its installed settings until you install the draft.
+see install-and-restore/save-on-quit-and-install-from-the-command-line
+waits-for CF1 item 5: a font saved in the look is lost on q
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Go to the Looks tab.
+2. Choose New look.
+3. Erase the name.
+4. Type big.
+5. Press Enter.
+6. Set Font set to mono.
+7. Press Esc.
+8. Press t to try live.
+9. Press k.
+at the kept trial
+check console draws mono
+
+10. Press q to quit.
+at the quit question
+check screen shows "y save and quit"
+check screen shows "install"
+11. Press y to save and quit.
+at the end
+check exited 0
+check draft look big font-name mono
+check installed lacks "big"
+# The console draws the font it drew before vtium-config started.
+check console draws unifont
