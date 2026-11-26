@@ -1,0 +1,53 @@
+title Make a look with a font set, a size and a color scheme, use it on the console's head, save, install, and quit with q: the console shows that font set, size and color scheme.
+
+# The machine: vtium runs one head, console, on VT 5, in the built-in
+# font. The font set mono draws the bitmap font mono.bdf, which is
+# installed and active.
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+draft from-installed
+
+# The Looks tab: n makes a look, whose name is typed over new-look.
+press 3 n
+press Backspace Backspace Backspace Backspace Backspace Backspace Backspace Backspace
+type "big"
+press Enter
+# Font set: Right steps to mono. Size: Enter opens the sizes, and End Up
+# Up highlights 24 pt. Color scheme: Right twice steps past legacy to vga.
+press Down Right
+press Down Enter End Up Up Enter
+press Down Right Right
+press Esc
+at the look is made
+check screen shows "big uses the font set"
+
+# The Flow view: the console's card, its Look line stepped to big.
+press 4 Home Enter Down Right Enter Esc
+at the look is on the console's head
+check screen shows "look big"
+
+# s saves, and i installs after the question, which y answers.
+press s
+check draft head console look big
+check draft look big font-name mono
+press i y
+at the install
+check installed head console font-name mono
+check installed head console font-size 24
+check installed head console palette vga
+
+press q
+at the restart
+check exited 0
+restart
+check console draws mono
+check console cell 16x32
+check console palette vga

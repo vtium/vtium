@@ -1,0 +1,33 @@
+title Try a look, keep it with k, and quit with q without installing: vtium-config says that the saved draft is not in use yet and how to install it.
+waits-for CF1 item 5: a font saved in the look is lost on q
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+press 3 n
+press Backspace Backspace Backspace Backspace Backspace Backspace Backspace Backspace
+type "big"
+press Enter Down Right Esc
+press t k
+at the kept trial
+check console draws mono
+
+press q
+at the quit question
+check screen shows "y save and quit"
+check screen shows "install"
+press y
+at the end
+check exited 0
+check draft look big font-name mono
+check installed lacks "big"
+# The console draws the font it drew before vtium-config started.
+check console draws unifont

@@ -1,0 +1,39 @@
+title Try a whole look on the console: the console gets the look's size and color scheme as well as its font set.
+waits-for CF1 item 2: the live trial carries only the font set's name
+
+# The console lets programs resize its grid, which is how vtium-config
+# tries a size.
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    allow-window-ops = on
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+press 3 n
+press Backspace Backspace Backspace Backspace Backspace Backspace Backspace Backspace
+type "big"
+press Enter Down Right
+press Down Enter End Up Up Enter
+press Down Right Right
+press Esc
+
+# t on the look tries it: mono at 24 pt, 32 pixels high, in vga.
+press t
+at the trial
+check console received "\e]50;mono"
+check console draws mono
+check console palette vga
+check console grid 50x15
+
+# Any other key puts the console back as it was.
+press Esc
+at the end of the trial
+check console draws unifont
+check console palette legacy
+check console grid 100x30

@@ -1,0 +1,40 @@
+title Make a look in the font set vtium.conf already uses, at another size and color scheme, use it on no head, and try it: vtium-config says that no head uses the look, and never that the console already uses it.
+waits-for CF1 item 1: "already configured" when the look changes what the console shows
+
+# vtium.conf already sets the font set mono for everything.
+file etc/vtium.conf
+    version = 1
+    font-name = mono
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+# The look big: mono, 24 pt, vga, the way the first use case makes it.
+press 3 n
+press Backspace Backspace Backspace Backspace Backspace Backspace Backspace Backspace
+type "big"
+press Enter Down Right
+press Down Enter End Up Up Enter
+press Down Right Right
+press Esc
+at the look is made
+check screen shows "No terminal uses it"
+check screen lacks "already"
+
+# t on the look tries it on the console.
+press t
+at the trial
+check screen lacks "already"
+press Esc
+
+press s i
+at the install question
+check screen lacks "already"
+press y
+at the install
+check installed look big font-size 24
+check installed look big font-name mono

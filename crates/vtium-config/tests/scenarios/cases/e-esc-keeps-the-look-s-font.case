@@ -1,0 +1,28 @@
+title Choose a font set for a look in its card and leave the card with Esc: the card said beforehand that Esc keeps the change, and the saved draft holds the font set.
+waits-for CF1 item 6: Esc saves the look, and the screen does not say so
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [look plain]
+    palette = legacy
+    [head console]
+    vt = 5
+    look = plain
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+# The Looks tab: Enter opens the look plain's card, and its Font set
+# line's choices; Down and Enter pick mono.
+press 3 Enter Down Enter
+at the font set's choices
+press Down Enter
+at the card, before Esc
+check screen shows "Esc keeps the changes"
+check screen lacks "Esc back"
+press Esc s
+at the save
+check draft look plain font-name mono

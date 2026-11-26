@@ -1,0 +1,28 @@
+title Use a font set whose font file is installed but not active, activate the font file on the command line, install, and restart vtium: the console draws the font set only once its font is active.
+
+file etc/vtium.conf
+    version = 1
+    font-name = wide
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+font fonts/wide.bdf 10x20
+frit wide
+    source=bdf:ROOT/fonts/wide.bdf
+
+at the start
+# vtium treats wide.bdf as missing, so the console draws the built-in font.
+check console font wide
+check console fell-back yes
+check console cell 8x16
+
+press q
+command activate ROOT/fonts/wide.bdf
+command install
+at the install
+check installed has "font-name = wide"
+restart
+check console draws wide
+check console cell 10x20
