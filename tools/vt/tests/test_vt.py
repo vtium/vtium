@@ -2378,7 +2378,8 @@ class Install(Case):
         src = os.path.join(ROOT, "crates", "vtium", "install")
         dst = os.path.join(self.s.standins, "install")
         os.mkdir(dst)
-        for f in ("vtium@.service", "vtium-getty@.service", "vtium-image.conf", "vtium-libseat.conf", "vtium.pam"):
+        for f in ("vtium@.service", "vtium-getty@.service", "vtium-image.conf", "vtium-libseat.conf", "vtium.pam",
+                  "vtium-split.conf"):
             text = read(os.path.join(src, f))
             if f == "vtium@.service" and unit_lines:
                 text = "\n".join(unit_lines(text.splitlines())) + "\n"
@@ -3443,6 +3444,72 @@ exec "$@"
             found += [os.path.relpath(os.path.join(d, n), ROOT) for n in names
                       if n.endswith(".rs") and marker in read(os.path.join(d, n))]
         self.assertEqual(found, [seat])
+
+    # What install writes beside the other files for a console built with
+    # split: the sysusers file of the privilege split's accounts.
+    SPLIT_SYSUSERS = "etc/sysusers.d/vtium-dev-split.conf"
+    SPLIT = "# logs: vtium runs as two processes: this root process, and drawing process {}\n"
+
+    def test_a_console_built_with_split_installs_the_accounts_sysusers_file(self):
+        write(self.s.bin, BIN + self.SPLIT)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # The shipped file under an opening comment of its own, so the
+        # accounts are the ones the package creates (ADR-1400 D4).
+        shipped = read(os.path.join(ROOT, "crates", "vtium", "install", "vtium-split.conf"))
+        sysusers = read(self.at(self.SPLIT_SYSUSERS))
+        self.assertTrue(sysusers.endswith(shipped), sysusers)
+        self.assertTrue(all(l.startswith("#") for l in sysusers[:-len(shipped)].splitlines()))
+        self.assertIn('u vtium - "vtium drawing process" / -', sysusers.splitlines())
+        self.assertEqual(stat.S_IMODE(os.stat(self.at(self.SPLIT_SYSUSERS)).st_mode), 0o644)
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (*self.FILES, self.SPLIT_SYSUSERS)))
+        # systemd-sysusers creates the accounts, as root, before vtium starts,
+        # so vtium splits.
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [self.at(self.SPLIT_SYSUSERS)])
+        sudo = self.s.calls_of("sudo")
+        run = sudo.index(f"{self.s.standins}/systemd-sysusers {self.at(self.SPLIT_SYSUSERS)}")
+        self.assertLess(run, sudo.index(f"{self.s.standins}/systemctl restart vtium-dev@tty4.service"))
+        # A console without split no longer needs the file, and every VT
+        # runs the one binary, so its install removes it, and so does
+        # uninstall.
+        write(self.s.bin, BIN)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertFalse(os.path.lexists(self.at(self.SPLIT_SYSUSERS)))
+        write(self.s.bin, BIN + self.SPLIT)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        open(self.s.calls, "w").close()
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+        self.assertFalse(os.path.lexists(self.at(self.SPLIT_SYSUSERS)))
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [])
+
+    def test_a_console_without_split_installs_no_accounts(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertFalse(os.path.lexists(self.at(self.SPLIT_SYSUSERS)))
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [])
+        self.assertNotIn("vtium-dev-split", read(self.at(self.STATE + "/files")))
+
+    def test_the_line_that_marks_a_build_with_split_is_in_code_built_only_with_split(self):
+        # A reworded message would install no accounts for a build with
+        # split, which would then run as one process, and the line anywhere
+        # else would install them for a build without it.
+        marker = next(l.split("=", 1)[1].strip('"') for l in read(VT_INSTALL).splitlines()
+                      if l.startswith("split_marker="))
+        self.assertEqual(self.SPLIT, "# logs: " + marker + "{}\n")
+        broker = os.path.join("crates", "vtium", "src", "broker", "mod.rs")
+        self.assertIn(f'"{marker}{{}}', read(os.path.join(ROOT, broker)))
+        main = read(os.path.join(ROOT, "crates", "vtium", "src", "main.rs"))
+        self.assertIn('#[cfg(feature = "split")]\nmod broker;', main)
+        found = []
+        for d, _, names in os.walk(os.path.join(ROOT, "crates")):
+            found += [os.path.relpath(os.path.join(d, n), ROOT) for n in names
+                      if n.endswith(".rs") and marker in read(os.path.join(d, n))]
+        self.assertEqual(found, [broker])
 
     def test_a_sysusers_file_systemd_sysusers_cannot_read_fails_the_install(self):
         # systemd-sysusers refuses a line that is no u, g, m or r line, as it
