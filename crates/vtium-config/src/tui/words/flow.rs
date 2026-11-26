@@ -101,6 +101,16 @@ pub fn deleted_draft(next: &str) -> String {
     format!("Draft deleted. Draft {next} starts again from the installed vtium.conf.")
 }
 
+/// The command line's note on a look that no head uses: it changes
+/// nothing on screen, and the command that gives it to `head`, the
+/// draft's first head, or to a head the person names.
+pub fn no_head_uses(look: &str, head: Option<&str>) -> String {
+    let head = head.unwrap_or("HEAD");
+    format!(
+        "No head uses look {look}, so it changes nothing on screen. To use it, run vtium config head set {head} --look {look}."
+    )
+}
+
 pub const NO_HISTORY: &str =
     "Nothing to restore: no install has replaced a vtium.conf yet, so there is no earlier file.";
 

@@ -330,8 +330,26 @@ impl Command<'_, '_> {
             Unrouted::Refuse
         };
         let ask: Option<Ask<'_>> = if terminal { Some(&mut restart) } else { None };
+        self.unused_looks(&text);
         self.session
             .install(&name, &text, unrouted, &mut run_child, ask, self.out)
+    }
+
+    /// Prints a note for each look in the draft `text` that no head uses.
+    /// Such a look changes nothing on screen, which a person who just made
+    /// it or set it would not otherwise learn; the note gives the command
+    /// that gives it to the first head.
+    fn unused_looks(&mut self, text: &str) {
+        let flow = flowmodel::build(text, &flowmodel::Present::default(), None);
+        let head = flow.heads.first().map(|h| h.name.clone());
+        for (i, look) in flow.looks.iter().enumerate() {
+            if !flow.used(i) {
+                self.say(&crate::tui::words::no_head_uses(
+                    &look.name,
+                    head.as_deref(),
+                ));
+            }
+        }
     }
 
     /// `get KEY`: the key, its value in the draft's top level and where it
@@ -417,8 +435,8 @@ impl Command<'_, '_> {
     }
 
     /// After a change to the draft `name`, whose text is now `new`, was
-    /// written: prints what the check finds and the state line, and with
-    /// `install` installs the draft. A check that cannot run is printed
+    /// written: prints what the check finds, the state line and a note for
+    /// each look that no head uses, and with `install` installs the draft. A check that cannot run is printed
     /// and fails nothing, since the change is written whatever the check
     /// says, unless the draft is to be installed.
     fn after_write(&mut self, name: &str, new: &str, install: bool) -> Result<(), Fail> {
@@ -442,6 +460,7 @@ impl Command<'_, '_> {
             beside,
             checked.count(),
         ));
+        self.unused_looks(new);
         if install {
             self.session
                 .install(name, new, Unrouted::Refuse, &mut run_child, None, self.out)?;

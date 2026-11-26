@@ -549,6 +549,33 @@ fn a_look_in_use_is_kept_unless_forced_to_the_default() {
 
 // ADR-1403 D5, D8: `look add` and `look set` take a look's cell, and
 // `set`, which writes the top level, refuses it and names `look set`
+/// A look that no head uses changes nothing on screen, so `look add`,
+/// `look set` and `install` say so for each such look, with the command
+/// that gives it to a head. Once a head uses the look, they say nothing.
+#[test]
+fn the_look_commands_and_install_name_a_look_that_no_head_uses() {
+    const NOTE: &str = "No head uses look big, so it changes nothing on screen. To use it, run vtium config head set desk --look big.";
+    let f = fixture("look-unused");
+    f.desk();
+    let added = f.run(&["look", "add", "big", "--frit", "monoid"]);
+    assert_eq!(added.status, 0, "{}", added.err);
+    assert!(added.out.ends_with(&format!("{NOTE}\n")), "{}", added.out);
+    let set = f.run(&["look", "set", "big", "--size", "20"]);
+    assert_eq!(set.status, 0, "{}", set.err);
+    assert!(set.out.ends_with(&format!("{NOTE}\n")), "{}", set.out);
+    let install = f.run(&["install"]);
+    assert_eq!(install.status, 0, "{}{}", install.out, install.err);
+    assert!(
+        install.out.starts_with(&format!("{NOTE}\n")),
+        "{}",
+        install.out
+    );
+    assert_eq!(f.run(&["head", "set", "desk", "--look", "big"]).status, 0);
+    let set = f.run(&["look", "set", "big", "--size", "22"]);
+    assert_eq!(set.status, 0, "{}", set.err);
+    assert!(!set.out.contains("No head uses"), "{}", set.out);
+}
+
 #[test]
 fn look_add_and_look_set_take_a_look_s_cell() {
     let f = fixture("look-cell");

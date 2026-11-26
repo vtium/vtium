@@ -2,7 +2,6 @@ kind how-do-i
 title How do I make a look on the command line?
 intro `vtium-config look add` makes a look in the draft, and `vtium-config look set` sets its font set, size and color scheme. A look changes nothing on screen until a terminal uses it, and vtium-config says so.
 see looks/make-a-look-and-use-it-on-the-console
-waits-for audit 10: the command line says nothing when no terminal uses a look
 
 file etc/vtium.conf
     version = 1
