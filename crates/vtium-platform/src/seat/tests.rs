@@ -1498,3 +1498,47 @@ fn a_real_libseat_error_stays_in_the_log() {
     );
     assert_eq!(shown.len(), 2, "the error and vtium's own line: {shown:?}");
 }
+
+/// A seat manager serves vtium's seat where libseat would reach one that
+/// runs: seatd when it listens and the backend named allows it, and
+/// logind only from a logind session of vtium's own. Outside such a
+/// session with no backend named, vtium looks for seatd alone.
+#[test]
+fn a_seat_manager_serves_where_libseat_would_reach_one_that_runs() {
+    use super::{Managers, managers_from};
+    let seatd = Some(OsStr::new("seatd"));
+    let logind = Some(OsStr::new("logind"));
+    let serve = |named, own, seatd_listens, logind_runs| {
+        managers_from(named, own, seatd_listens, logind_runs).serve
+    };
+    // direct mode: seatd alone counts
+    assert!(serve(None, false, true, true));
+    assert!(!serve(None, false, false, true));
+    assert!(serve(seatd, false, true, false));
+    assert!(
+        !serve(logind, false, true, true),
+        "logind outside a session of vtium's own"
+    );
+    // seat mode: vtium's own session reaches logind, and seatd first
+    assert!(serve(None, true, false, true));
+    assert!(serve(logind, true, false, true));
+    assert!(
+        !serve(logind, true, true, false),
+        "the backend named is logind, which does not run"
+    );
+    assert!(
+        !serve(seatd, true, false, true),
+        "the backend named is seatd, which does not listen"
+    );
+    assert!(!serve(None, true, false, false));
+    assert!(!serve(Some(OsStr::new("noop")), true, true, true));
+    assert_eq!(
+        managers_from(None, false, false, true),
+        Managers {
+            serve: false,
+            seatd_only: true
+        }
+    );
+    assert!(!managers_from(seatd, false, false, false).seatd_only);
+    assert!(!managers_from(None, true, false, false).seatd_only);
+}

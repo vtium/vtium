@@ -193,6 +193,9 @@ considered:
     said: "A: split behind a feature (Recommended)"
     via: "the steering session's question tool, 2026-11-25, on the privilege split and the minspec size budget; the option read: \"the root/drawer split builds only behind a cargo feature that minspec leaves out, so minspec stays one process and drops the split's ~32 KB (it sat 56 B under tier 3's 4,390,912 B budget); packaged builds and make vt-accept's defaults keep the split\"; the option wording is the steering session's"
     paraphrase: true
+  - operator: aaronsb
+    said: "one process with a seat manager. but, let's remember to make it work on systems that dont have a seat manager"
+    via: question tool, 2026-11-25
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
@@ -442,6 +445,8 @@ The drawer runs as the system account `vtium`, which later becomes the composito
 #### When vtium runs as one process
 
 vtium splits only when it starts as root and the drawer's account exists. A vtium started without root, as the tests and a run by hand start it, has nothing to drop, so it starts no broker and runs as one process, as today (question 3). A vtium started as root on a machine without the account `vtium`, such as a host without systemd-sysusers where nobody made the account, also runs as one process, as today, and logs one line that names the missing account (question 2). The first two slices use only `vtium`. From the third slice on, vtium needs both accounts to split, and runs as one process when either is missing.
+
+> Note 2026-11-25, on seat managers before the second slice: the maintainer decided that until the second slice is built, a vtium that would take its seat from a seat manager runs as one process, as root, in their words "one process with a seat manager. but, let's remember to make it work on systems that dont have a seat manager" (`considered`, 2026-11-25). Under the first slice the broker holds the VT and opens the devices itself, so it cannot serve a drawer whose seat seatd or logind manages. Tier 3 found that a split vtium then took nothing from seatd or logind, and that in seat mode a login got no logind session of its own. So before it splits, vtium checks whether seatd listens on its socket, where libseat may try seatd, and whether vtium is in a logind session of its own while logind runs. When either holds, it logs one line and runs as one process. Everywhere else, the machines without a seat manager among them, vtium splits as this section says.
 
 #### The drawer's setup
 
