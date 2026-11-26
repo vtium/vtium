@@ -1949,7 +1949,7 @@ def check_pointer(variant, vm, work, caps, errors, log):
             vm.cmd("input-send-event", events=t3_pointer.move_events(*at))
             if n == 0:
                 vm.wait_serial(t3_pointer.PLANE_LINE, timeout=30)
-            want = t3_pointer.corner(at, display, cell)
+            want = t3_pointer.corner(at, display, cell, smooth=t3_pointer.variant_smooth(VARIANTS[variant]))
             why = read_plane(vm, display, want, log)
             if why:
                 raise RuntimeError("after the move to %s: %s" % (at, why))
