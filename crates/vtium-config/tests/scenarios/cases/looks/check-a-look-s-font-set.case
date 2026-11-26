@@ -2,7 +2,6 @@ kind check-if
 title Check if a look uses the font set you expect.
 intro A look's card shows its font set, and Enter on the Font set line lists the font sets with the look's own ticked. Picking the ticked one again changes nothing.
 see looks/change-the-font-set-of-a-look
-waits-for audit 1: a pick that changes nothing counts as a change not saved
 
 file etc/vtium.conf
     version = 1

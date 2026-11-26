@@ -150,7 +150,10 @@ impl App {
     /// desk to check; all of them or, when one cannot be made, none. The
     /// changes wait for Save. The message line shows the commands that
     /// make the same changes, and `select` is the item to select once the
-    /// draft is checked.
+    /// draft is checked. Changes that leave the draft's text as it was,
+    /// such as picking the value a look already has, are no change: the
+    /// TUI counts nothing and says so, so Save and the quit question never
+    /// name a change that changed nothing.
     ///
     /// References:
     /// - ADR-1403 D7: a change waits for Save.
@@ -159,6 +162,9 @@ impl App {
             Ok(text) => text,
             Err(why) => return self.say(&why),
         };
+        if self.shared.draft.as_ref().is_some_and(|d| d.text == text) {
+            return self.say(words::NOT_DONE);
+        }
         let commands: Vec<String> = changes.iter().map(Change::command).collect();
         self.shared.message = Some(commands.join("\n"));
         self.flow.select_after(select);

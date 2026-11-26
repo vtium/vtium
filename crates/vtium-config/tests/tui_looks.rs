@@ -2914,3 +2914,35 @@ fn the_card_marks_a_font_set_whose_text_font_is_missing() {
         "{rows:?}\n{screen}"
     );
 }
+
+/// Picking the font set a look already has changes nothing in the draft,
+/// so the status line counts no change and the message line names no
+/// command, and `s` then says there is nothing to save.
+///
+/// References:
+/// - ADR-1403 D7: a change waits for Save, and Save says what it saved.
+#[test]
+fn picking_the_value_a_look_already_has_counts_no_change() {
+    let conf = inputs().conf.expect("the conf");
+    let (c, draft) = run_on(&conf, &[TO_LOOKS, b"\r", DOWN, b"\r", b"\r", ESC]);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert_eq!(draft, conf, "the draft is unchanged");
+    assert!(!seen.contains("not saved"), "{seen}");
+    assert!(!seen.contains("look set proof"), "{seen}");
+    let (c, draft) = run_on(&conf, &[TO_LOOKS, b"\r", DOWN, b"\r", b"\r", ESC, b"s"]);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert_eq!(draft, conf, "the draft is unchanged");
+    assert!(!seen.contains("Saved 1 change"), "{seen}");
+    assert!(seen.contains(words::NOTHING_TO_SAVE), "{seen}");
+}
+
+/// `y` at the resize question, where the draft already lets programs
+/// resize the grid, leaves the draft as it is and counts no change.
+#[test]
+fn y_when_the_draft_already_allows_window_ops_counts_no_change() {
+    let conf = window_ops_on();
+    let (c, draft) = run_on(&conf, &[TO_LOOKS, b"w", b"y"]);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert_eq!(draft, conf, "the draft is unchanged");
+    assert!(!seen.contains("not saved"), "{seen}");
+}
