@@ -1247,7 +1247,11 @@ impl App {
             .unwrap_or(0);
         let window_ops = self.shared.window_ops();
         let size = (points > 0 && window_ops).then_some(points);
-        let size_later = (points > 0 && !window_ops).then(|| words::look_size_later(points));
+        // a size the console already draws at needs no sentence
+        let installed: Option<u32> =
+            console_setting(&self.shared, "font-size").and_then(|s| s.parse().ok());
+        let size_later = (points > 0 && !window_ops && installed != Some(points))
+            .then(|| words::look_size_later(points));
         // what the console draws in place of the font set's text font,
         // where the font helper left it out
         let fallback = font
@@ -1603,9 +1607,16 @@ fn shown_colors(shared: &Shared) -> vtium_term::Palette {
 }
 
 /// The color scheme the console draws now, as the installed vtium.conf
-/// gives it: the `palette` of the look that the console's terminal uses,
-/// else the top level's, else `legacy`, the default.
+/// gives it, else `legacy`, the default.
 fn console_scheme(shared: &Shared) -> String {
+    console_setting(shared, "palette").unwrap_or_else(|| "legacy".to_owned())
+}
+
+/// The value of the look setting `key` that the console draws with now,
+/// as the installed vtium.conf gives it: the value of the look that the
+/// console's terminal, which `VTIUM_HEAD` names, uses, else the top
+/// level's.
+fn console_setting(shared: &Shared, key: &str) -> Option<String> {
     let conf = shared.inputs.conf.as_deref().unwrap_or_default();
     let of_look = shared.inputs.head.as_deref().and_then(|head| {
         let reading = vtium_settings::sections(conf.as_bytes())?;
@@ -1617,12 +1628,10 @@ fn console_scheme(shared: &Shared) -> String {
             .find(|l| l.name == look)?
             .settings
             .into_iter()
-            .find(|s| s.key.name == "palette")
+            .find(|s| s.key.name == key)
             .map(|s| s.value)
     });
-    of_look
-        .or_else(|| vtium_settings::setting(conf, "palette"))
-        .unwrap_or_else(|| "legacy".to_owned())
+    of_look.or_else(|| vtium_settings::setting(conf, key))
 }
 
 /// What `y` does to the question that offers the look `look` to the

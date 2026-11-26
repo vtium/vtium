@@ -2528,6 +2528,22 @@ fn the_built_in_terminal_uses_the_look_default() {
     assert!(!said.contains("No terminal uses"), "{said}");
 }
 
+/// A look whose size is the size the installed vtium.conf already gives
+/// the console says nothing of a size that waits for the next start.
+#[test]
+fn a_look_s_trial_at_the_installed_size_says_nothing_of_the_size() {
+    let conf = nordic_conf("font-size = 16\n", "look = nordic\n");
+    let (mut app, _) = started(with_conf(&conf));
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(
+            "Trying the look nordic for 10 s. Press k to keep it, or any other key to put the console back."
+        )
+    );
+}
+
 /// A stand-in console in which a program has set color 1 and the
 /// background before vtium-config started.
 fn console_with_program_colors(keys: &[&[u8]]) -> Console {
