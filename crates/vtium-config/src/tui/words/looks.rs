@@ -573,7 +573,7 @@ pub const NO_PREVIEW_TO_SWITCH: &str =
 /// go, followed by `later`, what of the look waits for the next start.
 pub fn look_countdown(name: impl Display, left: u32, later: Option<&str>) -> String {
     let mut line = format!(
-        "Trying the look {name} on the console for {left} s. Press k to keep it, or any other key to put the console back."
+        "Trying the look {name} for {left} s. Press k to keep it, or any other key to put the console back."
     );
     if let Some(later) = later {
         line.push(' ');
@@ -624,22 +624,46 @@ pub fn look_unused(name: impl Display) -> String {
     format!("No terminal uses the look {name}, so no console shows it after you install the draft.")
 }
 
-/// The question that offers the look `name` to the terminal `head`, after
-/// `before`, what the trial or `t` said first.
-pub fn look_use_question(before: &str, name: impl Display, head: impl Display) -> String {
+/// Why a look that no terminal uses comes up after `t` or `k`, as the
+/// first sentence of what the message line says next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unused {
+    /// `t` found nothing to try: the console already shows the look's
+    /// font set and color scheme.
+    Shown,
+    /// `k` kept the look's trial on the console.
+    Kept,
+}
+
+/// The first sentence of what the message line says of the look `name`,
+/// which no terminal uses, after `t` or `k`.
+fn unused_first(name: impl Display, why: Unused) -> String {
+    match why {
+        Unused::Shown => format!(
+            "No terminal uses the look {name}, and the console already shows its font set and color scheme."
+        ),
+        Unused::Kept => format!(
+            "No terminal uses the look {name}, so the console shows it only until you quit vtium-config."
+        ),
+    }
+}
+
+/// The question that offers the look `name`, which no terminal uses, to
+/// the terminal `head`. The question comes first and stays short, so
+/// that its answer keys fit in the message line's three rows at 80×25.
+pub fn look_use_question(name: impl Display, why: Unused, head: impl Display) -> String {
     format!(
-        "{before} {} Use it for the terminal {head}? y sets it in the draft, and n or Esc leaves the draft as it is.",
-        look_unused(&name)
+        "{} Use it for the terminal {head}? y sets it in the draft, and n or Esc leaves the draft as it is.",
+        unused_first(name, why)
     )
 }
 
-/// `before`, then the sentence that says no terminal uses the look `name`
-/// and where to give it one, where vtium-config cannot tell which terminal
-/// the console belongs to.
-pub fn look_unused_flow(before: &str, name: impl Display) -> String {
+/// What the message line says of the look `name`, which no terminal uses,
+/// where vtium-config cannot tell which terminal the console belongs to.
+pub fn look_unused_flow(name: impl Display, why: Unused) -> String {
     format!(
-        "{before} {} To use it, choose it for a terminal in the Flow tab.",
-        look_unused(&name)
+        "{} To use the look, choose it for a terminal in the Flow tab.",
+        unused_first(name, why)
     )
 }
 

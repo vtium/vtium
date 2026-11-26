@@ -1222,25 +1222,27 @@ impl App {
         let fallback = font
             .as_deref()
             .and_then(|f| super::tabs::looks::fontsets::text_fallback(&self.shared, f));
-        let later = match (fallback, size_later) {
-            (Some(f), Some(s)) => Some(format!("{f} {s}")),
-            (f, s) => f.or(s),
-        };
+        // the message line holds three rows, so the countdown carries one
+        // sentence beside its keys: why the built-in font draws, which
+        // matters more than a size that waits for the next start
+        let later = fallback.or(size_later);
         let unused = super::tabs::looks::list::heads(&self.shared, &name).is_empty();
         let offer = unused
             .then(|| super::tabs::looks::list::console_head(&self.shared))
             .flatten();
         if font.is_none() && colors.is_none() && size.is_none() {
-            let same = words::look_same(&name, later.as_deref());
+            // a question leaves out what waits for the next start, so that
+            // its keys fit in the message line
             match offer {
                 Some(head) => self.ask(
-                    words::look_use_question(&same, &name, &head),
+                    words::look_use_question(&name, words::Unused::Shown, &head),
                     use_look(head, name),
                 ),
                 None if unused => {
-                    self.shared.message = Some(words::look_unused_flow(&same, &name));
+                    self.shared.message =
+                        Some(words::look_unused_flow(&name, words::Unused::Shown));
                 }
-                None => self.shared.message = Some(same),
+                None => self.shared.message = Some(words::look_same(&name, later.as_deref())),
             }
             return Vec::new();
         }
@@ -1307,13 +1309,12 @@ impl App {
                     let look = look.clone();
                     self.nav.trial = None;
                     self.shared.colors_moved |= look.colors;
-                    let kept = words::look_kept(&look.name);
                     match look.offer {
                         Some(head) => self.ask(
-                            words::look_use_question(&kept, &look.name, &head),
+                            words::look_use_question(&look.name, words::Unused::Kept, &head),
                             use_look(head, look.name),
                         ),
-                        None => self.shared.message = Some(kept),
+                        None => self.shared.message = Some(words::look_kept(&look.name)),
                     }
                     return Vec::new();
                 }

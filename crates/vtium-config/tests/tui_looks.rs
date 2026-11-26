@@ -2415,7 +2415,7 @@ fn t_on_a_look_tries_its_font_set_and_its_colors() {
     assert_eq!(
         app.shared.message.as_deref(),
         Some(
-            "Trying the look nordic on the console for 10 s. Press k to keep it, or any other key to put the console back. Its size, 16 pt, takes effect when vtium starts again, because the console does not let programs resize its grid."
+            "Trying the look nordic for 10 s. Press k to keep it, or any other key to put the console back. Its size, 16 pt, takes effect when vtium starts again, because the console does not let programs resize its grid."
         )
     );
     // any other key puts the font and the colors back
@@ -2474,9 +2474,89 @@ fn t_on_a_look_no_terminal_uses_offers_it_to_the_terminal() {
     assert_eq!(
         app.shared.message.as_deref(),
         Some(
-            "The console already shows the font set and the color scheme of the look nordic, so t has nothing to try. Its size, 16 pt, takes effect when vtium starts again, because the console does not let programs resize its grid. No terminal uses the look nordic, so no console shows it after you install the draft. Use it for the terminal desk? y sets it in the draft, and n or Esc leaves the draft as it is."
+            "No terminal uses the look nordic, and the console already shows its font set and color scheme. Use it for the terminal desk? y sets it in the draft, and n or Esc leaves the draft as it is."
         )
     );
+}
+
+/// The screen as text at `cols` by `rows`, its rows joined by spaces and
+/// its runs of spaces cut to one, so a sentence the message line wraps
+/// reads whole.
+fn screen_words(app: &App, cols: usize, rows: usize) -> String {
+    let size = model::Size {
+        cols,
+        rows,
+        cell_px: None,
+    };
+    let text = vtium_config::tui::view::as_text(&vtium_config::tui::view::screen_at(app, size));
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The countdown of a look whose text font is missing and whose size waits
+/// for the next start shows whole at 80×25: it says why vtium's built-in
+/// font draws the text, and leaves the size out, since the message line
+/// holds three rows.
+#[test]
+fn a_look_s_countdown_with_a_missing_text_font_shows_whole_at_80x25() {
+    let (mut app, _) = started(with_conf(&nordic_conf("", "look = nordic\n")));
+    app.event(Event::Sourced(vec![(
+        "proof".into(),
+        Sources::LeftOut(vec![LeftOut {
+            missing: true,
+            line: 27,
+            spelling: "font:JetBrains Mono".into(),
+            why: "no such family".into(),
+        }]),
+    )]));
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    let screen = screen_words(&app, 80, 25);
+    assert!(
+        screen.contains("Trying the look nordic for 10 s. Press k to keep it, or any other key to put the console back. Its text font, the font family JetBrains Mono, is not installed, so vtium's built-in font draws the text until you install it."),
+        "{screen}"
+    );
+    assert!(!screen.contains('…'), "{screen}");
+}
+
+/// The question that offers a look no terminal uses to the console's
+/// terminal shows whole on the screen, what `y` does included, at 80×25
+/// and on the screen below the minimum that a terminal shrunk to 79×24
+/// shows. That holds for the question after `t`, where the console already
+/// shows the look and a size waits for the next start, and for the
+/// question after `k`.
+#[test]
+fn the_question_that_offers_an_unused_look_shows_whole_at_80x25_and_79x24() {
+    let answer = "Use it for the terminal desk? y sets it in the draft, and n or Esc leaves the draft as it is.";
+    // t, where the console already draws proof in legacy's colors
+    let shown = "# mine\nfont-name=unifont\nversion = 1\n[look nordic]\nfont-name = proof\nfont-size = 16\npalette = legacy\n[head desk]\n[rules]\ndisplay * -> desk\n";
+    let (mut app, _) = started_on(with_conf(shown), "proof");
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    // k, after a trial of nord's colors and proof
+    let (mut kept, _) = started(with_conf(&nordic_conf("", "")));
+    kept.event(Event::Input(Input::Key(Key::Char('3'))));
+    kept.event(Event::Input(Input::Key(Key::Char('t'))));
+    kept.event(Event::Input(Input::Reply(Reply::Font("proof".into()))));
+    kept.event(Event::Input(Input::Key(Key::Char('k'))));
+    for (app, first) in [
+        (
+            &app,
+            "No terminal uses the look nordic, and the console already shows its font set and color scheme.",
+        ),
+        (
+            &kept,
+            "No terminal uses the look nordic, so the console shows it only until you quit vtium-config.",
+        ),
+    ] {
+        for (cols, rows) in [(80, 25), (79, 24)] {
+            let screen = screen_words(app, cols, rows);
+            assert!(
+                screen.contains(&format!("{first} {answer}")),
+                "{cols}×{rows}: {screen}"
+            );
+            assert!(!screen.contains('…'), "{cols}×{rows}: {screen}");
+        }
+    }
 }
 
 /// A vtium.conf with the look `nordic`, which no terminal uses, and the

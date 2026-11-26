@@ -85,18 +85,17 @@ pub fn trial_countdown(font: impl Display, left: u32) -> String {
 }
 
 /// [`trial_countdown`], with `note`, what the console draws in place of
-/// the font set's text font, after its first sentence.
+/// the font set's text font, after its keys. The keys come first, so that
+/// a note too long for the message line's three rows cuts only the note.
 pub fn trial_countdown_noted(font: impl Display, left: u32, note: &str) -> String {
-    format!(
-        "Trying {font} on the console for {left} s. {note} Press k to keep it, or any other key to put the font back."
-    )
+    format!("{} {note}", trial_countdown(font, left))
 }
 
 /// What the console draws in place of a font set's text font `font`,
 /// which this machine lacks.
 pub fn text_font_missing(font: impl Display) -> String {
     format!(
-        "Its text font, {font}, is not on this machine, so the console draws the text in vtium's built-in font. Install that font to use the font set."
+        "Its text font, {font}, is not installed, so vtium's built-in font draws the text until you install it."
     )
 }
 

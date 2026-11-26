@@ -708,7 +708,14 @@ fn the_trial_of_a_font_set_whose_text_font_is_missing_names_the_font() {
     assert_eq!(
         app.shared.message.as_deref(),
         Some(
-            "Trying proof on the console for 10 s. Its text font, the font family JetBrains Mono, is not on this machine, so the console draws the text in vtium's built-in font. Install that font to use the font set. Press k to keep it, or any other key to put the font back."
+            "Trying proof on the console for 10 s. Press k to keep it, or any other key to put the font back. Its text font, the font family JetBrains Mono, is not installed, so vtium's built-in font draws the text until you install it."
         )
+    );
+    // the countdown shows whole in the message line at 80×25
+    let screen = vtium_config::tui::view::as_text(&vtium_config::tui::view::screen(&app));
+    let screen = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        screen.contains(app.shared.message.as_deref().unwrap_or("?")),
+        "{screen}"
     );
 }
