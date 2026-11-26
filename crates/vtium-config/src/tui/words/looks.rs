@@ -642,3 +642,21 @@ pub fn look_unused_flow(before: &str, name: impl Display) -> String {
         look_unused(&name)
     )
 }
+
+/// The question that `t` asks on the font set `name`, whose fonts `paths`
+/// are not active.
+pub fn inactive_question(name: impl Display, paths: &[String]) -> String {
+    format!(
+        "The font set {name} needs fonts that are not active, so t cannot try it. Activate them in the draft? They take effect once you install the draft and log in again. y activates {}, and n or Esc leaves them as they are.",
+        and_list(paths)
+    )
+}
+
+/// What `t` says on the font set `name`, whose fonts `paths` are not
+/// active yet and which the draft activates.
+pub fn inactive_drafted(name: impl Display, paths: &[String]) -> String {
+    format!(
+        "The font set {name} needs fonts that are not active yet: {}. The draft activates them, so t can try the font set once you install the draft and log in again.",
+        and_list(paths)
+    )
+}

@@ -542,6 +542,10 @@ impl Looks {
         if fontsets::only_drafted(shared, &name) {
             return say(words::try_in_draft(&name));
         }
+        let inactive = fontsets::inactive(shared, &name);
+        if !inactive.is_empty() {
+            return fontsets::offer_activation(shared, &name, &inactive);
+        }
         match shared.inputs.fonts.iter().find(|f| f.name == name) {
             Some(f) if fontsets::usable(shared, f) => vec![Command::Change(Change::Try(name))],
             Some(Font {

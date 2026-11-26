@@ -381,6 +381,73 @@ pub fn missing(shared: &Shared, name: &str) -> Vec<String> {
     }
 }
 
+/// The font files of the font set `name` that the console leaves out
+/// because they are not active, as the font helper found them through the
+/// installed batch, in the font set's order.
+///
+/// References:
+/// - ADR-1205 D4: a font file that the batch does not list counts as
+///   missing.
+pub fn inactive(shared: &Shared, name: &str) -> Vec<std::path::PathBuf> {
+    use vtium_settings::batch::{MISSING_BECAUSE, NOT_ACTIVE};
+    let Some(Sources::LeftOut(left)) = shared.sources.get(name) else {
+        return Vec::new();
+    };
+    let mut out: Vec<std::path::PathBuf> = Vec::new();
+    for l in left.iter().filter(|l| l.missing) {
+        if let Some((path, NOT_ACTIVE)) = l.why.split_once(MISSING_BECAUSE) {
+            let path = std::path::PathBuf::from(path);
+            if !out.contains(&path) {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// `t` on the font set `name`, whose font files `paths` are not active:
+/// the console would draw the font set without them, so the tab tries
+/// nothing. It offers to activate them in the draft, or, where the draft
+/// activates them already, says that the trial works once the draft is
+/// installed and the person logs in again. vtium reads the batch again at
+/// each new login, so a font activated in the draft reaches the console
+/// only then. The tab activates nothing without asking.
+///
+/// References:
+/// - ADR-1205 D3: trying a font live on the console needs an active
+///   system font.
+/// - ADR-1205 D4: activating a font is an act of trust, and its note of
+///   2026-11-19: a change to the batch takes effect at the next login.
+pub fn offer_activation(shared: &Shared, name: &str, paths: &[std::path::PathBuf]) -> Vec<Command> {
+    use super::super::super::model::Then;
+    use super::super::Request;
+    use crate::batch::{Change as BatchChange, State};
+    let shown: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+    let to_activate: Vec<Op> = paths
+        .iter()
+        .filter(|p| {
+            shared
+                .inputs
+                .font_files
+                .file(p)
+                .is_none_or(|f| f.resource.state != State::Activates)
+        })
+        .map(|p| Op::Resource {
+            path: p.clone(),
+            change: BatchChange::Activate,
+        })
+        .collect();
+    if to_activate.is_empty() {
+        return vec![Command::Change(Change::Say(words::inactive_drafted(
+            name, &shown,
+        )))];
+    }
+    vec![Command::Request(Request::Ask {
+        question: words::inactive_question(name, &shown),
+        then: Then::Desks(to_activate),
+    })]
+}
+
 /// The looks of the draft that draw the font set `name`, the top level
 /// first, each as the questions name it.
 pub fn users(shared: &Shared, name: &str) -> Vec<String> {

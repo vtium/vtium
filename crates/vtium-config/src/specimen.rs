@@ -456,7 +456,23 @@ pub enum Sources {
 /// warning is skipped, and a frame of any other kind is the helper's
 /// failure too.
 pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
-    found_of(helper, frits)
+    sources_through(helper, None, frits)
+}
+
+/// [`sources_of`], with the helper reading the font files through
+/// `active`, the active fonts that the console names to its own helpers,
+/// where it is given. A font file that `active` does not list is then left
+/// out as the console leaves it out: missing, with the path and why.
+///
+/// References:
+/// - ADR-1205 D4: vtium draws only from the active fonts, and the console
+///   names them to each font helper.
+pub fn sources_through(
+    helper: &Helper,
+    active: Option<&crate::serve::ActiveAsk>,
+    frits: Vec<FritText>,
+) -> Vec<Sources> {
+    found_through(helper, active, frits)
         .into_iter()
         .map(|found| found.sources)
         .collect()
@@ -494,6 +510,16 @@ pub struct Found {
 /// - ADR-1204 D7: what vtium-config reports of each font a set needs,
 ///   whether or not the set has a font left.
 pub fn found_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Found> {
+    found_through(helper, None, frits)
+}
+
+/// [`found_of`], through the active fonts `active` where it is given, as
+/// [`sources_through`] says.
+fn found_through(
+    helper: &Helper,
+    active: Option<&crate::serve::ActiveAsk>,
+    frits: Vec<FritText>,
+) -> Vec<Found> {
     let mut answers: Vec<Found> = Vec::with_capacity(frits.len());
     for frit in frits {
         let unanswered = answers.last().and_then(|last| match &last.sources {
@@ -506,7 +532,7 @@ pub fn found_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Found> {
                 left_out: Vec::new(),
                 differs: Vec::new(),
             }),
-            None => answers.extend(found_in_one(helper, vec![frit])),
+            None => answers.extend(found_in_one(helper, active, vec![frit])),
         }
     }
     answers
@@ -514,9 +540,14 @@ pub fn found_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Found> {
 
 /// What one helper said of each of `frits`, every request written before
 /// the answers are read, under one wait ([`found_of`]).
-fn found_in_one(helper: &Helper, frits: Vec<FritText>) -> Vec<Found> {
+fn found_in_one(
+    helper: &Helper,
+    active: Option<&crate::serve::ActiveAsk>,
+    frits: Vec<FritText>,
+) -> Vec<Found> {
     let count = frits.len();
     let mut answers = Vec::with_capacity(count);
+    let active = active.map(crate::serve::ActiveAsk::encode);
     let session = start(helper).map(|(child, mut stdin, mut stdout)| {
         let (arrived, answer) = mpsc::channel();
         std::thread::spawn(move || {
@@ -530,7 +561,13 @@ fn found_in_one(helper: &Helper, frits: Vec<FritText>) -> Vec<Found> {
             // reason; the write's own error is the reason only when the
             // helper sent none.
             let mut unsent = None;
-            for frit in &frits {
+            // the active fonts go first, as the console sends them first
+            if let Some(bytes) = &active
+                && let Err(e) = stdin.write_all(bytes).and_then(|()| stdin.flush())
+            {
+                unsent = Some(format!("the font helper: {e}"));
+            }
+            for frit in frits.iter().filter(|_| unsent.is_none()) {
                 if let Err(why) = send(&mut stdin, &request(SOURCES, frit, empty, Vec::new())) {
                     unsent = Some(why);
                     break;

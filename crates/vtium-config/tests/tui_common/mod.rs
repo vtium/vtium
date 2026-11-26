@@ -51,6 +51,10 @@ pub struct Console {
     pub armed: bool,
     /// Every byte the TUI wrote.
     pub written: Vec<u8>,
+    /// What the stand-in font helper says of a font set in place of what
+    /// [`Port::sources`] says of it by default, as the console's helper
+    /// says it through the installed batch.
+    pub sources_found: BTreeMap<String, Sources>,
     /// Each OSC 50 switch the console took ("set NAME") or refused
     /// ("refuse NAME") as the TUI wrote it, and each reply ("reply NAME")
     /// as the TUI read it, in order.
@@ -122,6 +126,7 @@ impl Console {
             pending: VecDeque::new(),
             armed: false,
             written: Vec::new(),
+            sources_found: BTreeMap::new(),
             log: Vec::new(),
             saves: Vec::new(),
             save_result: Ok(()),
@@ -440,6 +445,9 @@ impl Port for Console {
         let found = fonts
             .into_iter()
             .map(|font| {
+                if let Some(found) = self.sources_found.get(&font) {
+                    return (font, found.clone());
+                }
                 let left = match font.as_str() {
                     "proof" => Sources::LeftOut(vec![LeftOut {
                         missing: true,

@@ -73,6 +73,7 @@ impl App {
             Then::Quit(status) => self.save_and_leave(status),
             Then::Change(change) => self.make(vec![change], None),
             Then::Desk(op) => vec![Effect::Desk(op)],
+            Then::Desks(ops) => ops.into_iter().map(Effect::Desk).collect(),
             Then::Install(plan) => {
                 self.shared.installing = true;
                 self.shared.message = Some(words::INSTALLING.to_owned());

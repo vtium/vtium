@@ -541,6 +541,7 @@ pub fn summarizer(
 pub fn find_sources(
     frits: &Path,
     helper: &crate::specimen::Helper,
+    active: Option<&crate::serve::ActiveAsk>,
     names: &[String],
 ) -> Vec<(String, model::SourcesFound)> {
     let texts: Vec<(String, Result<crate::serve::FritText, String>)> = names
@@ -551,7 +552,7 @@ pub fn find_sources(
         .iter()
         .filter_map(|(_, t)| t.as_ref().ok().cloned())
         .collect();
-    let mut answers = crate::specimen::sources_of(helper, readable).into_iter();
+    let mut answers = crate::specimen::sources_through(helper, active, readable).into_iter();
     texts
         .into_iter()
         .map(|(name, text)| {
@@ -567,9 +568,41 @@ pub fn find_sources(
 }
 
 /// The TUI's source finder, which runs on a thread of its own while the
-/// TUI goes on reading keys (ADR-1201 D3).
+/// TUI goes on reading keys. It reads each font set through the active
+/// fonts of the installed batch, as the console reads them, so the Looks
+/// tab and the live trial know which fonts the console leaves out because
+/// they are not active.
+///
+/// References:
+/// - ADR-1201 D3: the font helper finds the sources, never the TUI's own
+///   process.
+/// - ADR-1205 D4: the console draws only from the active fonts.
 pub fn finder(frits: PathBuf, helper: crate::specimen::Helper) -> port::Finder {
-    Box::new(move |names| find_sources(&frits, &helper, &names))
+    finder_through(frits, helper, installed_active())
+}
+
+/// [`finder`], reading each font set through `active`.
+pub fn finder_through(
+    frits: PathBuf,
+    helper: crate::specimen::Helper,
+    active: crate::serve::ActiveAsk,
+) -> port::Finder {
+    Box::new(move |names| find_sources(&frits, &helper, Some(&active), &names))
+}
+
+/// The active fonts of the batch the console reads: the installed batch
+/// file, read as root reads it, or the list of a fresh install where
+/// there is none. vtium-config's helper runs as the person, so the files
+/// of root and of the person pass the trust rule. The batch is what this
+/// check is for: whether a font set's files are listed.
+///
+/// References:
+/// - ADR-1205 D4: one batch, which the console reads, with the list of a
+///   fresh install in its place.
+fn installed_active() -> crate::serve::ActiveAsk {
+    let places = vtium_settings::batch::Places::system();
+    let read = vtium_settings::batch::Batch::system(&places, &vtium_settings::Trust::running_as(0));
+    crate::serve::ActiveAsk::of_batch(rustix::process::geteuid().as_raw(), &read.batch)
 }
 
 /// The TUI's describer: what each font file is, as `helper` describes it,

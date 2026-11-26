@@ -633,6 +633,8 @@ pub struct Confirm {
 pub enum Then {
     Change(DraftChange),
     Desk(Op),
+    /// Hands the desk each of these, in order.
+    Desks(Vec<Op>),
     Install(Plan),
     /// Leaves with this status: `y` saves the unsaved changes first, `n`
     /// leaves without them.
