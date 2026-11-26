@@ -20,3 +20,6 @@ rows-above-alt	new under ADR-1310 D10 (the rows of history above the screen in t
 rows-above-ink	new under ADR-1310 D10 (the rows of history above the screen in the spare lines), card B8c-C1: ink across the screen's top edge
 rows-above-dhl	new under ADR-1310 D10 (the rows of history above the screen in the spare lines), card B8c-C1: a double-height pair split at the top edge
 rows-above-notice	new under ADR-1310 D10 (the rows of history above the screen in the spare lines), card B8c-C1: a notice ending over the spare lines
+rows-above-blank	new under ADR-1310 D12 (partial-row), card B12: smooth scrolling on and partial-row = blank, the spare lines above the grid in the border's color
+rows-above-fade	new under ADR-1310 D12 (partial-row), card B12: smooth scrolling on and partial-row = fade, the row above fading into the border's color toward the display's top edge
+centred-bars	new under ADR-1310 D12 (the grid centred with smooth scrolling off), card B12: bars of the border's color on all four sides

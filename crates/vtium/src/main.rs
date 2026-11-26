@@ -698,6 +698,7 @@ mod tests {
             ("libseat", cfg!(feature = "libseat")),
             ("logind", cfg!(feature = "logind")),
             ("scroll-pan", cfg!(feature = "scroll-pan")),
+            ("smooth-scroll", cfg!(feature = "smooth-scroll")),
             ("split", cfg!(feature = "split")),
         ]
         .iter()

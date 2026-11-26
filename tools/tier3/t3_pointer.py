@@ -13,9 +13,8 @@ after its last move, the plane shows nothing.
 
 The position is worked out as vtium works it out (vtium-platform's absolute
 axis, vtium's grid and the renderer's arrow): the mouse's axis scaled to the
-grid's pixels, the grid centred across the display with its last row on the
-display's bottom edge, and the arrow's corner its hotspot up and left of the
-pointer.
+grid's pixels, the grid placed on the display as `origin` places it, and the
+arrow's corner its hotspot up and left of the pointer.
 
 The showcase draws the pointer into a scene's picture the same way the
 display shows it. A scene asks for the pointer on a cell (`pointed`), and the
@@ -26,6 +25,7 @@ and lays the image over the screendump (`compose`).
 
 import re
 
+import t3_heads
 import t3img
 
 CASE = "pointer-plane"
@@ -77,27 +77,87 @@ def hotspot(cell_h):
     return h // 32 + 1
 
 
-def origin(display, cell):
+def origin(display, cell, smooth=False):
     """The display pixel where the grid's top left lies on an unturned
-    `display` (w, h) of `cell` (w, h) cells: the grid centred across the
-    display, an odd spare column on the right, and its last row touching
-    the display's bottom edge, so the spare lines lie above it.
+    `display` (w, h) of `cell` (w, h) cells. The grid fills as many whole
+    cells as the display holds. With smooth scrolling off, the grid is
+    centred on both axes: the top gets half the spare lines, rounded down,
+    and the left half the spare columns, so an odd spare pixel goes to the
+    bottom or the right. With smooth scrolling on (`smooth`), the grid's
+    last row touches the display's bottom edge, so every spare line lies
+    above it, and across it stays centred.
 
     References:
-    - ADR-1310 D10: the grid flush to the display's bottom edge, and
-      centred across it."""
+    - ADR-1310 D10: the grid flush to the bottom edge while smooth
+      scrolling is on, and centred across.
+    - ADR-1310 D12, "With smooth scrolling off": the grid centred on both
+      axes."""
     (w, h), (cw, ch) = display, cell
-    return ((w - w // cw * cw) // 2, h - h // ch * ch)
+    spare_x, spare_y = w - w // cw * cw, h - h // ch * ch
+    return (spare_x // 2, spare_y if smooth else spare_y // 2)
 
 
-def corner(at, display, cell):
+_SECTION = re.compile(r"^\[(\S+)(?:\s+(\S+))?\]$")
+_KEY = re.compile(r"^([a-z0-9-]+)\s*=\s*(.*?)\s*$")
+
+
+def smooth_scrolls(conf, features):
+    """Whether smooth scrolling is on for the first head of the vtium.conf
+    text `conf`, in a console built with `features`. The value that wins
+    is the head's own `smooth-scroll`, else its look's, else the top
+    level's, and it is off when none sets it. The head's look is the one
+    its `look` names, or `default` when it names none; a configuration
+    with no [look default] section takes the settings above its first
+    section. Smooth scrolling is on only where that value is `on` and the
+    console is built with the feature `smooth-scroll`.
+
+    References:
+    - ADR-1310 D7: the key at the top level, in a look and in a head, the
+      head's value winning over its look's.
+    - ADR-1310 D10, "Every build": smooth scrolling on only in a build
+      with the feature `smooth-scroll`."""
+    top, looks, heads = {}, {}, []
+    keys = top
+    for line in conf.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = _SECTION.match(line)
+        if m:
+            keys = {}
+            if m.group(1) == "look" and m.group(2):
+                looks[m.group(2)] = keys
+            elif m.group(1) == "head" and m.group(2):
+                heads.append(keys)
+            continue
+        m = _KEY.match(line)
+        if m:
+            keys[m.group(1)] = m.group(2)
+    head = heads[0] if heads else {}
+    look = looks.get(head.get("look", "default"), {})
+    value = head.get("smooth-scroll") or look.get("smooth-scroll") or top.get("smooth-scroll")
+    return value == "on" and "smooth-scroll" in features
+
+
+def variant_smooth(variant):
+    """Whether smooth scrolling is on for the console of the tier 3 variant
+    `variant` (a variant's dict): `smooth_scrolls` on the vtium.conf the
+    variant installs and the features it names, "features" for a console
+    built for the variant alone, else "tree_features"."""
+    features = variant.get("features")
+    features = features.replace(",", " ").split() if features else variant.get("tree_features", ())
+    return smooth_scrolls(t3_heads.guest_conf(variant), features)
+
+
+def corner(at, display, cell, smooth=False):
     """Where the cursor plane's top left goes for the pointer moved to `at`
     (x, y in QMP's units) on a `display` (w, h) of `cell` (w, h) cells: the
     mouse's axis scaled to the grid's pixels and kept on its last one, from
-    the grid's origin on the display, less the hotspot."""
+    the grid's origin on the display, which `smooth` places as `origin`
+    says, less the hotspot."""
     out = []
     hot = hotspot(cell[1])
-    for v, side, c, o in zip(at, display, cell, origin(display, cell)):
+    for v, side, c, o in zip(at, display, cell, origin(display, cell, smooth)):
         grid = side // c * c
         p = min(2 * v * grid // DEVICE_MAX, grid - 1)
         out.append(o + p - hot)

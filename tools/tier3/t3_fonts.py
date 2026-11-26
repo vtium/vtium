@@ -29,8 +29,8 @@ the pixels instead.
   color.
 
 vtium is judged in the cell the console draws in when each screen is
-captured, from the display's top left corner, on row PROBE_ROW of the
-screen that guest/screens/font-probe.sh prints. The case reads that cell
+captured, on row PROBE_ROW of the screen that guest/screens/font-probe.sh
+prints, from the grid's origin on the display (see `grid_origin`). The case reads that cell
 from vtium's log up to the capture (see `console_cell`). When the font
 helper answers a set's cell query too late, vtium first draws in a
 fallback cell and moves to the set's own cell later, so the last line that
@@ -49,6 +49,7 @@ import os
 import re
 import tarfile
 
+import t3_pointer
 import t3img
 from t3_qemu import wait_stable
 
@@ -230,22 +231,39 @@ def probe_box(char, cell):
     return (COLUMNS[char] * cw, PROBE_ROW * ch, cells * cw, ch)
 
 
-def region(char, cell):
+def grid_origin(variant, cell):
+    """The display pixel (x, y) where the grid's top left lies for the
+    variant `variant` (a variant's dict) drawing in cells of `cell`: on
+    the display its device sets, placed as t3_pointer.origin places it,
+    with smooth scrolling as the variant's configuration and features set
+    it (t3_pointer.variant_smooth)."""
+    m = re.search(r"xres=(\d+),yres=(\d+)", variant["device"])
+    display = int(m.group(1)), int(m.group(2))
+    return t3_pointer.origin(display, cell, t3_pointer.variant_smooth(variant))
+
+
+def region(char, cell, origin=(0, 0)):
     """(x, y, width, height) of the part of the screen judged for the probe
-    `char`: its cells and a blank cell on each side, from the row above to
-    the row below. vtium splits the spare columns between the display's
-    sides and puts the spare lines above the grid, so the grid starts up to
-    a cell's width right of the display's left edge and up to a cell's
-    height below its top. The probe's glyph lies inside this region wherever
-    the grid starts, and font-probe.sh leaves every other cell of it blank."""
+    `char` in a grid whose top left lies at `origin`: its cells and a blank
+    cell on each side, from the row above to the row below. font-probe.sh
+    leaves every other cell of it blank, so a glyph a little larger than
+    its cells still lies wholly inside."""
     x, y, w, h = probe_box(char, cell)
-    return (x - cell[0], y - cell[1], w + 2 * cell[0], h + 2 * cell[1])
+    return (origin[0] + x - cell[0], origin[1] + y - cell[1], w + 2 * cell[0], h + 2 * cell[1])
 
 
-def paper(img, cell):
+def outside(char, cell, drawn):
+    """Whether any pixel of `drawn`, the ink of `char`'s region as `ink`
+    reads it, lies outside the probe's own cells."""
+    x0, y0 = cell
+    _, _, w, h = probe_box(char, cell)
+    return any(not (x0 <= x < x0 + w and y0 <= y < y0 + h) for x, y in drawn)
+
+
+def paper(img, cell, origin=(0, 0)):
     """The color most pixels of the probe row have: the background."""
     counts = {}
-    y0 = PROBE_ROW * cell[1]
+    y0 = origin[1] + PROBE_ROW * cell[1]
     for y in range(y0, min(y0 + cell[1], img.height)):
         row = img.row(y)
         for i in range(0, len(row), 3):
@@ -256,11 +274,14 @@ def paper(img, cell):
 
 def ink(img, box, background):
     """{(x, y): color} of each pixel of `box` that is not `background`,
-    from the box's top left."""
+    from the box's top left. The part of the box outside the image holds
+    no ink."""
     x0, y0, w, h = box
     out = {}
     for y in range(h):
         for x in range(w):
+            if not (0 <= x0 + x < img.width and 0 <= y0 + y < img.height):
+                continue
             p = pixel(img, x0 + x, y0 + y)
             if p != background:
                 out[(x, y)] = p
@@ -308,45 +329,53 @@ def colored(pixels):
 
 # --- the verdict ------------------------------------------------------------
 
-def judge_terminus(img, cell, size, glyphs):
+def judge_terminus(img, cell, size, glyphs, origin=(0, 0)):
     """(found, faults) for the default set terminus drawn at `size` pixels in
-    cells of `cell`: `found` names the sources that match each probe, and
-    `faults` says where they are not the ones ADR-1204 D2 expects. The
-    Nerd Fonts icon draws as a hollow box, because no source of the set
-    holds it: Terminus lacks it, and the unifont layer leaves the
-    private-use areas out."""
+    cells of `cell`, in a grid whose top left lies at `origin`: `found`
+    names the sources that match each probe, and `faults` says where they
+    are not the ones ADR-1204 D2 expects, or where the letter or the
+    Powerline separator has ink outside its own cells, as when the grid is
+    not where vtium places it. Those two come from the Terminus strike that
+    sets the cell, whose glyphs lie inside their cells; Unifont's glyphs sit
+    on Terminus's baseline and can reach into the row above, so they are
+    not checked. The Nerd Fonts icon draws as a hollow box, because no
+    source of the set holds it: Terminus lacks it, and the unifont layer
+    leaves the private-use areas out."""
     strike = max(s for s in TERMINUS_STRIKES if s <= size)
     unifont = "Unifont" if size < 32 else "Unifont x%d" % (size // 16)
     want = {LETTER: "Terminus %d px" % strike, POWERLINE: "Terminus %d px" % strike,
             HAN: unifont, PLANE2: unifont, EMOJI: unifont}
-    background = paper(img, cell)
+    background = paper(img, cell, origin)
     found, faults = {}, []
     for char, source in want.items():
-        drawn = ink(img, region(char, cell), background)
+        drawn = ink(img, region(char, cell, origin), background)
         names = matches(set(drawn), glyphs[ord(char)], cell[1])
         found[char] = names
+        if char in (LETTER, POWERLINE) and outside(char, cell, drawn):
+            faults.append("%s has ink outside its cells" % NAMES[char])
         if names != [source]:
             faults.append("%s matches %s, not %s alone" % (
                 NAMES[char], " and ".join(names) or "no source's glyph", source))
         elif len(set(drawn.values())) != 1:
             faults.append("%s is drawn in %d colors, not in 1 bit"
                           % (NAMES[char], len(set(drawn.values()))))
-    icon = set(ink(img, region(ICON, cell), background))
+    icon = set(ink(img, region(ICON, cell, origin), background))
     found[ICON] = ["a hollow box"] if hollow_box(icon) else []
     if not found[ICON]:
         faults.append("%s is not a hollow box" % NAMES[ICON])
     return found, faults
 
 
-def judge_cullet(img, reference, cell, size, glyphs):
+def judge_cullet(img, reference, cell, size, glyphs, origin=(0, 0)):
     """(found, faults) for the outline set cullet-mono drawn at `size` pixels
-    in cells of `cell`, with `reference` the same row drawn with the
-    reference set REFERENCE, Cullet Mono alone."""
+    in cells of `cell`, in a grid whose top left lies at `origin`, with
+    `reference` the same row drawn with the reference set REFERENCE,
+    Cullet Mono alone."""
     unifont = "Unifont" if size < 32 else "Unifont x%d" % (size // 16)
-    background = paper(img, cell)
+    background = paper(img, cell, origin)
     found, faults = {}, []
-    drawn = {c: ink(img, region(c, cell), background) for c in COLUMNS}
-    alone = {c: ink(reference, region(c, cell), paper(reference, cell))
+    drawn = {c: ink(img, region(c, cell, origin), background) for c in COLUMNS}
+    alone = {c: ink(reference, region(c, cell, origin), paper(reference, cell, origin))
              for c in COLUMNS}
     for char in (LETTER, ICON):
         names = matches(set(drawn[char]), glyphs[ord(char)], cell[1])
@@ -499,8 +528,9 @@ def run(v, vm, work, caps, errors, log):
             raise RuntimeError("the console's cell is %dx%d, not %d pixels high"
                                % (cell[0], cell[1], v["size"]))
         glyphs = source_glyphs(os.path.join(work, "disc", "tree.tar"), COLUMNS)
+        origin = grid_origin(v, cell)
         if font_set == "terminus":
-            found, faults = judge_terminus(img, cell, v["size"], glyphs)
+            found, faults = judge_terminus(img, cell, v["size"], glyphs, origin)
         else:
             _, reference, serial = draw(vm, work, "font-probe-alone", img, log)
             with open(vm.events, errors="replace") as f:
@@ -514,7 +544,7 @@ def run(v, vm, work, caps, errors, log):
             if alone != cell:
                 raise RuntimeError("the console drew font-probe in a %dx%d cell and "
                                    "font-probe-alone in a %dx%d cell" % (cell + alone))
-            found, faults = judge_cullet(img, reference, cell, v["size"], glyphs)
+            found, faults = judge_cullet(img, reference, cell, v["size"], glyphs, origin)
     except Exception as e:  # any failure fails the case
         log("%s: %s: %s" % (CASE, type(e).__name__, e))
         errors[CASE] = "%s: %s" % (type(e).__name__, e)

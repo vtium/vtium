@@ -664,6 +664,7 @@ mod tests {
                 display: (80, 48),
                 cell: (8, 16),
                 grid: (10, 3),
+                origin: (0, 0),
             },
         };
         let pic = decode::Picture {
@@ -714,6 +715,7 @@ mod tests {
                 display: (80, 48),
                 cell: (8, 16),
                 grid: (10, 3),
+                origin: (0, 0),
             },
         });
         let reply = ReplyFile::Fresh(memory_file("r").unwrap());

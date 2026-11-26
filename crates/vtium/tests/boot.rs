@@ -7788,18 +7788,18 @@ fn a_console_font_named_at_the_start_whose_cell_comes_late_draws_in_that_cell() 
 
 // The pointer follows the grid that a late cell answer moves the display
 // to. The display is 330×170, so neither cell fills it: the 8×8 cell vtium
-// draws in while it waits makes a grid of 41 by 21 at (1, 2), and the
-// font's own 16×32 cell makes one of 20 by 5 at (5, 10). Each grid is
-// centred across the display, with the spare column on the right, and its
-// last row touches the display's bottom edge. After the late answer, the
-// pointer on the grid's first pixel shows on the cursor plane at the new
-// grid's top left, and the pointer moved far past the bottom-right corner
-// shows at the new grid's last pixel, (324, 169). Under the 8×8 layout
-// those would be (1, 2) and (328, 169).
+// draws in while it waits makes a grid of 41 by 21 at (1, 1), and the
+// font's own 16×32 cell makes one of 20 by 5 at (5, 5). With smooth
+// scrolling off, the default, each grid is centred on both axes, with the
+// odd spare column on the right. After the late answer, the pointer on the
+// grid's first pixel shows on the cursor plane at the new grid's top left,
+// and the pointer moved far past the bottom-right corner shows at the new
+// grid's last pixel, (324, 164). Under the 8×8 layout those would be (1, 1)
+// and (328, 168).
 //
 // References:
-// - ADR-1310 D10: the grid lies flush to the display's bottom edge and is
-//   centred across it.
+// - ADR-1310 D12, "With smooth scrolling off": the grid centred on both
+//   axes.
 // - ADR-1310 D11: the pointer is kept inside the grid and mapped through
 //   the picture to the display.
 // - ADR-1200 D17: an answer that comes after the wait is kept and used.
@@ -7853,10 +7853,10 @@ fn the_pointer_moves_within_the_grid_a_late_cell_answer_lays_out() {
             .expect("the planed device")
             .shown
     };
-    assert_eq!(shown_at(&mut h, 0, 0), Some((5, 10)), "the grid's top left");
+    assert_eq!(shown_at(&mut h, 0, 0), Some((5, 5)), "the grid's top left");
     assert_eq!(
         shown_at(&mut h, 10_000, 10_000),
-        Some((324, 169)),
+        Some((324, 164)),
         "the grid's last pixel"
     );
 }

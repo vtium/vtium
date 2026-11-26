@@ -542,7 +542,14 @@ fn display_lines(head: &Head, videos: &BTreeMap<PathBuf, Box<dyn Video>>) {
 }
 
 /// The line vtium logs for `view`, a display it draws on a head on
-/// `path`, naming the path that draws the display (ADR-1303 D10).
+/// `path`, naming the path that draws the display. When the display's
+/// layout changed since the log last said, and it leaves pixels over on
+/// either axis, an informational line follows that names the columns and
+/// rows that fit and the pixels left over.
+///
+/// References:
+/// - ADR-1303 D10: the display line names the path that draws the display.
+/// - ADR-1310 D12, "vtium logs it": the line on the pixels left over, never a warning.
 pub(super) fn display_line(name: &str, backend: &str, path: crate::painter::Path, view: &View) {
     let cell = view.cell();
     log::info!(
@@ -551,6 +558,9 @@ pub(super) fn display_line(name: &str, backend: &str, path: crate::painter::Path
         cell.width,
         cell.height
     );
+    if let Some(line) = view.fit_changed().and_then(|f| f.line(name)) {
+        log::info!("{line}");
+    }
 }
 
 /// Powers every display of `video` down.
@@ -567,4 +577,100 @@ pub(super) fn power_down(video: &mut dyn Video) {
 /// reads each `key=value`).
 pub fn render_timer_line(report: &vtium_render::Report, node: &Path, id: DisplayId) -> String {
     format!("{report} display={}[{}]", node.display(), id.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use vtium_font::{Font, Unifont};
+    use vtium_platform::display::DisplayId;
+    use vtium_render::{Config as RenderConfig, Orientation};
+
+    use super::display_line;
+    use crate::font::DisplayFace;
+    use crate::getty::tests::logged;
+    use crate::pointer_file::Store as PointerFile;
+    use crate::term::View;
+
+    /// A view of unifont's 8×16 cell on a display of `size`, turned as
+    /// `orientation` says.
+    fn view(size: (u32, u32), orientation: Orientation) -> View {
+        let face: DisplayFace = Box::new(Unifont::new(16));
+        let config = RenderConfig {
+            orientation,
+            ..RenderConfig::default()
+        };
+        View::new(
+            DisplayId(1),
+            Font::new(face),
+            size,
+            None,
+            config,
+            false,
+            PointerFile::default(),
+        )
+    }
+
+    /// The lines on the pixels left over that the log wrote since the last
+    /// call.
+    fn fit_lines() -> Vec<String> {
+        logged()
+            .into_iter()
+            .filter(|l| l.contains("left over"))
+            .collect()
+    }
+
+    fn unifont() -> Font<DisplayFace> {
+        let face: DisplayFace = Box::new(Unifont::new(16));
+        Font::new(face)
+    }
+
+    // The display line is followed by one informational line whenever the
+    // display's layout leaves pixels over: it names the axes that do not
+    // divide evenly, with the cells that fit and the pixels left over. The
+    // same layout logs nothing more, a display that divides evenly logs
+    // nothing, and a change of size to one that leaves pixels over logs
+    // again. A display turned on its side counts its rows along its width.
+    // Every build logs the line, and so does a console with smooth
+    // scrolling off.
+    //
+    // References:
+    // - ADR-1310 D12, "vtium logs it": the line, once for each layout, on both axes.
+    #[test]
+    fn a_display_that_leaves_pixels_over_logs_them_once_for_each_layout() {
+        let path = crate::painter::Path::default();
+        let _ = logged();
+        let mut v = view((1366, 768), Orientation::Normal);
+        display_line("HDMI-A-1", "drm", path, &v);
+        assert_eq!(
+            fit_lines(),
+            [
+                "Display HDMI-A-1 is 1366×768 and holds 170 columns of 8 pixels, so 6 pixel columns are left over."
+            ]
+        );
+        display_line("HDMI-A-1", "drm", path, &v);
+        assert_eq!(
+            fit_lines(),
+            Vec::<String>::new(),
+            "the same layout logs nothing more"
+        );
+        v.resize(unifont(), (1024, 768), RenderConfig::default());
+        display_line("HDMI-A-1", "drm", path, &v);
+        assert_eq!(fit_lines(), Vec::<String>::new(), "1024×768 divides evenly");
+        v.resize(unifont(), (1366, 770), RenderConfig::default());
+        display_line("HDMI-A-1", "drm", path, &v);
+        assert_eq!(
+            fit_lines(),
+            [
+                "Display HDMI-A-1 is 1366×770 and holds 170 columns of 8 pixels and 48 rows of 16 pixels, so 6 pixel columns and 2 pixel lines are left over."
+            ]
+        );
+        let turned = view((770, 1366), Orientation::Right);
+        display_line("DSI-1", "drm", path, &turned);
+        assert_eq!(
+            fit_lines(),
+            [
+                "Display DSI-1 is 770×1366 and holds 170 columns of 8 pixels and 48 rows of 16 pixels, so 6 pixel columns and 2 pixel lines are left over."
+            ]
+        );
+    }
 }

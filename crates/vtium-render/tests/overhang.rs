@@ -19,12 +19,10 @@ use vtium_term::{Age, Attrs, CursorShape, Rgb};
 
 const CW: u32 = 8;
 const CH: u32 = 16;
-/// Where the grid's top left lies on the upright display that [`size`]
-/// gives: centred across, the odd spare column on the right, and its last
-/// row touching the display's bottom edge, so all 5 spare lines lie above
-/// it.
+/// Where the grid's top left lies on the display, which [`size`] centres
+/// it on.
 const OX: u32 = 1;
-const OY: u32 = 5;
+const OY: u32 = 2;
 const FG: &str = "c0c0c0";
 const BG: &str = "101010";
 

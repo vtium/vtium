@@ -30,7 +30,7 @@ use vtium_font::{Cell, Face, Font, Glyph, Psf, Style as FontStyle, Unifont};
 use vtium_render::filter::{Given, Map, Table};
 use vtium_render::{
     Budgets, Canvas, Config, DecoColor, DecorationColors, Depth, DrawState, Mark, Orientation,
-    Profile, Renderer, Storage,
+    Placement, Profile, Renderer, Storage,
 };
 use vtium_term::images::{Kitty, Sixel, Switches};
 use vtium_term::{Age, Glyph as Text, ImageString, Rgb, Terminal, WidthMethod};
@@ -691,6 +691,15 @@ pub struct Screen {
     /// to the renderer, which draws them again in two more frames, one
     /// into each buffer. The screen shows what lies under the overlay.
     pub overlay_ends: bool,
+    /// Where the grid sits, as the console's `smooth-scroll` and
+    /// `partial-row` place it: centred on both axes by default, as with
+    /// smooth scrolling off, or at the bottom with the spare lines above
+    /// it as `partial-row` says.
+    ///
+    /// References:
+    /// - ADR-1310 D10: the grid at the bottom while smooth scrolling is on.
+    /// - ADR-1310 D12: the partial row's three looks, and the grid centred while smooth scrolling is off.
+    pub placement: Placement,
 }
 
 impl Screen {
@@ -744,6 +753,7 @@ impl Screen {
             palette: None,
             scrollback: 0,
             overlay_ends: false,
+            placement: Placement::Centred,
         }
     }
 }
@@ -1352,12 +1362,13 @@ fn check_sprites<F: Face>(font: &Font<F>, term: &Terminal) -> Result<(), String>
     Ok(())
 }
 
-/// The configuration `config` for `screen`: its decoration colors and its
-/// display's depth.
+/// The configuration `config` for `screen`: its decoration colors, its
+/// display's depth and where its grid sits.
 pub(crate) fn screen_config(screen: &Screen, config: Config) -> Config {
     Config {
         decorations: screen.decorations.colors(),
         depth: screen.depth,
+        placement: screen.placement,
         ..config
     }
 }

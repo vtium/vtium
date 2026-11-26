@@ -25,7 +25,38 @@ use vtium_term::{
     Age, Color, Cursor, Damage, Frame, Glyph, Line, LineId, Palette, Rgb, Style, Width,
 };
 
-use crate::{Canvas, Config, DrawState, Orientation, Renderer, Target, TestInk};
+use crate::{
+    Canvas, Config, DrawState, Orientation, PartialRow, Placement, Renderer, Target, TestInk,
+};
+
+/// Where the renderers of a test place the grid. Each test runs on its own
+/// thread, so a test that runs its steps under each placement sets it
+/// through [`placed`] and leaves every other test at the bottom, with the
+/// rows of history in the spare lines.
+mod placing {
+    use core::cell::Cell;
+
+    use crate::{PartialRow, Placement};
+
+    std::thread_local! {
+        pub(super) static PLACED: Cell<Placement> =
+            const { Cell::new(Placement::Bottom(PartialRow::History)) };
+    }
+}
+
+/// The placement the renderers this thread makes take.
+fn placement() -> Placement {
+    placing::PLACED.with(core::cell::Cell::get)
+}
+
+/// Runs `f` with the renderers this thread makes placing the grid as `p`
+/// says.
+fn placed<R>(p: Placement, f: impl FnOnce() -> R) -> R {
+    let was = placing::PLACED.with(|c| c.replace(p));
+    let out = f();
+    placing::PLACED.with(|c| c.set(was));
+    out
+}
 
 const COLS: usize = 6;
 const ROWS: usize = 4;
@@ -86,6 +117,7 @@ fn renderer(o: Orientation, s: Shape) -> Renderer<Unifont> {
     let (w, h) = display(o, s);
     let config = Config {
         orientation: o,
+        placement: placement(),
         ..Config::default()
     };
     let mut r = Renderer::new(Font::new(Unifont::new(16)), w, h, config);
@@ -688,6 +720,34 @@ fn the_pan_and_the_copy_show_the_rows_above_as_the_redraw_does() {
     the_ways_match(6);
 }
 
+// With smooth scrolling off, the grid is centred with blank bars on both
+// sides of it, and the pan and the copy show the bars as the redraw does
+// after every scroll, whatever rows of history the frames hold.
+//
+// References:
+// - ADR-1310 D12, "With smooth scrolling off": the window at rest starts half the spare lines above the grid, and the bars show the border's color in each window at rest.
+#[test]
+fn the_pan_and_the_copy_show_the_centred_grid_s_bars_as_the_redraw_does() {
+    placed(Placement::Centred, || {
+        the_ways_match(0);
+        the_ways_match(6);
+    });
+}
+
+// Under `partial-row = blank` and `fade`, the pan and the copy show the
+// spare lines as the redraw does after every scroll: a row that leaves
+// the spare lines shows whole, and a row that moves into them shows
+// blanked or faded.
+//
+// References:
+// - ADR-1310 D12, "The key `partial-row`": the blank and the fade drawn over each window at rest, and a covered row drawn again when a later window shows it.
+#[test]
+fn the_pan_and_the_copy_blank_and_fade_the_spare_lines_as_the_redraw_does() {
+    for p in [PartialRow::Blank, PartialRow::Fade] {
+        placed(Placement::Bottom(p), || the_ways_match(6));
+    }
+}
+
 /// Runs [`steps`] in every turn, shape and count of buffers, with the
 /// frames holding `above` rows of history above the screen.
 fn the_ways_match(above: usize) {
@@ -1104,7 +1164,11 @@ enum Way {
 
 /// A renderer at 8×16 cells on a display `w` by `h`, upright.
 fn big_renderer(w: u32, h: u32) -> Renderer<Unifont> {
-    Renderer::new(Font::new(Unifont::new(16)), w, h, Config::default())
+    let config = Config {
+        placement: placement(),
+        ..Config::default()
+    };
+    Renderer::new(Font::new(Unifont::new(16)), w, h, config)
 }
 
 /// Draws `frame` the way `way` says into buffer `i` of `bufs`, at `age`,
@@ -1839,6 +1903,7 @@ fn a_syllable_changed_in_one_cell_during_a_scroll_draws_every_piece() {
         let (w, h) = display(o, WIDE);
         let config = Config {
             orientation: o,
+            placement: placement(),
             ..Config::default()
         };
         let mut term = Term::with(syllable_line);

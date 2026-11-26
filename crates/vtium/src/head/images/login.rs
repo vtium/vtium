@@ -547,6 +547,7 @@ mod tests {
         display: (80, 48),
         cell: (8, 16),
         grid: (10, 3),
+        origin: (0, 0),
     };
 
     /// An image helper that answers each request at once with `answer`,
@@ -1189,6 +1190,7 @@ mod tests {
             display: (1920, 1080),
             cell: (8, 16),
             grid: (240, 67),
+            origin: (0, 4),
         };
         login.step(Some(hd), now(), Some(&*make));
         let made = login.made().expect("made").clone();
