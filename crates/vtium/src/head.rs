@@ -1321,73 +1321,20 @@ impl Head {
     }
 
     /// What the displays show, read from the view each buffer draws,
-    /// scrolled back or not (#149), in each variant a cell draws its glyph
-    /// in, bold, italic, both or neither, and normal, superscript or
-    /// subscript (ADR-1200 D21, ADR-1202 D11): the characters, every
-    /// character of a cluster among them, and the clusters whole, each
-    /// sorted and once. The regular normal variant comes first, shown or
-    /// not, and each other variant only where a cell shows it.
-    #[cfg(not(feature = "bidi"))]
+    /// scrolled back or not (#149), with the rows of history above the
+    /// screen that the displays draw in a build with `scroll-pan`
+    /// ([`crate::deferred::frame_shown`]). It is read as
+    /// [`crate::deferred::read_shown`] reads it: in each variant a cell
+    /// draws its glyph in, the characters and the clusters, each sorted and
+    /// once. The regular normal variant comes first, shown or not, and each
+    /// other variant only where a cell shows it.
     pub(crate) fn visible(&self) -> Vec<Shown> {
-        use vtium_term::{Age, Glyph};
-        let palette = self.console.term.terminal.palette();
-        let frame = self
-            .console
-            .term
-            .terminal
-            .screen()
-            .frame(palette, Age::NEVER);
+        let frame = crate::deferred::frame_shown(&self.console.term);
         let mut all = vec![Shown::default()];
-        crate::deferred::read_doubled(&frame, &mut all);
-        for row in 0..frame.rows() {
-            for cell in frame.cells(row) {
-                let variant = crate::deferred::variant_of(cell.attrs);
-                let i = crate::deferred::shown_index(&mut all, variant, None);
-                let Some(shown) = all.get_mut(i) else {
-                    continue;
-                };
-                match cell.glyph {
-                    Glyph::Char(c) => shown.chars.push(c),
-                    Glyph::Cluster(text) => {
-                        shown.chars.extend(text.chars());
-                        shown.clusters.push(text.chars().collect());
-                    }
-                    Glyph::Empty => {}
-                }
-            }
-        }
-        for shown in &mut all {
-            shown.chars.retain(|c| !c.is_whitespace());
-            shown.chars.sort_unstable();
-            shown.chars.dedup();
-            shown.clusters.sort_unstable();
-            shown.clusters.dedup();
-        }
-        let rule = self.console.term.terminal.screen().cluster_width();
-        for shown in &mut all {
-            shown.cluster_width = rule;
-        }
-        all
-    }
-
-    /// What the displays show, read from the view each buffer draws,
-    /// scrolled back or not (#149), as [`crate::deferred::read_shown`]
-    /// reads it: in each variant a cell draws its glyph in, the characters
-    /// and the clusters, each sorted and once. The regular normal variant
-    /// comes first, shown or not, and each other variant only where a cell
-    /// shows it.
-    #[cfg(feature = "bidi")]
-    pub(crate) fn visible(&self) -> Vec<Shown> {
-        use vtium_term::Age;
-        let palette = self.console.term.terminal.palette();
-        let frame = self
-            .console
-            .term
-            .terminal
-            .screen()
-            .frame(palette, Age::NEVER);
-        let mut all = vec![Shown::default()];
+        #[cfg(feature = "bidi")]
         crate::deferred::read_shown(&frame, &mut all, self.ligatures);
+        #[cfg(not(feature = "bidi"))]
+        crate::deferred::read_shown(&frame, &mut all);
         crate::deferred::settle(&mut all);
         // the helper places the clusters in the cells this terminal gives
         // them (ADR-1006 D8)
