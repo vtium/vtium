@@ -777,7 +777,7 @@ mod draft_flow {
             screen.contains("Font set proof  →  look big  →  All displays"),
             "{screen}"
         );
-        assert!(flat(screen).contains(words::SUBFLOW_REQUIRES), "{screen}");
+        assert!(flat(screen).contains(words::SUBFLOW_NO_VTLOOK), "{screen}");
     }
 
     // vtium draws a terminal that names no look with the draft's

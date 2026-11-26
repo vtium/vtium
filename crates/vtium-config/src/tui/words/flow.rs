@@ -452,7 +452,32 @@ pub fn look_missing_about(name: &str) -> String {
     )
 }
 
-pub const SUBFLOW_REQUIRES: &str = "Filters and requirements: vtium-config does not read a look's vtlook file yet, so this card names the look and shows no filters.";
+/// The line under a terminal's subflow when its look draws the built-in
+/// vtlook.
+pub const SUBFLOW_NO_VTLOOK: &str =
+    "Effects: No filter, the built-in vtlook, which changes no color.";
+
+/// The line under a terminal's subflow when its look draws the vtlook
+/// `name`, which reads.
+pub fn subflow_vtlook(name: &str) -> String {
+    format!("Effects: the vtlook {name}. The Effects tab shows its filters.")
+}
+
+/// The line under a terminal's subflow when the vtlook `name` that its
+/// look names has an error.
+pub fn subflow_vtlook_broken(name: &str) -> String {
+    format!(
+        "Effects: the vtlook {name} has an error, so vtium renders the built-in vtlook in its place. The Effects tab shows the error."
+    )
+}
+
+/// The line under a terminal's subflow when this machine has no vtlook
+/// `name`, which its look names.
+pub fn subflow_vtlook_missing(name: &str) -> String {
+    format!(
+        "Effects: this machine has no vtlook named {name}, so vtium renders the built-in vtlook in its place."
+    )
+}
 
 pub const EVERY_OF_TYPE: &str = "every input of that type";
 

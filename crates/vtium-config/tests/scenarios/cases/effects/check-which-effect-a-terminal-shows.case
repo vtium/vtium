@@ -2,7 +2,6 @@ kind check-if
 title Check if a terminal shows an effect, and which one.
 intro A terminal's card in the Flow tab shows what the terminal draws: its font set, its look and the look's vtlook, the effect.
 see effects/give-a-look-a-vtlook
-waits-for audit 9: "vtium-config does not read a look's vtlook file yet"
 
 file etc/vtium.conf
     version = 1
@@ -26,4 +25,4 @@ file etc/looks/amber.vtlook
 2. Choose console.
 at the terminal's card
 check screen lacks "does not read a look's vtlook file yet"
-check screen shows "amber"
+check screen shows "Effects: the vtlook amber. The Effects tab shows its filters."
