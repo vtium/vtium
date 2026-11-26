@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use vtium_platform::display::{DisplayId, Dpms};
-use vtium_render::DrawState;
+use vtium_render::{DrawState, Orientation};
 
 use crate::config::keys;
 use crate::head::Head;
@@ -19,35 +19,46 @@ use crate::video::Video;
 
 use super::{App, BRIEF_NEVER, after, scale};
 
-/// The character cell that each display of a head draws in, keyed by the
-/// display, as [`App::cells_of`] gives it.
-pub(super) type Cells = Vec<((PathBuf, DisplayId), vtium_font::Cell)>;
+/// How a head draws on its displays, as [`App::layout_of`] records it for
+/// [`App::layout_moved`] to compare with after a layout: the head's grid,
+/// and the character cell and the orientation of each display.
+pub(super) struct Layout {
+    grid: (usize, usize),
+    displays: Vec<((PathBuf, DisplayId), vtium_font::Cell, Orientation)>,
+}
 
 impl App {
-    /// The character cell that each of head `h`'s displays draws in now,
-    /// for [`App::cells_moved`] to compare with after a layout.
-    pub(super) fn cells_of(&self, h: usize) -> Cells {
-        self.heads
-            .get(h)
-            .map(|head| {
-                head.views
-                    .iter()
-                    .map(|(key, view)| (key.clone(), view.cell()))
-                    .collect()
-            })
-            .unwrap_or_default()
+    /// How head `h` draws on each of its displays now.
+    pub(super) fn layout_of(&self, h: usize) -> Layout {
+        let Some(head) = self.heads.get(h) else {
+            return Layout {
+                grid: (0, 0),
+                displays: Vec::new(),
+            };
+        };
+        Layout {
+            grid: head.grid,
+            displays: head
+                .views
+                .iter()
+                .map(|(key, view)| (key.clone(), view.cell(), view.orientation))
+                .collect(),
+        }
     }
 
-    /// Logs the display line again for each of head `h`'s displays whose
-    /// character cell differs from the one it had in `before`, as
-    /// [`App::relayout_font`] asks after a change of font or size. While
-    /// the head's render thread has not yet said which path draws it, vtium
-    /// logs nothing here, since every display line of the head follows once
-    /// the thread has said so.
+    /// Logs the display line again for each display in `before` that head
+    /// `h` now draws differently: on another grid, in another character
+    /// cell, or turned another way. A display that left the head logs
+    /// nothing, and one that joined it logs its own line. So after a turn,
+    /// a new mode, a display that comes or goes, or a change of font or
+    /// size, the log says how each display draws now. While the head's
+    /// render thread has not yet said which path draws it, vtium logs
+    /// nothing here, since every display line of the head follows once the
+    /// thread has said so.
     ///
     /// References:
     /// - ADR-1303 D10: the display line names the path that draws the display.
-    pub(super) fn cells_moved(&self, h: usize, before: &Cells) {
+    pub(super) fn layout_moved(&self, h: usize, before: &Layout) {
         let Some(head) = self.heads.get(h) else {
             return;
         };
@@ -56,9 +67,10 @@ impl App {
             Some(p) => p.path(),
             None => crate::painter::Path::default(),
         };
-        for (key, cell) in before {
+        let regrid = head.grid != before.grid;
+        for (key, cell, orientation) in &before.displays {
             if let Some(view) = head.views.get(key)
-                && view.cell() != *cell
+                && (regrid || view.cell() != *cell || view.orientation != *orientation)
                 && let Some(video) = self.videos.get(&key.0)
             {
                 display_line(&video.name(key.1), video.backend(), path, view);
