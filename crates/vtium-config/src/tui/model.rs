@@ -468,10 +468,15 @@ pub struct Shared {
     /// The Looks tab has sent the console a grid request, so leaving
     /// gives the console [`Shared::start_grid`] back.
     pub grid_moved: bool,
-    /// A look's trial set the console's colors and `k` kept them, so
-    /// leaving resets them to the colors the console's configuration
-    /// gives.
-    pub colors_moved: bool,
+    /// vtium-config saved the console's colors with XTPUSHCOLORS before a
+    /// look's trial set them, and has not restored them yet. A trial put
+    /// back and leaving restore them with XTPOPCOLORS, so colors a program
+    /// set before vtium-config started come back as they were.
+    pub colors_saved: bool,
+    /// The colors that `k` kept from a look's trial, which the console
+    /// shows until vtium-config leaves. A later look's trial compares its
+    /// colors with these, and putting that trial back sends these again.
+    pub kept_colors: Option<vtium_term::Palette>,
     /// `u` asked for [`Shared::start_grid`] while another font switch was
     /// in flight, so the grid request waits until the start font's switch
     /// goes: a font switch moves the console's grid too, and would undo a
@@ -723,7 +728,8 @@ impl App {
                 start_grid: (size.cols, size.rows),
                 grid_moved: false,
                 grid_after_font: false,
-                colors_moved: false,
+                colors_saved: false,
+                kept_colors: None,
                 size_asked: None,
             },
             size,
@@ -1089,8 +1095,8 @@ impl App {
             if let Some(t) = self.nav.trial.take_if(|t| t.font == asked) {
                 // a look's trial that set the console's colors gives them
                 // back with the font
-                if t.look.as_ref().is_some_and(|l| l.colors) {
-                    reset.extend_from_slice(super::shot::COLORS_RESET);
+                if t.look.as_ref().is_some_and(|l| l.colors.is_some()) {
+                    reset.extend(self.colors_back());
                 }
                 self.shared.message = Some(if super::shot::is_file(&asked) {
                     super::words::font_file_refused(super::shot::font_shown(&asked))
@@ -1233,14 +1239,9 @@ impl App {
         if self.shared.leaving.is_some() {
             return Vec::new();
         }
-        // the colors a look's trial set go back, whether `k` kept them
-        // or the trial still counts down
-        let trial_colors = self
-            .nav
-            .trial
-            .take()
-            .and_then(|t| t.look)
-            .is_some_and(|l| l.colors);
+        // the colors a look's trial set go back below, whether `k` kept
+        // them or the trial still counts down
+        self.nav.trial = None;
         // the font the console ends in once the switch in flight, if any,
         // is answered: the start font is sent only where it is another
         let last = self
@@ -1261,9 +1262,10 @@ impl App {
         if mouse {
             bytes.extend_from_slice(MOUSE_OFF);
         }
-        if std::mem::take(&mut self.shared.colors_moved) || trial_colors {
-            bytes.extend_from_slice(super::shot::COLORS_RESET);
+        if std::mem::take(&mut self.shared.colors_saved) {
+            bytes.extend_from_slice(super::shot::COLORS_RESTORE);
         }
+        self.shared.kept_colors = None;
         // the grid the console had at the start goes back after its font,
         // since a font switch can change the grid too
         let grid = if self.shared.grid_moved {

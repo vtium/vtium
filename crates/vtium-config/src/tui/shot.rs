@@ -185,8 +185,9 @@ pub struct Trial {
 pub struct LookParts {
     /// The look's name.
     pub name: String,
-    /// The trial set the console's colors to the look's color scheme.
-    pub colors: bool,
+    /// The colors of the look's color scheme, which the trial set on the
+    /// console. `None` where the console already showed them.
+    pub colors: Option<vtium_term::Palette>,
     /// The look's size in points, still to try once the console draws
     /// the look's font set.
     pub size: Option<u32>,
@@ -222,14 +223,23 @@ pub fn colors_request(palette: &vtium_term::Palette) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// The bytes that give the console back the colors its configuration
-/// sets: OSC 104, 110 and 111 with no color named reset every color, the
-/// default foreground and the default background.
+/// XTPUSHCOLORS, `CSI # P`: the console saves every color it shows on its
+/// color stack. vtium-config sends it before the first look's trial sets
+/// the console's colors, so that [`COLORS_RESTORE`] gives back the colors
+/// the console showed, a program's own colors included.
 ///
 /// References:
-/// - ADR-1000, the rows `color.palette.set` and `color.dynamic.set`: OSC
-///   104, 110 and 111 reset the colors to the configured ones.
-pub const COLORS_RESET: &[u8] = b"\x1b]104\x1b\\\x1b]110\x1b\\\x1b]111\x1b\\";
+/// - ADR-1000, the row `color.stack`: vtium keeps a color stack with
+///   XTPUSHCOLORS and XTPOPCOLORS.
+pub const COLORS_SAVE: &[u8] = b"\x1b[#P";
+
+/// XTPOPCOLORS, `CSI # Q`: the console restores the colors that
+/// [`COLORS_SAVE`] saved, and takes them off its color stack.
+///
+/// References:
+/// - ADR-1000, the row `color.stack`: vtium keeps a color stack with
+///   XTPUSHCOLORS and XTPOPCOLORS.
+pub const COLORS_RESTORE: &[u8] = b"\x1b[#Q";
 
 /// The live trial's countdown for the font set `font` with `left` seconds
 /// to go. The console reads only installed font sets, so on a font set the
@@ -1210,9 +1220,7 @@ impl App {
         let colors = scheme
             .as_deref()
             .and_then(|s| scheme_colors(&self.shared, s))
-            .filter(|p| {
-                Some(p) != scheme_colors(&self.shared, &console_scheme(&self.shared)).as_ref()
-            });
+            .filter(|p| *p != shown_colors(&self.shared));
         let points: u32 = look
             .size
             .clone()
@@ -1253,7 +1261,14 @@ impl App {
         }
         let mut out = Vec::new();
         if let Some(p) = &colors {
-            out.push(Effect::Write(colors_request(p)));
+            // the console's own colors are saved once, before the first
+            // trial changes them
+            let mut bytes = Vec::new();
+            if !std::mem::replace(&mut self.shared.colors_saved, true) {
+                bytes.extend_from_slice(COLORS_SAVE);
+            }
+            bytes.extend(colors_request(p));
+            out.push(Effect::Write(bytes));
         }
         self.shared.message = Some(words::look_countdown(&name, TRIAL_TICKS, later.as_deref()));
         self.nav.trial = Some(Trial {
@@ -1263,7 +1278,7 @@ impl App {
             grid: None,
             look: Some(LookParts {
                 name,
-                colors: colors.is_some(),
+                colors,
                 size,
                 later,
                 offer,
@@ -1314,7 +1329,9 @@ impl App {
                 {
                     let look = look.clone();
                     self.nav.trial = None;
-                    self.shared.colors_moved |= look.colors;
+                    if look.colors.is_some() {
+                        self.shared.kept_colors.clone_from(&look.colors);
+                    }
                     match look.offer {
                         Some(head) => self.ask(
                             words::look_use_question(&look.name, words::Unused::Kept, &head),
@@ -1359,13 +1376,25 @@ impl App {
         self.follow()
     }
 
+    /// The bytes that give the console back the colors it showed before a
+    /// look's trial set its own: the colors that `k` kept from an earlier
+    /// look, else the colors saved before the first trial, which
+    /// XTPOPCOLORS restores.
+    pub(crate) fn colors_back(&mut self) -> Vec<u8> {
+        if let Some(kept) = &self.shared.kept_colors {
+            return colors_request(kept);
+        }
+        self.shared.colors_saved = false;
+        COLORS_RESTORE.to_vec()
+    }
+
     /// Ends the trial `t` of the look `look`: the colors, the font and the
     /// grid it changed go back. The grid request follows the font's switch,
     /// because a font switch changes the console's grid too.
     fn put_look_back(&mut self, t: &Trial, look: &LookParts) -> Vec<Effect> {
         let mut out = Vec::new();
-        if look.colors {
-            out.push(Effect::Write(COLORS_RESET.to_vec()));
+        if look.colors.is_some() {
+            out.push(Effect::Write(self.colors_back()));
         }
         let back = words::look_back(&look.name);
         self.shared.message = Some(match look.offer {
@@ -1543,6 +1572,17 @@ fn scheme_colors(shared: &Shared, name: &str) -> Option<vtium_term::Palette> {
             .find(|f| f.name == name)
             .and_then(|f| f.colors.clone().ok())
     })
+}
+
+/// The colors the console shows now: those that `k` kept from a look's
+/// trial, else the colors of the color scheme the installed vtium.conf
+/// gives the console, else `legacy`'s.
+fn shown_colors(shared: &Shared) -> vtium_term::Palette {
+    shared
+        .kept_colors
+        .clone()
+        .or_else(|| scheme_colors(shared, &console_scheme(shared)))
+        .unwrap_or_default()
 }
 
 /// The color scheme the console draws now, as the installed vtium.conf

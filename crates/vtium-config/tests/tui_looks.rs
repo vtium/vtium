@@ -2364,7 +2364,7 @@ fn console_palette(c: &Console) -> vtium_term::Palette {
 
 /// `t` on a look tries the whole look: its font set through OSC 50, its
 /// color scheme through OSC 4, 10 and 11, and the end of the trial puts
-/// the font back and the colors back with OSC 104, 110 and 111. With
+/// the font back and the colors back with XTPOPCOLORS. With
 /// `allow-window-ops` off, the countdown says that the size waits for the
 /// next start.
 ///
@@ -2402,12 +2402,12 @@ fn t_on_a_look_tries_its_font_set_and_its_colors() {
     let (mut app, _) = started(with_conf(&conf));
     app.event(Event::Input(Input::Key(Key::Char('3'))));
     let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
-    assert!(
-        tried.contains(&Effect::Write(vtium_config::tui::shot::colors_request(
-            &nord
-        ))),
-        "{tried:?}"
-    );
+    let request = [
+        vtium_config::tui::shot::COLORS_SAVE,
+        &vtium_config::tui::shot::colors_request(&nord),
+    ]
+    .concat();
+    assert!(tried.contains(&Effect::Write(request)), "{tried:?}");
     assert!(
         tried.contains(&Effect::Write(model::switch("proof"))),
         "{tried:?}"
@@ -2422,12 +2422,72 @@ fn t_on_a_look_tries_its_font_set_and_its_colors() {
     let mut c = console().keys(&[TO_LOOKS, &[b"t".as_slice(), b"x"].concat(), b"q"]);
     drive(&mut c, with_conf(&conf)).expect("the loop");
     assert_eq!(c.switches(), ["proof", "unifont"], "{:?}", c.log);
-    assert!(find(&c.written, b"\x1b]104\x1b\\").is_some());
+    assert!(find(&c.written, b"\x1b[#Q").is_some());
     assert_eq!(
         console_palette(&c).color(1),
         vtium_term::Palette::named("legacy")
             .expect("legacy")
             .color(1)
+    );
+}
+
+/// A stand-in console in which a program has set color 1 and the
+/// background before vtium-config started.
+fn console_with_program_colors(keys: &[&[u8]]) -> Console {
+    let mut c = console().keys(keys);
+    match &mut c.answerer {
+        Answerer::Vtium(t) => {
+            t.input(b"\x1b]4;1;rgb:12/34/56\x1b\\\x1b]11;rgb:01/02/03\x1b\\");
+        }
+        Answerer::Da1Only { .. } => panic!("not a vtium console"),
+    }
+    c
+}
+
+/// A look's trial saves the console's colors with XTPUSHCOLORS before it
+/// sets the look's, and restores them with XTPOPCOLORS, so colors that a
+/// program set before vtium-config started come back as they were: when
+/// any other key puts the trial back, and when vtium-config leaves after
+/// `k` kept the look.
+///
+/// References:
+/// - ADR-1000, the row `color.stack`: vtium keeps a color stack with
+///   XTPUSHCOLORS and XTPOPCOLORS.
+#[test]
+fn a_look_s_trial_gives_back_the_colors_a_program_set() {
+    let conf = nordic_conf("", "look = nordic\n");
+    let program_red = vtium_term::Rgb::new(0x12, 0x34, 0x56);
+    let program_bg = vtium_term::Rgb::new(0x01, 0x02, 0x03);
+    let nord = vtium_term::Palette::named("nord").expect("nord");
+    for keys in [&[TO_LOOKS, b"t", b"x", b"q"], &[TO_LOOKS, b"t", b"k", b"q"]] {
+        let mut c = console_with_program_colors(keys);
+        drive(&mut c, with_conf(&conf)).expect("the loop");
+        let saved = find(&c.written, b"\x1b[#P").expect("XTPUSHCOLORS");
+        let set = find(&c.written, &vtium_config::tui::shot::colors_request(&nord))
+            .expect("the look's colors");
+        assert!(
+            saved < set,
+            "the colors were saved after the trial set its own"
+        );
+        let palette = console_palette(&c);
+        assert_eq!(palette.color(1), program_red, "{keys:?}");
+        assert_eq!(palette.bg(), program_bg, "{keys:?}");
+    }
+}
+
+/// After `k` kept a look's colors, a crash or an I/O error would make the
+/// terminal's restore write the bytes that give the console back its
+/// colors, as it does for the font and the grid.
+#[test]
+fn a_crash_after_k_kept_a_look_s_colors_gives_the_colors_back() {
+    let conf = nordic_conf("", "look = nordic\n");
+    let mut c = console().keys(&[TO_LOOKS, b"t", b"k"]);
+    drive(&mut c, with_conf(&conf)).expect("the loop");
+    let restore = c.seen_panic.clone().expect("the restore");
+    assert!(
+        find(&restore, b"\x1b[#Q").is_some(),
+        "{:?}",
+        String::from_utf8_lossy(&restore)
     );
 }
 

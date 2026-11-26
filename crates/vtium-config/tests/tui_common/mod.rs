@@ -64,6 +64,9 @@ pub struct Console {
     /// The privileged step's command fails, saying this.
     pub save_result: Result<(), String>,
     pub panic_bytes: Vec<u8>,
+    /// What a panic would have written when the script ran out, before the
+    /// SIGTERM that follows makes the TUI leave.
+    pub seen_panic: Option<Vec<u8>>,
     /// The screen when the script ran out, after which the console sends
     /// SIGTERM.
     pub seen: Option<String>,
@@ -131,6 +134,7 @@ impl Console {
             saves: Vec::new(),
             save_result: Ok(()),
             panic_bytes: Vec::new(),
+            seen_panic: None,
             seen: None,
             seen_at: 0,
             graphics: false,
@@ -291,6 +295,7 @@ impl Port for Console {
         }
         assert!(self.seen.is_none(), "the TUI still waits after SIGTERM");
         self.seen = Some(self.screen());
+        self.seen_panic = Some(self.panic_bytes.clone());
         self.seen_at = self.written.len();
         Ok(vec![Wake::Signal(15)])
     }
