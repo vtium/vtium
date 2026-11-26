@@ -270,7 +270,10 @@ fn r_removes_the_highlighted_frit_at_the_next_install() {
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("and 1 font set"), "{screen}");
+    // an install of the font set alone names only the font set, since
+    // "no lines changed" would read as if the install changed nothing
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(text.contains("Install the draft? 1 font set."), "{screen}");
     let mut c = console().keys(&on_set(4, &[b"r", b"i", b"y", b"q"]));
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
