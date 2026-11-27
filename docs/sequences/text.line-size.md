@@ -26,9 +26,9 @@ ED returns each line it erases whole to single size, and IL, DL and the scrolls 
 
 These tests check what vtium does with the sequences on this page.
 
-- `a_double_ask_draws_a_color_glyph_at_its_size` in [crates/vtium-config/src/serve.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve.rs)
-- `a_double_ask_places_a_color_glyph_held_for_text_in_the_doubled_cell` in [crates/vtium-config/src/serve.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve.rs)
-- `a_double_ask_shapes_a_cluster_at_its_size` in [crates/vtium-config/src/serve.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve.rs)
+- `a_double_ask_draws_a_color_glyph_at_its_size` in [crates/vtium-config/src/serve/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve/tests.rs)
+- `a_double_ask_places_a_color_glyph_held_for_text_in_the_doubled_cell` in [crates/vtium-config/src/serve/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve/tests.rs)
+- `a_double_ask_shapes_a_cluster_at_its_size` in [crates/vtium-config/src/serve/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve/tests.rs)
 - `a_sprite_keeps_to_the_text_band_at_the_normal_and_each_double_size` in [crates/vtium-font/src/sprite.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/src/sprite.rs)
 - `a_color_glyph_on_a_line_of_double_size_takes_unifonts_bitmap_off_color` in [crates/vtium-render/src/cache.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/cache.rs)
 - `a_shade_on_a_line_of_double_size_keeps_its_1_bit_pattern` in [crates/vtium-render/src/cache.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/cache.rs)
