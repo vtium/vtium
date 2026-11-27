@@ -11,11 +11,12 @@ use vtium_render::Orientation;
 use crate::config::Config;
 use crate::config::keys;
 use crate::font::{self, Chosen};
-use crate::head::{Frit, Head};
+use crate::head::{Climb, Frit, Head};
 use crate::helper::{self, FritText};
 use crate::layout::{self, Zoom};
 use crate::ordered;
 
+use super::window_ops::NoStep;
 use super::{App, after, logged_name};
 
 impl App {
@@ -376,6 +377,7 @@ impl App {
     /// line naming the set and its smallest height. A height with no font
     /// keeps the one in use.
     pub(super) fn zoom(&mut self, h: usize, dir: Zoom) {
+        self.drop_climb(h);
         self.choose_font(h);
         let dpi = self.dpi(h);
         if self.heads.get(h).is_some_and(|head| head.chosen().struck()) {
@@ -405,7 +407,10 @@ impl App {
     /// the tallest, which `strike_step` finds by asking the helper. A zoom
     /// out stops where the helper says that no strike is that short, with
     /// a line naming the smallest height, and where the helper could not
-    /// answer, with a line saying why.
+    /// answer, with a line saying why. When the helper has yet to answer at
+    /// a height the step needs, the head keeps its size, and vtium takes
+    /// the step once the late answer comes ([`App::resume_climbs`]). A
+    /// second zoom key pressed meanwhile takes the place of the first.
     ///
     /// References:
     /// - ADR-1204 D2: the cell of the tallest strike no taller than each
@@ -416,9 +421,18 @@ impl App {
             return;
         };
         let end = after((self.clock)(), Duration::from_millis(helper::OWN_CELL_MS));
-        if let Some(next) = self.strike_step(h, size, dir, end) {
-            self.take_size(h, next, None);
-            return;
+        match self.strike_step(h, size, dir, end) {
+            Ok(next) => {
+                self.take_size(h, next, None);
+                return;
+            }
+            Err(NoStep::Owed) => {
+                if let Some(head) = self.heads.get_mut(h) {
+                    head.climb = Some(Climb::Zoom(dir));
+                }
+                return;
+            }
+            Err(NoStep::End) => {}
         }
         if dir != Zoom::Out {
             return;
@@ -472,6 +486,7 @@ impl App {
     /// program's XTWINOPS 8 take. A height with no font keeps the size in
     /// use. Returns whether the head draws at `size`.
     pub(super) fn take_size(&mut self, h: usize, size: u32, asked: Option<(usize, usize)>) -> bool {
+        self.drop_climb(h);
         let Some(head) = self.heads.get_mut(h) else {
             return false;
         };

@@ -185,7 +185,9 @@ impl App {
     /// head drawing the frit, forgets the glyphs it cached for the set's
     /// characters, so none draws the built-in font once the frit sent it
     /// (ADR-1200 D7), and redraws the cells that show one. An answer to a
-    /// cell query that came after its wait goes to [`App::late_cell`].
+    /// cell query that came after its wait goes to [`App::late_cell`], and
+    /// a search through a font set's strikes that waited for such an answer
+    /// carries on ([`App::resume_climbs`]).
     pub(super) fn helper_turn(&mut self, now: Instant) {
         for h in 0..self.heads.len() {
             if self
@@ -261,6 +263,7 @@ impl App {
         for (name, height, answer) in late {
             self.late_cell(&name, height, answer);
         }
+        self.resume_climbs();
         self.end_cell_waits();
         self.start_held_fills(now);
     }

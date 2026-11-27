@@ -70,6 +70,12 @@ pub struct Term {
     /// - ADR-1401 D2, the note of 2026-11-17: the parser stops at a
     ///   frame's end, and vtium keeps no copy of the finished frame.
     pub unshown: bool,
+    /// vtium took the console's XTWINOPS 8 request and still searches for
+    /// the height that meets it, because the font helper has yet to answer
+    /// at a height the search needs. Until the search ends and the console
+    /// is resized, the terminal takes no more of the child's output, so a
+    /// size report that follows the request answers the new size.
+    pub sizing: bool,
     /// The child exited and its output has been read.
     pub exited: Option<ExitStatus>,
     /// Bytes of the child's output parsed since the start.
@@ -152,6 +158,7 @@ impl Term {
             changed: false,
             present: false,
             unshown: false,
+            sizing: false,
             exited: None,
             parsed: 0,
             keys: 0,
@@ -257,13 +264,15 @@ impl Term {
 
     /// Whether the terminal takes the child's output now: no finished
     /// frame waits for a display, no request waits for the turn that
-    /// carries it out, and the replies the console holds for a late cell
+    /// carries it out or for the font helper's answers ([`Term::sizing`]),
+    /// and the replies the console holds for a late cell
     /// have not reached the bound on waiting replies. While the pty holds
     /// output and this is true, the loop turns again at once. A full hold
     /// stops the reading until the release, since the held replies reach
     /// no pty and so nothing else stops the loop from turning at once.
     pub fn takes_input(&self) -> bool {
         !(self.unshown
+            || self.sizing
             || self.terminal.font_requested()
             || self.terminal.grid_requested()
             || self.terminal.display_requested()

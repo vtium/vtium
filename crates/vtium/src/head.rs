@@ -30,7 +30,7 @@ use vtium_platform::pty::{Pty, Size};
 use vtium_render::{
     Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
 };
-use vtium_term::{Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
+use vtium_term::{Content, GridRequest, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
 
 use crate::blink::Blink;
 use crate::config::{Config, keys};
@@ -80,6 +80,18 @@ pub(crate) enum Attached {
     Yes,
     /// The last one went.
     Gone,
+}
+
+/// A search for the next height of a font set with strikes that waits for
+/// a late answer from the font helper ([`Head::climb`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Climb {
+    /// The text area `request` that console `console` asked for with
+    /// XTWINOPS 8. That console takes none of its program's output until
+    /// the search ends, as with any text area request.
+    Grid { console: u64, request: GridRequest },
+    /// A zoom in the direction given.
+    Zoom(Zoom),
 }
 
 /// The pointer, in the grid's pixels.
@@ -251,6 +263,12 @@ pub struct Head {
     /// until a zoom or its session's end; `None` while the grid fills the
     /// displays.
     pub(crate) asked: Option<(usize, usize)>,
+    /// A text area request or a zoom whose search through a font set's
+    /// strikes waits for a late answer from the font helper
+    /// (`app/window_ops.rs`). vtium carries it on at each turn that takes
+    /// the helper's answers, until the search ends; `None` while nothing
+    /// waits.
+    pub(crate) climb: Option<Climb>,
     /// The height at which the log last said that a zoom out stops at the
     /// font's smallest height, so a key held there logs the stop once.
     pub(crate) zoom_stop_logged: Option<u32>,
@@ -599,6 +617,7 @@ impl Head {
             points,
             auto_size,
             asked: None,
+            climb: None,
             zoom_stop_logged: None,
             sized,
             look_cell: look_cell(config),
