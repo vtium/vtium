@@ -92,6 +92,9 @@ pub struct Console {
     /// How many bytes the TUI had written when the script ran out: the
     /// bytes that drew [`Console::seen`].
     pub seen_at: usize,
+    /// What the console drew when the script ran out, before the SIGTERM
+    /// that makes the TUI leave and give the console back.
+    pub seen_console: Option<Drew>,
     /// The console answers kitty's graphics query, as vtium built with
     /// `images` does.
     pub graphics: bool,
@@ -163,6 +166,7 @@ impl Console {
             seen_panic: None,
             seen: None,
             seen_at: 0,
+            seen_console: None,
             graphics: false,
             pictures: Vec::new(),
             shots: Vec::new(),
@@ -247,6 +251,16 @@ impl Console {
             .filter(|s| s != "?")
             .collect()
     }
+}
+
+/// What the stand-in console draws at a moment: the font set, the pixel
+/// height, the grid, columns by rows, and the grid a grid request pinned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Drew {
+    pub font: String,
+    pub height: u32,
+    pub grid: (usize, usize),
+    pub pinned: Option<(usize, usize)>,
 }
 
 /// The pixel height the stand-in console starts at, where each font
@@ -452,6 +466,12 @@ impl Port for Console {
         self.seen = Some(self.screen());
         self.seen_panic = Some(self.panic_bytes.clone());
         self.seen_at = self.written.len();
+        self.seen_console = Some(Drew {
+            font: self.shown.clone(),
+            height: self.height,
+            grid: self.grid(),
+            pinned: self.pinned,
+        });
         Ok(vec![Wake::Signal(15)])
     }
 
