@@ -97,11 +97,16 @@ src=/home/runner/work/vtium/vtium
 # starts as root only to make those device nodes; the container's device
 # rules refuse every open of them, so no test can reach this machine's VTs.
 # Rootless podman cannot make device nodes, and those tests then fail. The
+# runner's user also has a runtime directory, /run/user/UID, which
+# XDG_RUNTIME_DIR names and where vtium-config keeps its private folders, so
+# the container makes one too. The
 # step then drops to the runner user, copies the files into the container's
 # own layer, keeping their times so that cargo reuses what it built before,
 # and runs the tests there as CI's steps do, with bash -e.
 step='tar -C /src --null -T /home/runner/files -cf - | tar -C "$PWD" -xf - && { s=0; cargo nextest run --workspace --no-fail-fast "$@" || s=1; cargo test --doc --workspace "$@" || s=1; exit $s; }'
 entry='for n in $(seq 0 63); do mknod -m 620 /dev/tty$n c 4 $n 2>/dev/null || true; done
+mkdir -p "/run/user/$1" && chown "$1:$2" "/run/user/$1" && chmod 700 "/run/user/$1"
+export XDG_RUNTIME_DIR="/run/user/$1"
 exec setpriv --reuid="$1" --regid="$2" --init-groups --inh-caps=-all --bounding-set=-all bash -e -c "$3" "${@:4}"'
 
 failed=()
