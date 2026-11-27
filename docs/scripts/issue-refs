@@ -7,7 +7,7 @@ Usage:
 
 A decision record never names a GitHub issue or pull request by its number.
 It says in a short phrase what the issue is about, so that the record carries
-its meaning on its own (AGENTS.md, "Writing"). This script reads every
+its meaning on its own (docs/AGENTS.md, "Writing"). This script reads every
 docs/architecture/*/ADR-*.md and every SVG under docs/architecture/*/figures/,
 prints `file:line: text` for each line that names an issue or PR by number,
 and exits 1 if it finds any. It exits 0 when it finds none, and 2 when it
