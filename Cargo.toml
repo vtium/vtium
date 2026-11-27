@@ -32,6 +32,13 @@ all = { level = "warn", priority = -1 }
 [profile.dev.package.vtium-font]
 opt-level = 2
 
+# vtium-config's scenario tests press every key in every state of the TUI,
+# about 77,000 transitions, and draw each node's frame at three grid sizes.
+# Built at opt-level 2, the scenarios binary runs in about 90 s instead of
+# 300 s.
+[profile.dev.package.vtium-config]
+opt-level = 2
+
 [profile.release]
 lto = true
 codegen-units = 1
