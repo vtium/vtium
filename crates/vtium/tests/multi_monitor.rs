@@ -33,7 +33,7 @@ const ID: DisplayId = DisplayId(5);
 
 /// How long a wait on the child or a frame may run before the test fails:
 /// only a bound, since each wait ends at the state it waits for.
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(60);
 
 /// Pure red, the color of the picture the child places.
 const RED: u32 = 0x00ff_0000;

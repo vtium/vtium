@@ -50,7 +50,8 @@ def build_tool(log):
                           "scroll-timing-tool")
     log("building scroll-timing")
     subprocess.run(["cargo", "build", "--release", "--locked", "--manifest-path", MANIFEST,
-                    "--target-dir", target], check=True)
+                    "--target-dir", target], check=True,
+                   env=dict(os.environ, CARGO_BUILD_BUILD_DIR=target))
     return os.path.join(target, "release", "scroll-timing")
 
 

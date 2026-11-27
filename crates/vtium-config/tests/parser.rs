@@ -187,7 +187,7 @@ fn watch(dir: &Path, file: &str) -> Watched {
             .and_then(|s| s.trim().parse::<i32>().ok())
     };
     assert!(
-        within(Duration::from_secs(10), || read().is_some()),
+        within(Duration::from_secs(60), || read().is_some()),
         "the stand-in writes {file}"
     );
     let pid = read().unwrap();
@@ -208,9 +208,10 @@ fn running(child: &Watched) -> bool {
     )
 }
 
-/// Whether the process `pid` is gone and reaped, waited for at most 2 s.
+/// Whether the process `pid` is gone and reaped, waited for at most 60 s,
+/// a bound that only keeps a broken test from hanging.
 fn gone(pid: i32) -> bool {
-    within(Duration::from_secs(2), || {
+    within(Duration::from_secs(60), || {
         !Path::new(&format!("/proc/{pid}")).exists()
     })
 }

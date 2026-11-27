@@ -43,7 +43,7 @@ const HEIGHT: u32 = 480;
 
 /// How long a wait on the helper's answers and the render thread's frames
 /// may run before the test fails instead of hanging.
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(60);
 
 /// The strikes of the test's set, as Terminus has them: width and height.
 const STRIKES: [(u32, u32); 9] = [

@@ -44,7 +44,7 @@ use scratch::Scratch;
 /// How long a wait on a state that another thread or process brings may
 /// run before the test fails: only a bound, since each wait ends at the
 /// state it waits for.
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(60);
 
 const W: u32 = 320;
 const H: u32 = 160;

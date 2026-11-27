@@ -144,7 +144,17 @@ pub struct Map {
 /// Explores from the start states in `term`: the fixture at each size.
 /// `visit` sees each transition as it is taken, with the TUI before and
 /// after the key.
+///
+/// The walk is breadth-first, and pressing the keys is most of its time, so
+/// it presses them on several threads. It takes a batch of states from the
+/// front of the queue, presses every key in each of them at once, and then
+/// records the batch's transitions in queue order, one state after another.
+/// A state's transitions depend only on its TUI, never on what the walk has
+/// seen, and the states a batch reaches join the back of the queue behind
+/// the batch. The map is therefore the one a walk on one thread makes: the
+/// same transitions, states and representatives, in the same order.
 pub fn explore(term: Term, mut visit: impl FnMut(&Step, &Sim, &Sim)) -> Map {
+    let threads = std::thread::available_parallelism().map_or(1, usize::from);
     let mut steps = Vec::new();
     let mut seen: BTreeMap<Abs, ()> = BTreeMap::new();
     let mut states = Vec::new();
@@ -158,31 +168,33 @@ pub fn explore(term: Term, mut visit: impl FnMut(&Step, &Sim, &Sim)) -> Map {
             queue.push_back((sim, Vec::new(), (term, cols, rows)));
         }
     }
-    while let Some((sim, path, start)) = queue.pop_front() {
-        let from = state::of(&sim);
-        reps.insert(from.clone(), (sim.clone(), path.clone(), start));
-        for (name, press) in ALPHABET {
-            let mut after = sim.clone();
-            let did = after.press(*press);
-            let to = state::of(&after);
-            if seen.insert(to.clone(), ()).is_none() {
-                states.push(to.clone());
-                if after.exited.is_none() {
-                    let mut next = path.clone();
-                    next.push(name);
-                    queue.push_back((after.clone(), next, start));
+    while !queue.is_empty() {
+        let take = queue.len().min(threads * 4);
+        let batch: Vec<Reached> = queue.drain(..take).collect();
+        let pressed = press_all(&batch, threads);
+        for ((sim, path, start), presses) in batch.into_iter().zip(pressed) {
+            let from = state::of(&sim);
+            reps.insert(from.clone(), (sim.clone(), path.clone(), start));
+            for ((name, _), (after, did, to)) in ALPHABET.iter().zip(presses) {
+                if seen.insert(to.clone(), ()).is_none() {
+                    states.push(to.clone());
+                    if after.exited.is_none() {
+                        let mut next = path.clone();
+                        next.push(name);
+                        queue.push_back((after.clone(), next, start));
+                    }
                 }
+                let step = Step {
+                    from: from.clone(),
+                    key: name,
+                    to,
+                    did,
+                    path: path.clone(),
+                    start,
+                };
+                visit(&step, &sim, &after);
+                steps.push(step);
             }
-            let step = Step {
-                from: from.clone(),
-                key: name,
-                to,
-                did,
-                path: path.clone(),
-                start,
-            };
-            visit(&step, &sim, &after);
-            steps.push(step);
         }
     }
     Map {
@@ -190,4 +202,50 @@ pub fn explore(term: Term, mut visit: impl FnMut(&Step, &Sim, &Sim)) -> Map {
         states,
         reps,
     }
+}
+
+/// What one key does to a clone of a TUI: the TUI after it, what it did,
+/// and the abstract state it leaves.
+type Pressed = (Sim, Did, Abs);
+
+/// Presses every key of the alphabet in each TUI of `batch`, on up to
+/// `threads` threads, and returns each TUI's results in the batch's order
+/// and the alphabet's.
+fn press_all(batch: &[Reached], threads: usize) -> Vec<Vec<Pressed>> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let press = |sim: &Sim| -> Vec<Pressed> {
+        ALPHABET
+            .iter()
+            .map(|(_, press)| {
+                let mut after = sim.clone();
+                let did = after.press(*press);
+                let to = state::of(&after);
+                (after, did, to)
+            })
+            .collect()
+    };
+    let threads = threads.clamp(1, batch.len().max(1));
+    let next = AtomicUsize::new(0);
+    let mut done: Vec<(usize, Vec<Pressed>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut out = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        let Some((sim, _, _)) = batch.get(i) else {
+                            return out;
+                        };
+                        out.push((i, press(sim)));
+                    }
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().expect("an explorer thread"))
+            .collect()
+    });
+    done.sort_by_key(|(i, _)| *i);
+    done.into_iter().map(|(_, r)| r).collect()
 }

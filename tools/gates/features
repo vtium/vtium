@@ -35,10 +35,16 @@ with FLAGS empty, named "its default features", since that is the build cargo
 makes when nobody names a feature.
 
 The script reads the crates and their features from `cargo metadata`, so a new
-crate or a new feature joins the check by itself. It builds in the cargo target
-directory that CARGO_TARGET_DIR names, as cargo does; `make gates` gives each
-gate a directory of its own. It runs every combination to the end, prints one
-line for each with its result, and then prints the output of each failed run.
+crate or a new feature joins the check by itself. The runs go in lanes that
+run at the same time: each crate's runs, up to four sets of features to a lane,
+one after another in a lane. Each lane builds in a cargo directory of its
+own, features/CRATE-N under the target directory that CARGO_TARGET_DIR names,
+as cargo does; `make gates` gives each gate a directory of its own. That
+directory is both the lane's target directory and its build directory, set
+through CARGO_TARGET_DIR and CARGO_BUILD_BUILD_DIR. Two lanes that shared
+either would wait on each other's lock. It runs every
+combination to the end, prints one line for each with its result as it
+finishes, and then prints the output of each failed run in the plan's order.
 It exits 0 when every run passed and 1 when one failed, naming the crate, the
 check and the features of each failed run. It exits 2 when it finds no crate
 with features, since then it has checked nothing. --list prints the
@@ -50,8 +56,13 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+# The most sets of features of one crate that one lane runs.
+LANE = 4
 
 
 def plan(metadata):
@@ -89,6 +100,17 @@ def commands(crate, flags):
     ]
 
 
+def lanes(runs):
+    """The runs split into lanes: each crate's runs in order, up to LANE of
+    them to a lane, as a list of (name, runs)."""
+    out = []
+    for crate in dict.fromkeys(c for c, _, _ in runs):
+        mine = [r for r in runs if r[0] == crate]
+        for n, i in enumerate(range(0, len(mine), LANE)):
+            out.append((f"{crate}-{n}", mine[i:i + LANE]))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Lint and document each crate with no feature and with each feature alone.")
@@ -119,15 +141,32 @@ def main():
         return 0
 
     crates = len({c for c, _, _ in runs})
-    print(f"features: {len(checks)} runs, clippy twice and rustdoc for {crates} crates")
+    split = lanes(runs)
+    target = Path(json.loads(meta.stdout)["target_directory"]) / "features"
+    print(f"features: {len(checks)} runs, clippy twice and rustdoc for {crates} crates, "
+          f"in {len(split)} lanes")
     start = time.monotonic()
-    failed = []
-    for crate, label, check, argv in checks:
-        p = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env)
-        ok = p.returncode == 0
-        print(f"{'ok  ' if ok else 'FAIL'}  {check:22}{crate:16}{label}", flush=True)
-        if not ok:
-            failed.append((crate, label, check, argv, p.stdout + p.stderr))
+    lock = threading.Lock()
+    results = {}
+
+    def lane(name, mine):
+        own = str(target / name)
+        lane_env = dict(env, CARGO_TARGET_DIR=own, CARGO_BUILD_BUILD_DIR=own)
+        for crate, label, flags in mine:
+            for check, argv in commands(crate, flags):
+                p = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                   env=lane_env)
+                ok = p.returncode == 0
+                with lock:
+                    results[(crate, label, check)] = None if ok else p.stdout + p.stderr
+                    print(f"{'ok  ' if ok else 'FAIL'}  {check:22}{crate:16}{label}", flush=True)
+
+    with ThreadPoolExecutor(max_workers=len(split)) as pool:
+        for f in [pool.submit(lane, name, mine) for name, mine in split]:
+            f.result()
+    failed = [(crate, label, check, argv, results[(crate, label, check)])
+              for crate, label, check, argv in checks
+              if results[(crate, label, check)] is not None]
 
     for crate, label, check, argv, output in failed:
         print()

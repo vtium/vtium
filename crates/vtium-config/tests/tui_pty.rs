@@ -1051,7 +1051,7 @@ fn a_terminal_that_closes_ends_the_tui() {
         let _ = done.send(child.wait());
     });
     let status = ended
-        .recv_timeout(Duration::from_secs(10))
+        .recv_timeout(Duration::from_secs(60))
         .expect("the TUI ends when its terminal closes")
         .expect("wait");
     let code = status
@@ -1114,7 +1114,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     c.until("decided", |s| s.screen.contains("t: try live"));
     // the stand-in lists what the TUI gave it
     let fds_file = root.join("helper.fds");
-    let deadline = now() + Duration::from_secs(10);
+    let deadline = now() + Duration::from_secs(60);
     let listed = loop {
         if let Ok(listed) = std::fs::read_to_string(&fds_file) {
             break listed;

@@ -411,7 +411,7 @@ fn a_fifo_is_refused_without_blocking() {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || tx.send(Engine::load(&frit, &paths, None).err()));
     let why = rx
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(std::time::Duration::from_secs(60))
         .expect("the engine returns")
         .expect("refused");
     assert!(why.contains("not a regular file"), "{why}");

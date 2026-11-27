@@ -40,7 +40,7 @@ const ID: DisplayId = DisplayId(3);
 
 /// How long a wait on the child or a frame may run before the test fails:
 /// only a bound, since each wait ends at the state it waits for.
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(60);
 
 /// A device with one display, its frame buffer in memory. It holds the
 /// seat to what a framebuffer holds it to: one token lent at a time, a

@@ -4,18 +4,28 @@
 # Usage:
 #
 #     make ci-local [BUILDS='all-features default'] [TEST_ARGS='-p CRATE ...']
-#     tools/ci-local/run [--builds 'all-features default'] [CARGO TEST ARGS...]
+#     tools/ci-local/run [--builds 'all-features default'] [CARGO ARGS...]
 #
 # CI's check jobs run on GitHub's ubuntu-latest runner, Ubuntu 24.04, where
 # /bin/sh is dash and bash, coreutils and the other tools are older than this
-# machine's. A test can pass here and fail there. This script runs
-# `cargo test --workspace --no-fail-fast`, with --all-features and without,
-# inside a container built from Ubuntu 24.04 with the packages and the Rust
-# toolchain CI installs (Containerfile, beside this script).
+# machine's. A test can pass here and fail there. This script runs the
+# workspace's tests as CI's check jobs do, with --all-features and without:
+# `cargo nextest run --workspace --no-fail-fast`, then the doctests with
+# `cargo test --doc --workspace`, since nextest runs no doctests. They run
+# inside a container built from Ubuntu 24.04 with the packages, the Rust
+# toolchain and the cargo-nextest version CI installs (Containerfile, beside
+# this script). Both commands run to the end, so one failing test binary
+# never hides another.
 #
 # It uses podman when installed, docker otherwise, and stops when neither is.
-# The image, cargo's registry and a target directory for each worktree are
-# cached under $XDG_CACHE_HOME/vtium/ci-local. The worktree is mounted
+# The image and cargo's registry are cached under $XDG_CACHE_HOME/vtium/ci-local.
+# Each worktree has a build directory of its own, which stays between runs, so
+# a second run builds only what changed. On a machine with the build volume
+# that the Makefile names as BUILD_VOLUME, /data/1/cargo, it is
+# /data/1/cargo/vtium/CHECKOUT/ci-local, where CHECKOUT is the name of the
+# worktree's directory. Elsewhere it is in the cache, under a hash of the
+# worktree's path. In the container, that directory is both cargo's target
+# directory and its build directory. The worktree is mounted
 # read-only, and its files, those git tracks plus untracked ones it does not
 # ignore, are copied into the container before each build, so the run never
 # changes the worktree. Each build's output goes to a log in the cache.
@@ -55,16 +65,23 @@ fi
 
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/vtium/ci-local
 toolchain=$(sed -n 's/^channel = "\(.*\)"$/\1/p' "$root/rust-toolchain.toml")
+nextest=$(sed -n 's/^NEXTEST_VERSION *= *//p' "$root/Makefile")
+[[ -n $nextest ]] || { echo "ci-local: the Makefile names no NEXTEST_VERSION, so the image cannot install cargo-nextest." >&2; exit 2; }
 uid=$(id -u)
 gid=$(id -g)
-# The tag changes with the Containerfile, the toolchain and the user, so a
-# change to any of them builds a new image.
+# The tag changes with the Containerfile, the toolchain, cargo-nextest's
+# version and the user, so a change to any of them builds a new image.
 recipe=$(sha256sum "$here/Containerfile" | cut -c1-12)
-image=localhost/vtium-ci-local:$toolchain-$recipe-$uid
-# One target directory for each worktree: cargo decides what to rebuild from
+image=localhost/vtium-ci-local:$toolchain-nextest-$nextest-$recipe-$uid
+# One build directory for each worktree: cargo decides what to rebuild from
 # file times, so two worktrees whose sources differ must never share one.
+volume=/data/1/cargo
 tree=$(printf '%s' "$root" | sha256sum | cut -c1-16)
-target=$cache/target/$tree
+if [[ -d $volume ]]; then
+    target=$volume/vtium/$(basename "$root")/ci-local
+else
+    target=$cache/target/$tree
+fi
 logs=$cache/logs/$tree
 mkdir -p "$cache/registry" "$cache/git" "$target" "$logs"
 
@@ -72,6 +89,7 @@ if ! $rt image inspect "$image" >/dev/null 2>&1; then
     echo "ci-local: building the image $image with $rt"
     $rt build -t "$image" -f "$here/Containerfile" \
         --build-arg UID="$uid" --build-arg GID="$gid" --build-arg TOOLCHAIN="$toolchain" \
+        --build-arg NEXTEST_VERSION="$nextest" \
         "$here" || { echo "ci-local: the image did not build." >&2; exit 2; }
 fi
 
@@ -90,11 +108,16 @@ src=/home/runner/work/vtium/vtium
 # starts as root only to make those device nodes; the container's device
 # rules refuse every open of them, so no test can reach this machine's VTs.
 # Rootless podman cannot make device nodes, and those tests then fail. The
+# runner's user also has a runtime directory, /run/user/UID, which
+# XDG_RUNTIME_DIR names and where vtium-config keeps its private folders, so
+# the container makes one too. The
 # step then drops to the runner user, copies the files into the container's
 # own layer, keeping their times so that cargo reuses what it built before,
-# and runs cargo test there as CI's step does, with bash -e.
-step='tar -C /src --null -T /home/runner/files -cf - | tar -C "$PWD" -xf - && cargo test --workspace --no-fail-fast "$@"'
+# and runs the tests there as CI's steps do, with bash -e.
+step='tar -C /src --null -T /home/runner/files -cf - | tar -C "$PWD" -xf - && { s=0; cargo nextest run --workspace --no-fail-fast "$@" || s=1; cargo test --doc --workspace "$@" || s=1; exit $s; }'
 entry='for n in $(seq 0 63); do mknod -m 620 /dev/tty$n c 4 $n 2>/dev/null || true; done
+mkdir -p "/run/user/$1" && chown "$1:$2" "/run/user/$1" && chmod 700 "/run/user/$1"
+export XDG_RUNTIME_DIR="/run/user/$1"
 exec setpriv --reuid="$1" --regid="$2" --init-groups --inh-caps=-all --bounding-set=-all bash -e -c "$3" "${@:4}"'
 
 failed=()
@@ -103,14 +126,14 @@ for b in $builds; do
     flags=()
     [[ $b == all-features ]] && flags=(--all-features)
     log=$logs/$b.log
-    echo "ci-local: cargo test --workspace ${flags[*]} --no-fail-fast $* (Ubuntu 24.04, Rust $toolchain, $rt)"
+    echo "ci-local: cargo nextest run --workspace ${flags[*]} --no-fail-fast $*, then the doctests (Ubuntu 24.04, Rust $toolchain, cargo-nextest $nextest, $rt)"
     t0=$SECONDS
     set +e
     # Docker and podman add a seccomp filter of their own to each process,
     # and CI's runner adds none; one test counts a process's filters, so the
     # container runs without that outer filter.
     $rt run --rm --init "${rt_user[@]}" --user 0 --security-opt seccomp=unconfined --shm-size=2g \
-        -e HOME=/home/runner -e USER=runner \
+        -e HOME=/home/runner -e USER=runner -e CARGO_BUILD_BUILD_DIR="$src/target" \
         -v "$root:/src:ro" -v "$list:/home/runner/files:ro" \
         -v "$cache/registry:/home/runner/.cargo/registry" -v "$cache/git:/home/runner/.cargo/git" \
         -v "$target:$src/target" -w "$src" "$image" \
@@ -119,16 +142,19 @@ for b in $builds; do
     set -e
     echo "ci-local: $b took $(((SECONDS - t0) / 60))m$(((SECONDS - t0) % 60))s and exited $status; its log is $log"
     if ((status != 0)); then
-        # The names of the failed tests, each after the test binary that
-        # holds it. When cargo failed before it ran a test, as when a crate
-        # does not compile, the summary names what cargo said instead.
+        # The names of the failed tests: nextest names each as the crate,
+        # the test binary and the test, and a failed doctest follows its
+        # crate's Doc-tests line. When cargo failed before it ran a test, as
+        # when a crate does not compile, the summary names what cargo said
+        # instead.
         names=$(sed 's/\x1b\[[0-9;]*m//g' "$log" | awk '
             /^ *Running / { bin = $NF; sub(/^\(/, "", bin); sub(/\)$/, "", bin); n = split(bin, p, "/"); bin = p[n]; sub(/-[0-9a-f]+$/, "", bin) }
             /^ *Doc-tests / { bin = $2 " doc" }
+            /^ *(FAIL|TIMEOUT|SIGSEGV|SIGABRT) \[/ { t = $0; sub(/^ *[A-Z]+ \[[^]]*\] +(\([^)]*\) +)?/, "", t); if (!(t in seen)) { seen[t] = 1; out = out (out == "" ? "" : ", ") t } }
             /^test .* \.\.\. FAILED$/ { t = $0; sub(/^test /, "", t); sub(/ \.\.\. FAILED$/, "", t); k = bin "::" t; if (!(k in seen)) { seen[k] = 1; out = out (out == "" ? "" : ", ") k } }
             /^error: could not compile / { k = $0; sub(/^error: /, "", k); if (!(k in seen)) { seen[k] = 1; out = out (out == "" ? "" : ", ") k } }
             END { print out }')
-        failed+=("$b: ${names:-cargo test exited $status}")
+        failed+=("$b: ${names:-the tests exited $status}")
     fi
 done
 
