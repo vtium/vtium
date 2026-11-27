@@ -16,7 +16,11 @@ The crate forbids unsafe code. It denies the arithmetic, cast and indexing lints
 | `src/lib.rs` | The crate's documentation, its determinism lints and its public names. |
 | `src/rules.rs` | The protocol tag, whose variants are private to the module, and `rules`, the one function that maps a tag to its rules (D3); the layers a frame draws in. |
 | `src/image.rs` | The keys, the shared pixels, and the image, placement and refusal types the store takes. |
-| `src/store.rs` | The store: two buffers, the stack at each depth (D4), the budget and the eviction order (D5), and storing and placing an image. |
+| `src/store.rs` | The store: two buffers, the images and placements each one holds, the stack at each depth (D4), and what the store reports of them. |
+| `src/store/add.rs` | Storing an image in the buffer in use, with the bytes a handler reserved for it (D5). |
+| `src/store/place.rs` | Placing an image on its screen: at a cell, as a relative placement of a parent, or as a virtual placement on no line (D13). |
+| `src/store/room.rs` | The budget and the eviction order (D5): the holds that keep an image from eviction, the bytes reserved for an image to come, the settling of what each screen still shows, the frees of placements and images, and the spare buffer. |
+| `src/store/geometry.rs` | `Geometry`, the box and the picture a placement takes, as `Store::place` fits them. |
 | `src/store/events.rs` | What each screen event does to placements: cuts, scrolls, the scrollback's oldest line dropped, freed lines, ED 2, and the anchors a rewrap carries (D3, D8). |
 | `src/store/frame.rs` | The frame's placement list, in draw order (D9). |
 | `src/store/edit.rs` | `Edit`, the one way a handler changes the store: the store's own operations for a handler, with both buffers' screen rows bound, and none of the screen events (D6). |
