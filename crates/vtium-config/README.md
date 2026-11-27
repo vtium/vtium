@@ -273,7 +273,7 @@ Every command that changes the draft takes these steps:
 3. It writes the draft, whatever the check says, so a draft may be unfinished.
 4. It runs `vtium check-config` on the draft.
 5. It prints each line that the check prints, and then the state line, `draft NAME: 3 lines added, 1 removed · 1 problem`. A draft that changes the active resources counts those changes too, as in `draft NAME: 3 lines added, 1 removed, 2 changes to the active resources · 1 problem`.
-6. It prints a note for each look that no head uses, because such a look changes nothing on screen. The note gives the command that puts the look on the draft's first head, as in `No head uses look big, so it changes nothing on screen. To use it, run vtium config head set desk --look big.` `install` prints the same notes before it installs.
+6. It prints a note for each look that no head uses, because such a look changes nothing on screen. The note gives the command that puts the look on the draft's first head, as in `No head uses look big, so it changes nothing on screen. To use it, run vtium config head set desk --look big.` A draft that defines no head and no rule runs vtium's built-in terminal, so the note names its head `console`. `head set console` then writes that terminal's head and rules into the draft. `install` prints the same notes before it installs.
 
 The state says `same as installed`, or the lines added and removed. It says `made before the installed file changed` once the installed file's hash is no longer the base. With `--dry-run`, a command prints the change as a difference and the check's verdict, and writes nothing. With `--install`, the command then installs the draft.
 
