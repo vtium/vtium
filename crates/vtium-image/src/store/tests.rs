@@ -12,6 +12,10 @@
 )]
 
 use super::*;
+use crate::bounds::{
+    BOX_CELLS_MAX, IMAGE_OVERHEAD, IMAGES_PER_BUFFER, PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER,
+};
+use crate::image::{NewImage, Place};
 use crate::rules::Protocol;
 
 /// A screen of `rows` lines, keys 0 up, and no scrollback.
