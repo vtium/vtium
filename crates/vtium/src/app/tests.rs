@@ -1651,6 +1651,37 @@ fn a_zoom_in_through_a_helper_that_cannot_answer_asks_no_further() {
     assert_eq!(now, asked, "no other height asked");
 }
 
+/// One row of one column, which every display holds at every height.
+const ONE_CELL: vtium_term::GridRequest = vtium_term::GridRequest {
+    rows: vtium_term::Extent::Cells(1),
+    cols: vtium_term::Extent::Cells(1),
+};
+
+// ctlseqs, XTWINOPS 8: a text area request on a font set with strikes
+// waits while the font helper still owes an answer at a height its
+// search needs, and the console takes none of its program's output
+// meanwhile. A helper that vtium gives up never answers, so the search
+// ends at the next turn that takes the helper's answers. It ends as it
+// does when the helper could not answer in time: at the height the
+// search reached, here the start's, on exactly the grid asked for. The
+// console then takes its program's output again.
+#[test]
+fn a_text_area_request_ends_once_the_font_helper_is_given_up() {
+    let (_lp, mut app, _dir) = struck_seat("climb-given-up");
+    let head = app.heads.first().unwrap();
+    let (size, grid) = (head.font_size, head.grid);
+    app.request_grid(0, ONE_CELL);
+    let head = app.heads.first().unwrap();
+    assert!(!head.console.term.takes_input(), "the console waits");
+    assert_eq!((head.font_size, head.grid), (size, grid), "no resize yet");
+    let frit = app.frits.get_mut("t").unwrap();
+    frit.helper.as_mut().unwrap().give_up("the helper failed");
+    app.helper_turn((app.clock)());
+    let head = app.heads.first().unwrap();
+    assert!(head.console.term.takes_input(), "the console takes output");
+    assert_eq!((head.font_size, head.grid), (size, (1, 1)), "the request");
+}
+
 // ADR-1200 D14: once vtium leaves out a font of a frit, here its text
 // font, after the font made the helper fail, the console forgets the
 // cells the helper answered and asks for each again. The helper now
