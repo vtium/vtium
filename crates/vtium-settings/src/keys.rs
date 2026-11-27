@@ -895,7 +895,7 @@ pub const PARTIAL_ROW: Key = Key {
     what: "What the pixel lines left over above the text show while smooth scrolling is on.\n\n\
            [docs] A screen whose height is not a whole number of rows leaves pixel lines over. While `smooth-scroll` is on, they lie above the text's first row. `history` shows the bottom of the scrollback's row above the screen, cut off at the screen's edge. `blank` shows the border's color. `fade` shows the row above, fading into the border's color toward the screen's edge.\n\n\
            [docs] While smooth scrolling is off, vtium centres the text, and the pixels left over show the border's color whatever this key says. A build without the `scroll-pan` feature shows the border's color under every value.\n\n\
-           [docs] vtium logs one line for each display whose size leaves pixels over. The line names the columns and rows that fit, and the pixels left over on each side.",
+           [docs] vtium logs one line for each display whose size leaves pixels over. The line names each axis that does not divide evenly, with the cells that fit along it and the pixels left over.",
 };
 
 pub const HWACCEL: Key = Key {
