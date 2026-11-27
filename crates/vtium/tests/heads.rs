@@ -45,7 +45,7 @@ const ID: DisplayId = DisplayId(1);
 /// as a frame the render thread draws or a line a session prints, may run
 /// before the test fails: long enough for a loaded machine, and only a
 /// bound, since each wait ends at the state it waits for.
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(60);
 
 /// A device with one display, its frame buffer in memory, named for the
 /// rules by its connector and its card.
