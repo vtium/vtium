@@ -1090,6 +1090,52 @@ class Pages(Case):
                     self.assertLessEqual(w, 160, line)
                 self.assertLessEqual(rows, 17)
 
+    def run_page(self, name, **env):
+        p = subprocess.run(["bash", os.path.join(SECTIONS, name)], capture_output=True, timeout=WAIT_BOUND,
+                           stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"], **env})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stdout.decode()
+
+    def test_the_sizes_page_judges_the_live_trial_of_a_size(self):
+        # The maintainer judges Enter's trial of a size on the console: 10
+        # seconds at that size, back on any key but k, and k keeping it
+        # until vtium-config quits.
+        text = read(os.path.join(SECTIONS, "74-looks-sizes.sh"))
+        look_for = " ".join(re.findall(r"^# look-for: (.*)$", text, re.M))
+        for words in ("Enter", "10 seconds", "any key but k", "k keeps", "vtium-config quits"):
+            self.assertIn(words, look_for)
+        self.assertNotIn("preview", look_for)
+        # vtium reads allow-window-ops only when it starts, so the console
+        # of the whole pass lets programs resize its grid
+        self.assertIs(top_switch(os.path.join(VT, "config", "vtium.conf"), "allow-window-ops"), True)
+
+    def test_double_size_shows_powerline_only_in_a_font_set_with_a_powerline_font(self):
+        # A font set without a font for the Powerline range draws U+E0B0
+        # from the built-in unifont, whose Private Use Area holds unrelated
+        # letters, so the page cannot pass there.
+        powerline = ""
+        for frit, shown in (("glyph-fit-default", True), ("acceptance-outline", False),
+                            ("acceptance-bitmap", False), ("", False)):
+            with self.subTest(frit=frit):
+                out = self.run_page("58-double-size-scripts.sh", ACCEPT_FRIT=frit)
+                if shown:
+                    self.assertIn(powerline, out)
+                    self.assertNotIn("no Powerline font", out)
+                else:
+                    self.assertNotIn(powerline, out)
+                    self.assertIn("no Powerline font", out)
+                self.assertIn("\x1b#6😀", out)
+
+    def test_skip_ink_shows_the_whole_sample_on_its_double_width_line(self):
+        out = self.run_page("21-skip-ink.sh")
+        words = "gjpqy: jog, pygmy, quip, yoga, gauge"
+        wide = [l for l in out.split("\n") if l.startswith("\x1b#6")]
+        self.assertEqual(len(wide), 1)
+        self.assertIn(f"\x1b[4m{words}\x1b[0m", wide[0])
+        # a double-width line takes two columns for each character, and
+        # the pass runs on displays as narrow as 80 columns
+        self.assertLessEqual(2 * widest(wide[0]), 80, wide[0])
+
     def test_every_page_is_a_file_of_its_own_numbered_in_order(self):
         names = self.page_files()
         self.assertEqual(len(set(n[:2] for n in names)), len(names), "two pages share a number")
@@ -1215,6 +1261,32 @@ exit 3
 """
 
 LOOKS_PAGES = ["64-look-pointer.sh", "74-looks-sizes.sh", "76-looks-font-set.sh"]
+STAGE_CONF = "version = 1\nallow-window-ops\n"
+
+
+def looks_conf(dir, top=()):
+    """The vtium.conf a Looks page gives vtium-config, from its folder DIR,
+    with the top-level lines TOP after font-frits."""
+    return "\n".join(["version = 1", f"font-frits = {dir}/frits", *top, "[look big]",
+                      "font-name = acceptance-outline", "font-size = 20", "[look small]",
+                      "font-name = acceptance-bitmap", "pointer-theme = /usr/share/vtium/pointers.svg",
+                      "[head desk]", "look = big", "[rules]", "display * -> desk", ""])
+
+
+def top_switch(path, key):
+    """Whether the vtium.conf at PATH turns the switch KEY on at its top
+    level, by its last line that sets it: True, False, or None when no
+    line does. A switch reads `key` for on and `no-key` for off."""
+    on = None
+    for line in read(path).splitlines():
+        line = re.sub(r"(^|\s)#.*", "", line).strip()
+        if line.startswith("["):
+            break
+        if line == key:
+            on = True
+        elif line == f"no-{key}":
+            on = False
+    return on
 
 
 class Looks(Case):
@@ -1227,7 +1299,8 @@ class Looks(Case):
         self.stage = os.path.join(self.tmp, "stage")
         os.makedirs(os.path.join(self.stage, "config"))
         os.makedirs(os.path.join(self.stage, "frits"))
-        write(os.path.join(self.stage, "config", "vtium.conf"), "version = 1\n")
+        # the pass's own vtium.conf turns allow-window-ops on, for page 74
+        write(os.path.join(self.stage, "config", "vtium.conf"), STAGE_CONF)
         write(os.path.join(self.stage, "frits", "acceptance-outline.frit"), "outline\n")
         write(os.path.join(self.stage, "frits", "acceptance-bitmap.frit"), "bitmap\n")
         write(os.path.join(self.stage, "vtium"), "#!/bin/sh\nexit 0\n", 0o755)
@@ -1292,7 +1365,7 @@ class Looks(Case):
         return os.path.dirname(argv[1])
 
     def test_a_looks_page_runs_vtium_config_on_a_vtium_conf_of_its_own_then_removes_it(self):
-        status, seen = self.looks("74-looks-sizes.sh")
+        status, seen = self.looks("64-look-pointer.sh")
         self.assertEqual(status, 0, seen[-500:])
         self.assertIn("vtium-config ended with status 3.", seen)
         dir = self.folder()
@@ -1309,16 +1382,39 @@ class Looks(Case):
                           f"XDG_CACHE_HOME={dir}/home/.cache"])
         self.assertEqual(read(os.path.join(self.log, "frits")).splitlines(),
                          ["acceptance-bitmap.frit", "acceptance-outline.frit"])
-        self.assertEqual(read(os.path.join(self.log, "vtium.conf")), "\n".join([
-            "version = 1", f"font-frits = {dir}/frits", "[look big]", "font-name = acceptance-outline",
-            "font-size = 20", "[look small]", "font-name = acceptance-bitmap",
-            "pointer-theme = /usr/share/vtium/pointers.svg", "[head desk]", "look = big", "[rules]",
-            "display * -> desk", ""]))
+        self.assertEqual(read(os.path.join(self.log, "vtium.conf")), looks_conf(dir))
         self.assertFalse(os.path.exists(dir))
         self.assertEqual(os.listdir(self.run_dir), [])
         self.assertEqual(os.listdir(self.tmpdir), [])
         # The stage's own vtium.conf is untouched.
-        self.assertEqual(read(os.path.join(self.stage, "config", "vtium.conf")), "version = 1\n")
+        self.assertEqual(read(os.path.join(self.stage, "config", "vtium.conf")), STAGE_CONF)
+
+    def test_only_the_sizes_page_lets_vtium_config_resize_the_console(self):
+        # Page 74 judges Enter's live trial of a size, which vtium-config
+        # offers only when its vtium.conf turns allow-window-ops on. The
+        # other Looks pages keep the vtium.conf they share.
+        for page in LOOKS_PAGES:
+            with self.subTest(page=page):
+                status, seen = self.looks(page)
+                self.assertEqual(status, 0, seen[-500:])
+                top = ["allow-window-ops"] if page == "74-looks-sizes.sh" else []
+                self.assertEqual(read(os.path.join(self.log, "vtium.conf")), looks_conf(self.folder(), top))
+
+    def test_the_sizes_page_cannot_show_while_the_console_leaves_window_ops_off(self):
+        # vtium ignores vtium-config's grid request while the console's own
+        # vtium.conf leaves allow-window-ops off, so no size would change.
+        why = os.path.join(self.tmp, "why")
+        for conf in ("version = 1\n", "version = 1\nallow-window-ops\nno-allow-window-ops\n",
+                     "version = 1\n[look x]\nallow-window-ops\n"):
+            with self.subTest(conf=conf):
+                write(os.path.join(self.stage, "config", "vtium.conf"), conf)
+                p = subprocess.run(["bash", os.path.join(SECTIONS, "74-looks-sizes.sh")], capture_output=True,
+                                   timeout=WAIT_BOUND, stdin=subprocess.DEVNULL,
+                                   env={"PATH": os.environ["PATH"], "ACCEPT_WHY": why,
+                                        "ACCEPT_VTIUM_CONF": os.path.join(self.stage, "config", "vtium.conf")})
+                self.assertEqual(p.returncode, 77, p.stdout)
+                self.assertIn("allow-window-ops", read(why))
+                self.assertFalse(os.path.exists(os.path.join(self.log, "argv")))
 
     def test_without_a_runtime_directory_the_folder_goes_in_the_home_folder(self):
         status, seen = self.looks("74-looks-sizes.sh", runtime=False)
