@@ -6,7 +6,7 @@ Usage:
 
     make gates
     make gates JOBS=4
-    GATE_LINE="$(...)" tools/gates/run --jobs N --dir DIR [--build-root ROOT|auto]
+    GATE_LINE="$(...)" tools/gates/run --jobs N --dir DIR [--build-root ROOT|auto] [--on-disk NAME ...]
 
 `make gates` runs this script. The Makefile's GATE_LINE lists the gates, one
 command per line in the gate line's order, and reaches the script through the
@@ -42,9 +42,13 @@ tmpfs, because builds there never wait on the disk. ROOT is then
 set, where CHECKOUT is the checkout's path with each run of other characters
 than letters, digits, dots, underscores and hyphens made one hyphen. The name
 carries the whole path, so two worktrees never share a target directory. The
-script uses /tmp only while it has room: 48 GiB free for a new ROOT, or 16 GiB
-for a ROOT that an earlier run left. Otherwise ROOT is DIR, on the disk.
-VTIUM_GATES_DIR skips the check, since whoever sets it chose the place. A
+script uses /tmp only while it has room for the run: what ROOT grew to in the
+last run, recorded in DIR/build-size, less what ROOT holds now, or 40 GiB when
+no run recorded it, and 8 GiB more. The room is /tmp's free space, or less
+where a quota on /tmp limits the user, as `quota` reports it. Otherwise ROOT is
+DIR, on the disk. Each gate that --on-disk names, by NAME, builds in DIR/NAME
+whatever ROOT is, because its tests refuse a directory under /tmp, which every
+user can write to. VTIUM_GATES_DIR skips the check, since whoever sets it chose the place. A
 target directory grows with every run, so a ROOT on /tmp that has grown past
 80 GiB is removed before the run, which then builds from the start. The script
 also removes each ROOT under the same parent whose checkout no longer exists,
@@ -93,11 +97,33 @@ def gates_of(text):
 
 
 GIB = 1 << 30
-# The space /tmp needs free for a new ROOT and for one an earlier run left,
-# and the size past which a ROOT on /tmp is removed before the run.
-TMPFS_NEW = 48 * GIB
-TMPFS_KEPT = 16 * GIB
+# What a run on /tmp needs free when no earlier run recorded its size, the
+# margin added to what a run needs, and the size past which a ROOT on /tmp is
+# removed before the run.
+TMPFS_FIRST = 40 * GIB
+TMPFS_MARGIN = 8 * GIB
 TMPFS_CAP = 80 * GIB
+
+
+def quota_room(path):
+    """The bytes the user may still write on the file system at `path` under
+    its quota, from `quota -w -f`, or None when it has no quota or `quota`
+    cannot say."""
+    try:
+        p = subprocess.run(["quota", "-w", "-f", path], capture_output=True, text=True, timeout=30)
+        fields = p.stdout.splitlines()[-1].split()
+        used, limit = int(fields[1].rstrip("*")), int(fields[3])
+    except (OSError, IndexError, ValueError, subprocess.SubprocessError):
+        return None
+    return max(limit - used, 0) * 1024 if limit > 0 else None
+
+
+def room(path):
+    """The bytes the user can still write at `path`: the free space, or less
+    where a quota limits the user."""
+    free = shutil.disk_usage(path).free
+    quota = quota_room(path)
+    return free if quota is None else min(free, quota)
 
 
 def checkout_name(path):
@@ -153,13 +179,21 @@ def auto_root(dir, checkout):
     if not chosen:
         if not is_tmpfs("/tmp"):
             return dir
-        if root.exists() and size_of(root) > TMPFS_CAP:
+        size = size_of(root) if root.exists() else 0
+        if size > TMPFS_CAP:
             print(f"gates: {root} has grown past {TMPFS_CAP // GIB} GiB, so the gates build from the start",
                   flush=True)
             shutil.rmtree(root, ignore_errors=True)
-        free = shutil.disk_usage("/tmp").free
-        if free < (TMPFS_KEPT if root.exists() else TMPFS_NEW):
-            print(f"gates: /tmp has {free // GIB} GiB free, so the gates build in {dir}", flush=True)
+            size = 0
+        try:
+            last = int((dir / "build-size").read_text())
+        except (OSError, ValueError):
+            last = None
+        need = (TMPFS_FIRST if last is None else max(last - size, 0)) + TMPFS_MARGIN
+        have = room("/tmp")
+        if have < need:
+            print(f"gates: you can write {have // GIB} GiB more to /tmp, and the gates need "
+                  f"{need // GIB} GiB there, so they build in {dir}", flush=True)
             return dir
     root.mkdir(parents=True, exist_ok=True)
     (root / "checkout").write_text(f"{checkout}\n")
@@ -183,8 +217,9 @@ class Run:
     """One run of the gates: where their logs and target directories go, and
     the lock that keeps the lines the script prints whole."""
 
-    def __init__(self, gates, jobs, dir, build_root=None):
+    def __init__(self, gates, jobs, dir, build_root=None, on_disk=()):
         self.gates = gates
+        self.on_disk = set(on_disk)
         self.jobs = jobs
         self.dir = dir
         self.root = build_root or dir
@@ -202,7 +237,8 @@ class Run:
     def gate(self, i):
         """Runs gate i to its end and returns its exit code."""
         gate, name = self.gates[i]
-        env = dict(os.environ, CARGO_TARGET_DIR=str(self.root / name))
+        root = self.dir if name in self.on_disk else self.root
+        env = dict(os.environ, CARGO_TARGET_DIR=str(root / name))
         log = self.log_of(i)
         self.say(f"==> {gate}" + ("" if self.jobs == 1 else f" (log: {log})"))
         start = time.monotonic()
@@ -257,6 +293,8 @@ class Run:
             return 130
         pool.shutdown()
         durations.write_text("".join(f"{self.took[g]:.0f}\t{g}\n" for g, _ in self.gates))
+        if self.root != self.dir:
+            (self.dir / "build-size").write_text(f"{size_of(self.root)}\n")
         print()
         print("exit  gate")
         for (gate, _), code in zip(self.gates, codes):
@@ -281,6 +319,9 @@ def main():
     ap.add_argument("--build-root", metavar="ROOT|auto",
                     help="where each gate's cargo target directory goes; auto picks the "
                          "ramdisk when /tmp is a tmpfs with room (default DIR)")
+    ap.add_argument("--on-disk", action="append", default=[], metavar="NAME",
+                    help="a gate, by the name of its log and target directory, that builds "
+                         "in DIR whatever ROOT is")
     args = ap.parse_args()
     if not re.fullmatch(r"[1-9][0-9]*", args.jobs):
         print(f"gates: JOBS={args.jobs}: a whole number of 1 or more", file=sys.stderr)
@@ -300,7 +341,7 @@ def main():
         root = Path(args.build_root).resolve() if args.build_root else dir
     dir.mkdir(parents=True, exist_ok=True)
     (dir / "build-root").write_text(f"{root}\n")
-    return Run(gates, int(args.jobs), dir, root).run()
+    return Run(gates, int(args.jobs), dir, root, args.on_disk).run()
 
 
 if __name__ == "__main__":

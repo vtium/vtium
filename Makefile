@@ -1406,8 +1406,11 @@ endef
 # describes the run and its report. ROOT is on the ramdisk,
 # /tmp/vtium-gates/CHECKOUT or $VTIUM_GATES_DIR/CHECKOUT, when /tmp is a
 # tmpfs with room, and $(GATES_DIR) otherwise or when the caller sets
-# CARGO_TARGET_DIR. The gates that took longest in the last run start first.
-# No gate needs the machine to itself. A CARGO_TARGET_DIR set by the caller
+# CARGO_TARGET_DIR. The gates GATES_ON_DISK names build in $(GATES_DIR) all
+# the same: their tests make scratch directories beside the test binaries
+# and refuse one that a directory above it lets other users change, which
+# /tmp does (mode 1777). The gates that took longest in the last run start
+# first. No gate needs the machine to itself. A CARGO_TARGET_DIR set by the caller
 # must not be shared by worktrees whose sources differ (AGENTS.md, "The
 # gates").
 #
@@ -1429,6 +1432,7 @@ endef
 GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),$(shell echo $$(( $(CORES) / 2 > 8 ? $(CORES) / 2 : 8 ))))
 GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
 GATES_ROOT = $(if $(CARGO_TARGET_DIR),$(GATES_DIR),auto)
+GATES_ON_DISK = make-test-all-features make-test-default make-test-tools
 GATES_SIZE_LOG = $(GATES_DIR)/logs/minspec-size.log
 # The recipe names make through this variable rather than as $(MAKE): make
 # runs a recipe line that names $(MAKE) even under make -n, and make -n gates
@@ -1437,10 +1441,17 @@ GATES_SIZE_LOG = $(GATES_DIR)/logs/minspec-size.log
 GATES_SIZE_BUILD = $(MAKE) --no-print-directory minspec CARGO_TARGET_DIR=$$build_root/minspec-size \
 	FEATURES= HWACCEL= DISPLAY_BUFFERS=
 
+# The gates' debug builds keep only line tables, the file and line of each
+# instruction, in place of full debug information. A panic's backtrace
+# still names each file and line, and the test gates' target directories
+# take about half the space, and link faster. A CARGO_PROFILE_DEV_DEBUG from
+# the caller wins.
+gates: export CARGO_PROFILE_DEV_DEBUG ?= line-tables-only
+
 .PHONY: gates
 gates: ## Run every gate of the gate line, up to JOBS=N at once (default half the cores, at least 8), each to the end, report each exit code and fail if any failed; then report the minspec binary's size against tier 3's budget
 	$(sccache-note)
-	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR) --build-root $(GATES_ROOT); code=$$?; \
+	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR) --build-root $(GATES_ROOT) $(addprefix --on-disk ,$(GATES_ON_DISK)); code=$$?; \
 	[ $$code -eq 0 ] || [ $$code -eq 1 ] || exit $$code; \
 	build_root=$$(cat $(GATES_DIR)/build-root); \
 	echo; echo "==> make minspec, for the size of the binary tier 3 measures (log: $(GATES_SIZE_LOG))"; \

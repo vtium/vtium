@@ -108,6 +108,14 @@ class Gates(unittest.TestCase):
         self.assertEqual((self.dir / "build-root").read_text().strip(), str(root))
         self.assertTrue((self.dir / "logs" / "01-echo-cargo-target-dir-one.log").exists())
 
+    def test_a_gate_named_on_disk_builds_in_dir_whatever_the_build_root(self):
+        root = self.tmp / "root"
+        p = self.run_gates('echo "$CARGO_TARGET_DIR" > one', 'echo "$CARGO_TARGET_DIR" > two',
+                           args=("--build-root", str(root), "--on-disk", "echo-cargo-target-dir-two"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.tmp / "one").read_text().strip(), str(root / "echo-cargo-target-dir-one"))
+        self.assertEqual((self.tmp / "two").read_text().strip(), str(self.dir / "echo-cargo-target-dir-two"))
+
     def test_auto_names_the_checkout_and_removes_the_roots_of_gone_checkouts(self):
         parent = self.tmp / "ramdisk"
         gone = parent / "gone"
