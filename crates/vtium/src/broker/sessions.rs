@@ -23,6 +23,16 @@
 //! session's foreground process group when the drawing process asks,
 //! since the session's processes run as another account.
 //!
+//! A closed session's program can ignore `SIGHUP` and run on, because the
+//! drawing process holds its own copy of the master, so the kernel does
+//! not hang the pty up. A drawing process that opened and closed a console
+//! in a loop could then start root sessions without end. So the root
+//! process bounds the closed sessions that still run by the same caps as
+//! the open ones: while a head has as many of them as `head-consoles-max`,
+//! or every head together as many as `consoles-max`, it opens no more
+//! consoles. Each closed session counts until its process exits and the
+//! root process reaps it.
+//!
 //! References:
 //! - ADR-1400 D4, "What the broker does": the pty, `login`, the checks of
 //!   the grid and the two hints, the command from the broker's own reading
@@ -179,11 +189,13 @@ struct Running {
 }
 
 /// A session whose console closed, kept only until its process exits so
-/// the root process can reap it. Its master is gone: the root process
-/// drops its copy as it hangs the session up, so once the drawing process
-/// lets its copy go too, the kernel hangs the pty up, and a program that
-/// ignores `SIGHUP` still sees its terminal end.
+/// the root process can reap it, and counted toward the caps until then.
+/// Its master is gone: the root process drops its copy as it hangs the
+/// session up, so once the drawing process lets its copy go too, the
+/// kernel hangs the pty up, and a program that ignores `SIGHUP` still
+/// sees its terminal end.
 struct Closing {
+    head: Head,
     child: Option<Child>,
     pidfd: OwnedFd,
 }
@@ -243,7 +255,8 @@ impl Sessions {
     /// - `ENOENT`: vtium.conf names no such head.
     /// - `EEXIST`: the console's session is open already.
     /// - `EMFILE`: the head, or every head together, has as many consoles
-    ///   as vtium.conf's caps allow.
+    ///   as vtium.conf's caps allow, or as many closed sessions whose
+    ///   processes still run.
     /// - any other error: the pty or the program did not start.
     pub fn open(
         &mut self,
@@ -262,8 +275,15 @@ impl Sessions {
         if self.open.contains_key(console) {
             return Err(errno(libc::EEXIST));
         }
+        let caps = self.conf.caps;
         let of_head = self.open.keys().filter(|c| c.head == console.head).count();
-        if of_head >= self.conf.caps.head || self.open.len() >= self.conf.caps.total {
+        if of_head >= caps.head || self.open.len() >= caps.total {
+            return Err(errno(libc::EMFILE));
+        }
+        // Closed sessions whose processes have exited no longer count.
+        self.reap_closing();
+        let closing = self.closing.iter().filter(|c| c.head == console.head);
+        if closing.count() >= caps.head || self.closing.len() >= caps.total {
             return Err(errno(libc::EMFILE));
         }
         let size = Size {
@@ -403,7 +423,11 @@ impl Sessions {
         } = running;
         pty::hang_up(master.as_fd(), child.is_some().then(|| pidfd.as_fd()));
         drop(master);
-        self.closing.push(Closing { child, pidfd });
+        self.closing.push(Closing {
+            head: console.head.clone(),
+            child,
+            pidfd,
+        });
     }
 
     /// Ends the sessions at the drawing process's end, as vtium in one
@@ -468,8 +492,7 @@ impl Sessions {
     /// those whose console is still open, in the consoles' order. The
     /// keeper drops each such session's master.
     pub fn reap(&mut self) -> Vec<(ConsoleRef, Status)> {
-        self.closing
-            .retain(|c| ended(c.child.as_ref(), c.pidfd.as_fd()).is_none());
+        self.reap_closing();
         let done: Vec<(ConsoleRef, Status)> = self
             .open
             .iter()
@@ -482,6 +505,12 @@ impl Sessions {
             self.store.forget(console.head.as_str(), console.console);
         }
         done
+    }
+
+    /// Reaps each closed session whose process has exited.
+    fn reap_closing(&mut self) {
+        self.closing
+            .retain(|c| ended(c.child.as_ref(), c.pidfd.as_fd()).is_none());
     }
 }
 
@@ -875,6 +904,40 @@ pub(super) mod tests {
         for (head, id) in [("left", 2), ("own", 1), ("own", 2)] {
             s.close(&console(head, id));
         }
+    }
+
+    /// A drawer that opens and closes a console in a loop starts no more
+    /// root sessions than the caps allow. Each program here ignores
+    /// `SIGHUP`, and the test keeps each master, as a drawer would, so no
+    /// closed session ends by itself. Once the head has as many closed
+    /// sessions still running as its cap, the next open is refused with
+    /// `EMFILE`. When their masters close, the programs end, and the
+    /// console opens again.
+    #[test]
+    fn opening_and_closing_a_console_in_a_loop_stays_within_the_caps() {
+        let caps = Caps { head: 2, total: 3 };
+        let (mut s, watched) =
+            sessions(conf("trap '' HUP; echo ready; read x", "sleep 1000", caps));
+        let left = console("left", 1);
+        let mut masters = Vec::new();
+        for _ in 0..caps.head {
+            let master = s.open(&left, &GRID, Display::Kms, true).unwrap();
+            read_until(&master, "ready");
+            s.close(&left);
+            masters.push(master);
+        }
+        assert_eq!(
+            s.open(&left, &GRID, Display::Kms, true)
+                .map(drop)
+                .map_err(|e| e.0),
+            Err(u16::try_from(libc::EMFILE).unwrap()),
+            "a closed session that still runs counts toward the head's cap"
+        );
+        drop(masters);
+        wait_for_exits(&watched);
+        let master = s.open(&left, &GRID, Display::Kms, true).unwrap();
+        drop(master);
+        s.close(&left);
     }
 
     #[test]
