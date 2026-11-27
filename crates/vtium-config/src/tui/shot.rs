@@ -259,6 +259,22 @@ pub const COLORS_SAVE: &[u8] = b"\x1b[#P";
 ///   XTPUSHCOLORS and XTPOPCOLORS.
 pub const COLORS_RESTORE: &[u8] = b"\x1b[#Q";
 
+/// The bytes that give the console its colors back when vtium-config
+/// leaves, empty where no look's trial changed them: XTPOPCOLORS, which
+/// restores the colors saved before the first trial and keeps the color
+/// stack as it was, and then [`Shared::start_colors`], the kept colors
+/// that an install made the configured ones.
+pub fn colors_on_leaving(shared: &Shared) -> Vec<u8> {
+    let Some(under) = &shared.colors_saved else {
+        return Vec::new();
+    };
+    let mut out = COLORS_RESTORE.to_vec();
+    if let Some(start) = &shared.start_colors {
+        out.extend(colors_request(start, under));
+    }
+    out
+}
+
 /// The live trial's countdown for the font set `font` with `left` seconds
 /// to go. The console reads only installed font sets, so on a font set the
 /// draft replaces the countdown also says that the console shows the
@@ -303,6 +319,15 @@ pub struct GridTrial {
     pub points: u32,
     pub to: (usize, usize),
     pub back: (usize, usize),
+}
+
+/// A grid that `k` kept on the console: the grid, columns by rows, and
+/// the font set and the size in points that gave it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptGrid {
+    pub font: String,
+    pub points: u32,
+    pub grid: (usize, usize),
 }
 
 /// The size a trial waits for the font helper to measure: the font set,
@@ -1286,10 +1311,12 @@ impl App {
             // the console's own colors are saved once, before the first
             // trial changes them
             let mut bytes = Vec::new();
-            if !std::mem::replace(&mut self.shared.colors_saved, true) {
+            let shown = shown_colors(&self.shared);
+            if self.shared.colors_saved.is_none() {
+                self.shared.colors_saved = Some(shown.clone());
                 bytes.extend_from_slice(COLORS_SAVE);
             }
-            bytes.extend(colors_request(p, &shown_colors(&self.shared)));
+            bytes.extend(colors_request(p, &shown));
             out.push(Effect::Write(bytes));
         }
         self.shared.message = Some(words::look_countdown(&name, TRIAL_TICKS, later.as_deref()));
@@ -1345,14 +1372,19 @@ impl App {
     pub(crate) fn trial_key(&mut self, key: Key) -> Vec<Effect> {
         match key {
             Key::Char('k') => {
-                if let Some(Trial {
-                    look: Some(look), ..
-                }) = &self.nav.trial
-                {
-                    let look = look.clone();
-                    self.nav.trial = None;
+                let Some(t) = self.nav.trial.take() else {
+                    return Vec::new();
+                };
+                if let Some(g) = t.grid {
+                    self.shared.kept_grid = Some(KeptGrid {
+                        font: t.font.clone(),
+                        points: g.points,
+                        grid: g.to,
+                    });
+                }
+                if let Some(look) = t.look {
                     if look.colors.is_some() {
-                        self.shared.kept_colors.clone_from(&look.colors);
+                        self.shared.kept_colors = look.colors;
                     }
                     match look.offer {
                         Some(head) => self.ask(
@@ -1363,13 +1395,11 @@ impl App {
                     }
                     return Vec::new();
                 }
-                if let Some(t) = self.nav.trial.take() {
-                    self.shared.message = Some(match t.grid {
-                        Some(g) => words::size_kept(g.points),
-                        None if is_file(&t.font) => words::font_file_kept(font_shown(&t.font)),
-                        None => words::trial_kept(&t.font),
-                    });
-                }
+                self.shared.message = Some(match t.grid {
+                    Some(g) => words::size_kept(g.points),
+                    None if is_file(&t.font) => words::font_file_kept(font_shown(&t.font)),
+                    None => words::trial_kept(&t.font),
+                });
                 Vec::new()
             }
             _ => self.put_back(),
@@ -1406,8 +1436,48 @@ impl App {
         if let Some(kept) = &self.shared.kept_colors {
             return colors_request(kept, tried);
         }
-        self.shared.colors_saved = false;
+        self.shared.colors_saved = None;
         COLORS_RESTORE.to_vec()
+    }
+
+    /// After an install, on a live console, what leaving gives the console
+    /// becomes what the installed vtium.conf gives the console's terminal.
+    /// The font is the terminal's font where the file names one. The colors
+    /// that `k` kept stay when they are the terminal's color scheme, and
+    /// the grid that `k` kept stays when the terminal's font set and size
+    /// are the ones that gave it. What the install does not make the
+    /// configured choice still goes back to how vtium-config found it.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "The live trial, on a key": what `k` keeps stays on
+    ///   the console after vtium-config leaves once Install made it the
+    ///   configured choice.
+    pub(crate) fn console_installed(&mut self) {
+        if self.shared.live != super::model::Live::On {
+            return;
+        }
+        let font = self.shared.head_font();
+        if let Some(name) = &font {
+            self.shared.start_font = Some(name.clone());
+        }
+        // colors an earlier install made the configured ones count as
+        // shown too, since `k` on another look since then replaced only
+        // the kept colors
+        let configured = scheme_colors(&self.shared, &console_scheme(&self.shared));
+        self.shared.start_colors = configured.filter(|c| {
+            self.shared.kept_colors.as_ref() == Some(c)
+                || self.shared.start_colors.as_ref() == Some(c)
+        });
+        let points: Option<u32> =
+            console_setting(&self.shared, "font-size").and_then(|s| s.parse().ok());
+        if let Some(kept) = &self.shared.kept_grid
+            && self.shared.grid_moved
+            && font.as_deref() == Some(kept.font.as_str())
+            && points == Some(kept.points)
+        {
+            self.shared.start_grid = kept.grid;
+            self.shared.grid_moved = false;
+        }
     }
 
     /// Ends the trial `t` of the look `look`: the colors, the font and the
@@ -1543,6 +1613,11 @@ impl App {
             if to == back {
                 return Some(Vec::new());
             }
+            self.shared.kept_grid = Some(KeptGrid {
+                font: font.to_owned(),
+                points,
+                grid: to,
+            });
             self.shared.grid_moved = true;
             self.shared.grid_after_font = false;
             return Some(vec![Effect::Write(grid_request(to))]);

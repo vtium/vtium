@@ -413,6 +413,7 @@ impl App {
         let spot = self.looks.spot(&self.shared);
         self.shared.draft = Some(opened);
         self.frits_installed(done, spot);
+        self.console_installed();
         self.rebuild(None);
         self.say(&message)
     }

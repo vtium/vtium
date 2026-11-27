@@ -468,15 +468,32 @@ pub struct Shared {
     /// The Looks tab has sent the console a grid request, so leaving
     /// gives the console [`Shared::start_grid`] back.
     pub grid_moved: bool,
-    /// vtium-config saved the console's colors with XTPUSHCOLORS before a
-    /// look's trial set them, and has not restored them yet. A trial put
-    /// back and leaving restore them with XTPOPCOLORS, so colors a program
-    /// set before vtium-config started come back as they were.
-    pub colors_saved: bool,
+    /// The colors the console showed, as vtium-config reckons them from
+    /// the installed vtium.conf, when vtium-config saved them with
+    /// XTPUSHCOLORS before a look's trial set its own; `None` while no
+    /// colors are saved. A trial put back and leaving restore them with
+    /// XTPOPCOLORS, so colors a program set before vtium-config started
+    /// come back as they were.
+    pub colors_saved: Option<vtium_term::Palette>,
     /// The colors that `k` kept from a look's trial, which the console
     /// shows until vtium-config leaves. A later look's trial compares its
     /// colors with these, and putting that trial back sends these again.
     pub kept_colors: Option<vtium_term::Palette>,
+    /// The colors that leaving sets after XTPOPCOLORS: colors that `k`
+    /// kept and that an install then made the colors of the console's
+    /// terminal, so the console goes on showing them. `None` leaves the
+    /// console with the colors XTPOPCOLORS restores.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "The live trial, on a key": what `k` keeps stays on
+    ///   the console after vtium-config leaves once Install made it the
+    ///   configured choice.
+    pub start_colors: Option<vtium_term::Palette>,
+    /// The grid that `k` kept from a trial of a size, with the font set
+    /// and the size in points that give it. An install that gives the
+    /// console's terminal that font set and size makes the grid the one
+    /// leaving gives back.
+    pub kept_grid: Option<super::shot::KeptGrid>,
     /// `u` asked for [`Shared::start_grid`] while another font switch was
     /// in flight, so the grid request waits until the start font's switch
     /// goes: a font switch moves the console's grid too, and would undo a
@@ -735,8 +752,10 @@ impl App {
                 start_grid: (size.cols, size.rows),
                 grid_moved: false,
                 grid_after_font: false,
-                colors_saved: false,
+                colors_saved: None,
                 kept_colors: None,
+                start_colors: None,
+                kept_grid: None,
                 size_asked: None,
                 running_window_ops,
             },
@@ -1248,7 +1267,8 @@ impl App {
             return Vec::new();
         }
         // the colors a look's trial set go back below, whether `k` kept
-        // them or the trial still counts down
+        // them or the trial still counts down, unless an install made the
+        // kept colors the configured ones
         self.nav.trial = None;
         // the font the console ends in once the switch in flight, if any,
         // is answered: the start font is sent only where it is another
@@ -1270,9 +1290,8 @@ impl App {
         if mouse {
             bytes.extend_from_slice(MOUSE_OFF);
         }
-        if std::mem::take(&mut self.shared.colors_saved) {
-            bytes.extend_from_slice(super::shot::COLORS_RESTORE);
-        }
+        bytes.extend(super::shot::colors_on_leaving(&self.shared));
+        self.shared.colors_saved = None;
         self.shared.kept_colors = None;
         // the grid the console had at the start goes back after its font,
         // since a font switch can change the grid too
@@ -1526,15 +1545,11 @@ impl App {
 
     /// After an install of `done`, the font set changes the install made:
     /// the frits it removed leave the list, the frits it wrote join it,
-    /// and on a live console the font the draft gives the console's head
-    /// becomes the font the TUI gives back to the console when it leaves.
-    /// The Looks tab holds each font set by its place in the list, which
-    /// the install moves, so `spot`, taken before the installed draft
-    /// replaced the old one, keeps its highlight and an open detail by the
-    /// font set's name.
-    ///
-    /// References:
-    /// - ADR-1201 D4: the TUI gives the live console back its font when it leaves.
+    /// and the installed vtium.conf becomes the one the TUI reads the
+    /// console's settings from. The Looks tab holds each font set by its
+    /// place in the list, which the install moves, so `spot`, taken before
+    /// the installed draft replaced the old one, keeps its highlight and an
+    /// open detail by the font set's name.
     pub(crate) fn frits_installed(
         &mut self,
         done: crate::store::FritChanges,
@@ -1566,13 +1581,6 @@ impl App {
         self.fonts.keep(&self.shared, None);
         self.looks.restore(&self.shared, spot);
         self.shared.inputs.conf = self.shared.draft.as_ref().map(|d| d.text.clone());
-        // the font the installed file gives the console's head, from its
-        // look where the look names one
-        if self.shared.live == Live::On
-            && let Some(name) = self.shared.head_font()
-        {
-            self.shared.start_font = Some(name);
-        }
     }
 }
 
