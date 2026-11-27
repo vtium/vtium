@@ -1682,6 +1682,39 @@ fn a_text_area_request_ends_once_the_font_helper_is_given_up() {
     assert_eq!((head.font_size, head.grid), (size, (1, 1)), "the request");
 }
 
+// ctlseqs, XTWINOPS 8: a console that is hidden while its text area
+// request waits for the font helper goes on holding the request and its
+// program's output, as a hidden console holds a request it has not yet
+// carried out. Shown again, the console carries the request out. Here
+// the helper is given up meanwhile, so the request ends at the height
+// the search reached, on exactly the grid asked for.
+//
+// References:
+// - ADR-1401 D1: a hidden console keeps its own grid and cell.
+#[test]
+fn a_text_area_request_from_a_console_hidden_while_it_waits_is_carried_out_once_shown() {
+    let (_lp, mut app, _dir) = struck_seat("climb-hidden");
+    let head = app.heads.first().unwrap();
+    let (first, size, grid) = (head.console.id, head.font_size, head.grid);
+    app.request_grid(0, ONE_CELL);
+    let now = Instant::now();
+    assert!(app.open_console(0, now), "a second console opens");
+    app.turn(now);
+    let frit = app.frits.get_mut("t").unwrap();
+    frit.helper.as_mut().unwrap().give_up("the helper failed");
+    app.turn(Instant::now());
+    let head = app.heads.first().unwrap();
+    assert_eq!(head.grid, grid, "the second console keeps the grid");
+    let hidden = head.hidden.iter().find(|c| c.id == first).unwrap();
+    assert!(!hidden.term.takes_input(), "the hidden console waits");
+    app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+    app.turn(Instant::now());
+    let head = app.heads.first().unwrap();
+    assert_eq!(head.console.id, first, "console 1 is shown again");
+    assert!(head.console.term.takes_input(), "the console takes output");
+    assert_eq!((head.font_size, head.grid), (size, (1, 1)), "the request");
+}
+
 // ADR-1200 D14: once vtium leaves out a font of a frit, here its text
 // font, after the font made the helper fail, the console forgets the
 // cells the helper answered and asks for each again. The helper now

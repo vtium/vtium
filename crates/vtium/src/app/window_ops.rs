@@ -41,7 +41,7 @@ use std::time::{Duration, Instant};
 
 use super::{App, after};
 use crate::font;
-use crate::head::{Climb, Head};
+use crate::head::Head;
 use crate::helper;
 use crate::layout::{self, Zoom};
 
@@ -169,31 +169,23 @@ impl App {
 
     /// Head `h`'s search for the text area `request` waits for a late
     /// answer from the font helper. The head keeps its size and grid, and
-    /// the console that asked takes none of its program's output, until
-    /// [`App::resume_climbs`] ends the search.
+    /// the shown console, which asked, keeps the request and takes none of
+    /// its program's output, until [`App::resume_climbs`] ends the search.
     fn climb_waits(&mut self, h: usize, request: GridRequest) {
-        let Some(head) = self.heads.get_mut(h) else {
-            return;
-        };
-        head.climb = Some(Climb::Grid {
-            console: head.console.id,
-            request,
-        });
-        head.console.term.sizing = true;
+        if let Some(head) = self.heads.get_mut(h) {
+            head.console.term.sizing = Some(request);
+        }
     }
 
     /// Head `h` stops waiting to carry on a search through its font set's
     /// strikes, because a new request, a zoom or a new size takes its
-    /// place. The console whose text area request waited takes its
-    /// program's output again.
+    /// place. The shown console, if its text area request waited, takes
+    /// its program's output again. A hidden console keeps the request it
+    /// waits on, since the new size is not its own until it is shown.
     pub(super) fn drop_climb(&mut self, h: usize) {
-        let Some(head) = self.heads.get_mut(h) else {
-            return;
-        };
-        if let Some(Climb::Grid { console, .. }) = head.climb.take()
-            && let Some(console) = head.console_mut(console)
-        {
-            console.term.sizing = false;
+        if let Some(head) = self.heads.get_mut(h) {
+            head.zoom_waits = None;
+            head.console.term.sizing = None;
         }
     }
 
@@ -202,27 +194,26 @@ impl App {
     /// helper's answers. The search starts again from the head's size, so
     /// it reuses every answer it has and asks only at the heights it has
     /// yet to ask at. It ends once every height it needs has an answer, or
-    /// once the helper has failed and cannot answer. A text area request
-    /// whose console is no longer shown is dropped, and that console takes
-    /// its program's output again.
+    /// once the helper has failed and cannot answer.
+    ///
+    /// Only the shown console's text area request goes on. A console that
+    /// was hidden while its request waited goes on holding the request
+    /// and its program's output, and vtium carries the request on at the
+    /// first turn after the console is shown again, as it carries out a
+    /// request that a hidden console holds once that console is shown. That
+    /// request takes the place of a zoom that still waits.
+    ///
+    /// References:
+    /// - ADR-1401 D1: a hidden console keeps its own grid and cell.
     pub(super) fn resume_climbs(&mut self) {
         for h in 0..self.heads.len() {
             let Some(head) = self.heads.get(h) else {
                 continue;
             };
-            match head.climb {
-                None => {}
-                Some(Climb::Grid { console, request }) if console == head.console.id => {
-                    self.request_grid(h, request);
-                }
-                Some(Climb::Grid { .. }) => {
-                    log::info!(
-                        "head {}: the console that asked for a text area is no longer shown, so vtium ignores the request",
-                        head.name()
-                    );
-                    self.drop_climb(h);
-                }
-                Some(Climb::Zoom(dir)) => self.zoom(h, dir),
+            if let Some(request) = head.console.term.sizing {
+                self.request_grid(h, request);
+            } else if let Some(dir) = head.zoom_waits {
+                self.zoom(h, dir);
             }
         }
     }

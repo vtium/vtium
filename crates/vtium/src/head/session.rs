@@ -32,7 +32,7 @@ use vtium_render::Depth;
 
 use crate::app::Exit;
 use crate::config::Config;
-use crate::head::{Climb, Head};
+use crate::head::Head;
 use crate::head::chord::HeadChord;
 use crate::head::console::{self, Console};
 use crate::respawn::{Next, QUICK, QUICK_RESTARTS, Respawn};
@@ -648,16 +648,13 @@ impl Head {
                 return AfterExit::GaveUp;
             }
         };
-        // A text area request whose search waits for the font helper goes
-        // with the session that asked for it, so the next session's output
-        // is not held and the request is never carried out for it.
-        if matches!(self.climb, Some(Climb::Grid { console, .. }) if console == id) {
-            self.climb = None;
-        }
         let Some(console) = self.console_mut(id) else {
             return after;
         };
-        console.term.sizing = false;
+        // A text area request whose search waits for the font helper goes
+        // with the session that asked for it, so the next session's output
+        // is not held and the request is never carried out for it.
+        console.term.sizing = None;
         // The session's request to the image helper goes with it, so the
         // reset below finds the terminal taking input.
         #[cfg(feature = "images")]

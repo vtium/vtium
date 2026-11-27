@@ -11,7 +11,7 @@ use vtium_render::Orientation;
 use crate::config::Config;
 use crate::config::keys;
 use crate::font::{self, Chosen};
-use crate::head::{Climb, Frit, Head};
+use crate::head::{Frit, Head};
 use crate::helper::{self, FritText};
 use crate::layout::{self, Zoom};
 use crate::ordered;
@@ -428,7 +428,7 @@ impl App {
             }
             Err(NoStep::Owed) => {
                 if let Some(head) = self.heads.get_mut(h) {
-                    head.climb = Some(Climb::Zoom(dir));
+                    head.zoom_waits = Some(dir);
                 }
                 return;
             }
