@@ -62,6 +62,14 @@ pub struct Console {
     /// The console takes grid requests, as vtium does with
     /// `allow-window-ops` on. Off, it ignores them.
     pub window_ops: bool,
+    /// The displays' size in pixels, where the test gives one. The
+    /// console's cell is then that size divided by the grid that fills it
+    /// at the font and height it draws, as vtium lays a font out on its
+    /// displays. The console's terminal takes the cell, so it answers
+    /// XTWINOPS 14 with the text area, the grid times the cell, as vtium
+    /// does. With no size, the terminal knows no cell and leaves
+    /// XTWINOPS 14 unanswered.
+    pub display_px: Option<(u32, u32)>,
     /// Keys still to type, one read each.
     pub script: VecDeque<Vec<u8>>,
     pub pending: VecDeque<Wake>,
@@ -154,6 +162,7 @@ impl Console {
             height: BASE_HEIGHT,
             pinned: None,
             window_ops: false,
+            display_px: None,
             script: VecDeque::new(),
             pending: VecDeque::new(),
             armed: false,
@@ -204,6 +213,31 @@ impl Console {
             t.set_window_ops(true);
         }
         self
+    }
+
+    /// The console's displays are `pixels` in size, so its terminal
+    /// reports the text area in pixels as vtium does.
+    pub fn fills(mut self, pixels: (u32, u32)) -> Console {
+        self.display_px = Some(pixels);
+        self.give_cell();
+        self
+    }
+
+    /// Gives the console's terminal the cell of the font and height the
+    /// console draws, where the test gives the displays' size: the size
+    /// divided by the grid that fills it there, as vtium gives its
+    /// terminal the cell of the font it lays out.
+    fn give_cell(&mut self) {
+        let cell = console_cell(
+            self.display_px,
+            &self.fonts,
+            &self.steps,
+            &self.shown,
+            self.height,
+        );
+        if let (Answerer::Vtium(t), Some((w, h))) = (&mut self.answerer, cell) {
+            t.set_cell_size(w, h);
+        }
     }
 
     /// The grid the console shows now, columns by rows.
@@ -279,6 +313,22 @@ fn font_steps(
         all.insert(BASE_HEIGHT, grid);
     }
     all
+}
+
+/// The stand-in console's cell, where the test gives its displays'
+/// size `display_px`: that size divided by the grid that fills it with
+/// the font `shown` at the pixel height `height`.
+fn console_cell(
+    display_px: Option<(u32, u32)>,
+    fonts: &BTreeMap<&'static str, (usize, usize)>,
+    steps: &BTreeMap<&'static str, BTreeMap<u32, (usize, usize)>>,
+    shown: &str,
+    height: u32,
+) -> Option<(u32, u32)> {
+    let (w, h) = display_px?;
+    let &(cols, rows) = font_steps(fonts, steps, shown).get(&height)?;
+    let side = |px: u32, n: usize| px / u32::try_from(n.max(1)).expect("a grid side");
+    Some((side(w, cols), side(h, rows)))
 }
 
 /// The grid `fill`, cut to `pinned` on each side where a grid request
@@ -359,6 +409,7 @@ impl Port for Console {
         match &mut self.answerer {
             Answerer::Vtium(t) => {
                 let mut rest = bytes;
+                let mut moved = false;
                 while !rest.is_empty() {
                     let taken = t.input(rest);
                     if let Some(name) = t.take_font_request() {
@@ -378,6 +429,7 @@ impl Port for Console {
                             self.height = height;
                             let fill = steps.get(&height).copied().unwrap_or((1, 1));
                             show(t, &mut self.pending, within(fill, self.pinned));
+                            moved = true;
                         } else {
                             self.log.push(format!("refuse {name}"));
                         }
@@ -393,8 +445,23 @@ impl Port for Console {
                         );
                         self.log.push(said);
                         show(t, &mut self.pending, grid);
+                        moved = true;
                     }
                     rest = &rest[taken..];
+                    if std::mem::take(&mut moved) {
+                        // vtium gives its terminal the new cell with the
+                        // new grid, before it reads the bytes that follow
+                        let cell = console_cell(
+                            self.display_px,
+                            &self.fonts,
+                            &self.steps,
+                            &self.shown,
+                            self.height,
+                        );
+                        if let Some((w, h)) = cell {
+                            t.set_cell_size(w, h);
+                        }
+                    }
                 }
                 let mut replies = t.take_replies();
                 if self.graphics && bytes.windows(4).any(|w| w == b"a=q,") {
