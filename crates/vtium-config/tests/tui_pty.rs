@@ -735,6 +735,60 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
     );
 }
 
+/// vtium-config decides that the console is a vtium console from the
+/// console's answers, however long the TUI's own start takes. The console
+/// answers the start queries at once, while the TUI checks its draft with
+/// `vtium check-config`, which this stand-in for vtium starts only after
+/// 1.5 s, longer than the TUI waits for answers. On a loaded machine the
+/// real check took that long, and the TUI then said the console was not a
+/// vtium console, so the person lost the live trial.
+///
+/// The stand-in sleeps rather than computing, so the test leaves the
+/// machine's cores free.
+#[test]
+fn a_slow_check_of_the_draft_at_start_still_hears_the_console_s_answers() {
+    use std::os::unix::fs::PermissionsExt;
+    let (master, slave) = pair(80, 25);
+    let (root, fonts) = fixture("slow-check");
+    let vtium = console_bin::vtium();
+    let slow = root.join("slow-vtium");
+    std::fs::write(
+        &slow,
+        format!("#!/bin/sh\nsleep 1.5\nexec '{}' \"$@\"\n", vtium.display()),
+    )
+    .expect("the stand-in");
+    std::fs::set_permissions(&slow, std::fs::Permissions::from_mode(0o755))
+        .expect("the stand-in runs");
+    let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
+    let child = tui_with(
+        &slave,
+        &root,
+        &[
+            "--configdir".as_ref(),
+            root.as_os_str(),
+            "--frits".as_ref(),
+            fonts.as_os_str(),
+            "--sys".as_ref(),
+            root.join("sys").as_os_str(),
+            "--udev-data".as_ref(),
+            root.join("udev/data").as_os_str(),
+            "--vtium".as_ref(),
+            slow.as_os_str(),
+        ],
+    );
+    c.until("opened on the flow", |s| {
+        (s.screen.contains("CONFIGURATION") || s.screen.contains("NEW PATH"))
+            && !s.screen.contains("checking this terminal")
+    });
+    c.key(b"t");
+    let screen = c.until("said whether the live trial is on", |s| {
+        s.screen.contains("Live trial is")
+    });
+    assert!(screen.contains("Live trial is on"), "{screen}");
+    c.key(b"q");
+    assert_eq!(status(child), 0);
+}
+
 #[test]
 fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     let (master, slave) = pair(80, 25);

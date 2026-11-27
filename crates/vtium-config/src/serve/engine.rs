@@ -330,9 +330,16 @@ pub struct Engine {
 /// Why a frit has no text font to draw from ([`Engine::own_cell`]).
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum TextOut {
-    /// The text font, by its spelling and the frit's line that names it,
-    /// is missing or cannot be read.
-    LeftOut(String, usize),
+    /// [`Engine::load`] left the text font out, for the reason `why`: the
+    /// font is not on this machine, cannot be read, or is a file the font
+    /// helper may not draw from.
+    LeftOut {
+        /// The text font as the frit spells it.
+        spelling: String,
+        /// The frit's line that names the text font.
+        line: usize,
+        why: SourceError,
+    },
     /// The console left the text font out, by its spelling and the frit's
     /// line that names it, because the font made an earlier helper crash,
     /// hang or reach its CPU limit.
@@ -729,6 +736,9 @@ impl Engine {
         let mut strikes = Vec::new();
         let mut why = Vec::new();
         let mut left_out = Vec::new();
+        // why each source left out was left out, by its line, so that the
+        // text font's own reason reaches the answer to a cell query
+        let mut out_why = BTreeMap::new();
         let mut differs = Vec::new();
         for (i, source) in frit.sources.iter().enumerate() {
             if u32::try_from(i)
@@ -807,6 +817,9 @@ impl Engine {
                     }
                 }
             });
+            if let Err(e) = &loaded {
+                out_why.insert(source.line, e.clone());
+            }
             match loaded {
                 Ok(l) => {
                     differs.extend(crate::needs::differences(
@@ -912,14 +925,13 @@ impl Engine {
             {
                 Some(TextOut::Dropped(text.spelling.clone(), text.line))
             }
-            Some((_, text))
-                if !sources
-                    .iter()
-                    .any(|(s, _): &(Source, _)| s.line == text.line) =>
-            {
-                Some(TextOut::LeftOut(text.spelling.clone(), text.line))
-            }
-            Some(_) => None,
+            // every source that is not left to draw was left out for a
+            // reason, and the text font draws when it has none
+            Some((_, text)) => out_why.remove(&text.line).map(|why| TextOut::LeftOut {
+                spelling: text.spelling.clone(),
+                line: text.line,
+                why,
+            }),
         };
         if sources.is_empty() {
             return Err(DrawsNothing {

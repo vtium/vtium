@@ -1093,6 +1093,24 @@ fn t_in_the_fonts_tab_is_off_outside_a_vtium_console() {
     assert_eq!(c.switches(), Vec::<String>::new());
 }
 
+/// While the TUI is still finding out what this terminal is, `t` in the
+/// Fonts tab says so and sends nothing, on a font the console would take
+/// and on one it would not.
+#[test]
+fn t_in_the_fonts_tab_while_the_tui_still_asks_says_it_is_still_finding_out() {
+    use vtium_config::tui::model::Live;
+    for downs in [1, 5] {
+        let mut app = app_after(&[]);
+        assert_eq!(app.shared.live, Live::Asking);
+        for _ in 0..downs {
+            app.event(Event::Input(Input::Key(Key::Down)));
+        }
+        assert_eq!(app.event(Event::Input(Input::Key(Key::Char('t')))), []);
+        assert_eq!(app.shared.message.as_deref(), Some(words::TRIAL_ASKING));
+        assert!(app.nav.trial.is_none());
+    }
+}
+
 /// The Fonts tab's key line fits on one row at 80 columns.
 #[test]
 fn the_fonts_key_line_is_one_row_at_80_columns() {

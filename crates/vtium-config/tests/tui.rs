@@ -1263,6 +1263,51 @@ fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
     assert_eq!(app.shared.live, Live::NotVtium);
 }
 
+/// While the TUI is still finding out what this terminal is, the status
+/// line says that it is checking this terminal, on every tab that shows
+/// the live trial's words, and does not yet say that there is no live
+/// trial. Once the wait ends with no answer, it says that there is none.
+/// The Flow view's status line says nothing about the live trial.
+#[test]
+fn the_status_line_says_it_is_checking_this_terminal_while_the_tui_asks() {
+    use vtium_config::tui::model::{App, Event, View};
+    use vtium_config::tui::view;
+    use vtium_config::tui::words;
+    for tab in View::TABS.into_iter().filter(|v| *v != View::Flow) {
+        let mut i = inputs();
+        i.view = tab;
+        let (mut app, _) = App::new(i, 100, 30);
+        let screen = view::as_text(&view::screen(&app));
+        assert!(screen.contains(words::PREVIEW_ASKING), "{tab:?}: {screen}");
+        assert!(!screen.contains(words::TRIAL_NONE), "{tab:?}: {screen}");
+        app.event(Event::Timeout);
+        let screen = view::as_text(&view::screen(&app));
+        assert!(!screen.contains(words::PREVIEW_ASKING), "{tab:?}: {screen}");
+        assert!(screen.contains(words::TRIAL_NONE), "{tab:?}: {screen}");
+    }
+}
+
+/// The wait for the terminal's answers at start begins only after the
+/// desk has opened the draft. Opening the draft runs `vtium check-config`,
+/// which can take longer than the wait on a loaded machine, so the TUI's
+/// own work never uses up the time the terminal has to answer. The queries
+/// go before the draft opens, so the terminal answers them meanwhile.
+#[test]
+fn the_wait_for_the_answers_at_start_begins_once_the_draft_is_open() {
+    use vtium_config::tui::desk::Op;
+    use vtium_config::tui::model::{App, Effect};
+    let mut with_desk = inputs();
+    with_desk.desk = true;
+    let (_, first) = App::new(with_desk, 80, 25);
+    let open = first.iter().position(|e| *e == Effect::Desk(Op::Open));
+    let wait = first.iter().position(|e| *e == Effect::Wait(model::WAIT));
+    assert!(matches!(first.first(), Some(Effect::Write(_))), "{first:?}");
+    assert!(
+        matches!((open, wait), (Some(open), Some(wait)) if open < wait),
+        "{first:?}"
+    );
+}
+
 #[test]
 fn a_failed_command_s_words_show_on_the_message_line() {
     let mut c = console().keys(&font_name_tiny5(&[b"i", b"y"]));

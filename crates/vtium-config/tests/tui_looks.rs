@@ -2417,6 +2417,38 @@ fn started_on(inputs: Inputs, font: &str) -> (vtium_config::tui::model::App, Vec
     (app, effects)
 }
 
+/// While the TUI is still finding out what this terminal is, `t` on a
+/// look in the Looks tab's list, and `t` in the look's card, say so and
+/// send nothing.
+#[test]
+fn t_in_the_looks_tab_while_the_tui_still_asks_says_it_is_still_finding_out() {
+    use vtium_config::tui::model::Live;
+    use vtium_config::tui::words;
+    let conf = nordic_conf("", "look = nordic\n");
+    let (mut app, _) = App::new(with_conf(&conf), 80, 25);
+    assert_eq!(app.shared.live, Live::Asking);
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    // on the look in the list, and in its card, which Enter opens
+    for key in [None, Some(Key::Enter)] {
+        if let Some(key) = key {
+            app.event(Event::Input(Input::Key(key)));
+        }
+        app.shared.message = None;
+        let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
+        assert!(
+            !tried.iter().any(|e| matches!(e, Effect::Write(_))),
+            "{key:?}: {tried:?}"
+        );
+        assert_eq!(
+            app.shared.message.as_deref(),
+            Some(words::TRIAL_ASKING),
+            "{key:?}"
+        );
+        assert!(app.nav.trial.is_none(), "{key:?}");
+    }
+    assert_eq!(app.tab().node(), "looks.look");
+}
+
 /// The palette that `t` leaves on the stand-in console.
 fn console_palette(c: &Console) -> vtium_term::Palette {
     match &c.answerer {
