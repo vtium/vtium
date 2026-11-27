@@ -83,7 +83,7 @@ pub struct Launcher {
 
 /// The request that names the active fonts to the helper: `owner`, whose
 /// files pass the trust rule beside root's, and each path `batch` lists,
-/// in the helper's layout (vtium-config's `serve.rs`). The helper refuses
+/// in the helper's layout (vtium-config's `serve/wire.rs`). The helper refuses
 /// the whole request over one path that is not absolute UTF-8, holds a NUL
 /// byte or is too long, and then exits, so such a path is left out here
 /// and the other active fonts still reach the helper. The paths stop
