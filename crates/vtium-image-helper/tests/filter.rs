@@ -469,6 +469,16 @@ fn locked() -> u8 {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // `--list --format terse` lists this binary as one test named main,
+    // the way libtest lists a test, so that cargo-nextest finds the binary
+    // and runs it whole. No test is ignored, so the list of ignored tests
+    // is empty.
+    if args.iter().any(|a| a == "--list") {
+        if !args.iter().any(|a| a == "--ignored") {
+            println!("main: test");
+        }
+        return ExitCode::SUCCESS;
+    }
     match args.first().map(String::as_str) {
         Some("--child") => return ExitCode::from(child(false)),
         Some("--worker") => return ExitCode::from(child(true)),

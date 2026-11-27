@@ -673,6 +673,34 @@ define deny-version
 @v=$$(cargo deny --version 2>/dev/null) || v=; [ "$$v" = "cargo-deny $(DENY_VERSION)" ] || { echo "$@ needs cargo-deny $(DENY_VERSION), and this machine has $${v:-no cargo-deny}. Install it with: $(DENY_INSTALL)" >&2; exit 1; }
 endef
 
+# make test-all-features and make test-default, two gates, run the
+# workspace's tests with every feature and with the default build. They run
+# the tests with cargo-nextest, which runs each test in a process of its own
+# and as many at once as the machine has cores, where cargo test runs one test
+# binary after another. nextest runs no doctests, so each target then runs
+# them with cargo test --doc. Both commands run to the end, so one failing
+# test binary never hides another. Both targets need cargo-nextest at
+# NEXTEST_VERSION, the version CI installs, so that the gates judge the same
+# way on every machine.
+NEXTEST_VERSION = 0.9.151
+NEXTEST_INSTALL = cargo install --locked cargo-nextest@$(NEXTEST_VERSION)
+define nextest-version
+@v=$$(cargo nextest --version 2>/dev/null | sed -n '1s/^cargo-nextest \([^ ]*\).*/\1/p'); [ "$$v" = "$(NEXTEST_VERSION)" ] || { echo "$@ needs cargo-nextest $(NEXTEST_VERSION), and this machine has $${v:+cargo-nextest }$${v:-no cargo-nextest}. Install it with: $(NEXTEST_INSTALL)" >&2; exit 1; }
+endef
+# The workspace's tests under nextest, then its doctests, with the cargo
+# flags $(1), and a failure if either failed.
+workspace-tests = status=0; cargo nextest run --workspace $(1) --no-fail-fast || status=1; cargo test --doc --workspace $(1) || status=1; exit $$status
+
+.PHONY: test-all-features
+test-all-features: ## Run the workspace's tests and doctests with every feature, the tests with cargo-nextest (needs cargo-nextest at NEXTEST_VERSION)
+	$(nextest-version)
+	$(call workspace-tests,--all-features)
+
+.PHONY: test-default
+test-default: ## Run the workspace's tests and doctests in the default build, the tests with cargo-nextest (needs cargo-nextest at NEXTEST_VERSION)
+	$(nextest-version)
+	$(call workspace-tests,)
+
 .PHONY: keymaps
 keymaps: ## Compile the keyboard tests' keymap fixtures again from this machine's xkeyboard-config with xkbcli, and record its version (needs xkbcli)
 	tools/keymaps/compile
@@ -1305,8 +1333,8 @@ tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: v
 define GATE_LINE
 cargo fmt --all --check
 cargo clippy --workspace --all-features --all-targets -- -D warnings
-cargo test --workspace --all-features
-cargo test --workspace
+make test-all-features
+make test-default
 cargo build --profile minspec
 make msrv
 make deny
