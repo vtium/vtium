@@ -64,6 +64,7 @@ struct Seen {
     /// Every byte the TUI wrote.
     written: Vec<u8>,
     screen: String,
+    /// The font set the console draws in: the last switch it took.
     font: String,
     /// The pty closed.
     closed: bool,
@@ -125,6 +126,13 @@ impl Console {
             t.set_version("vtium(test)").expect("printable");
             t.set_font_ops(matches!(kind, Kind::Vtium { ops: true }));
             assert!(t.set_font_name("unifont"));
+            // The console keeps the name of the font set it draws in as it
+            // takes each switch, rather than asking its terminal with an OSC
+            // 50 query after each read. A read can end partway through a
+            // sequence the TUI wrote, and a query fed to the terminal then
+            // would cut that sequence short, so the rest of it would show as
+            // text on the screen.
+            let mut font = "unifont".to_owned();
             let mut buf = [0u8; 4096];
             while let Ok(n @ 1..) = reader.read(&mut buf) {
                 // a NUL is the test's mark (`drained`), which the TUI never
@@ -142,6 +150,7 @@ impl Console {
                                 && takes.contains(&name.as_str())
                             {
                                 assert!(t.set_font_name(&name));
+                                font = name;
                             }
                             rest = &rest[taken..];
                         }
@@ -169,15 +178,7 @@ impl Console {
                         s.switches_per_read.push(sets);
                     }
                     s.screen = screen_text(&t);
-                    // the font the console draws: its query's answer
-                    t.input(b"\x1b]50;?\x1b\\");
-                    let probe = t.take_replies();
-                    let text = String::from_utf8_lossy(&probe);
-                    s.font = text
-                        .strip_prefix("\x1b]50;")
-                        .and_then(|r| r.split('\x1b').next())
-                        .unwrap_or("")
-                        .to_owned();
+                    s.font.clone_from(&font);
                     cv.notify_all();
                 }
                 if !replies.is_empty() && reader.write_all(&replies).is_err() {
@@ -430,6 +431,27 @@ fn cooked(slave: &File) -> bool {
         .expect("tcgetattr")
         .local_modes
         .contains(LocalModes::ICANON | LocalModes::ECHO)
+}
+
+/// The stand-in console reads a sequence that arrives in two reads as one
+/// sequence. A loaded machine can split a frame of the TUI anywhere, and
+/// a cursor position cut in two once showed its second half as text, so
+/// a confirmation lost two of its letters.
+#[test]
+fn the_console_reads_a_sequence_cut_between_two_reads_as_one() {
+    let (master, slave) = pair(80, 25);
+    let c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
+    let mut out = &slave;
+    out.write_all(b"\x1b[5;1").expect("the first half");
+    c.drained(&slave);
+    out.write_all(b"0HX").expect("the second half");
+    let screen = c.until("drew X", |s| s.screen.contains('X'));
+    assert_eq!(
+        screen.lines().nth(4),
+        Some("         X"),
+        "X stands in row 5, column 10; the screen:\n{screen}"
+    );
+    assert_eq!(c.font(), "unifont");
 }
 
 #[test]
