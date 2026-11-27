@@ -185,7 +185,9 @@ impl App {
     /// head drawing the frit, forgets the glyphs it cached for the set's
     /// characters, so none draws the built-in font once the frit sent it
     /// (ADR-1200 D7), and redraws the cells that show one. An answer to a
-    /// cell query that came after its wait goes to [`App::late_cell`].
+    /// cell query that came after its wait goes to [`App::late_cell`], and
+    /// a search through a font set's strikes that waited for such an answer
+    /// carries on ([`App::resume_climbs`]).
     pub(super) fn helper_turn(&mut self, now: Instant) {
         for h in 0..self.heads.len() {
             if self
@@ -261,6 +263,7 @@ impl App {
         for (name, height, answer) in late {
             self.late_cell(&name, height, answer);
         }
+        self.resume_climbs();
         self.end_cell_waits();
         self.start_held_fills(now);
     }
@@ -449,10 +452,10 @@ impl App {
             ),
             Err(_) => {}
         }
-        let refused = answer.as_ref().err().map(ToString::to_string);
+        let refused = answer.as_ref().err().cloned();
         frit.own.insert(height, answer);
-        if let Some(why) = refused {
-            return self.late_refusal(name, height, &why);
+        if let Some(no) = refused {
+            return self.late_refusal(name, height, &no);
         }
         let Some(outline) = outline else {
             return;
@@ -480,7 +483,7 @@ impl App {
     }
 
     /// The helper refused frit `name`'s cell at `height` after the wait,
-    /// for `why`. A head that draws in a cell the frit gave it earlier at
+    /// for the reason `no` gives. A head that draws in a cell the frit gave it earlier at
     /// that height stops drawing in it: the frit is chosen afresh for the
     /// head and laid out again, so the head draws in the display's cell, or
     /// as wide as the built-in font, as after a refusal in time. This
@@ -493,7 +496,7 @@ impl App {
     ///   the font set's other fonts go on drawing.
     /// - ADR-1204 D5: a missing text font leaves the cell to the
     ///   configuration.
-    fn late_refusal(&mut self, name: &str, height: u32, why: &str) {
+    fn late_refusal(&mut self, name: &str, height: u32, no: &helper::NoCell) {
         let mut drawing = Vec::new();
         for h in 0..self.heads.len() {
             let dpi = self.dpi(h);
@@ -514,15 +517,10 @@ impl App {
                 drawing.push(h);
             }
         }
+        log::info!("{}", late_refusal_line(name, no, !drawing.is_empty()));
         if drawing.is_empty() {
-            log::info!(
-                "the helper refused the frit {name}'s own cell after the wait ({why}): it keeps the cell it draws in"
-            );
             return;
         }
-        log::info!(
-            "the helper refused the frit {name}'s own cell after the wait ({why}): it no longer draws in the cell the frit gave earlier, from the next frame"
-        );
         for h in drawing {
             let Some(head) = self.heads.get_mut(h) else {
                 continue;
@@ -550,6 +548,33 @@ impl App {
         self.frits.get(name).map_or_else(Vec::new, |frit| {
             frit.own.iter().map(|(h, a)| (*h, a.clone())).collect()
         })
+    }
+}
+
+/// The log line for the font helper's late answer that the font set `name`
+/// has no character cell of its own, for the reason `no` gives. The line
+/// names the font set first, then the helper's reason, which names the
+/// font file the cell would come from, then what vtium does about it:
+/// `dropped` says the font set stops drawing in a cell it gave earlier,
+/// and otherwise it keeps the cell it draws in. When the reason lies in
+/// the font set's fonts, the line ends with how to see each font the set
+/// lacks and activate one that is not active. When the helper could not
+/// answer at all, no font is to blame, and the line says nothing more.
+fn late_refusal_line(name: &str, no: &helper::NoCell, dropped: bool) -> String {
+    let does = if dropped {
+        "From the next frame, the font set no longer draws in the cell it gave earlier."
+    } else {
+        "The font set keeps the character cell it draws in now."
+    };
+    let why = &no.why;
+    if no.from_frit {
+        format!(
+            "The font set {name} has no character cell of its own. The font helper answered after vtium stopped waiting for it: {why}. {does} To see each font the font set lacks, and to activate a font that is not active, run vtium config fonts."
+        )
+    } else {
+        format!(
+            "The font set {name} has no character cell of its own. The font helper could not answer: {why}. {does}"
+        )
     }
 }
 

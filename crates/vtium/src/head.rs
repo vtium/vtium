@@ -251,6 +251,12 @@ pub struct Head {
     /// until a zoom or its session's end; `None` while the grid fills the
     /// displays.
     pub(crate) asked: Option<(usize, usize)>,
+    /// A zoom whose step through a font set's strikes waits for a late
+    /// answer from the font helper, in the direction it was asked. vtium
+    /// takes the step at the turn that takes the answer
+    /// (`app/window_ops.rs`); `None` while no zoom waits. A text area
+    /// request that waits is the console's own ([`Term::sizing`]).
+    pub(crate) zoom_waits: Option<Zoom>,
     /// The height at which the log last said that a zoom out stops at the
     /// font's smallest height, so a key held there logs the stop once.
     pub(crate) zoom_stop_logged: Option<u32>,
@@ -599,6 +605,7 @@ impl Head {
             points,
             auto_size,
             asked: None,
+            zoom_waits: None,
             zoom_stop_logged: None,
             sized,
             look_cell: look_cell(config),

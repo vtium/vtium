@@ -654,6 +654,10 @@ pub const DEFAULT_FONT_PREVIEW: &str = "This look draws with the font set vtium.
 pub const PREVIEW_PATH_NOT_HERE: &str =
     "Previewing a path needs a vtium console, and this terminal is not one.";
 
+/// `p` on the Flow view while the TUI is still finding out what this
+/// terminal is.
+pub const PREVIEW_PATH_ASKING: &str = "Previewing a path needs a vtium console, and vtium-config is still finding out whether this terminal is one.";
+
 pub const PREVIEW_PATH_LATER: &str = "Previewing a whole path needs the console's control socket, which vtium does not have yet. Enter on a font set shows its preview.";
 
 pub const LIVE_ON: &str = "Live trial is on: in the Looks tab, t tries a font set on this console.";

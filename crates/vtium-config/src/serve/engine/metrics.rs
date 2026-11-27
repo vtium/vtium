@@ -11,16 +11,66 @@ use super::{
 };
 use crate::serve::bitmap::bitmap_baseline;
 use crate::serve::wire::script_baseline;
+use crate::sources::{NOT_ACTIVE, SourceError};
+
+/// Why the frit has no character cell of its own when [`Engine::load`]
+/// left out its text font `spelling` for the reason `why`. The console
+/// logs this reason as the font helper sends it, after a colon and before
+/// a full stop of its own, so the reason starts in lower case and ends
+/// with no full stop. It names the text font first, then why the font is
+/// out, and then what draws the text instead. A font file that is not
+/// among the active fonts comes with the command that activates it. Where
+/// the frit names the font by anything but its file, such as a family, the
+/// reason names the file the font helper found too, because that file is
+/// the one to activate or mend.
+///
+/// References:
+/// - ADR-1204 D5: a missing text font leaves the cell to the configuration.
+/// - ADR-1205 D4: a font file the batch does not list, or that fails the
+///   trust rule, counts as missing, and vtium names the file and why.
+fn text_left_out(spelling: &str, why: &SourceError) -> String {
+    const INSTEAD: &str = "The built-in font draws the text in its place, and the character cell comes from the configuration";
+    let font = format!("the text font source={spelling}");
+    match why {
+        SourceError::Refused { path, because } => {
+            let file = path.display().to_string();
+            let font = if spelling.ends_with(&file) {
+                font
+            } else {
+                format!("{font}, the font file {file},")
+            };
+            if because == NOT_ACTIVE {
+                format!(
+                    "{font} is not among the active fonts. {INSTEAD}. To activate the font file, run vtium-config activate {file} --install"
+                )
+            } else {
+                format!("{font} counts as missing, because {because} {INSTEAD}")
+            }
+        }
+        SourceError::Missing(why) => {
+            format!(
+                "{font} is missing: {}. {INSTEAD}",
+                why.trim_end_matches('.')
+            )
+        }
+        SourceError::Failed(why) => {
+            format!(
+                "{font} cannot be read: {}. {INSTEAD}",
+                why.trim_end_matches('.')
+            )
+        }
+    }
+}
 
 impl Engine {
     /// The frit's own cell (ADR-1200 D17), which its first source sets and
     /// later sources draw into. The first source is the frit's text font,
     /// its own first regular source. When [`Engine::load`] left the text
-    /// font out, because this machine does not have it or cannot read it,
-    /// or the frit has no source of its own, the built-in font draws the
-    /// text in its place and the frit has no own cell. The console then
-    /// takes the cell of its configuration, as for a console with no font
-    /// named. A text font that has failed as it drew is left out for the
+    /// font out, or the frit has no source of its own, the built-in font
+    /// draws the text in its place and the frit has no own cell. The
+    /// reason then names the text font and says why the font helper left
+    /// it out. The console takes the cell of its configuration, as for a
+    /// console with no font named. A text font that has failed as it drew is left out for the
     /// engine's life, as it is for glyphs, and the frit's next own regular
     /// source sets the cell. A layer's source never sets it. A bitmap first
     /// source gives its own cell, once every later bitmap source's cell
@@ -39,10 +89,8 @@ impl Engine {
     ///   configuration, and a layer's font never sets the cell.
     pub fn own_cell(&self, height: u32) -> Result<OwnCell, String> {
         match &self.text_left_out {
-            Some(TextOut::LeftOut(text, _)) => {
-                return Err(format!(
-                    "the text font source={text} is missing or cannot be read, so the built-in font draws the text in its place, and the cell comes from the configuration"
-                ));
+            Some(TextOut::LeftOut { spelling, why, .. }) => {
+                return Err(text_left_out(spelling, why));
             }
             Some(TextOut::Dropped(text, _)) => {
                 return Err(format!(

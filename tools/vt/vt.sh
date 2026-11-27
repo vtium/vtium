@@ -3,7 +3,8 @@
 # vt-accept, vt-login, vt-check and vt-shell run it (docs/vt-review.md):
 # picks the development VT, or a free VT where there is none, runs run-vt.sh
 # there through sudo, and when the run ends prints a health check of vtium's
-# log and the run's answers.
+# log and the run's answers. Before the acceptance pass, it refuses to start
+# while a font that the pass's font sets use is not active (check_fonts).
 #
 #   vt.sh [N] [-- VTIUM-OPTION...]
 #
@@ -161,6 +162,68 @@ if [ -n "$image" ]; then
 	[ -f "$image" ] && [ -x "$image" ] || die "no image helper at $image: build it first (make image-release)"
 	helper_arg+=(--image="$image")
 fi
+
+# The acceptance pass judges each font page in the font sets that the page's
+# "# frits:" and "# font-switch:" lines name. vtium draws a font only while
+# the batch file lists it, and treats any other font as missing, so a font
+# set whose fonts are not active draws in vtium's built-in font, and the
+# pass would judge that font instead. So before vtium starts, vt.sh asks
+# vtium check-config, with the binary the run starts, about each font set
+# the chosen pages use, and refuses the run when the check finds a font file
+# that vtium would treat as missing. A font file that does not exist is the
+# pass's own to report: accept.sh shows such a page as one it cannot show.
+inactive_re=": The font (/.+) is not active, so vtium treats it as missing and draws its characters from the next font in the set\. A font is active while (/.+) lists the file's path\."
+refused_re=": vtium treats the font (/.+) as missing, because (.+) vtium draws its characters from the next font in the set\.$"
+check_fonts() {
+	local names name dir out status line batch='' refused='' found=() activate=() wanted=() seen=" "
+	names=$(ACCEPT_ONLY=${VTIUM_VT_PAGES:-} ACCEPT_PAGES='' "$here/accept.sh" --frits) ||
+		die "accept.sh cannot list the font sets the pass uses (above)"
+	[ -n "$names" ] || return 0
+	mapfile -t wanted <<<"$names"
+	dir=$(mktemp -d "${TMPDIR:-/tmp}/vt-fonts.XXXXXX") || die "cannot create a directory for the font check"
+	for name in "${wanted[@]}"; do
+		[ -f "$here/sections/frits/$name.vtfrit" ] || continue
+		printf 'font-name=%s\n' "$name" >"$dir/vtium.conf"
+		status=0
+		out=$("$bin" --font-frits="$here/sections/frits" check-config --no-devices "$dir/vtium.conf" 2>&1 >/dev/null) ||
+			status=$?
+		case $status in
+		0 | 1 | 6) ;;
+		*)
+			rm -rf -- "$dir"
+			die "vtium check-config failed with status $status on the font set $name, so vt.sh cannot tell whether its fonts are active:"$'\n'"$out" ;;
+		esac
+		while IFS= read -r line; do
+			if [[ $line =~ $inactive_re ]]; then
+				found+=("  font set $name: ${BASH_REMATCH[1]} is not active")
+				batch=${BASH_REMATCH[2]}
+				[[ $seen == *" ${BASH_REMATCH[1]} "* ]] || activate+=("${BASH_REMATCH[1]}")
+				seen+="${BASH_REMATCH[1]} "
+			elif [[ $line =~ $refused_re ]]; then
+				found+=("  font set $name: ${BASH_REMATCH[1]}: ${BASH_REMATCH[2]}")
+				refused=1
+			fi
+		done <<<"$out"
+	done
+	rm -rf -- "$dir"
+	[ ${#found[@]} -gt 0 ] || return 0
+	{
+		echo "vt: vtium cannot use some fonts that the acceptance pass needs."
+		echo "vtium treats each font below as missing, so the pages that use it would show vtium's built-in font instead. The pass judges a font page only with its fonts active, so vt.sh does not start the pass. vtium check-config names each font:"
+		printf '%s\n' "${found[@]}"
+		if [ ${#activate[@]} -gt 0 ]; then
+			echo "To activate the fonts that are not active, run this command, then start the pass again:"
+			printf '  vtium config activate'
+			printf ' %q' "${activate[@]}"
+			printf ' --install\n'
+			echo "Or add each path, one a line, to the batch file $batch."
+		fi
+		[ -z "$refused" ] ||
+			echo "For each other font, its line says why vtium refuses the file. Fix that, then start the pass again."
+	} >&2
+	exit 1
+}
+[ "$mode" != accept ] || check_fonts
 
 dry=${VTIUM_VT_DRY_RUN:-}
 case $dry in '' | 1) ;; *) die "VTIUM_VT_DRY_RUN=$dry: 1 or nothing" ;; esac

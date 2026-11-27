@@ -651,6 +651,10 @@ impl Head {
         let Some(console) = self.console_mut(id) else {
             return after;
         };
+        // A text area request whose search waits for the font helper goes
+        // with the session that asked for it, so the next session's output
+        // is not held and the request is never carried out for it.
+        console.term.sizing = None;
         // The session's request to the image helper goes with it, so the
         // reset below finds the terminal taking input.
         #[cfg(feature = "images")]
