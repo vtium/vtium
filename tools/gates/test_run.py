@@ -11,6 +11,7 @@ it.
 """
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -41,10 +42,10 @@ class Gates(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def run_gates(self, *gates, jobs="8"):
-        env = dict(os.environ, GATE_LINE="\n".join(gates))
+    def run_gates(self, *gates, jobs="8", args=(), **extra):
+        env = dict(os.environ, GATE_LINE="\n".join(gates), **extra)
         env.pop("CARGO_TARGET_DIR", None)
-        return subprocess.run(["python3", "-I", "-B", str(RUN), "--jobs", jobs, "--dir", str(self.dir)],
+        return subprocess.run(["python3", "-I", "-B", str(RUN), "--jobs", jobs, "--dir", str(self.dir), *args],
                               env=env, cwd=self.tmp, capture_output=True, text=True, timeout=WAIT_BOUND * 2)
 
     def table(self, p):
@@ -99,6 +100,46 @@ class Gates(unittest.TestCase):
         dirs = [(self.tmp / n).read_text().strip() for n in ("one", "two", "three")]
         self.assertEqual(dirs, [str(self.dir / f"echo-cargo-target-dir-{n}") for n in ("one", "two", "three")])
 
+    def test_a_build_root_holds_the_target_directories_and_dir_the_logs(self):
+        root = self.tmp / "root"
+        p = self.run_gates('echo "$CARGO_TARGET_DIR" > one', args=("--build-root", str(root)))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.tmp / "one").read_text().strip(), str(root / "echo-cargo-target-dir-one"))
+        self.assertEqual((self.dir / "build-root").read_text().strip(), str(root))
+        self.assertTrue((self.dir / "logs" / "01-echo-cargo-target-dir-one.log").exists())
+
+    def test_auto_names_the_checkout_and_removes_the_roots_of_gone_checkouts(self):
+        parent = self.tmp / "ramdisk"
+        gone = parent / "gone"
+        gone.mkdir(parents=True)
+        (gone / "checkout").write_text(f"{self.tmp / 'no-such-checkout'}\n")
+        kept = parent / "kept"
+        kept.mkdir()
+        (kept / "checkout").write_text(f"{self.tmp}\n")
+        p = self.run_gates('echo "$CARGO_TARGET_DIR" > one', args=("--build-root", "auto"),
+                           VTIUM_GATES_DIR=str(parent))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        root = parent / re.sub(r"[^A-Za-z0-9._-]+", "-", str(self.tmp.resolve())).strip("-")
+        self.assertEqual((self.tmp / "one").read_text().strip(), str(root / "echo-cargo-target-dir-one"))
+        self.assertEqual((root / "checkout").read_text().strip(), str(self.tmp.resolve()))
+        self.assertFalse(gone.exists(), "the root of a checkout that is gone stays")
+        self.assertTrue(kept.exists(), "the root of a checkout that exists went")
+
+    def test_the_longest_gates_of_the_last_run_start_first(self):
+        # Two jobs. The second and third gates each leave a mark and wait for
+        # the other's, and the first passes only if both marks are there when
+        # it starts: the run passes only if the two longest gates of the last
+        # run start first. A gate with no recorded time would start before
+        # them all.
+        gates = ["[ -e a ] && [ -e b ]", f": > a; {wait_for(self.tmp / 'b')}", f": > b; {wait_for(self.tmp / 'a')}"]
+        self.dir.mkdir()
+        (self.dir / "durations.tsv").write_text(f"1\t{gates[0]}\n90\t{gates[1]}\n80\t{gates[2]}\n")
+        p = self.run_gates(*gates, jobs="2")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.table(p), [f"0  {g}" for g in gates])
+        recorded = (self.dir / "durations.tsv").read_text().splitlines()
+        self.assertEqual([line.split("\t", 1)[1] for line in recorded], gates)
+
     def test_each_gates_output_goes_to_its_log_alone(self):
         p = self.run_gates("echo out of the first; echo its error >&2", "echo out of the second")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -148,8 +189,9 @@ class Gates(unittest.TestCase):
 
 
 class Make(unittest.TestCase):
-    """make gates hands the script JOBS, 8 unless set, and a directory under
-    the target directory in use."""
+    """make gates hands the script JOBS, half the cores and at least 8 unless
+    set, a directory under the target directory in use, and the ramdisk's
+    choice of build root unless the caller set CARGO_TARGET_DIR."""
 
     def dry_run(self, *args, **env):
         environ = {k: v for k, v in os.environ.items()
@@ -160,14 +202,16 @@ class Make(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         return p.stdout
 
-    def test_jobs_is_8_unless_set(self):
-        self.assertIn(f"tools/gates/run --jobs 8 --dir {ROOT}/target/gates", self.dry_run())
+    def test_jobs_is_half_the_cores_and_at_least_8_unless_set(self):
+        jobs = max(8, os.cpu_count() // 2)
+        self.assertIn(f"tools/gates/run --jobs {jobs} --dir {ROOT}/target/gates --build-root auto", self.dry_run())
         self.assertIn("tools/gates/run --jobs 4 ", self.dry_run("JOBS=4"))
         self.assertIn("tools/gates/run --jobs 1 ", self.dry_run("JOBS=1"))
         self.assertIn("tools/gates/run --jobs 3 ", self.dry_run(JOBS="3"))
 
     def test_the_directory_follows_cargo_target_dir(self):
-        self.assertIn("--dir /elsewhere/build/gates", self.dry_run(CARGO_TARGET_DIR="/elsewhere/build"))
+        self.assertIn("--dir /elsewhere/build/gates --build-root /elsewhere/build/gates",
+                      self.dry_run(CARGO_TARGET_DIR="/elsewhere/build"))
         self.assertIn(f"--dir {ROOT}/relative/gates", self.dry_run("CARGO_TARGET_DIR=relative"))
 
 

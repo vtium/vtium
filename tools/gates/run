@@ -6,7 +6,7 @@ Usage:
 
     make gates
     make gates JOBS=4
-    GATE_LINE="$(...)" tools/gates/run --jobs N --dir DIR
+    GATE_LINE="$(...)" tools/gates/run --jobs N --dir DIR [--build-root ROOT|auto]
 
 `make gates` runs this script. The Makefile's GATE_LINE lists the gates, one
 command per line in the gate line's order, and reaches the script through the
@@ -28,14 +28,33 @@ With N above 1 it goes to the log alone, so the output of gates that run at the
 same time never interleaves, and the terminal gets a line as each gate starts
 and as it ends.
 
-Each gate runs with CARGO_TARGET_DIR set to DIR/NAME, a cargo target directory
-of its own. Two gates that shared one would wait on each other's lock on it,
-and two that build with different features, such as `make test-all-features`
-and `make test-default`, would each rebuild what the other
-built. Each directory stays between runs, so a second run builds only what
-changed. The Makefile's targets read CARGO_TARGET_DIR wherever they name a
-cargo target directory, except `make msrv`, which builds in target/msrv, a
-directory no other gate uses.
+Each gate runs with CARGO_TARGET_DIR set to ROOT/NAME, a cargo target directory
+of its own. ROOT is DIR unless --build-root names another directory. Two gates
+that shared one would wait on each other's lock on it, and two that build with
+different features, such as `make test-all-features` and `make test-default`,
+would each rebuild what the other built. Each directory stays between runs, so
+a second run builds only what changed. The Makefile's targets read
+CARGO_TARGET_DIR wherever they name a cargo target directory.
+
+With --build-root auto, the target directories go on the ramdisk when /tmp is a
+tmpfs, because builds there never wait on the disk. ROOT is then
+/tmp/vtium-gates/CHECKOUT, or $VTIUM_GATES_DIR/CHECKOUT when that variable is
+set, where CHECKOUT is the checkout's path with each run of other characters
+than letters, digits, dots, underscores and hyphens made one hyphen. The name
+carries the whole path, so two worktrees never share a target directory. The
+script uses /tmp only while it has room: 48 GiB free for a new ROOT, or 16 GiB
+for a ROOT that an earlier run left. Otherwise ROOT is DIR, on the disk.
+VTIUM_GATES_DIR skips the check, since whoever sets it chose the place. A
+target directory grows with every run, so a ROOT on /tmp that has grown past
+80 GiB is removed before the run, which then builds from the start. The script
+also removes each ROOT under the same parent whose checkout no longer exists,
+which it reads from the file ROOT/checkout. It writes the ROOT it chose to
+DIR/build-root, where `make gates` reads it for the minspec size build.
+
+With N above 1, the gates start in the order of the time each took in the last
+run, the longest first, so that the longest gates never wait for a free slot at the
+end. The script records those times in DIR/durations.tsv. A gate with no
+recorded time starts first, in the gate line's order.
 
 When every gate has ended, the script prints a table with one line per gate in
 the gate line's order: the gate's exit code, two spaces and the gate. Then it
@@ -47,6 +66,7 @@ when the gate list is empty or --jobs is not a whole number of 1 or more.
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -72,16 +92,105 @@ def gates_of(text):
     return list(zip(gates, names))
 
 
+GIB = 1 << 30
+# The space /tmp needs free for a new ROOT and for one an earlier run left,
+# and the size past which a ROOT on /tmp is removed before the run.
+TMPFS_NEW = 48 * GIB
+TMPFS_KEPT = 16 * GIB
+TMPFS_CAP = 80 * GIB
+
+
+def checkout_name(path):
+    """The checkout's path as one directory name."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", str(path)).strip("-")
+
+
+def is_tmpfs(mount):
+    """Whether `mount` is the mount point of a tmpfs."""
+    try:
+        with open("/proc/self/mounts") as f:
+            return any(line.split()[1:3] == [mount, "tmpfs"] for line in f)
+    except OSError:
+        return False
+
+
+def size_of(path):
+    """The bytes the files under `path` take, without following links."""
+    total = 0
+    for top, dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(top, f)).st_blocks * 512
+            except OSError:
+                pass
+    return total
+
+
+def prune(parent, keep):
+    """Removes each ROOT under `parent`, other than `keep`, whose recorded
+    checkout no longer exists."""
+    try:
+        roots = list(parent.iterdir())
+    except OSError:
+        return
+    for root in roots:
+        if root == keep:
+            continue
+        try:
+            checkout = (root / "checkout").read_text().strip()
+        except OSError:
+            continue
+        if checkout and not Path(checkout).is_dir():
+            print(f"gates: removing {root}, whose checkout {checkout} is gone", flush=True)
+            shutil.rmtree(root, ignore_errors=True)
+
+
+def auto_root(dir, checkout):
+    """The ROOT --build-root auto chooses, as the docstring describes."""
+    chosen = os.environ.get("VTIUM_GATES_DIR")
+    parent = Path(chosen) if chosen else Path("/tmp/vtium-gates")
+    root = parent / checkout_name(checkout)
+    if not chosen:
+        if not is_tmpfs("/tmp"):
+            return dir
+        if root.exists() and size_of(root) > TMPFS_CAP:
+            print(f"gates: {root} has grown past {TMPFS_CAP // GIB} GiB, so the gates build from the start",
+                  flush=True)
+            shutil.rmtree(root, ignore_errors=True)
+        free = shutil.disk_usage("/tmp").free
+        if free < (TMPFS_KEPT if root.exists() else TMPFS_NEW):
+            print(f"gates: /tmp has {free // GIB} GiB free, so the gates build in {dir}", flush=True)
+            return dir
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "checkout").write_text(f"{checkout}\n")
+    prune(parent, root)
+    return root
+
+
+def read_durations(path):
+    """{gate: seconds} from the last run's durations.tsv, or {}."""
+    out = {}
+    try:
+        for line in path.read_text().splitlines():
+            secs, _, gate = line.partition("\t")
+            out[gate] = float(secs)
+    except (OSError, ValueError):
+        return {}
+    return out
+
+
 class Run:
     """One run of the gates: where their logs and target directories go, and
     the lock that keeps the lines the script prints whole."""
 
-    def __init__(self, gates, jobs, root):
+    def __init__(self, gates, jobs, dir, build_root=None):
         self.gates = gates
         self.jobs = jobs
-        self.root = root
-        self.logs = root / "logs"
+        self.dir = dir
+        self.root = build_root or dir
+        self.logs = dir / "logs"
         self.lock = threading.Lock()
+        self.took = {}
 
     def say(self, line):
         with self.lock:
@@ -109,7 +218,9 @@ class Run:
             code = 128 - code
         # The time a gate took is printed for the person reading the run;
         # nothing the script decides depends on it.
-        self.say(f"<== {code}  {gate} ({time.monotonic() - start:.0f} s)")
+        took = time.monotonic() - start
+        self.took[gate] = took
+        self.say(f"<== {code}  {gate} ({took:.0f} s)")
         return code
 
     def tee(self, gate, env, out):
@@ -125,9 +236,19 @@ class Run:
 
     def run(self):
         self.logs.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True)
+        if self.root != self.dir:
+            print(f"gates: the gates build in {self.root}", flush=True)
+        # With more than one job, the longest gates of the last run start
+        # first; the order of the table does not change.
+        durations = self.dir / "durations.tsv"
+        last = read_durations(durations) if self.jobs > 1 else {}
+        order = sorted(range(len(self.gates)),
+                       key=lambda i: -last.get(self.gates[i][0], float("inf")))
         pool = ThreadPoolExecutor(max_workers=self.jobs)
         try:
-            codes = list(pool.map(self.gate, range(len(self.gates))))
+            futures = {i: pool.submit(self.gate, i) for i in order}
+            codes = [futures[i].result() for i in range(len(self.gates))]
         except KeyboardInterrupt:
             # Ctrl-C reached the running gates too, which share this
             # script's process group; the gates still waiting never start.
@@ -135,6 +256,7 @@ class Run:
             print("gates: interrupted", file=sys.stderr)
             return 130
         pool.shutdown()
+        durations.write_text("".join(f"{self.took[g]:.0f}\t{g}\n" for g, _ in self.gates))
         print()
         print("exit  gate")
         for (gate, _), code in zip(self.gates, codes):
@@ -154,7 +276,11 @@ def main():
     ap = argparse.ArgumentParser(description="Run the gates of GATE_LINE, several at once, each to the end.")
     ap.add_argument("--jobs", default="8", help="the most gates that run at once (default 8)")
     ap.add_argument("--dir", required=True, type=Path,
-                    help="where the logs and each gate's cargo target directory go")
+                    help="where the logs go, and each gate's cargo target directory unless "
+                         "--build-root names another place")
+    ap.add_argument("--build-root", metavar="ROOT|auto",
+                    help="where each gate's cargo target directory goes; auto picks the "
+                         "ramdisk when /tmp is a tmpfs with room (default DIR)")
     args = ap.parse_args()
     if not re.fullmatch(r"[1-9][0-9]*", args.jobs):
         print(f"gates: JOBS={args.jobs}: a whole number of 1 or more", file=sys.stderr)
@@ -167,7 +293,14 @@ def main():
     if not gates:
         print("gates: the gate list is empty", file=sys.stderr)
         return 2
-    return Run(gates, int(args.jobs), args.dir.resolve()).run()
+    dir = args.dir.resolve()
+    if args.build_root == "auto":
+        root = auto_root(dir, Path.cwd().resolve())
+    else:
+        root = Path(args.build_root).resolve() if args.build_root else dir
+    dir.mkdir(parents=True, exist_ok=True)
+    (dir / "build-root").write_text(f"{root}\n")
+    return Run(gates, int(args.jobs), dir, root).run()
 
 
 if __name__ == "__main__":

@@ -8,6 +8,34 @@
 # a release ships need at most glibc 2.36.
 X86_TARGET := x86_64-unknown-linux-gnu
 
+# The machine's cores, from which make gates and tier 3 choose how much to
+# run at once.
+CORES := $(shell nproc 2>/dev/null || echo 8)
+
+# Every cargo build this file starts goes through sccache when it is
+# installed. sccache keeps each compiled crate in a cache that every vtium
+# checkout shares, under $XDG_CACHE_HOME/vtium/sccache, so a fresh worktree or
+# a gate's fresh target directory takes the crates it already compiled from
+# the cache. sccache skips the crates cargo builds incrementally, the
+# workspace's own crates in a debug build, and binaries and proc macros; it
+# caches the dependencies, and every crate of a release build. A build
+# without sccache works the same, only slower. A RUSTC_WRAPPER set by the
+# caller wins, so `make gates RUSTC_WRAPPER=` builds without sccache.
+# SCCACHE_DIR and SCCACHE_CACHE_SIZE from the environment win over the
+# defaults here.
+SCCACHE_VERSION = 0.20.1
+SCCACHE_INSTALL = cargo install --locked sccache@$(SCCACHE_VERSION)
+SCCACHE := $(if $(filter undefined,$(origin RUSTC_WRAPPER)),$(shell command -v sccache 2>/dev/null))
+ifneq ($(SCCACHE),)
+export RUSTC_WRAPPER := $(SCCACHE)
+export SCCACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/vtium/sccache
+export SCCACHE_CACHE_SIZE ?= 30G
+endif
+# make gates names the install command when sccache is missing.
+define sccache-note
+@$(if $(SCCACHE)$(filter-out undefined,$(origin RUSTC_WRAPPER)),:,echo "note: sccache is not installed, so the gates compile every crate themselves. Install it with: $(SCCACHE_INSTALL)")
+endef
+
 # The binary the VT review runs. It runs as root, so it is named in this file
 # or on make's command line (make vt-accept VTIUM_BIN=PATH), never taken from a
 # stale export in the shell. The default is the minspec build, which the vt
@@ -655,9 +683,11 @@ arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link agains
 	tools/arm/sysroot fetch arm64 armhf
 
 # The oldest Rust vtium builds on: the rust-version Cargo.toml declares. The
-# build has a target directory of its own, so the gates' other builds keep
-# theirs.
+# build has a target directory of its own, msrv under the target directory
+# in use, so the other builds keep theirs; under make gates that is in the
+# gate's own directory.
 MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"$$/\1/p' Cargo.toml)
+MSRV_DIR = $(or $(CARGO_TARGET_DIR),target)/msrv
 
 # make deny, a gate, checks the license and the source of every crate that a
 # lock file of vtium's names, and runs cargo-deny's bans check on them, against
@@ -716,11 +746,11 @@ advisories: ## Check the workspace's crates against the RustSec advisory databas
 	cargo deny --locked check advisories
 
 .PHONY: msrv
-msrv: ## Build the workspace, its tests and the minspec profile with the oldest Rust vtium builds on, Cargo.toml's rust-version, in target/msrv (rustup installs that Rust when it is missing)
+msrv: ## Build the workspace, its tests and the minspec profile with the oldest Rust vtium builds on, Cargo.toml's rust-version, in target/msrv or CARGO_TARGET_DIR/msrv (rustup installs that Rust when it is missing)
 	@[ -n "$(MSRV)" ] || { echo "msrv: Cargo.toml declares no rust-version" >&2; exit 1; }
 	@rustup run $(MSRV) rustc --version >/dev/null 2>&1 || rustup toolchain install $(MSRV) --profile minimal --no-self-update
-	cargo +$(MSRV) build --workspace --all-features --all-targets --locked --target-dir target/msrv
-	cargo +$(MSRV) build --profile minspec --locked --target-dir target/msrv
+	cargo +$(MSRV) build --workspace --all-features --all-targets --locked --target-dir $(MSRV_DIR)
+	cargo +$(MSRV) build --profile minspec --locked --target-dir $(MSRV_DIR)
 
 .PHONY: arm
 arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE/minspec (ARM_TARGETS='...'; needs clang)
@@ -1366,16 +1396,20 @@ awk 'f && /^```/ { f = 0; done = 1 } f { sub(/^ *(&& )?/, ""); sub(/ \\$$/, "");
 endef
 
 # make gates runs the gate line's gates through tools/gates/run, up to
-# JOBS=N at once, 8 unless JOBS is set on the command line or in the
-# environment; the file's own JOBS is tier 3's, 1. Each gate builds in a
-# target directory of its own, $(GATES_DIR)/NAME, and writes its output to
-# $(GATES_DIR)/logs/NN-NAME.log; the script's docstring describes the run
-# and its report. No gate needs the machine to itself. A CARGO_TARGET_DIR
-# set by the caller must not be shared by worktrees whose sources differ
-# (AGENTS.md, "The gates").
+# JOBS=N at once: half the machine's cores, and at least 8, unless JOBS is
+# set on the command line or in the environment; the file's own JOBS is tier
+# 3's. Each gate builds in a target directory of its own, ROOT/NAME, and
+# writes its output to $(GATES_DIR)/logs/NN-NAME.log; the script's docstring
+# describes the run and its report. ROOT is on the ramdisk,
+# /tmp/vtium-gates/CHECKOUT or $VTIUM_GATES_DIR/CHECKOUT, when /tmp is a
+# tmpfs with room, and $(GATES_DIR) otherwise or when the caller sets
+# CARGO_TARGET_DIR. The gates that took longest in the last run start first.
+# No gate needs the machine to itself. A CARGO_TARGET_DIR set by the caller
+# must not be shared by worktrees whose sources differ (AGENTS.md, "The
+# gates").
 #
 # After the gates, make gates builds the minspec binary with make minspec,
-# in $(GATES_DIR)/minspec-size, and tools/gates/minspec-size prints its size
+# in ROOT/minspec-size, and tools/gates/minspec-size prints its size
 # against tier 3's budget. make minspec builds the binary that tier 3
 # measures, and the gate cargo build --profile minspec builds another one,
 # without the minspec link flags. The report is not a gate: a binary over
@@ -1389,22 +1423,26 @@ endef
 #
 # References:
 # - ADR-1200 D19: the minspec binary's size budget.
-GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),8)
+GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),$(shell echo $$(( $(CORES) / 2 > 8 ? $(CORES) / 2 : 8 ))))
 GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
+GATES_ROOT = $(if $(CARGO_TARGET_DIR),$(GATES_DIR),auto)
 GATES_SIZE_LOG = $(GATES_DIR)/logs/minspec-size.log
 # The recipe names make through this variable rather than as $(MAKE): make
 # runs a recipe line that names $(MAKE) even under make -n, and make -n gates
-# must print the gates' line without running the gates.
-GATES_SIZE_BUILD = $(MAKE) --no-print-directory minspec CARGO_TARGET_DIR=$(GATES_DIR)/minspec-size \
+# must print the gates' line without running the gates. The shell variable
+# build_root holds the ROOT that tools/gates/run chose.
+GATES_SIZE_BUILD = $(MAKE) --no-print-directory minspec CARGO_TARGET_DIR=$$build_root/minspec-size \
 	FEATURES= HWACCEL= DISPLAY_BUFFERS=
 
 .PHONY: gates
-gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed; then report the minspec binary's size against tier 3's budget
-	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR); code=$$?; \
+gates: ## Run every gate of the gate line, up to JOBS=N at once (default half the cores, at least 8), each to the end, report each exit code and fail if any failed; then report the minspec binary's size against tier 3's budget
+	$(sccache-note)
+	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR) --build-root $(GATES_ROOT); code=$$?; \
 	[ $$code -eq 0 ] || [ $$code -eq 1 ] || exit $$code; \
+	build_root=$$(cat $(GATES_DIR)/build-root); \
 	echo; echo "==> make minspec, for the size of the binary tier 3 measures (log: $(GATES_SIZE_LOG))"; \
 	if $(GATES_SIZE_BUILD) >$(GATES_SIZE_LOG) 2>&1 </dev/null; then \
-		python3 -I -B tools/gates/minspec-size $(GATES_DIR)/minspec-size/$(X86_TARGET)/minspec/vtium; \
+		python3 -I -B tools/gates/minspec-size $$build_root/minspec-size/$(X86_TARGET)/minspec/vtium; \
 	else \
 		echo "warning: make minspec failed, so make gates cannot report the minspec binary's size. Its log is $(GATES_SIZE_LOG)."; \
 	fi; \
