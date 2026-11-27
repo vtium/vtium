@@ -13,12 +13,16 @@
 //! source is a bitmap font with strikes, they are the strikes' heights and
 //! the whole multiples of the tallest strike. vtium asks the font helper
 //! which strike draws at the heights it tries, so a request lands on a
-//! strike. All the asks of one request share one wait for the helper's
-//! answers ([`App::strike_step`]). When the helper has not answered a
-//! height the search needs by then, vtium resizes nothing yet: it carries
-//! the search on at each turn that takes the helper's late answers
-//! ([`App::resume_climbs`]), and the console that asked takes none of its
-//! program's output until the search ends. So a slow helper delays the
+//! strike. An outline font set's cell differs at each height, so vtium
+//! asks the font helper for the cell at each height it tries, and measures
+//! the grid there in the cell the set draws, not in the built-in font's
+//! width that stands in for it until the helper answers
+//! ([`App::cell_known`]). All the asks of one request share one wait for
+//! the helper's answers ([`App::strike_step`]). When the helper has not
+//! answered a height the search needs by then, vtium resizes nothing yet:
+//! it carries the search on at each turn that takes the helper's late
+//! answers ([`App::resume_climbs`]), and the console that asked takes none
+//! of its program's output until the search ends. So a slow helper delays the
 //! request, and the grid is the one a fast helper gives.
 //!
 //! - An omitted side keeps the length it has, and a side of 0 takes the
@@ -102,18 +106,26 @@ impl App {
             want.0.is_none_or(|c| grid.0 >= c) && want.1.is_none_or(|r| grid.1 >= r)
         };
         let mut at = head.font_size;
-        let Some(mut fit) = fit_at(head, at, &locale) else {
-            return;
-        };
         // Every ask of the font helper that the request makes shares one
         // wait for the answers.
         let end = after((self.clock)(), Duration::from_millis(helper::OWN_CELL_MS));
+        // The grid the displays hold at a height, in the cell the font set
+        // draws there.
+        let measure = |app: &mut App, at: u32| {
+            app.cell_known(h, at, end)?;
+            let grid = app.heads.get(h).and_then(|head| fit_at(head, at, &locale));
+            grid.ok_or(NoStep::End)
+        };
+        let mut fit = match measure(self, at) {
+            Ok(grid) => grid,
+            Err(NoStep::Owed) => return self.climb_waits(h, request),
+            Err(NoStep::End) => return,
+        };
         // The next height in a direction, and the grid the displays hold
         // there.
         let next = |app: &mut App, at: u32, dir: Zoom| {
             let n = app.size_step(h, at, dir, dpi, end)?;
-            let grid = app.heads.get(h).and_then(|head| fit_at(head, n, &locale));
-            grid.map(|grid| (n, grid)).ok_or(NoStep::End)
+            measure(app, n).map(|grid| (n, grid))
         };
         // Down a step at a time until the grid holds what is asked, or to
         // the smallest step, where a side the displays cannot hold becomes
@@ -364,6 +376,59 @@ impl App {
                 .ok_or(NoStep::End),
             Strike::Owed => Err(NoStep::Owed),
             Strike::Short | Strike::Unknown => Err(NoStep::End),
+        }
+    }
+
+    /// Asks the font helper for the cell that head `h`'s font set draws in
+    /// at `at`, unless the set knows it, so that the grid the search
+    /// measures there is the one the set draws. An outline font set's cell
+    /// differs at each height, and until the helper answers at a height
+    /// the set draws there as wide as the built-in font. A text area
+    /// request that measured the heights it tries in that width would cap
+    /// a grid the displays hold in the set's narrower cell, and the grid
+    /// would leave empty bars at the displays' sides. The ask waits until
+    /// `end`, which every ask of one request shares. [`NoStep::Owed`] says
+    /// that the answer has yet to come while the helper still runs, and
+    /// the caller carries the search on once it comes
+    /// ([`App::resume_climbs`]). Where the helper refused the height or
+    /// cannot answer, the set draws in the built-in font's width there,
+    /// and the search measures that width.
+    ///
+    /// References:
+    /// - ADR-1200 D17: an outline font set asks for its cell at each
+    ///   height, and draws as wide as the built-in font where no answer
+    ///   comes.
+    fn cell_known(&mut self, h: usize, at: u32, end: Instant) -> Result<(), NoStep> {
+        let wants = |app: &App| {
+            app.heads.get(h).is_some_and(|head| {
+                head.font
+                    .as_ref()
+                    .is_some_and(|f| f.wants_own_cell(at, head.sized()))
+            })
+        };
+        if !wants(self) {
+            return Ok(());
+        }
+        let wait = end.saturating_duration_since((self.clock)());
+        self.own_cell_within(h, at, wait);
+        if !wants(self) {
+            return Ok(());
+        }
+        let Some(frit) = self
+            .heads
+            .get(h)
+            .and_then(Head::frit)
+            .and_then(|name| self.frits.get(name))
+        else {
+            return Ok(());
+        };
+        let running = frit
+            .helper
+            .as_ref()
+            .is_some_and(|helper| helper.failed().is_none());
+        match frit.own.get(&at) {
+            Some(Err(no)) if no.late && running => Err(NoStep::Owed),
+            _ => Ok(()),
         }
     }
 
