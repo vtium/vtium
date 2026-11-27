@@ -162,9 +162,13 @@ fn sample_screen((cols, rows): (usize, usize)) -> Vec<super::canvas::Row> {
         .collect()
 }
 
-/// The most columns and rows a picture's screen is laid out at, whatever
-/// the cell: past this the screen's text is more than a picture holds.
-pub const GRID_MAX: (usize, usize) = (1024, 1024);
+/// The most columns and rows a picture's screen, and a size trial's grid,
+/// are laid out at, whatever the cell. It bounds the work and memory of a
+/// picture, and sits above what a full 8K display holds: about 1,100
+/// columns at a 7-pixel cell. A display 16K pixels wide still meets the
+/// bound at small cells (2,560 columns at 6 pixels), an extreme case for
+/// now. Raise it here.
+pub const GRID_MAX: (usize, usize) = (2048, 2048);
 
 /// The live trial: the font tried, the font it puts back, and the ticks
 /// left before it does. A trial of a size in the font set the console
