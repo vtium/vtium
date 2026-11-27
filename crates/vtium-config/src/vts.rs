@@ -423,7 +423,7 @@ fn first_up(text: &str) -> String {
     })
 }
 
-// The words this step shows (AGENTS.md, "Strings on screen").
+// The words this step shows (crates/AGENTS.md, "Strings on screen").
 
 /// What `vtium console status` failing means.
 pub const STATUS_UNREADABLE: &str = "vtium-config cannot tell where vtium runs, because vtium console status failed. So vtium-config enables vtium on no VT, and starts or restarts nothing. The new vtium.conf applies on each VT when vtium next starts there. This is the command and what it printed:";

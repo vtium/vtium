@@ -3,7 +3,7 @@
 //!
 //! The stand-in GL and the binary's adapter over vtium-platform's GL both
 //! keep a ledger and route each call through it, so the two refuse the same
-//! calls with the same errors (AGENTS.md: a stand-in checks what the real
+//! calls with the same errors (crates/AGENTS.md: a stand-in checks what the real
 //! part checks). Each method that makes, uses or frees a handle takes the
 //! GL work as a closure, which the ledger runs only once the call's
 //! arguments have passed, and hands it the implementation's own name for

@@ -94,7 +94,7 @@
 //! [`Helper::late_cells`] hands it on (ADR-1200 D17, the maintainer,
 //! 2026-11-03).
 //!
-//! The wire format is `vtium-config`'s serve mode's (`serve.rs`), whose
+//! The wire format is `vtium-config`'s serve mode's (`serve/wire.rs`), whose
 //! constants this module repeats.
 
 use std::cell::RefCell;

@@ -4,7 +4,7 @@ a distribution package installs vtium's programs and units	crates/vtium/install/
 its install script gives vtium every free VT, with vtium console enable --direct --all	crates/vtium/src/console.rs	run
 systemd starts vtium at boot on each VT it has	crates/vtium/install/vtium@.service	WantedBy=getty.target
 logind starts vtium when you switch to one of those VTs and no vtium runs there	crates/vtium/install/vtium@.service	Alias=autovt@.service
-logind starts a console on VTs 1 to 6 by itself	crates/vtium/src/console.rs	logind_starts
+logind starts a console on VTs 1 to 6 by itself	crates/vtium/src/console/state.rs	logind_starts
 vtium reads vtium.conf	crates/vtium/src/main.rs	main
 if vtium cannot use all of the file, it runs what it can and shows a notice	crates/vtium-settings/src/messages.rs	Line::text
 vtium opens its VT	crates/vtium/src/main.rs	run_kernel

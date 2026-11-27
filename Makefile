@@ -1505,7 +1505,7 @@ ci-local: ## Run the workspace's tests under cargo-nextest and its doctests, wit
 	@tools/ci-local/run --builds '$(BUILDS)' $(TEST_ARGS)
 
 # The steering session runs this before it moves stage to a commit of
-# integration (AGENTS.md, "The working loop", step 7). It fetches main from
+# integration (docs/contributing/steering.md, step 7). It fetches main from
 # origin and fails unless COMMIT descends from it, which happens when a stage
 # pull request has merged into main and main has not been merged back into
 # integration since.
