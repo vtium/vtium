@@ -87,6 +87,14 @@ class Size(unittest.TestCase):
             return subprocess.run(["python3", "-I", "-B", str(HERE / "minspec-size"), str(binary)],
                                   capture_output=True, text=True, env=dict(os.environ))
 
+    def test_each_crates_runs_go_in_lanes_of_up_to_four_sets_of_features(self):
+        runs = [("a", f"l{i}", []) for i in range(6)] + [("b", "no features", [])]
+        self.assertEqual(features.lanes(runs), [
+            ("a-0", runs[0:4]),
+            ("a-1", runs[4:6]),
+            ("b-0", runs[6:7]),
+        ])
+
     def test_the_budget_is_t3_impls(self):
         # Tier 3's own module gives the number, so a budget that t3_impl.py
         # computes or writes in another form still has to match.
