@@ -12,6 +12,18 @@ X86_TARGET := x86_64-unknown-linux-gnu
 # run at once.
 CORES := $(shell nproc 2>/dev/null || echo 8)
 
+# This machine keeps vtium's builds on a volume of their own, BUILD_VOLUME: a
+# btrfs file system that is compressed and never snapshotted, whose own timer
+# keeps its size in check. Each checkout builds under
+# BUILD_VOLUME/vtium/CHECKOUT, where CHECKOUT is the name of the checkout's
+# directory, such as vtium-integration, so two worktrees never share a build
+# directory. make gates builds in its gates/ directory, and tools/ci-local/run,
+# which names the same volume, in its ci-local/ directory. On a machine without
+# the volume, such as CI's runner, VTIUM_BUILDS is empty and the builds stay in
+# the checkout's target/.
+BUILD_VOLUME := /data/1/cargo
+VTIUM_BUILDS := $(if $(wildcard $(BUILD_VOLUME)/.),$(BUILD_VOLUME)/vtium/$(notdir $(CURDIR)))
+
 # Cargo writes a build's final artifacts to its target directory and its
 # intermediate files to its build directory, which a build.build-dir in
 # cargo's own configuration can set for every build of the checkout. Each
@@ -21,6 +33,9 @@ CORES := $(shell nproc 2>/dev/null || echo 8)
 # or wait on one lock. Rust 1.91 and later read CARGO_BUILD_BUILD_DIR; older
 # ones, as make msrv runs, ignore it and keep both in the target directory.
 build-dir = CARGO_BUILD_BUILD_DIR=$(1)
+# The same for a sub-make that builds in DIR: both directories on its command
+# line, so its cargo commands build there.
+own-dirs = CARGO_TARGET_DIR=$(1) CARGO_BUILD_BUILD_DIR=$(1)
 
 # Every cargo build this file starts goes through sccache when it is
 # installed. sccache keeps each compiled crate in a cache that every vtium
@@ -1414,21 +1429,24 @@ endef
 # make gates runs the gate line's gates through tools/gates/run, up to
 # JOBS=N at once: half the machine's cores, and at least 8, unless JOBS is
 # set on the command line or in the environment; the file's own JOBS is tier
-# 3's. Each gate builds in a target directory of its own, ROOT/NAME, and
+# 3's. Each gate builds in a directory of its own, VTIUM_GATES_DIR/NAME,
+# which is both its cargo target directory and its build directory, and
 # writes its output to $(GATES_DIR)/logs/NN-NAME.log; the script's docstring
-# describes the run and its report. ROOT is on the ramdisk,
-# /tmp/vtium-gates/CHECKOUT or $VTIUM_GATES_DIR/CHECKOUT, when /tmp is a
-# tmpfs with room, and $(GATES_DIR) otherwise or when the caller sets
-# CARGO_TARGET_DIR. The gates GATES_ON_DISK names build in $(GATES_DIR) all
-# the same: their tests make scratch directories beside the test binaries
-# and refuse one that a directory above it lets other users change, which
-# /tmp does (mode 1777). The gates that took longest in the last run start
-# first. No gate needs the machine to itself. A CARGO_TARGET_DIR set by the caller
+# describes the run and its report. VTIUM_GATES_DIR is
+# $(BUILD_VOLUME)/vtium/CHECKOUT/gates on the build volume, and
+# $(GATES_DIR), in the checkout's target/, on a machine without the volume
+# or when the caller sets CARGO_TARGET_DIR. A VTIUM_GATES_DIR from the
+# command line or the environment wins. The directories stay between runs,
+# so each run builds only what changed. After each run, the script removes
+# the directories under VTIUM_GATES_DIR that no gate of the run owns, and
+# keeps minspec-size; the volume's own timer keeps its size in check. The
+# gates that took longest in the last run start first. No gate needs the
+# machine to itself. A CARGO_TARGET_DIR or VTIUM_GATES_DIR set by the caller
 # must not be shared by worktrees whose sources differ (AGENTS.md, "The
 # gates").
 #
 # After the gates, make gates builds the minspec binary with make minspec,
-# in ROOT/minspec-size, and tools/gates/minspec-size prints its size
+# in VTIUM_GATES_DIR/minspec-size, and tools/gates/minspec-size prints its size
 # against tier 3's budget. make minspec builds the binary that tier 3
 # measures, and the gate cargo build --profile minspec builds another one,
 # without the minspec link flags. The report is not a gate: a binary over
@@ -1444,14 +1462,13 @@ endef
 # - ADR-1200 D19: the minspec binary's size budget.
 GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),$(shell echo $$(( $(CORES) / 2 > 8 ? $(CORES) / 2 : 8 ))))
 GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
-GATES_ROOT = $(if $(CARGO_TARGET_DIR),$(GATES_DIR),auto)
-GATES_ON_DISK = make-test-all-features make-test-default make-test-tools
+VTIUM_GATES_DIR ?= $(if $(and $(VTIUM_BUILDS),$(if $(CARGO_TARGET_DIR),,yes)),$(VTIUM_BUILDS)/gates,$(GATES_DIR))
+GATES_SIZE_DIR = $(abspath $(VTIUM_GATES_DIR))/minspec-size
 GATES_SIZE_LOG = $(GATES_DIR)/logs/minspec-size.log
 # The recipe names make through this variable rather than as $(MAKE): make
 # runs a recipe line that names $(MAKE) even under make -n, and make -n gates
-# must print the gates' line without running the gates. The shell variable
-# build_root holds the ROOT that tools/gates/run chose.
-GATES_SIZE_BUILD = $(MAKE) --no-print-directory minspec CARGO_TARGET_DIR=$$build_root/minspec-size \
+# must print the gates' line without running the gates.
+GATES_SIZE_BUILD = $(MAKE) --no-print-directory minspec $(call own-dirs,$(GATES_SIZE_DIR)) \
 	FEATURES= HWACCEL= DISPLAY_BUFFERS=
 
 # The gates' debug builds keep only line tables, the file and line of each
@@ -1462,14 +1479,13 @@ GATES_SIZE_BUILD = $(MAKE) --no-print-directory minspec CARGO_TARGET_DIR=$$build
 gates: export CARGO_PROFILE_DEV_DEBUG ?= line-tables-only
 
 .PHONY: gates
-gates: ## Run every gate of the gate line, up to JOBS=N at once (default half the cores, at least 8), each to the end, report each exit code and fail if any failed; then report the minspec binary's size against tier 3's budget
+gates: ## Run every gate of the gate line, up to JOBS=N at once (default half the cores, at least 8), each to the end and each in a build directory of its own under VTIUM_GATES_DIR (default /data/1/cargo/vtium/CHECKOUT/gates when that volume exists, otherwise target/gates), report each exit code and fail if any failed; then report the minspec binary's size against tier 3's budget
 	$(sccache-note)
-	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR) --build-root $(GATES_ROOT) $(addprefix --on-disk ,$(GATES_ON_DISK)); code=$$?; \
+	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR) --build-root $(abspath $(VTIUM_GATES_DIR)) --keep minspec-size; code=$$?; \
 	[ $$code -eq 0 ] || [ $$code -eq 1 ] || exit $$code; \
-	build_root=$$(cat $(GATES_DIR)/build-root); \
 	echo; echo "==> make minspec, for the size of the binary tier 3 measures (log: $(GATES_SIZE_LOG))"; \
 	if $(GATES_SIZE_BUILD) >$(GATES_SIZE_LOG) 2>&1 </dev/null; then \
-		python3 -I -B tools/gates/minspec-size $$build_root/minspec-size/$(X86_TARGET)/minspec/vtium; \
+		python3 -I -B tools/gates/minspec-size $(GATES_SIZE_DIR)/$(X86_TARGET)/minspec/vtium; \
 	else \
 		echo "warning: make minspec failed, so make gates cannot report the minspec binary's size. Its log is $(GATES_SIZE_LOG)."; \
 	fi; \

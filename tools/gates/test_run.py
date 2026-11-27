@@ -93,45 +93,43 @@ class Gates(unittest.TestCase):
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertEqual(self.table(p), ["143  kill -TERM $$"])
 
-    def test_each_gate_has_a_target_directory_of_its_own(self):
-        gates = [f'echo "$CARGO_TARGET_DIR" > {n}' for n in ("one", "two", "three")]
-        p = self.run_gates(*gates)
+    def test_each_gate_has_a_target_and_build_directory_of_its_own(self):
+        gates = [f'echo "$CARGO_TARGET_DIR $CARGO_BUILD_BUILD_DIR" > {n}' for n in ("one", "two", "three")]
+        p = self.run_gates(*gates, CARGO_BUILD_BUILD_DIR=str(self.tmp / "shared"))
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        dirs = [(self.tmp / n).read_text().strip() for n in ("one", "two", "three")]
-        self.assertEqual(dirs, [str(self.dir / f"echo-cargo-target-dir-{n}") for n in ("one", "two", "three")])
+        dirs = [(self.tmp / n).read_text().split() for n in ("one", "two", "three")]
+        own = [str(self.dir / f"echo-cargo-target-dir-cargo-build-build-dir-{n}") for n in ("one", "two", "three")]
+        self.assertEqual(dirs, [[d, d] for d in own])
 
-    def test_a_build_root_holds_the_target_directories_and_dir_the_logs(self):
+    def test_a_build_root_holds_the_cargo_directories_and_dir_the_logs(self):
         root = self.tmp / "root"
-        p = self.run_gates('echo "$CARGO_TARGET_DIR" > one', args=("--build-root", str(root)))
+        p = self.run_gates('echo "$CARGO_TARGET_DIR $CARGO_BUILD_BUILD_DIR" > one', args=("--build-root", str(root)))
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual((self.tmp / "one").read_text().strip(), str(root / "echo-cargo-target-dir-one"))
-        self.assertEqual((self.dir / "build-root").read_text().strip(), str(root))
-        self.assertTrue((self.dir / "logs" / "01-echo-cargo-target-dir-one.log").exists())
+        own = str(root / "echo-cargo-target-dir-cargo-build-build-dir-one")
+        self.assertEqual((self.tmp / "one").read_text().split(), [own, own])
+        self.assertTrue((self.dir / "logs" / "01-echo-cargo-target-dir-cargo-build-build-dir-one.log").exists())
 
-    def test_a_gate_named_on_disk_builds_in_dir_whatever_the_build_root(self):
+    def test_the_run_removes_the_cargo_directories_no_gate_owns(self):
         root = self.tmp / "root"
-        p = self.run_gates('echo "$CARGO_TARGET_DIR" > one', 'echo "$CARGO_TARGET_DIR" > two',
-                           args=("--build-root", str(root), "--on-disk", "echo-cargo-target-dir-two"))
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual((self.tmp / "one").read_text().strip(), str(root / "echo-cargo-target-dir-one"))
-        self.assertEqual((self.tmp / "two").read_text().strip(), str(self.dir / "echo-cargo-target-dir-two"))
 
-    def test_auto_names_the_checkout_and_removes_the_roots_of_gone_checkouts(self):
-        parent = self.tmp / "ramdisk"
-        gone = parent / "gone"
-        gone.mkdir(parents=True)
-        (gone / "checkout").write_text(f"{self.tmp / 'no-such-checkout'}\n")
-        kept = parent / "kept"
-        kept.mkdir()
-        (kept / "checkout").write_text(f"{self.tmp}\n")
-        p = self.run_gates('echo "$CARGO_TARGET_DIR" > one', args=("--build-root", "auto"),
-                           VTIUM_GATES_DIR=str(parent))
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        root = parent / re.sub(r"[^A-Za-z0-9._-]+", "-", str(self.tmp.resolve())).strip("-")
-        self.assertEqual((self.tmp / "one").read_text().strip(), str(root / "echo-cargo-target-dir-one"))
-        self.assertEqual((root / "checkout").read_text().strip(), str(self.tmp.resolve()))
-        self.assertFalse(gone.exists(), "the root of a checkout that is gone stays")
-        self.assertTrue(kept.exists(), "the root of a checkout that exists went")
+        def cargo_dir(name):
+            (root / name).mkdir(parents=True)
+            (root / name / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n")
+            return root / name
+
+        cargo_dir("true")
+        gone = cargo_dir("make-old-gate")
+        cargo_dir("minspec-size")
+        cargo_dir("Not_A-Gate")
+        (root / "not-cargo").mkdir()
+        (root / "notes").write_text("kept\n")
+        (root / "linked").symlink_to(cargo_dir("Elsewhere"))
+        p = self.run_gates("true", "false", args=("--build-root", str(root), "--keep", "minspec-size"))
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertFalse(gone.exists(), "the directory of a gate the run does not list stays")
+        self.assertIn(f"gates: removed {gone}, which no gate of this run builds in", p.stdout)
+        self.assertEqual(sorted(e.name for e in root.iterdir()),
+                         ["Elsewhere", "Not_A-Gate", "linked", "minspec-size", "not-cargo", "notes", "true"])
 
     def test_the_longest_gates_of_the_last_run_start_first(self):
         # Two jobs. The second and third gates each leave a mark and wait for
@@ -198,12 +196,21 @@ class Gates(unittest.TestCase):
 
 class Make(unittest.TestCase):
     """make gates hands the script JOBS, half the cores and at least 8 unless
-    set, a directory under the target directory in use, and the ramdisk's
-    choice of build root unless the caller set CARGO_TARGET_DIR."""
+    set, a log directory under the target directory in use, and
+    VTIUM_GATES_DIR as the build root: on the build volume when it exists and
+    the caller set no CARGO_TARGET_DIR, and the log directory otherwise. Each
+    test names BUILD_VOLUME, so none depends on this machine's volume."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.volume = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
 
     def dry_run(self, *args, **env):
         environ = {k: v for k, v in os.environ.items()
-                   if k not in ("MAKEFLAGS", "MFLAGS", "JOBS", "CARGO_TARGET_DIR")}
+                   if k not in ("MAKEFLAGS", "MFLAGS", "JOBS", "CARGO_TARGET_DIR", "VTIUM_GATES_DIR")}
         environ.update(env)
         p = subprocess.run(["make", "--no-print-directory", "-n", "-C", str(ROOT), "gates", *args],
                            env=environ, capture_output=True, text=True, timeout=WAIT_BOUND)
@@ -212,15 +219,33 @@ class Make(unittest.TestCase):
 
     def test_jobs_is_half_the_cores_and_at_least_8_unless_set(self):
         jobs = max(8, os.cpu_count() // 2)
-        self.assertIn(f"tools/gates/run --jobs {jobs} --dir {ROOT}/target/gates --build-root auto", self.dry_run())
+        self.assertIn(f"tools/gates/run --jobs {jobs} --dir {ROOT}/target/gates ", self.dry_run())
         self.assertIn("tools/gates/run --jobs 4 ", self.dry_run("JOBS=4"))
         self.assertIn("tools/gates/run --jobs 1 ", self.dry_run("JOBS=1"))
         self.assertIn("tools/gates/run --jobs 3 ", self.dry_run(JOBS="3"))
 
+    def test_the_gates_build_on_the_volume_under_the_checkouts_name(self):
+        root = f"{self.volume}/vtium/{ROOT.name}/gates"
+        out = self.dry_run(f"BUILD_VOLUME={self.volume}")
+        self.assertIn(f"--dir {ROOT}/target/gates --build-root {root} --keep minspec-size;", out)
+        self.assertIn(f"CARGO_TARGET_DIR={root}/minspec-size CARGO_BUILD_BUILD_DIR={root}/minspec-size ", out)
+
+    def test_without_the_volume_the_gates_build_in_the_target_directory(self):
+        out = self.dry_run(f"BUILD_VOLUME={self.volume}/missing")
+        self.assertIn(f"--dir {ROOT}/target/gates --build-root {ROOT}/target/gates --keep", out)
+
     def test_the_directory_follows_cargo_target_dir(self):
-        self.assertIn("--dir /elsewhere/build/gates --build-root /elsewhere/build/gates",
-                      self.dry_run(CARGO_TARGET_DIR="/elsewhere/build"))
-        self.assertIn(f"--dir {ROOT}/relative/gates", self.dry_run("CARGO_TARGET_DIR=relative"))
+        volume = f"BUILD_VOLUME={self.volume}"
+        self.assertIn("--dir /elsewhere/build/gates --build-root /elsewhere/build/gates ",
+                      self.dry_run(volume, CARGO_TARGET_DIR="/elsewhere/build"))
+        self.assertIn(f"--dir {ROOT}/relative/gates --build-root {ROOT}/relative/gates ",
+                      self.dry_run(volume, "CARGO_TARGET_DIR=relative"))
+
+    def test_vtium_gates_dir_wins(self):
+        volume = f"BUILD_VOLUME={self.volume}"
+        self.assertIn("--build-root /chosen/gates ", self.dry_run(volume, VTIUM_GATES_DIR="/chosen/gates"))
+        out = self.dry_run(volume, "VTIUM_GATES_DIR=/chosen/gates", CARGO_TARGET_DIR="/elsewhere/build")
+        self.assertIn("--dir /elsewhere/build/gates --build-root /chosen/gates ", out)
 
 
 class SizeBuild(unittest.TestCase):
@@ -238,7 +263,8 @@ class SizeBuild(unittest.TestCase):
         self.stub.write_text("#!/bin/sh\n"
                              f"touch {self.tmp}/size-build-ran\n"
                              "exec make \"$@\" -n "
-                             "--eval='$(info size build: target=$(CARGO_TARGET_DIR) features=[$(FEATURES)])'\n")
+                             "--eval='$(info size build: target=$(CARGO_TARGET_DIR) "
+                             "build=$(CARGO_BUILD_BUILD_DIR) features=[$(FEATURES)])'\n")
         self.stub.chmod(0o755)
 
     def tearDown(self):
@@ -246,7 +272,8 @@ class SizeBuild(unittest.TestCase):
 
     def gates(self, *args):
         environ = {k: v for k, v in os.environ.items()
-                   if k not in ("MAKEFLAGS", "MFLAGS", "JOBS", "CARGO_TARGET_DIR", "FEATURES")}
+                   if k not in ("MAKEFLAGS", "MFLAGS", "JOBS", "CARGO_TARGET_DIR", "FEATURES",
+                                "VTIUM_GATES_DIR")}
         return subprocess.run(["make", "--no-print-directory", "-C", str(ROOT), "gates",
                                f"MAKE={self.stub}", *args],
                               env=environ, capture_output=True, text=True, timeout=WAIT_BOUND)
@@ -256,7 +283,8 @@ class SizeBuild(unittest.TestCase):
         p = self.gates("GATE_LINE=true", "JOBS=1", f"CARGO_TARGET_DIR={target}", "FEATURES=images bidi")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         log = (target / "gates" / "logs" / "minspec-size.log").read_text()
-        self.assertIn(f"size build: target={target}/gates/minspec-size features=[]\n", log)
+        own = f"{target}/gates/minspec-size"
+        self.assertIn(f"size build: target={own} build={own} features=[]\n", log)
 
     def test_a_usage_error_skips_the_size_build(self):
         for args in (("GATE_LINE=true", "JOBS=0"), ("GATE_LINE=",)):
