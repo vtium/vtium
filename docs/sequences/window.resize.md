@@ -32,6 +32,7 @@ These tests check what vtium does with the sequences on this page.
 
 - `a_request_for_a_text_area_waits_for_the_host` in [crates/vtium-term/tests/window.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/window.rs)
 - `a_request_is_ignored_until_the_host_turns_window_operations_on` in [crates/vtium-term/tests/window.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/window.rs)
+- `a_text_area_request_measures_an_outline_frits_cell_at_each_height` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
 - `a_programs_request_for_a_grid_takes_the_zoom_path` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `a_request_with_allow_window_ops_off_changes_nothing` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `a_size_the_display_cannot_hold_takes_what_it_holds_at_the_smallest_size` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
