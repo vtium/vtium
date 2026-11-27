@@ -221,7 +221,10 @@ pub fn cache_root(env: &[(OsString, OsString)]) -> PathBuf {
 /// Makes the folder for the GPU driver's shader cache inside `root`,
 /// vtium's cache folder, for `account`, the account that draws, and gives
 /// its path. vtium makes `root` first where it is missing, owned by root
-/// and readable by everyone. The folder `gpu` inside it belongs to
+/// and readable by everyone, and sets its mode after making it, because
+/// the umask would otherwise narrow it. vtium refuses an existing `root`
+/// that other accounts cannot enter, since the account that draws could
+/// not reach `gpu` through it. The folder `gpu` inside it belongs to
 /// `account` and only that account can read or write it, so no other
 /// account reads what the driver compiled. vtium does not use a `gpu` that
 /// is a symbolic link or not a folder. A `gpu` that another account owns
@@ -234,19 +237,38 @@ pub fn cache_root(env: &[(OsString, OsString)]) -> PathBuf {
 /// - ADR-1400 D4, its note on the GPU driver's shader cache: the broker
 ///   makes the folder at each start.
 pub fn gpu_cache(root: &Path, account: &Account) -> io::Result<PathBuf> {
+    use rustix::fs::{Mode, OFlags};
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    match std::fs::symlink_metadata(root) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            std::fs::DirBuilder::new().mode(0o755).create(root)?;
-        }
-        Err(e) => return Err(e),
-        Ok(m) if !m.is_dir() => {
+    let made = match rustix::fs::mkdir(root, Mode::from_raw_mode(0o755)) {
+        Ok(()) => true,
+        Err(rustix::io::Errno::EXIST) => false,
+        Err(e) => return Err(e.into()),
+    };
+    let dir = match rustix::fs::open(
+        root,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(dir) => dir,
+        Err(rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) => {
             return Err(io::Error::other(format!(
-                "{} is not a folder",
+                "{} is a symbolic link or not a folder",
                 root.display()
             )));
         }
-        Ok(_) => {}
+        Err(e) => return Err(e.into()),
+    };
+    // The umask has masked the mode that mkdir asked for, and a root shell
+    // with umask 077 would make a folder that the account cannot enter.
+    if made {
+        rustix::fs::fchmod(&dir, Mode::from_raw_mode(0o755))?;
+    }
+    let st = rustix::fs::fstat(&dir)?;
+    if st.st_mode & 0o001 == 0 {
+        return Err(io::Error::other(format!(
+            "other accounts cannot enter {}, so the account that draws cannot reach the folder {GPU_CACHE} inside it",
+            root.display()
+        )));
     }
     let gpu = root.join(GPU_CACHE);
     match std::fs::symlink_metadata(&gpu) {
@@ -824,6 +846,24 @@ mod tests {
         }
     }
 
+    /// Sets the process's umask to `mask` until the guard drops, then
+    /// puts back the umask it found.
+    struct Umask(rustix::fs::Mode);
+
+    impl Umask {
+        fn set(mask: u32) -> Umask {
+            Umask(rustix::process::umask(rustix::fs::Mode::from_raw_mode(
+                mask,
+            )))
+        }
+    }
+
+    impl Drop for Umask {
+        fn drop(&mut self) {
+            rustix::process::umask(self.0);
+        }
+    }
+
     /// The environment `program` gives the drawer over a broker whose own
     /// environment is `broker`: what the drawer would see.
     fn seen(program: &Program, broker: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -973,6 +1013,9 @@ mod tests {
     #[test]
     fn the_shader_cache_folder_belongs_to_the_account_that_draws() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        // a umask as strict as an administrator's root shell may set, so
+        // the modes come from vtium and not from the runner's umask
+        let _umask = Umask::set(0o077);
         let folder = Folder::new("gpu-cache");
         let root = folder.0.join("vtium");
         let gpu = gpu_cache(&root, &me()).unwrap();
@@ -995,9 +1038,26 @@ mod tests {
         );
         let linked = folder.0.join("linked");
         std::fs::create_dir_all(&linked).unwrap();
+        std::fs::set_permissions(&linked, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::os::unix::fs::symlink(&gpu, linked.join("gpu")).unwrap();
         let e = gpu_cache(&linked, &me()).unwrap_err();
         assert!(e.to_string().contains("symbolic link"), "{e}");
+    }
+
+    /// vtium's cache folder must let other accounts enter it, since the
+    /// account that draws reaches `gpu` through it. The broker refuses an
+    /// existing cache folder that other accounts cannot enter, and makes
+    /// nothing inside it.
+    #[test]
+    fn a_cache_folder_that_others_cannot_enter_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = Folder::new("gpu-cache-closed");
+        let root = folder.0.join("vtium");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let e = gpu_cache(&root, &me()).unwrap_err();
+        assert!(e.to_string().contains("cannot enter"), "{e}");
+        assert!(!root.join("gpu").exists());
     }
 
     /// A `gpu` folder that another account owns holds what that account's
