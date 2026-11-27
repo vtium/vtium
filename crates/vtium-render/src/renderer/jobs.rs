@@ -14,6 +14,8 @@ use crate::deco::{Kind, Line};
 use crate::mono::{self, Depth, Ink};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, Under};
+#[cfg(all(doc, feature = "bidi"))]
+use crate::syllable::Runs;
 #[cfg(feature = "bidi")]
 use crate::syllable::Syllable;
 

@@ -14,6 +14,8 @@ use crate::link_row::LinkRow;
 use crate::syllable::Runs;
 use crate::target::Rect;
 
+#[cfg(doc)]
+use super::Config;
 use super::DrawState;
 use super::layout::Grid;
 use super::pointer::Pointer;

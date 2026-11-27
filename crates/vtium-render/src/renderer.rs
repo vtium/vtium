@@ -90,6 +90,8 @@ mod rows;
 pub(crate) use cpu::Back;
 pub use layout::grid_origin;
 use layout::{Grid, Layout};
+#[cfg(doc)]
+use pass::Pass;
 use pointer::Pointer;
 
 /// The color a decoration draws in.
