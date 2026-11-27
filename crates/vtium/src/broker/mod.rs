@@ -779,7 +779,7 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     // for that account at each start.
     let mut program = Program::vtium(arg0, vt, args);
     let cache = start::cache_root(&env);
-    let gpu = start::gpu_cache(&cache, account);
+    let gpu = start::gpu_cache(&cache, 0, account);
     if let Err(e) = &gpu {
         log::warn!(
             target: "broker",

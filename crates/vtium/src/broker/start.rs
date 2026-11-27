@@ -220,38 +220,48 @@ pub fn cache_root(env: &[(OsString, OsString)]) -> PathBuf {
 
 /// Makes the folder for the GPU driver's shader cache inside `root`,
 /// vtium's cache folder, for `account`, the account that draws, and gives
-/// its path. vtium makes `root` first where it is missing, owned by root
-/// and readable by everyone, and sets its mode after making it, because
-/// the umask would otherwise narrow it. vtium refuses an existing `root`
-/// that other accounts cannot enter, since the account that draws could
-/// not reach `gpu` through it. The folder `gpu` inside it belongs to
-/// `account` and only that account can read or write it, so no other
-/// account reads what the driver compiled. vtium does not use a `gpu` that
-/// is a symbolic link or not a folder. A `gpu` that another account owns
-/// holds entries that account wrote, so vtium removes it and makes it
-/// again, empty, before it gives it to `account`.
+/// its path. `by` is the user id of the process that calls it, root's in
+/// the broker.
+///
+/// vtium makes `root` first where it is missing, owned by `by` and
+/// readable by everyone, and sets its mode after making it, because the
+/// umask would otherwise narrow it. vtium then holds `root` open and works
+/// inside it only through that descriptor. It refuses a `root` that is a
+/// symbolic link, that `by` does not own, or that its group or other
+/// accounts can write, since an account that can write to `root` could
+/// put a `gpu` of its own choosing there between two of these steps. It
+/// also refuses a `root` that other accounts cannot enter, since the
+/// account that draws could not reach `gpu` through it.
+///
+/// The folder `gpu` inside `root` belongs to `account`, and only that
+/// account can read or write it, so no other account reads what the
+/// driver compiled. vtium opens `gpu` without following a symbolic link,
+/// so a `gpu` that is a symbolic link or not a folder is refused, and the
+/// owner and the mode that vtium sets go to no other folder. A `gpu` that
+/// another account owns holds entries that account wrote, so vtium removes
+/// it and makes it again, empty. Before it gives the folder to `account`,
+/// vtium checks that the folder it holds open belongs to `by`, who just
+/// made it, or to `account`.
 ///
 /// References:
 /// - ADR-1304 D20: the folder, its owner and mode, the symbolic link, and
 ///   the emptying when the account that draws changes.
 /// - ADR-1400 D4, its note on the GPU driver's shader cache: the broker
 ///   makes the folder at each start.
-pub fn gpu_cache(root: &Path, account: &Account) -> io::Result<PathBuf> {
+pub fn gpu_cache(root: &Path, by: u32, account: &Account) -> io::Result<PathBuf> {
     use rustix::fs::{Mode, OFlags};
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    use rustix::io::Errno;
+    let refused = |what: String| io::Error::other(what);
     let made = match rustix::fs::mkdir(root, Mode::from_raw_mode(0o755)) {
         Ok(()) => true,
-        Err(rustix::io::Errno::EXIST) => false,
+        Err(Errno::EXIST) => false,
         Err(e) => return Err(e.into()),
     };
-    let dir = match rustix::fs::open(
-        root,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    ) {
+    let folder_flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let dir = match rustix::fs::open(root, folder_flags, Mode::empty()) {
         Ok(dir) => dir,
-        Err(rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) => {
-            return Err(io::Error::other(format!(
+        Err(Errno::LOOP | Errno::NOTDIR) => {
+            return Err(refused(format!(
                 "{} is a symbolic link or not a folder",
                 root.display()
             )));
@@ -264,46 +274,81 @@ pub fn gpu_cache(root: &Path, account: &Account) -> io::Result<PathBuf> {
         rustix::fs::fchmod(&dir, Mode::from_raw_mode(0o755))?;
     }
     let st = rustix::fs::fstat(&dir)?;
+    if st.st_uid != by {
+        return Err(refused(format!(
+            "{} belongs to user id {}, and vtium uses it only when user id {by} owns it",
+            root.display(),
+            st.st_uid
+        )));
+    }
+    if st.st_mode & 0o022 != 0 {
+        return Err(refused(format!(
+            "other accounts can write to {}, so one of them could replace the folder {GPU_CACHE} inside it",
+            root.display()
+        )));
+    }
     if st.st_mode & 0o001 == 0 {
-        return Err(io::Error::other(format!(
+        return Err(refused(format!(
             "other accounts cannot enter {}, so the account that draws cannot reach the folder {GPU_CACHE} inside it",
             root.display()
         )));
     }
     let gpu = root.join(GPU_CACHE);
-    match std::fs::symlink_metadata(&gpu) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-        Ok(m) if !m.is_dir() => {
-            return Err(io::Error::other(format!(
-                "{} is a symbolic link or not a folder",
-                gpu.display()
-            )));
+    let make = || match rustix::fs::mkdirat(&dir, GPU_CACHE, Mode::from_raw_mode(0o700)) {
+        Ok(()) | Err(Errno::EXIST) => Ok(()),
+        Err(e) => Err(io::Error::from(e)),
+    };
+    // Opened without following a symbolic link, so the owner and the mode
+    // that vtium sets below go to this folder and to no other.
+    let open = || match rustix::fs::openat(&dir, GPU_CACHE, folder_flags, Mode::empty()) {
+        Ok(folder) => Ok(folder),
+        Err(Errno::LOOP | Errno::NOTDIR) => Err(refused(format!(
+            "{} is a symbolic link or not a folder",
+            gpu.display()
+        ))),
+        Err(e) => Err(io::Error::from(e)),
+    };
+    let folder = match open() {
+        Err(e) if e.raw_os_error() == Some(Errno::NOENT.raw_os_error()) => {
+            make()?;
+            open()?
         }
-        Ok(m) if m.uid() != account.uid => std::fs::remove_dir_all(&gpu)?,
-        Ok(_) => {}
-    }
-    match std::fs::DirBuilder::new().mode(0o700).create(&gpu) {
-        Err(e) if e.kind() != io::ErrorKind::AlreadyExists => return Err(e),
-        _ => {}
-    }
-    // opened without following a symbolic link, so the owner and the mode
-    // go to the folder checked above
-    let folder = rustix::fs::open(
-        &gpu,
-        rustix::fs::OFlags::RDONLY
-            | rustix::fs::OFlags::DIRECTORY
-            | rustix::fs::OFlags::NOFOLLOW
-            | rustix::fs::OFlags::CLOEXEC,
-        rustix::fs::Mode::empty(),
-    )?;
+        Err(e) => return Err(e),
+        Ok(folder) if rustix::fs::fstat(&folder)?.st_uid != account.uid => {
+            drop(folder);
+            // `root` belongs to `by` and nobody else can write to it, so
+            // the `gpu` that this path names is the one opened above.
+            std::fs::remove_dir_all(&gpu)?;
+            make()?;
+            open()?
+        }
+        Ok(folder) => folder,
+    };
+    taken(&folder, by, account).map_err(|owner| {
+        refused(format!(
+            "{} belongs to user id {owner}, which is neither vtium's root process nor the account that draws",
+            gpu.display()
+        ))
+    })?;
     rustix::fs::fchown(
         &folder,
         Some(Uid::from_raw(account.uid)),
         Some(Gid::from_raw(account.gid)),
     )?;
-    rustix::fs::fchmod(&folder, rustix::fs::Mode::from_raw_mode(0o700))?;
+    rustix::fs::fchmod(&folder, Mode::from_raw_mode(0o700))?;
     Ok(gpu)
+}
+
+/// Checks that `folder`, the open `gpu` folder, belongs to `by`, the
+/// process that made it, or to `account`, before vtium gives it to
+/// `account`. Otherwise it gives the user id that owns the folder.
+fn taken(folder: &OwnedFd, by: u32, account: &Account) -> Result<(), u32> {
+    let owner = rustix::fs::fstat(folder).map_or(u32::MAX, |st| st.st_uid);
+    if owner == by || owner == account.uid {
+        Ok(())
+    } else {
+        Err(owner)
+    }
 }
 
 impl Program {
@@ -1018,7 +1063,7 @@ mod tests {
         let _umask = Umask::set(0o077);
         let folder = Folder::new("gpu-cache");
         let root = folder.0.join("vtium");
-        let gpu = gpu_cache(&root, &me()).unwrap();
+        let gpu = gpu_cache(&root, me().uid, &me()).unwrap();
         assert_eq!(gpu, root.join("gpu"));
         let made = std::fs::symlink_metadata(&gpu).unwrap();
         assert!(made.is_dir());
@@ -1030,18 +1075,37 @@ mod tests {
         );
         std::fs::write(gpu.join("entry"), "compiled").unwrap();
         std::fs::set_permissions(&gpu, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(gpu_cache(&root, &me()).unwrap(), gpu);
+        assert_eq!(gpu_cache(&root, me().uid, &me()).unwrap(), gpu);
         assert!(gpu.join("entry").exists(), "the cache kept");
         assert_eq!(
             std::fs::metadata(&gpu).unwrap().permissions().mode() & 0o7777,
             0o700
         );
-        let linked = folder.0.join("linked");
-        std::fs::create_dir_all(&linked).unwrap();
-        std::fs::set_permissions(&linked, std::fs::Permissions::from_mode(0o755)).unwrap();
-        std::os::unix::fs::symlink(&gpu, linked.join("gpu")).unwrap();
-        let e = gpu_cache(&linked, &me()).unwrap_err();
-        assert!(e.to_string().contains("symbolic link"), "{e}");
+    }
+
+    /// Only root may own vtium's cache folder or write to it. Another
+    /// account that could write there could put a `gpu` of its own choosing
+    /// there between the broker's checks, which the broker would then give to
+    /// the account that draws. So the broker refuses a cache folder that
+    /// another account owns, or that its group or other accounts can
+    /// write, and makes nothing inside it. A test runs without root, so
+    /// the test's own account stands for root, and another user id for
+    /// the account that is not root.
+    #[test]
+    fn a_cache_folder_that_another_account_owns_or_can_write_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = Folder::new("gpu-cache-open");
+        let root = folder.0.join("vtium");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let e = gpu_cache(&root, me().uid.wrapping_add(1), &me()).unwrap_err();
+        assert!(e.to_string().contains("belongs to"), "{e}");
+        for mode in [0o775, 0o757, 0o777] {
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(mode)).unwrap();
+            let e = gpu_cache(&root, me().uid, &me()).unwrap_err();
+            assert!(e.to_string().contains("can write"), "{mode:o}: {e}");
+        }
+        assert!(!root.join("gpu").exists());
     }
 
     /// vtium's cache folder must let other accounts enter it, since the
@@ -1055,9 +1119,32 @@ mod tests {
         let root = folder.0.join("vtium");
         std::fs::create_dir(&root).unwrap();
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let e = gpu_cache(&root, &me()).unwrap_err();
+        let e = gpu_cache(&root, me().uid, &me()).unwrap_err();
         assert!(e.to_string().contains("cannot enter"), "{e}");
         assert!(!root.join("gpu").exists());
+    }
+
+    /// The broker gives the open `gpu` folder to the account that draws
+    /// only when the folder belongs to the broker, which just made it, or
+    /// already to that account. A folder that a third account owns is
+    /// one the broker did not make.
+    #[test]
+    fn only_a_gpu_folder_of_the_broker_or_the_account_is_given_away() {
+        let folder = Folder::new("gpu-cache-taken");
+        let fd = rustix::fs::open(
+            &folder.0,
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY,
+            rustix::fs::Mode::empty(),
+        )
+        .unwrap();
+        let mine = me().uid;
+        let other = |uid: u32| Account { uid, ..me() };
+        assert_eq!(taken(&fd, mine, &other(mine.wrapping_add(1))), Ok(()));
+        assert_eq!(taken(&fd, mine.wrapping_add(1), &me()), Ok(()));
+        assert_eq!(
+            taken(&fd, mine.wrapping_add(1), &other(mine.wrapping_add(2))),
+            Err(mine)
+        );
     }
 
     /// A `gpu` folder that another account owns holds what that account's
@@ -1069,14 +1156,14 @@ mod tests {
     fn a_shader_cache_folder_of_another_account_is_emptied() {
         let folder = Folder::new("gpu-cache-other");
         let root = folder.0.join("vtium");
-        let gpu = gpu_cache(&root, &me()).unwrap();
+        let gpu = gpu_cache(&root, me().uid, &me()).unwrap();
         std::fs::create_dir_all(gpu.join("ab")).unwrap();
         std::fs::write(gpu.join("ab").join("entry"), "compiled").unwrap();
         let other = Account {
             uid: me().uid.wrapping_add(1),
             ..me()
         };
-        let given = gpu_cache(&root, &other);
+        let given = gpu_cache(&root, me().uid, &other);
         assert!(!gpu.join("ab").exists(), "the other account's entries");
         if rustix::process::geteuid().is_root() {
             assert!(given.is_ok(), "{given:?}");
