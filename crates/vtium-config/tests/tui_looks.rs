@@ -1793,12 +1793,24 @@ fn window_ops_on() -> String {
 }
 
 /// The console of [`console`], driven with the stand-in desk on `conf`,
-/// with what it wrote and the draft it left.
+/// with what it wrote and the draft it left. The console takes grid
+/// requests where `conf` turns `allow-window-ops` on. Besides its grid at
+/// the console's height, the font set proof reaches 80×30 at 8 pixels, the
+/// grid that the stand-in helper's 8×16 cell gives on the 640×480 display,
+/// while unifont reaches only its own 80×25.
 fn run_on(conf: &str, keys: &[&[u8]]) -> (Console, String) {
+    run_with(console(), conf, keys)
+}
+
+/// The console `c`, driven as [`run_on`] drives [`console`].
+fn run_with(c: Console, conf: &str, keys: &[&[u8]]) -> (Console, String) {
     let mut d = desk();
     d.installed = conf.to_owned();
     d.draft = conf.to_owned();
-    let mut c = console().keys(keys);
+    let mut c = c.reaches("proof", 8, (80, 30)).keys(keys);
+    if conf.contains("\nallow-window-ops\n") {
+        c = c.resizes();
+    }
     vtium_config::tui::port::drive_with(&mut c, with_conf(conf), Some(&mut d)).expect("the loop");
     (c, d.draft)
 }
