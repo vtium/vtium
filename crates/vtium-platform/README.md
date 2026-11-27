@@ -35,7 +35,16 @@ The crate denies `unsafe_code`. Each site that needs unsafe code carries an `#[e
 | `src/display/edid.rs` | A connector's EDID in sysfs, its base block read once for the physical size and for the monitor it names, `EdidId`. |
 | `src/display/path.rs` | A connector's `PATH` property, a DisplayPort multi-stream hub port's path, as the text the head file's `connector-path:` compares. |
 | `src/display/depth.rs` | The DRM drivers of 1-bit and gray panels, each with its source and its panel's levels. |
-| `src/display/drm2d.rs` | `Drm2d`: a card's displays and their identities, the hotplug scan, modesets, swaps, the cursor, DPMS, sleep and wake-up. |
+| `src/display/drm2d.rs` | `Drm2d`: a card's displays and their identities, with the setters and the queries the owner calls. Its children below hold the rest of what drm2d does. |
+| `src/display/drm2d/frames.rs` | A display's frames: the token that lends the buffer the next frame is drawn into, and the swap or commit that shows it. |
+| `src/display/drm2d/power.rs` | A display's DPMS state, the blank that input ends, and the retries that input starts after a failed wake-up. |
+| `src/display/drm2d/cursor.rs` | The hardware cursor: the pointer image on a display's cursor plane, its two buffers, and where the plane shows it. |
+| `src/display/drm2d/wake.rs` | DRM master taken and dropped, the wake-up and its retries while another process holds master, and the sleep. |
+| `src/display/drm2d/events.rs` | The hotplug poll, the completion events of flips, and the timers that bound a flip and a lost event. |
+| `src/display/drm2d/scan.rs` | The hotplug scan: the displays gone, each new connector's identity and modes, and the placement of the displays on CRTCs. |
+| `src/display/drm2d/staging.rs` | The new buffers a modeset stages for each display, the pan's tall buffers and their test, and the buffers a display lets go. |
+| `src/display/drm2d/modeset.rs` | The modeset that sets every display and announces each one set, and the legacy modeset of a card without atomic commits. |
+| `src/display/drm2d/atomic.rs` | The atomic modeset: the request that turns displays off first, its test-only commits, and the connectors' color properties. |
 | `src/display/drm2d/buffers.rs` | The buffer source: what makes and frees the buffers each display shows, with their framebuffers. `Dumbs`, drm2d's source, makes dumb buffers; the GPU path (vtium/vtium#33) supplies GBM buffers to the same display logic through a source of its own. |
 | `src/display/drm2d/dark.rs` | The connectors left dark: each set off where another master left it on a CRTC, through the atomic modeset or the legacy calls. |
 | `src/display/drm2d/left_off.rs` | The displays left off while their monitors are still plugged in: each keeps its id with no CRTC until a placement lights it, and the owner hears it unlit, not removed. |
