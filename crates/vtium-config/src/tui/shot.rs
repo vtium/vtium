@@ -1974,30 +1974,43 @@ fn use_look(head: String, look: String) -> super::model::Then {
 mod tests {
     use super::*;
 
+    /// The size in pixels of a full 8K display, which the tests of large
+    /// displays use.
+    const EIGHT_K: (u32, u32) = (7680, 4320);
+
+    /// The smaller mode that the tests' 8K display prefers.
+    const PREFERRED: (u32, u32) = (5120, 1440);
+
+    /// A cell that does not divide the 8K display's width.
+    const ODD_CELL: (u32, u32) = (18, 36);
+
     /// A text area that the mode cuts down to whole cells gives that mode,
-    /// and any other text area gives itself. vtium draws the 7680×4320
-    /// display at a 18×36 cell as 426×120, a text area of 7668×4320.
+    /// and any other text area gives itself. vtium draws the 8K display
+    /// in [`ODD_CELL`] as 426×120 cells, a text area of 7668×4320.
     #[test]
     fn the_text_area_gives_the_mode_it_is_cut_from() {
+        let grid = (EIGHT_K.0 / ODD_CELL.0, EIGHT_K.1 / ODD_CELL.1);
+        let cut = (grid.0 * ODD_CELL.0, grid.1 * ODD_CELL.1);
         let area = TextArea {
-            pixels: (7668, 4320),
-            grid: (426, 120),
+            pixels: cut,
+            grid: (grid.0 as usize, grid.1 as usize),
         };
-        assert_eq!(area.display(Some((7680, 4320))), (7680, 4320));
+        let wider = |by: u32| Some((cut.0 + by, cut.1));
+        assert_eq!(area.display(Some(EIGHT_K)), EIGHT_K);
         assert_eq!(
-            area.display(Some((7685, 4320))),
-            (7685, 4320),
+            area.display(wider(ODD_CELL.0 - 1)),
+            (cut.0 + ODD_CELL.0 - 1, cut.1),
             "under a cell more"
         );
+        assert_eq!(area.display(wider(ODD_CELL.0)), cut, "a cell more");
+        assert_eq!(area.display(Some((cut.0 - 1, cut.1))), cut, "less");
+        assert_eq!(area.display(Some(PREFERRED)), cut, "another mode");
         assert_eq!(
-            area.display(Some((7686, 4320))),
-            (7668, 4320),
-            "a cell more"
+            area.display(Some((EIGHT_K.0, EIGHT_K.1 + ODD_CELL.1))),
+            cut,
+            "a row more"
         );
-        assert_eq!(area.display(Some((7660, 4320))), (7668, 4320), "less");
-        assert_eq!(area.display(Some((5120, 1440))), (7668, 4320));
-        assert_eq!(area.display(Some((7680, 4356))), (7668, 4320));
-        assert_eq!(area.display(None), (7668, 4320));
+        assert_eq!(area.display(None), cut);
         let empty = TextArea {
             pixels: (0, 0),
             grid: (0, 0),
