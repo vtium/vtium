@@ -1093,12 +1093,19 @@ pub enum Got<T, E = Refusal> {
     Closed,
 }
 
-/// A request the reader refused: why, and the answer that tells the
-/// drawer the request failed, when the request's kind waits for one.
+/// A request the reader refused: why, the answer that tells the drawer
+/// the request failed, when the request's kind waits for one, and the
+/// descriptors that came with the request.
+///
+/// The reader leaves the descriptors open, because closing one can block.
+/// For example, the last close of a TCP socket with `SO_LINGER` set and
+/// data still unsent waits out the whole linger time. The broker closes
+/// them on a thread of its own, so its loop never waits on a close.
 #[derive(Debug)]
 pub struct Refused {
     pub why: Refusal,
     pub answer: Option<Order>,
+    pub descriptors: Vec<OwnedFd>,
 }
 
 /// What one read of the socket found, before the reader checks it.
@@ -1132,8 +1139,8 @@ impl Raw {
         Ok(&self.bytes)
     }
 
-    /// The request, checked. The descriptors of a refused request are
-    /// closed as this returns.
+    /// The request, checked. A refused request hands back the
+    /// descriptors that came with it, still open.
     fn request(self) -> Result<Request, Refused> {
         let checked = self.whole().and_then(|bytes| match self.fds.len() {
             0 => Request::decode(bytes),
@@ -1142,6 +1149,7 @@ impl Raw {
         checked.map_err(|why| Refused {
             why,
             answer: Request::refused_answer(self.bytes.get(..self.len).unwrap_or_default()),
+            descriptors: self.fds,
         })
     }
 
@@ -1155,6 +1163,10 @@ impl Raw {
         Ok((order, self.fds.pop()))
     }
 }
+
+/// The most descriptors that one message on a Unix socket can carry,
+/// which the kernel calls `SCM_MAX_FD`.
+const SCM_MAX_FD: usize = 253;
 
 /// One end of the socket between the broker and the drawer.
 #[derive(Debug)]
@@ -1232,9 +1244,16 @@ impl Link {
     }
 
     /// Reads the next request without waiting. A request that came with
-    /// any descriptor is refused, and the descriptors are closed at once.
+    /// any descriptor is refused, and [`Refused`] hands the descriptors
+    /// to the caller to close.
+    ///
+    /// The read makes room for as many descriptors as the kernel lets one
+    /// message carry, so the kernel installs each of them here. A
+    /// descriptor that finds no room is closed by the kernel inside the
+    /// read, and that close could block the reader.
     pub fn next_request(&self) -> io::Result<Got<Request, Refused>> {
-        Ok(match self.receive()? {
+        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(SCM_MAX_FD))];
+        Ok(match self.receive(&mut space)? {
             Received::Message(raw) => Got::Message(raw.request()),
             Received::Nothing => Got::Nothing,
             Received::Closed => Got::Closed,
@@ -1243,20 +1262,21 @@ impl Link {
 
     /// Reads the next order without waiting, with its descriptor.
     pub fn next_order(&self) -> io::Result<Got<(Order, Option<OwnedFd>)>> {
-        Ok(match self.receive()? {
+        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+        Ok(match self.receive(&mut space)? {
             Received::Message(raw) => Got::Message(raw.order()),
             Received::Nothing => Got::Nothing,
             Received::Closed => Got::Closed,
         })
     }
 
-    /// Reads one message and the descriptors that came with it, room made
-    /// for one. A longer message, or more descriptors, sets a truncation
-    /// flag; the kernel closes the descriptors that did not fit.
-    fn receive(&self) -> io::Result<Received> {
+    /// Reads one message and the descriptors that came with it, into
+    /// `space`. A longer message, or more descriptors than `space` holds,
+    /// sets a truncation flag; the kernel closes the descriptors that did
+    /// not fit.
+    fn receive(&self, space: &mut [MaybeUninit<u8>]) -> io::Result<Received> {
         let mut bytes = [0u8; SIZE];
-        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
-        let mut control = RecvAncillaryBuffer::new(&mut space);
+        let mut control = RecvAncillaryBuffer::new(space);
         let got = match rustix::net::recvmsg(
             &self.0,
             &mut [IoSliceMut::new(&mut bytes)],
@@ -1922,6 +1942,37 @@ mod tests {
         );
     }
 
+    /// Every descriptor that comes with a request reaches the broker, so
+    /// that the broker closes each one itself, off its loop. A request
+    /// with eight descriptors is refused with all eight handed back,
+    /// where room for fewer would leave the kernel to close the rest
+    /// inside the broker's read.
+    #[test]
+    fn a_request_hands_back_every_descriptor_that_came_with_it() {
+        let (broker, theirs) = Link::pair().unwrap();
+        let drawer = Link::passed(theirs).unwrap();
+        let (file, _keep) = Link::pair().unwrap();
+        let fds = [file.as_fd(); 8];
+        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(8))];
+        let mut control = SendAncillaryBuffer::new(&mut space);
+        assert!(control.push(SendAncillaryMessage::ScmRights(&fds)));
+        rustix::net::sendmsg(
+            &drawer,
+            &[IoSlice::new(&Request::Ready.encode())],
+            &mut control,
+            SendFlags::empty(),
+        )
+        .unwrap();
+        match broker.next_request().unwrap() {
+            Got::Message(Err(Refused {
+                why: Refusal::Descriptors(8),
+                answer: None,
+                descriptors,
+            })) => assert_eq!(descriptors.len(), 8),
+            other => panic!("{other:?}"),
+        }
+    }
+
     /// Over a real socket pair: a request arrives whole and checked; an
     /// order and its descriptor arrive together; a request that comes
     /// with a descriptor, an order without the descriptor it carries, a
@@ -1959,8 +2010,9 @@ mod tests {
             broker.next_request().unwrap(),
             Got::Message(Err(Refused {
                 why: Refusal::Descriptors(1),
-                answer: None
-            }))
+                answer: None,
+                ref descriptors,
+            })) if descriptors.len() == 1
         ));
         // and an order whose descriptor is missing
         broker.send(&device.encode(), None).unwrap();
@@ -1973,7 +2025,8 @@ mod tests {
             broker.next_request().unwrap(),
             Got::Message(Err(Refused {
                 why: Refusal::Size(5),
-                answer: None
+                answer: None,
+                ..
             }))
         ));
         rustix::net::send(&drawer, &[0u8; SIZE + 1], SendFlags::empty()).unwrap();
@@ -1981,7 +2034,8 @@ mod tests {
             broker.next_request().unwrap(),
             Got::Message(Err(Refused {
                 why: Refusal::Truncated,
-                answer: None
+                answer: None,
+                ..
             }))
         ));
         // A SOCK_SEQPACKET socket carries an empty message, which reads 0
@@ -1992,7 +2046,8 @@ mod tests {
             broker.next_request().unwrap(),
             Got::Message(Err(Refused {
                 why: Refusal::Size(0),
-                answer: None
+                answer: None,
+                ..
             }))
         ));
         drawer.request(&Request::Ready).unwrap();

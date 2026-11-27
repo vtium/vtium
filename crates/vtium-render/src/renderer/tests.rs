@@ -585,3 +585,27 @@ fn clearing_the_scrollback_puts_the_border_back_in_the_spare_lines() {
         "the buffer shows what a frame drawn afresh shows"
     );
 }
+
+// A 6×4 grid of 8×16 cells on a display 48×264 pixels leaves 200 spare
+// lines. With the grid at the bottom, those lines show 13 rows of history,
+// so a frame asks for 13 rows above the screen. A centred grid shows the
+// border's color in its spare lines and draws no row above the screen, so
+// a frame asks for the overscan's 4 rows and no more.
+//
+// References:
+// - ADR-1310 D2: the overscan's rows on each side of the screen.
+// - ADR-1310 D10, "A strip taller than a row": the rows the spare lines show at the bottom placement.
+// - ADR-1310 D12, "With smooth scrolling off": the spare lines of a centred grid show the border's color.
+#[cfg(feature = "scroll-pan")]
+#[test]
+fn a_centred_grid_asks_only_for_the_overscan_rows_above_the_screen() {
+    let asked = |placement| {
+        let config = Config {
+            placement,
+            ..Config::default()
+        };
+        Renderer::new(Font::new(Unifont::new(16)), 6 * 8, 264, config).rows_above_asked((6, 4))
+    };
+    assert_eq!(asked(BOTTOM), 13);
+    assert_eq!(asked(Placement::Centred), crate::bounds::OVERSCAN_ROWS);
+}

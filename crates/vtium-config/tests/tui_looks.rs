@@ -2670,6 +2670,40 @@ fn a_crash_after_k_kept_a_look_s_colors_gives_the_colors_back() {
     );
 }
 
+/// After `k` kept a look and Install made that look the console's
+/// configured one, quitting leaves the look on the console: its font set,
+/// its colors and the grid its size gives. The colors still come off the
+/// console's color stack, so the stack ends as it started.
+///
+/// References:
+/// - ADR-1201 D4, "The live trial, on a key": a kept font stays on the
+///   console when Install made it the configured one.
+#[test]
+fn k_then_install_keeps_the_look_s_font_colors_and_grid_after_quitting() {
+    let installed = "# mine\nfont-name=unifont\nallow-window-ops\nversion = 1\n[look nordic]\nfont-name = unifont\nfont-size = 12\npalette = legacy\n[head desk]\nlook = nordic\n[rules]\ndisplay * -> desk\n";
+    let draft = nordic_conf("allow-window-ops\n", "look = nordic\n");
+    let nord = vtium_term::Palette::named("nord").expect("nord");
+    let mut d = desk();
+    d.installed = installed.to_owned();
+    d.draft.clone_from(&draft);
+    let mut inputs = with_conf(installed);
+    inputs.head = Some("desk".to_owned());
+    let mut c = console().keys(&[TO_LOOKS, b"t", b"k", b"i", b"y", b"q"]);
+    vtium_config::tui::port::drive_with(&mut c, inputs, Some(&mut d)).expect("the loop");
+    assert_eq!(d.plans.len(), 1, "the install ran");
+    assert_eq!(c.switches(), ["proof"], "{:?}", c.log);
+    let palette = console_palette(&c);
+    assert_eq!(palette.bg(), nord.bg());
+    assert_eq!(palette.color(1), nord.color(1));
+    // the stack is balanced: XTPOPCOLORS took off what XTPUSHCOLORS saved
+    assert_eq!(count(&c.written, b"\x1b[#P"), 1);
+    assert_eq!(count(&c.written, b"\x1b[#Q"), 1);
+    // 16 pt at 96 dpi gives the stand-in's 8×16 cell, and the grid it
+    // gives stays: leaving asks for no other grid
+    let grids = grid_requests(&c.written);
+    assert_eq!(grids.len(), 1, "{grids:?}");
+}
+
 /// With `allow-window-ops` on, `t` on a look also tries its size: once
 /// the console draws the look's font set, the font helper measures the
 /// cell at the look's size and the grid request follows.
@@ -2760,6 +2794,56 @@ fn t_on_a_look_no_terminal_uses_offers_it_to_the_terminal() {
         app.shared.message.as_deref(),
         Some(
             "No terminal uses the look nordic, and the console already shows its font set and color scheme. Use it for the terminal desk? y sets it in the draft, and n or Esc leaves the draft as it is."
+        )
+    );
+}
+
+/// On a draft that defines no head and no rule, vtium runs its built-in
+/// terminal, whose head `console` draws the look `default`. `t` on
+/// another look offers it to `console`, and `y` writes out the built-in
+/// terminal's head and rules with the look, so the draft goes on running
+/// the same terminal.
+///
+/// References:
+/// - ADR-1401 D3: vtium runs the built-in default terminal when the file
+///   defines no head and no rule.
+#[test]
+fn t_on_the_built_in_terminal_offers_the_look_to_its_head_console() {
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look nordic]\nfont-name = proof\nfont-size = 16\npalette = legacy\n";
+    let mut d = desk();
+    d.installed = conf.to_owned();
+    d.draft = conf.to_owned();
+    let mut c = Console::vtium(80, 25, true, "proof")
+        .takes("proof", (80, 25))
+        .takes("unifont", (80, 25))
+        .keys(&[TO_LOOKS, b"t", b"y"]);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(conf), Some(&mut d)).expect("the loop");
+    let config = vtium_settings::sections(d.draft.as_bytes())
+        .expect("sections")
+        .parsed
+        .config;
+    assert_eq!(
+        config
+            .heads
+            .iter()
+            .map(|h| (&h.name[..], &h.look[..]))
+            .collect::<Vec<_>>(),
+        [("console", "nordic")],
+        "{}",
+        d.draft
+    );
+    assert!(
+        vtium_settings::complete_route(&config, None).complete(),
+        "{}",
+        d.draft
+    );
+    let (mut app, _) = started_on(with_conf(conf), "proof");
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(
+            "No terminal uses the look nordic, and the console already shows its font set and color scheme. Use it for the terminal console? y sets it in the draft, and n or Esc leaves the draft as it is."
         )
     );
 }

@@ -329,10 +329,7 @@ pub fn drive_with(
 /// changed them, its start font, when a switch changed it, and then its
 /// start grid, when the Looks tab changed it.
 fn give_back(app: &App) -> Vec<u8> {
-    let mut out = Vec::new();
-    if app.shared.colors_saved {
-        out.extend_from_slice(super::shot::COLORS_RESTORE);
-    }
+    let mut out = super::shot::colors_on_leaving(&app.shared);
     out.extend(font_back(app));
     if app.shared.grid_moved {
         out.extend(super::shot::grid_request(app.shared.start_grid));

@@ -102,13 +102,18 @@ pub fn deleted_draft(next: &str) -> String {
 }
 
 /// The command line's note on a look that no head uses: it changes
-/// nothing on screen, and the command that gives it to `head`, the
-/// draft's first head, or to a head the person names.
+/// nothing on screen, and the command that gives it to `head`, the first
+/// head vtium runs for the draft. A draft with no head at all gets the
+/// commands that make a head with the look and send the displays to it.
 pub fn no_head_uses(look: &str, head: Option<&str>) -> String {
-    let head = head.unwrap_or("HEAD");
-    format!(
-        "No head uses look {look}, so it changes nothing on screen. To use it, run vtium config head set {head} --look {look}."
-    )
+    match head {
+        Some(head) => format!(
+            "No head uses look {look}, so it changes nothing on screen. To use it, run vtium config head set {head} --look {look}."
+        ),
+        None => format!(
+            "No head uses look {look}, so it changes nothing on screen. The draft has no head yet. To use the look, run vtium config head add console --look {look}, then vtium config rule add 'display * -> console'."
+        ),
+    }
 }
 
 pub const NO_HISTORY: &str =

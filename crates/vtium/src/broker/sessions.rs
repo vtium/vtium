@@ -23,6 +23,16 @@
 //! session's foreground process group when the drawing process asks,
 //! since the session's processes run as another account.
 //!
+//! A closed session's program can ignore `SIGHUP` and run on, because the
+//! drawing process holds its own copy of the master, so the kernel does
+//! not hang the pty up. A drawing process that opened and closed a console
+//! in a loop could then start root sessions without end. So the root
+//! process bounds the closed sessions that still run by the same caps as
+//! the open ones: while a head has as many of them as `head-consoles-max`,
+//! or every head together as many as `consoles-max`, it opens no more
+//! consoles. Each closed session counts until its process exits and the
+//! root process reaps it.
+//!
 //! References:
 //! - ADR-1400 D4, "What the broker does": the pty, `login`, the checks of
 //!   the grid and the two hints, the command from the broker's own reading
@@ -179,11 +189,13 @@ struct Running {
 }
 
 /// A session whose console closed, kept only until its process exits so
-/// the root process can reap it. Its master is gone: the root process
-/// drops its copy as it hangs the session up, so once the drawing process
-/// lets its copy go too, the kernel hangs the pty up, and a program that
-/// ignores `SIGHUP` still sees its terminal end.
+/// the root process can reap it, and counted toward the caps until then.
+/// Its master is gone: the root process drops its copy as it hangs the
+/// session up, so once the drawing process lets its copy go too, the
+/// kernel hangs the pty up, and a program that ignores `SIGHUP` still
+/// sees its terminal end.
 struct Closing {
+    head: Head,
     child: Option<Child>,
     pidfd: OwnedFd,
 }
@@ -243,7 +255,8 @@ impl Sessions {
     /// - `ENOENT`: vtium.conf names no such head.
     /// - `EEXIST`: the console's session is open already.
     /// - `EMFILE`: the head, or every head together, has as many consoles
-    ///   as vtium.conf's caps allow.
+    ///   as vtium.conf's caps allow, or as many closed sessions whose
+    ///   processes still run.
     /// - any other error: the pty or the program did not start.
     pub fn open(
         &mut self,
@@ -262,8 +275,15 @@ impl Sessions {
         if self.open.contains_key(console) {
             return Err(errno(libc::EEXIST));
         }
+        let caps = self.conf.caps;
         let of_head = self.open.keys().filter(|c| c.head == console.head).count();
-        if of_head >= self.conf.caps.head || self.open.len() >= self.conf.caps.total {
+        if of_head >= caps.head || self.open.len() >= caps.total {
+            return Err(errno(libc::EMFILE));
+        }
+        // Closed sessions whose processes have exited no longer count.
+        self.reap_closing();
+        let closing = self.closing.iter().filter(|c| c.head == console.head);
+        if closing.count() >= caps.head || self.closing.len() >= caps.total {
             return Err(errno(libc::EMFILE));
         }
         let size = Size {
@@ -273,8 +293,8 @@ impl Sessions {
             cell_height: grid.cell_height,
         };
         let running = match self.store.take(head, console.console) {
-            Some(master) => match adopt(master, size) {
-                Ok(running) => {
+            Some(master) => match adopt(master, size, console) {
+                Some(running) => {
                     // The line vtium in one process logs for the same
                     // event, so the log reads the same whether vtium
                     // splits or not.
@@ -286,7 +306,7 @@ impl Sessions {
                 }
                 // The session ended while no vtium ran, so the console
                 // starts a new one, as vtium in one process restarts it.
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                None => {
                     log::info!(
                         "head {head}: console {}: its session ended while vtium was away",
                         console.console
@@ -294,7 +314,6 @@ impl Sessions {
                     self.store.forget(head, console.console);
                     self.start(console, size, display, truecolor)
                 }
-                Err(e) => Err(e),
             },
             None => self.start(console, size, display, truecolor),
         }
@@ -403,7 +422,11 @@ impl Sessions {
         } = running;
         pty::hang_up(master.as_fd(), child.is_some().then(|| pidfd.as_fd()));
         drop(master);
-        self.closing.push(Closing { child, pidfd });
+        self.closing.push(Closing {
+            head: console.head.clone(),
+            child,
+            pidfd,
+        });
     }
 
     /// Ends the sessions at the drawing process's end, as vtium in one
@@ -468,8 +491,7 @@ impl Sessions {
     /// those whose console is still open, in the consoles' order. The
     /// keeper drops each such session's master.
     pub fn reap(&mut self) -> Vec<(ConsoleRef, Status)> {
-        self.closing
-            .retain(|c| ended(c.child.as_ref(), c.pidfd.as_fd()).is_none());
+        self.reap_closing();
         let done: Vec<(ConsoleRef, Status)> = self
             .open
             .iter()
@@ -483,22 +505,40 @@ impl Sessions {
         }
         done
     }
+
+    /// Reaps each closed session whose process has exited.
+    fn reap_closing(&mut self) {
+        self.closing
+            .retain(|c| ended(c.child.as_ref(), c.pidfd.as_fd()).is_none());
+    }
 }
 
-/// Takes back `master`, kept through a restart, as vtium in one process
-/// does: it watches the process that leads the pty's session, sets the
-/// pty to the console's grid, and sends `SIGWINCH` when the pty already
-/// has that size, so the program redraws.
-fn adopt(master: OwnedFd, size: Size) -> io::Result<Running> {
-    let pidfd = pty::leader(master.as_fd()).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::NotFound, "the session on the pty has ended")
-    })?;
-    if pty::size(master.as_fd())? == size {
-        pty::winch(master.as_fd())?;
-    } else {
-        pty::set_size(master.as_fd(), size)?;
+/// Takes back `master`, kept through a restart, for `console`, as vtium
+/// in one process does: it watches the process that leads the pty's
+/// session, sets the pty to the console's grid, and sends `SIGWINCH` when
+/// the pty already has that size, so the program redraws. Gives `None`
+/// when the session has ended.
+///
+/// A resize or a redraw that fails leaves the session with its console,
+/// with a warning, as vtium in one process keeps it. The `SIGWINCH` fails,
+/// for example, when the process group in the pty's foreground has just
+/// ended. Were the take-back to fail there, the session would run on with
+/// no console, and the next open of the console would start a second
+/// session under the same name.
+fn adopt(master: OwnedFd, size: Size, console: &ConsoleRef) -> Option<Running> {
+    let pidfd = pty::leader(master.as_fd())?;
+    let redrawn = match pty::size(master.as_fd()) {
+        Ok(held) if held == size => pty::winch(master.as_fd()),
+        _ => pty::set_size(master.as_fd(), size),
+    };
+    if let Err(e) = redrawn {
+        log::warn!(
+            "head {}: console {}: cannot size the recovered session: {e}",
+            console.head.as_str(),
+            console.console
+        );
     }
-    Ok(Running {
+    Some(Running {
         master,
         child: None,
         pidfd,
@@ -877,6 +917,40 @@ pub(super) mod tests {
         }
     }
 
+    /// A drawer that opens and closes a console in a loop starts no more
+    /// root sessions than the caps allow. Each program here ignores
+    /// `SIGHUP`, and the test keeps each master, as a drawer would, so no
+    /// closed session ends by itself. Once the head has as many closed
+    /// sessions still running as its cap, the next open is refused with
+    /// `EMFILE`. When their masters close, the programs end, and the
+    /// console opens again.
+    #[test]
+    fn opening_and_closing_a_console_in_a_loop_stays_within_the_caps() {
+        let caps = Caps { head: 2, total: 3 };
+        let (mut s, watched) =
+            sessions(conf("trap '' HUP; echo ready; read x", "sleep 1000", caps));
+        let left = console("left", 1);
+        let mut masters = Vec::new();
+        for _ in 0..caps.head {
+            let master = s.open(&left, &GRID, Display::Kms, true).unwrap();
+            read_until(&master, "ready");
+            s.close(&left);
+            masters.push(master);
+        }
+        assert_eq!(
+            s.open(&left, &GRID, Display::Kms, true)
+                .map(drop)
+                .map_err(|e| e.0),
+            Err(u16::try_from(libc::EMFILE).unwrap()),
+            "a closed session that still runs counts toward the head's cap"
+        );
+        drop(masters);
+        wait_for_exits(&watched);
+        let master = s.open(&left, &GRID, Display::Kms, true).unwrap();
+        drop(master);
+        s.close(&left);
+    }
+
     #[test]
     fn a_sessions_exit_is_reported_and_a_closed_ones_is_not() {
         let (mut s, watched) = sessions(conf("exit 7", "sleep 1000", WIDE));
@@ -1167,6 +1241,60 @@ pub(super) mod tests {
             "the console did not get the kept session"
         );
         s.close(&console("left", 3));
+        let mut child = earlier.child;
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    /// A kept session whose redraw fails still goes back to its console,
+    /// as vtium in one process keeps it, so it never runs on unseen
+    /// beside a new session under the same name. The earlier session's
+    /// program puts a process group of its own in the foreground, and
+    /// that group's only process then exits, so the `SIGWINCH` that asks
+    /// for the redraw finds nobody to signal. The earlier session already
+    /// has the console's grid, which is when the root process sends that
+    /// signal.
+    #[test]
+    fn a_kept_session_whose_redraw_fails_still_goes_back_to_its_console() {
+        let mut command = std::process::Command::new("python3");
+        command.args([
+            "-c",
+            "import os, signal\n\
+             signal.signal(signal.SIGTTOU, signal.SIG_IGN)\n\
+             pid = os.fork()\n\
+             if pid == 0:\n    \
+                 os.setpgid(0, 0)\n    \
+                 os.tcsetpgrp(0, os.getpgrp())\n    \
+                 os._exit(0)\n\
+             os.waitpid(pid, 0)\n\
+             print('ready', flush=True)\n\
+             signal.pause()\n",
+        ]);
+        let size = Size {
+            cols: GRID.cols,
+            rows: GRID.rows,
+            cell_width: GRID.cell_width,
+            cell_height: GRID.cell_height,
+        };
+        let earlier = pty::open_session(command, size, Erase::Delete).unwrap();
+        read_until(&earlier.master, "ready");
+        assert!(
+            pty::winch(earlier.master.as_fd()).is_err(),
+            "the earlier session's foreground group still has a process"
+        );
+        let (mut s, _) = sessions_kept(
+            conf("echo NEW; sleep 1000", "exit 0", WIDE),
+            vec![(name("left", 1), earlier.master.try_clone().unwrap())],
+        );
+        let master = s
+            .open(&console("left", 1), &GRID, Display::Kms, true)
+            .unwrap();
+        assert_eq!(
+            rustix::termios::tcgetsid(&master).unwrap(),
+            rustix::termios::tcgetsid(&earlier.master).unwrap(),
+            "the console did not get the kept session"
+        );
+        s.close(&console("left", 1));
         let mut child = earlier.child;
         let _ = child.kill();
         let _ = child.wait();

@@ -881,7 +881,7 @@ pub const SMOOTH_SCROLL: Key = Key {
     levels: TOP_LOOK_HEAD,
     what: "Turn smooth scrolling on, in a build with the `smooth-scroll` feature.\n\n\
            [docs] When off, the default, vtium centres the text on the screen. A screen whose size is not a whole number of character cells leaves pixels over, and they form bars of the border's color on both sides of the text. When on, the text's last row touches the bottom of the screen, and `partial-row` sets what the pixel lines left over above the text show. A build without the `smooth-scroll` feature always centres the text.\n\n\
-           [docs] A head's value wins over its look's, and both win over the top level's. A program can switch smooth scrolling with DECSCLM (mode 4), but the text stays where this key puts it.\n\n\
+           [docs] A head's value wins over its look's, and both win over the top level's. vtium ignores DECSCLM (mode 4), the sequence a program sends to switch smooth scrolling, so no program can move the text.\n\n\
            [docs] vtium does not slide the text by pixels yet, so it scrolls by whole rows either way.",
 };
 
@@ -895,7 +895,7 @@ pub const PARTIAL_ROW: Key = Key {
     what: "What the pixel lines left over above the text show while smooth scrolling is on.\n\n\
            [docs] A screen whose height is not a whole number of rows leaves pixel lines over. While `smooth-scroll` is on, they lie above the text's first row. `history` shows the bottom of the scrollback's row above the screen, cut off at the screen's edge. `blank` shows the border's color. `fade` shows the row above, fading into the border's color toward the screen's edge.\n\n\
            [docs] While smooth scrolling is off, vtium centres the text, and the pixels left over show the border's color whatever this key says. A build without the `scroll-pan` feature shows the border's color under every value.\n\n\
-           [docs] vtium logs one line for each display whose size leaves pixels over. The line names the columns and rows that fit, and the pixels left over on each side.",
+           [docs] vtium logs one line for each display whose size leaves pixels over. The line names each axis that does not divide evenly, with the cells that fit along it and the pixels left over.",
 };
 
 pub const HWACCEL: Key = Key {

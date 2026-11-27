@@ -1028,7 +1028,7 @@ Turn smooth scrolling on, in a build with the \fBsmooth\-scroll\fR feature.
 .IP
 When off, the default, vtium centres the text on the screen. A screen whose size is not a whole number of character cells leaves pixels over, and they form bars of the border's color on both sides of the text. When on, the text's last row touches the bottom of the screen, and \fBpartial\-row\fR sets what the pixel lines left over above the text show. A build without the \fBsmooth\-scroll\fR feature always centres the text.
 .IP
-A head's value wins over its look's, and both win over the top level's. A program can switch smooth scrolling with DECSCLM (mode 4), but the text stays where this key puts it.
+A head's value wins over its look's, and both win over the top level's. vtium ignores DECSCLM (mode 4), the sequence a program sends to switch smooth scrolling, so no program can move the text.
 .IP
 vtium does not slide the text by pixels yet, so it scrolls by whole rows either way.
 .IP
@@ -1043,7 +1043,7 @@ A screen whose height is not a whole number of rows leaves pixel lines over. Whi
 .IP
 While smooth scrolling is off, vtium centres the text, and the pixels left over show the border's color whatever this key says. A build without the \fBscroll\-pan\fR feature shows the border's color under every value.
 .IP
-vtium logs one line for each display whose size leaves pixels over. The line names the columns and rows that fit, and the pixels left over on each side.
+vtium logs one line for each display whose size leaves pixels over. The line names each axis that does not divide evenly, with the cells that fit along it and the pixels left over.
 .IP
 It takes one of \fBhistory\fR, \fBblank\fR, \fBfade\fR. Default: \fBhistory\fR.
 .IP
