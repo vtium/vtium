@@ -2608,6 +2608,54 @@ fn a_late_cell_answer_fills_only_a_missing_answer() {
     assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
 }
 
+// The font helper's late answer that a font set has no character cell
+// of its own is logged with the font set named first, then the helper's
+// reason, which names the font file, then what vtium does and how to see
+// and activate the fonts the set lacks. A helper that could not answer
+// at all blames no font, so its line gives no advice about fonts.
+//
+// References:
+// - ADR-1200 D17: a refusal leaves the display's cell in use.
+// - ADR-1205 D4: a font draws only while it is among the active fonts.
+#[test]
+fn a_late_refusal_names_the_font_set_and_the_helpers_reason_and_what_to_do() {
+    let (_lp, mut app, _dir) = late_seat("late-refusal-line");
+    let at = app.heads.first().map(|h| h.font_size).unwrap();
+    crate::getty::tests::logged();
+    let why = "the text font source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf is missing or cannot be read, so the built-in font draws the text in its place, and the cell comes from the configuration";
+    app.late_cell(
+        "t",
+        at + 2,
+        Err(helper::NoCell {
+            why: why.to_owned(),
+            late: false,
+            from_frit: true,
+        }),
+    );
+    app.late_cell(
+        "t",
+        at + 3,
+        Err(helper::NoCell {
+            why: "the helper ended".to_owned(),
+            late: false,
+            from_frit: false,
+        }),
+    );
+    let lines: Vec<String> = crate::getty::tests::logged()
+        .into_iter()
+        .filter(|l| l.starts_with("The font set t "))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            format!(
+                "The font set t has no character cell of its own. The font helper answered after vtium stopped waiting for it: {why}. The font set keeps the character cell it draws in now. To see each font the font set lacks, and to activate a font that is not active, run vtium config fonts."
+            ),
+            "The font set t has no character cell of its own. The font helper could not answer: the helper ended. The font set keeps the character cell it draws in now.".to_owned(),
+        ]
+    );
+}
+
 // ADR-1200 D17: a bitmap frit's answer holds at every height, so a
 // refusal that came in time at one height holds at all of them. A late
 // bitmap cell is then dropped, at the start's height, whose query had
