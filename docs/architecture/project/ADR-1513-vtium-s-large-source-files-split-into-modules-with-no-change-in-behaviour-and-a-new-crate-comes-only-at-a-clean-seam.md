@@ -238,6 +238,8 @@ A split never runs while another card changes the same files. The steering sessi
 7. **With ADR-1400's seam card, beside the second slice:** term.rs and head.rs, as that card's first commit (D4).
 8. **Before 0.1.0:** the glyph helper's wire crate (D4), once serve.rs and helper.rs are split.
 
+> Note 2026-11-26: the maintainer made the split the priority ("I think that should be priority"), once the wave that centres the grid and finishes vtium-config's fix rounds had landed and no other card was in flight. So steps 3, 4, 5's serve.rs, and 6 run together as one wave, ahead of the pan's remaining cards, before swash's removal and before the privilege split's second slice. Each card still owns its whole crate, so the rule that a split never runs beside a card that changes its files holds. serve.rs splits before swash's removal because that removal has not started: it then works on the smaller modules. The rest of vtium-config's files, `vtium-glyph-store` and the check of the broker's crate follow in the next wave.
+
 Each split lands on `integration` like any card. A branch that is open when its files split merges `integration` before it continues, and moves its own change into the new module by hand. That is why a split waits for the cards that change its files.
 
 ### D6: the first card
