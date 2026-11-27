@@ -997,6 +997,7 @@ class RunVt(Case):
                                          "/usr/bin/env", f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
                                          "ACCEPT_LABEL=vtium dev build abc", "ACCEPT_VT=8", f"ACCEPT_BINARY={self.s.bin}",
                                          "ACCEPT_FEATURES=none", f"ACCEPT_VTIUM_CONF={self.s.standins}/run-vtium-vt/config/vtium.conf",
+                                         "ACCEPT_MODES=", "ACCEPT_MODE_FROM=",
                                          "/bin/bash", os.path.join(VT, "accept.sh")])
 
     def test_the_acceptance_pass_reads_the_blink_style_vtium_is_given(self):
@@ -1255,6 +1256,101 @@ class RunVt(Case):
         os.remove(conf)
         os.symlink(review, conf)
         self.refused(self.run_vt("--login", f"--config={conf}", "--dry-run", "8"), "t.conf is a symlink")
+
+    def machine_conf(self, text, mode=0o644):
+        """The stand-in /etc/vtium/vtium.conf, the machine's own."""
+        path = os.path.join(self.s.standins, "etc-vtium.conf")
+        write(path, text, mode)
+        return path
+
+    def staged(self, *args, **env):
+        """A real run's staged vtium.conf, and the words it gave the session."""
+        seen = os.path.join(self.s.tmp, "stage-copy")
+        shutil.rmtree(seen, ignore_errors=True)
+        os.mkdir(seen)
+        p = self.run_vt(*args, BIN_STAGE_COPY=seen, **env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        words = [a for a in read(self.s.bin_args).splitlines() if a.startswith(("ACCEPT_MODES=", "ACCEPT_MODE_FROM="))]
+        return read(os.path.join(seen, "config", "vtium.conf")), words, p
+
+    def test_the_run_gives_each_display_the_mode_the_machines_vtium_conf_sets(self):
+        # The run's own vtium.conf sets no mode, so without the machine's
+        # mode lines vtium would run each display at its preferred mode: on
+        # a display with no EDID that is a size the machine never runs at.
+        # The run carries the display-mode lines of the machine's top level
+        # into the staged copy, above the review's own lines, and only those.
+        conf = self.machine_conf("# the machine's console\nfont-name=cullet-mono\nfont-size=34\n"
+                                 "mode=[DP-3]7680x2160@120\n  mode = pci-0000:03:00.0[HDMI-A-1]1920x1080  # the TV\n"
+                                 "#mode=1x1\nno-use-original-mode\nuse-original-mode\nmode=$(id)\n"
+                                 "[look big]\nmode=640x480\n")
+        review = read(os.path.join(VT, "config", "vtium.conf"))
+        carried = ["mode=[DP-3]7680x2160@120", "mode=pci-0000:03:00.0[HDMI-A-1]1920x1080",
+                   "no-use-original-mode", "use-original-mode"]
+        text, words, p = self.staged("8")
+        self.assertTrue(text.endswith(review), text)
+        top = [l for l in text[:-len(review)].splitlines() if not l.startswith("#")]
+        self.assertEqual(top, carried)
+        self.assertEqual(words, ["ACCEPT_MODES=" + " ".join(carried),
+                                 f"ACCEPT_MODE_FROM=the machine's vtium.conf, {conf}"])
+        self.assertIn(f"run-vt: vtium runs each display at the mode {conf} sets: {' '.join(carried)}", p.stdout)
+        # A line whose value is not a mode is left out, and the run says so.
+        self.assertIn("run-vt: vtium does not take the line 'mode=$(id)'", p.stdout)
+        # The dry run says the same, and changes nothing.
+        p = self.run_vt("--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"run-vt: vtium runs each display at the mode {conf} sets", p.stdout)
+        # A login, a shell or a guide run uses the same displays.
+        text, _, _ = self.staged("--shell", "8")
+        self.assertTrue(text.endswith(review), text)
+        self.assertEqual([l for l in text[:-len(review)].splitlines() if not l.startswith("#")], carried)
+
+    def test_without_the_machines_mode_lines_the_run_changes_nothing(self):
+        review = read(os.path.join(VT, "config", "vtium.conf"))
+        for conf in (None, "font-size=34\n", "# mode=7680x2160\n[look big]\nmode=7680x2160\n"):
+            with self.subTest(conf=conf):
+                if conf is not None:
+                    self.machine_conf(conf)
+                text, words, p = self.staged("8")
+                self.assertEqual(text, review)
+                self.assertEqual(words, ["ACCEPT_MODES=", "ACCEPT_MODE_FROM="])
+                self.assertNotIn("runs each display at the mode", p.stdout)
+
+    def test_a_machine_conf_vtium_would_not_read_gives_no_mode(self):
+        # vtium reads a vtium.conf only when no one but its owner can write
+        # it, so the run carries nothing from one that others can write.
+        conf = self.machine_conf("mode=[DP-3]7680x2160@120\n", 0o666)
+        os.chmod(conf, 0o666)
+        text, words, p = self.staged("8")
+        self.assertEqual(text, read(os.path.join(VT, "config", "vtium.conf")))
+        self.assertEqual(words, ["ACCEPT_MODES=", "ACCEPT_MODE_FROM="])
+        self.assertIn(f"run-vt: vtium ignores {conf}, which is writable by group or others (mode 666), "
+                      "so each display runs at its preferred mode", p.stdout)
+
+    def test_a_mode_the_run_pins_itself_wins_over_the_machines(self):
+        conf = self.machine_conf("mode=[DP-3]7680x2160@120\n")
+        review = read(os.path.join(VT, "config", "vtium.conf"))
+        # vtium's own options, DEMO_ARGS: --mode replaces every mode line
+        # of a file, and --use-original-mode would lose to a carried one.
+        for args, carried in ((["--mode=1920x1080"], "mode=1920x1080"),
+                              (["--mode=1920x1080", "--mode=[DP-3]1280x720"], "mode=1920x1080 mode=[DP-3]1280x720"),
+                              (["--use-original-mode"], "use-original-mode")):
+            with self.subTest(args=args):
+                text, words, p = self.staged("8", "--", *args)
+                self.assertEqual(text, review)
+                self.assertEqual(words, [f"ACCEPT_MODES={carried}", "ACCEPT_MODE_FROM=vtium's command line"])
+                self.assertNotIn(f"at the mode {conf} sets", p.stdout)
+        # --no-use-original-mode sets no mode, so the machine's still apply.
+        text, words, _ = self.staged("8", "--", "--no-use-original-mode")
+        self.assertTrue(text.endswith(review))
+        self.assertIn("mode=[DP-3]7680x2160@120\n", text)
+        self.assertEqual(words, ["ACCEPT_MODES=mode=[DP-3]7680x2160@120",
+                                 f"ACCEPT_MODE_FROM=the machine's vtium.conf, {conf}"])
+        # A vtium.conf --config names that sets a mode keeps its own.
+        own = os.path.join(self.s.tmp, "own.conf")
+        write(own, "mode=1024x768\n", 0o644)
+        text, _, p = self.staged("--shell", f"--config={own}", "8")
+        self.assertEqual(text, "mode=1024x768\n")
+        self.assertIn(f"run-vt: vtium runs each display at the mode {own} sets", p.stdout)
 
     def test_an_image_helper_another_user_could_have_written_is_refused(self):
         for mode in (0o775, 0o757):

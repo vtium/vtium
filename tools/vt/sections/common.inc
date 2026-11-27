@@ -148,6 +148,8 @@ cannot_show() {
 
 # shellcheck source=tools/vt/blink.inc
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../blink.inc"
+# shellcheck source=tools/vt/mode.inc
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../mode.inc"
 
 # For a page that blinks text: the blink style vtium draws it in, what that
 # looks like when it is right, and where the style comes from (blink.inc),
@@ -184,13 +186,16 @@ blink_line() {
 # own pointer pictures. A page that needs more top-level settings in it,
 # such as allow-window-ops, sets the array looks_top to those lines before
 # it calls looks_tui. Each page sets its own, so the other pages' vtium.conf
-# stays as it is. The page prints its steps and waits for a key before
+# stays as it is. The vtium.conf also carries the display-mode lines of the
+# console's own vtium.conf, which a review run gives the machine's modes, so
+# vtium-config is given the mode each display runs at. A page whose looks_top
+# sets a mode keeps its own. The page prints its steps and waits for a key before
 # the TUI starts, so the steps can be read first. The TUI draws on the
 # alternate screen, so the steps show again when it quits. Away from a
 # review run, or off a terminal, the page cannot show.
 looks_top=()
 looks_tui() {
-	local stage=${ACCEPT_VTIUM_CONF:-} dir status
+	local stage=${ACCEPT_VTIUM_CONF:-} dir status modes=()
 	stage=${stage%/config/vtium.conf}
 	[ -n "$stage" ] && [ -x "$stage/vtium-config" ] && [ -x "$stage/vtium" ] && [ -d "$stage/frits" ] ||
 		cannot_show "No review run staged vtium-config, which make vt-accept does."
@@ -205,7 +210,9 @@ looks_tui() {
 	trap 'exit 143' TERM
 	mkdir -p "$dir/etc" "$dir/home"
 	cp -R "$stage/frits" "$dir/frits"
-	printf '%s\n' 'version = 1' "font-frits = $dir/frits" "${looks_top[@]}" '[look big]' 'font-name = acceptance-outline' \
+	[[ $'\n'"$(printf '%s\n' "${looks_top[@]}")" =~ $'\n'(mode|use-original-mode) ]] ||
+		mapfile -t modes < <(vt_mode_lines "$stage/config/vtium.conf")
+	printf '%s\n' 'version = 1' "font-frits = $dir/frits" "${modes[@]}" "${looks_top[@]}" '[look big]' 'font-name = acceptance-outline' \
 		'font-size = 20' '[look small]' 'font-name = acceptance-bitmap' \
 		'pointer-theme = /usr/share/vtium/pointers.svg' '[head desk]' 'look = big' '[rules]' \
 		'display * -> desk' >"$dir/etc/vtium.conf"

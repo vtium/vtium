@@ -229,9 +229,12 @@ class Case(unittest.TestCase):
     def env(self, label="vtium dev build v1-test", **extra):
         env = {"PATH": os.environ["PATH"], "TERM": "linux", "HOME": self.tmp,
                "ACCEPT_SYSFS": self.sysfs, "ACCEPT_PROC": self.proc,
-               "ACCEPT_DIR": self.passes, "ACCEPT_PAGES": self.pages, "ACCEPT_LABEL": label}
+               "ACCEPT_DIR": self.passes, "ACCEPT_PAGES": self.pages, "ACCEPT_LABEL": label,
+               # as a review run gives them, so no pass reads the machine's
+               # own /etc/vtium/vtium.conf; None leaves one out
+               "ACCEPT_MODES": "", "ACCEPT_MODE_FROM": ""}
         env.update(extra)
-        return env
+        return {k: v for k, v in env.items() if v is not None}
 
     def walk(self, env, *argv, da1=DA1_TEXT, frits=("unifont",), size=(25, 80), font="unifont"):
         return Pty(["/bin/bash", ACCEPT_SH, *argv], env, da1, frits, size, font)
@@ -1400,6 +1403,22 @@ class Looks(Case):
                 top = ["allow-window-ops"] if page == "74-looks-sizes.sh" else []
                 self.assertEqual(read(os.path.join(self.log, "vtium.conf")), looks_conf(self.folder(), top))
 
+    def test_a_looks_page_gives_vtium_config_the_consoles_display_modes(self):
+        # The console's vtium.conf carries the machine's display modes, and
+        # the page's own vtium.conf carries them on, so the TUI is given the
+        # mode each display runs at. Only the console's top level counts.
+        write(os.path.join(self.stage, "config", "vtium.conf"),
+              "# the machine's display modes\nmode=[DP-3]7680x2160@120\nuse-original-mode\n" + STAGE_CONF +
+              "  mode = 1920x1080  # a second display\n[look x]\nmode=640x480\n")
+        for page in LOOKS_PAGES:
+            with self.subTest(page=page):
+                status, seen = self.looks(page)
+                self.assertEqual(status, 0, seen[-500:])
+                top = ["mode=[DP-3]7680x2160@120", "use-original-mode", "mode=1920x1080"]
+                if page == "74-looks-sizes.sh":
+                    top.append("allow-window-ops")
+                self.assertEqual(read(os.path.join(self.log, "vtium.conf")), looks_conf(self.folder(), top))
+
     def test_the_sizes_page_cannot_show_while_the_console_leaves_window_ops_off(self):
         # vtium ignores vtium-config's grid request while the console's own
         # vtium.conf leaves allow-window-ops off, so no size would change.
@@ -1776,11 +1795,11 @@ class Hardware(Case):
     HARDWARE = ("- machine: Example Boards EB-1 2.0\n"
                 "- kernel: 7.2.14-test\n"
                 "- gpu: card0 driver amdgpu, 0x1002:0x744c at 0000:03:00.0\n"
-                "- display: DP-1, preferred mode 3840x2160, EDID make DEL product 0xA0F1 model DELL U2723QE\n"
+                "- display: DP-1, runs at its preferred mode 3840x2160, EDID make DEL product 0xA0F1 model DELL U2723QE\n"
                 "- text-area: 640x400 pixels, as vtium reports it (XTWINOPS 14)\n")
 
-    def one_pass(self, quit=False):
-        d = self.walk(self.env(), "one", "two")
+    def one_pass(self, quit=False, **env):
+        d = self.walk(self.env(**env), "one", "two")
         d.wait_for(b"press a key to start the pass")
         d.send(b" ")
         d.wait_for(ASK)
@@ -1796,6 +1815,52 @@ class Hardware(Case):
         _, text = self.record()
         self.assertIn(self.HARDWARE, text)
         self.assertRegex(text, r"- hardware: [0-9a-f]{64}; this pass is evidence about the hardware above only\n")
+
+    def display_line(self, **env):
+        """The record's display line, from a pass run with ENV."""
+        for n in os.listdir(self.passes) if os.path.isdir(self.passes) else ():
+            os.remove(os.path.join(self.passes, n))
+        self.one_pass(**env)
+        _, text = self.record()
+        return [l for l in text.splitlines() if l.startswith("- display: ")]
+
+    def test_a_pass_names_the_mode_each_display_runs_at_and_where_it_comes_from(self):
+        # run-vt.sh gives the pass the display-mode lines vtium is given and
+        # where they come from. The display runs at the line that matches
+        # it best, as vtium picks: one naming the card and the connector,
+        # then one naming the connector, then one naming neither.
+        edid = "EDID make DEL product 0xA0F1 model DELL U2723QE"
+        machine = "the machine's vtium.conf, /etc/vtium/vtium.conf"
+        for modes, line in (
+                ("mode=[DP-1]1920x1080@60",
+                 f"runs at 1920x1080@60 from {machine} (mode=[DP-1]1920x1080@60), preferred mode 3840x2160"),
+                ("mode=1920x1080 mode=[HDMI-A-1]1280x720 mode=[DP-1]1920x1080@60 "
+                 "mode=pci-0000:03:00.0[DP-1]3840x2160@30 mode=pci-0000:04:00.0[DP-1]1920x1080",
+                 f"runs at 3840x2160@30 from {machine} (mode=pci-0000:03:00.0[DP-1]3840x2160@30), "
+                 "preferred mode 3840x2160"),
+                ("mode=[HDMI-A-1]1280x720", "runs at its preferred mode 3840x2160"),
+                ("mode=[DP-1]1234x567",
+                 f"runs at its preferred mode 3840x2160, since it offers no 1234x567 for {machine} "
+                 "(mode=[DP-1]1234x567)"),
+                ("use-original-mode",
+                 f"keeps the mode the console showed, from {machine} (use-original-mode), preferred mode 3840x2160"),
+                ("use-original-mode no-use-original-mode", "runs at its preferred mode 3840x2160"),
+                # a mode line turns use-original-mode off
+                ("use-original-mode mode=1920x1080",
+                 f"runs at 1920x1080 from {machine} (mode=1920x1080), preferred mode 3840x2160")):
+            with self.subTest(modes=modes):
+                self.assertEqual(self.display_line(ACCEPT_MODES=modes, ACCEPT_MODE_FROM=machine),
+                                 [f"- display: DP-1, {line}, {edid}"])
+        # No line: the preferred mode.
+        self.assertEqual(self.display_line(ACCEPT_MODES="", ACCEPT_MODE_FROM=""),
+                         [f"- display: DP-1, runs at its preferred mode 3840x2160, {edid}"])
+        # A pass started by hand, in a login or a shell, reads the lines of
+        # the vtium.conf ACCEPT_VTIUM_CONF names.
+        conf = os.path.join(self.tmp, "vtium.conf")
+        write(conf, "font-size=34\nmode = [DP-1]1920x1080  # the desk\n[look big]\nmode=640x480\n")
+        self.assertEqual(self.display_line(ACCEPT_VTIUM_CONF=conf, ACCEPT_MODES=None, ACCEPT_MODE_FROM=None),
+                         [f"- display: DP-1, runs at 1920x1080 from {conf} (mode=[DP-1]1920x1080), "
+                          f"preferred mode 3840x2160, {edid}"])
 
     def test_a_pass_never_resumes_on_other_hardware(self):
         self.one_pass(quit=True)
