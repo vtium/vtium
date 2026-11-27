@@ -1664,7 +1664,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vtium"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "calloop",
  "libc",
@@ -1685,7 +1685,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-broker-protocol"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "libc",
  "rustix",
@@ -1693,7 +1693,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-clipboard"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "rustix",
  "vtium-term",
@@ -1701,7 +1701,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-config"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "bzip2",
  "harfrust",
@@ -1735,7 +1735,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-conformance"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "regex",
  "rustix",
@@ -1747,14 +1747,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-cover-tables"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "vtium-font",
 ]
 
 [[package]]
 name = "vtium-devices"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "vtium-platform",
  "vtium-settings",
@@ -1762,7 +1762,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-font"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "miniz_oxide",
  "vtium-font",
@@ -1770,14 +1770,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-image"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "vtium-parse",
 ]
 
 [[package]]
 name = "vtium-image-helper"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "gif",
  "landlock",
@@ -1794,7 +1794,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-man"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "vtium",
  "vtium-clipboard",
@@ -1806,21 +1806,21 @@ dependencies = [
 
 [[package]]
 name = "vtium-parse"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "vtium-parse-recorder",
 ]
 
 [[package]]
 name = "vtium-parse-recorder"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "vtium-parse",
 ]
 
 [[package]]
 name = "vtium-platform"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "calloop",
  "drm-ffi",
@@ -1841,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-render"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "vtium-font",
  "vtium-image",
@@ -1850,7 +1850,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-settings"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "rustix",
  "vtium-font",
@@ -1860,14 +1860,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-site"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "toml",
 ]
 
 [[package]]
 name = "vtium-specimens"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "miniz_oxide",
  "vtium",
@@ -1881,7 +1881,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-term"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "unicode-bidi",
  "vtium-image",
@@ -1890,7 +1890,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-testfont"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "miniz_oxide",
  "vtium-font",
@@ -1898,14 +1898,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-testscript"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "seccompiler",
 ]
 
 [[package]]
 name = "vtium-tier1-shots"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "vtium",
  "vtium-conformance",
@@ -1919,7 +1919,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-tier2"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "vtium",
  "vtium-config",
@@ -1933,14 +1933,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-tier3-probes"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "vtium-tui-review"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "rustix",
  "vtium-config",
