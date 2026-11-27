@@ -203,11 +203,16 @@ impl Console {
     /// frame and the bottom of the old one, with one row cut partway. A
     /// test therefore waits until every text it checks is on the screen,
     /// and checks the screen this returns rather than reading it again.
+    ///
+    /// The wait is bounded only so that a broken test fails instead of
+    /// hanging. The bound is generous because the gates run many test
+    /// binaries at once on every core, and a loaded machine can take
+    /// several seconds to show a frame.
     fn until(&self, what: &str, done: impl Fn(&Seen) -> bool) -> String {
         let (lock, cv) = &*self.seen;
         let guard = lock.lock().expect("the lock");
         let (guard, timeout) = cv
-            .wait_timeout_while(guard, Duration::from_secs(10), |s| !done(s))
+            .wait_timeout_while(guard, Duration::from_secs(60), |s| !done(s))
             .expect("the lock");
         assert!(
             !timeout.timed_out(),
