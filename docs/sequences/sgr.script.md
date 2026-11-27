@@ -28,7 +28,7 @@ vtium draws superscript and subscript text smaller, at two thirds of the normal 
 These tests check what vtium does with the sequences on this page.
 
 - `script_source_names_smaller_sizes_of_the_source_above_it` in [crates/vtium-config/src/frit.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/frit.rs)
-- `an_ask_made_says_how_each_script_glyph_was_made` in [crates/vtium-config/src/serve.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve.rs)
+- `an_ask_made_says_how_each_script_glyph_was_made` in [crates/vtium-config/src/serve/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve/tests.rs)
 - `the_script_line_draws_the_glyphs_the_engine_made` in [crates/vtium-config/src/specimen.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/specimen.rs)
 - `the_font_views_captions_say_how_the_font_makes_superscripts` in [crates/vtium-config/src/tui/words/mod.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/tui/words/mod.rs)
 - `the_script_caption_names_each_way` in [crates/vtium-config/src/tui/words/mod.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/tui/words/mod.rs)
