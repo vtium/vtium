@@ -167,17 +167,43 @@ fn sample_screen((cols, rows): (usize, usize)) -> Vec<super::canvas::Row> {
 pub const GRID_MAX: (usize, usize) = (1024, 1024);
 
 /// The live trial: the font tried, the font it puts back, and the ticks
-/// left before it does. A trial of a size leaves the font as it is, so
-/// its font and the font it puts back are the same, and `grid` holds the
-/// grid it asked the console for. A trial of a look holds what it tries
-/// beside the font in `look`.
+/// left before it does. A trial of a size in the font set the console
+/// draws leaves the font as it is, so its font and the font it puts back
+/// are the same. A trial of a size in another font set switches the
+/// console to that font set first, as a look's trial does. `grid` holds
+/// the grid the trial asked the console for. A trial of a look holds what
+/// it tries beside the font in `look`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Trial {
     pub font: String,
     pub back: String,
     pub left: u32,
     pub grid: Option<GridTrial>,
+    /// The size in points still to try, once the console draws `font`:
+    /// the font helper then measures the cell, and the grid request
+    /// follows.
+    pub size: Option<u32>,
     pub look: Option<LookParts>,
+}
+
+impl Trial {
+    /// The size in points that a trial of a size tries, whether or not
+    /// its grid request has gone.
+    fn points(&self) -> Option<u32> {
+        self.grid.map(|g| g.points).or(self.size)
+    }
+
+    /// The font set that a trial of a size switched the console to, as
+    /// its words name it, where it switched the font at all.
+    fn size_font(&self) -> Option<String> {
+        (self.font != self.back).then(|| font_shown(&self.font))
+    }
+
+    /// The font set that the end of a trial of a size gives the console
+    /// back, as its words name it, where the trial switched the font.
+    fn back_font(&self) -> Option<String> {
+        (self.font != self.back).then(|| font_shown(&self.back))
+    }
 }
 
 /// What the trial of a look tries beside its font set.
@@ -188,9 +214,6 @@ pub struct LookParts {
     /// The colors of the look's color scheme, which the trial set on the
     /// console. `None` where the console already showed them.
     pub colors: Option<vtium_term::Palette>,
-    /// The look's size in points, still to try once the console draws
-    /// the look's font set.
-    pub size: Option<u32>,
     /// What of the look waits for vtium's next start, as the countdown
     /// says it.
     pub later: Option<String>,
@@ -331,17 +354,28 @@ pub struct KeptGrid {
 }
 
 /// The size a trial waits for the font helper to measure: the font set,
-/// the pixel height and the size in points, and whether the trial of a
-/// look asked for it.
+/// the pixel height and the size in points, and whether a running trial
+/// asked for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SizeAsked {
     pub font: String,
     pub height: u32,
     pub points: u32,
-    /// A look's trial asked for the size, so the size belongs to the look:
-    /// it goes to the console with the look's trial, and also after `k`
-    /// kept the look before the cell came.
-    pub look: bool,
+    /// A running trial asked for the size once the console drew the
+    /// trial's font set: a look's trial, or the trial of a size in a font
+    /// set the console did not draw. The size goes to the console with
+    /// that trial, and also after `k` kept the trial before the cell came.
+    pub trial: bool,
+}
+
+/// A grid request that waits for a font switch: the font set the console
+/// is to draw first, and the grid to ask for once that font set's switch
+/// has gone. A font switch moves the console's grid too, so a grid
+/// request sent before it would be undone.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GridAfter {
+    pub font: String,
+    pub grid: (usize, usize),
 }
 
 /// The grid request, `CSI 8 ; rows ; cols t`, which asks the console for a
@@ -355,6 +389,34 @@ pub struct SizeAsked {
 ///   `allow-window-ops`.
 pub fn grid_request((cols, rows): (usize, usize)) -> Vec<u8> {
     format!("\x1b[8;{rows};{cols}t").into_bytes()
+}
+
+/// The grid request with both sides 0, `CSI 8 ; 0 ; 0 t`, which lets the
+/// console's grid fill its displays again at the height it draws at.
+/// vtium keeps the grid that a grid request asked for, across font
+/// switches too, until a zoom or this request. So a grid request alone
+/// cannot give the console back a grid that filled its displays: the next
+/// font set with a smaller cell would draw that many rows and columns in
+/// the middle of the screen.
+///
+/// References:
+/// - ADR-1000, the row `window.resize`: a side of 0 takes the length the
+///   displays hold, as xterm's ctlseqs says.
+pub const GRID_FILL: &[u8] = b"\x1b[8;0;0t";
+
+/// The bytes that give the console back the grid `to`. The grid request
+/// brings back the height that gave the grid. Where `to` is the grid the
+/// console had when vtium-config started, the request with both sides 0
+/// follows it, so the grid fills the displays again, as it did then.
+/// vtium-config takes that start grid for the one the console's displays
+/// held at its font, since vtium draws a console that way until a program
+/// asks for another grid.
+pub fn grid_back(shared: &Shared, to: (usize, usize)) -> Vec<u8> {
+    let mut bytes = grid_request(to);
+    if to == shared.start_grid {
+        bytes.extend_from_slice(GRID_FILL);
+    }
+    bytes
 }
 
 /// What a picture of the console shows: the font, its size in points, and
@@ -1212,6 +1274,7 @@ impl App {
             back,
             left: TRIAL_TICKS,
             grid: None,
+            size: None,
             look: None,
         });
         self.shared.want = Some(name.clone());
@@ -1325,10 +1388,10 @@ impl App {
             back,
             left: TRIAL_TICKS,
             grid: None,
+            size,
             look: Some(LookParts {
                 name,
                 colors,
-                size,
                 later,
                 offer,
             }),
@@ -1337,23 +1400,26 @@ impl App {
             self.shared.want = Some(font);
             out.extend(self.follow());
         } else {
-            out.extend(self.look_size());
+            out.extend(self.trial_size());
         }
         out.push(Effect::Wait(TICK));
         out
     }
 
-    /// The size a look's trial still has to try, once the console draws
-    /// the look's font set: the font helper measures the font set's cell
-    /// at the size, and [`App::size_measured`] sends the grid request.
-    pub(crate) fn look_size(&mut self) -> Vec<Effect> {
+    /// The size a trial still has to try, once the console draws the
+    /// trial's font set: the font helper measures the font set's cell at
+    /// the size, and [`App::size_measured`] sends the grid request. A
+    /// look's trial and the trial of a size in another font set both wait
+    /// for the font, because vtium meets a grid request with the zoom
+    /// steps of the font it draws when the request comes.
+    pub(crate) fn trial_size(&mut self) -> Vec<Effect> {
         let Some(t) = self.nav.trial.as_mut() else {
             return Vec::new();
         };
         if self.shared.shown_font.as_deref() != Some(t.font.as_str()) {
             return Vec::new();
         }
-        let Some(points) = t.look.as_mut().and_then(|l| l.size.take()) else {
+        let Some(points) = t.size.take() else {
             return Vec::new();
         };
         let font = t.font.clone();
@@ -1362,7 +1428,7 @@ impl App {
             font: font.clone(),
             height,
             points,
-            look: true,
+            trial: true,
         });
         vec![Effect::Cell { font, height }]
     }
@@ -1396,7 +1462,7 @@ impl App {
                     return Vec::new();
                 }
                 self.shared.message = Some(match t.grid {
-                    Some(g) => words::size_kept(g.points),
+                    Some(g) => words::size_kept(g.points, t.size_font().as_deref()),
                     None if is_file(&t.font) => words::font_file_kept(font_shown(&t.font)),
                     None => words::trial_kept(&t.font),
                 });
@@ -1406,9 +1472,8 @@ impl App {
         }
     }
 
-    /// Ends the live trial and switches the console back to the font it
-    /// drew before it, or for a trial of a size, asks the console for the
-    /// grid it had before.
+    /// Ends the live trial: the console gets back the font it drew before
+    /// the trial, and then the grid it had, where the trial changed them.
     pub(crate) fn put_back(&mut self) -> Vec<Effect> {
         let Some(t) = self.nav.trial.take() else {
             return Vec::new();
@@ -1416,16 +1481,44 @@ impl App {
         if let Some(look) = &t.look {
             return self.put_look_back(&t, look);
         }
-        if let Some(g) = t.grid {
+        self.shared.message = Some(match (t.grid, t.points()) {
+            (Some(g), _) => words::size_back(g.back, g.points, t.back_font().as_deref()),
+            (None, Some(points)) => words::size_back(
+                (self.size.cols, self.size.rows),
+                points,
+                t.back_font().as_deref(),
+            ),
+            (None, None) => words::trial_back(font_shown(&t.back)),
+        });
+        self.font_and_grid_back(&t)
+    }
+
+    /// The font, then the grid, that the trial `t` changed, given back.
+    /// The grid request follows the font's switch, because a font switch
+    /// changes the console's grid too. While the trial's own switch is in
+    /// flight, the switch back goes once the console answers it, and the
+    /// grid request waits for the switch back. A size whose cell the font
+    /// helper is still measuring is dropped.
+    fn font_and_grid_back(&mut self, t: &Trial) -> Vec<Effect> {
+        self.shared.size_asked = None;
+        let mut out = Vec::new();
+        if t.font != t.back {
+            self.shared.want = Some(t.back.clone());
+            out.extend(self.follow());
+            if let Some(g) = t.grid {
+                self.shared.grid_after_font = Some(GridAfter {
+                    font: t.back.clone(),
+                    grid: g.back,
+                });
+                out.extend(self.grid_after_font());
+            }
+        } else if let Some(g) = t.grid {
             // a console back at its starting grid needs nothing more when
             // the TUI leaves
             self.shared.grid_moved = g.back != self.shared.start_grid;
-            self.shared.message = Some(words::size_back(g.back, g.points));
-            return vec![Effect::Write(grid_request(g.back))];
+            out.push(Effect::Write(grid_back(&self.shared, g.back)));
         }
-        self.shared.message = Some(words::trial_back(font_shown(&t.back)));
-        self.shared.want = Some(t.back);
-        self.follow()
+        out
     }
 
     /// The bytes that give the console back the colors it showed before a
@@ -1493,36 +1586,39 @@ impl App {
             Some(_) => format!("{back} {}", words::look_unused(&look.name)),
             None => back,
         });
-        self.shared.size_asked = None;
-        if t.font != t.back {
-            self.shared.want = Some(t.back.clone());
-            out.extend(self.follow());
-            if t.grid.is_some() {
-                self.shared.grid_after_font = true;
-                out.extend(self.grid_after_font());
-            }
-        } else if let Some(g) = t.grid {
-            self.shared.grid_moved = g.back != self.shared.start_grid;
-            out.push(Effect::Write(grid_request(g.back)));
-        }
+        out.extend(self.font_and_grid_back(t));
         out
     }
 
     /// Enter on a size in the shared list of a look's card: in a vtium
-    /// console that lets programs resize its grid, tries the size on the
-    /// console as a timed trial. The font helper measures the cell of the
-    /// font set `font` at the size first, and [`App::size_measured`] sends
-    /// the grid request once the cell comes. An automatic size has no grid
-    /// of its own, so it is not tried. Outside a vtium console the size
-    /// shows only in the preview. With `allow-window-ops` off the tab says
-    /// why: with the live trial on, the preview is the console's own text
-    /// at its current size, so the size takes effect when vtium starts
-    /// again; with it off, the size shows only in the preview.
+    /// console that lets programs resize its grid and has `allow-font-ops`
+    /// on, tries the size on the console as a timed trial. Where the
+    /// console draws another font set, [`App::try_size_in`] switches it to
+    /// `font` first. The font helper measures the cell of the font set
+    /// `font` at the size, and [`App::size_measured`] sends the grid
+    /// request once the cell comes. An automatic size has no grid of its
+    /// own, so it is not tried. Outside a vtium console the size shows only
+    /// in the preview. With `allow-window-ops` off the tab says why: with
+    /// the live trial on, the preview is the console's own text at its
+    /// current size, so the size takes effect when vtium starts again;
+    /// with it off, the size shows only in the preview.
+    ///
+    /// With `allow-window-ops` on and `allow-font-ops` off, the size is not
+    /// tried, and the tab says that trying it needs `allow-font-ops` too.
+    /// vtium meets a grid request with the zoom steps of the font it draws.
+    /// Without font operations vtium-config can neither switch the console
+    /// to `font` nor learn which font set the console draws, so a grid
+    /// measured in `font` could land on a font that does not reach it, and
+    /// the console would draw its old glyphs in a smaller grid. The
+    /// installed vtium.conf does not settle the console's font set either,
+    /// because an install since vtium started changes the file and not the
+    /// running console.
     ///
     /// References:
     /// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
-    ///   highlighted size as a timed trial, and the grid is the one the
-    ///   size gives on the display.
+    ///   highlighted size as a timed trial, the grid is the one the size
+    ///   gives on the display, and vtium meets the grid request with the
+    ///   zoom step of the font it draws.
     /// - ADR-1201 D4, its note of 2026-11-21: with the live trial on and
     ///   `allow-window-ops` off, the preview is the console's own text.
     pub(crate) fn try_size(&mut self, font: Option<String>, points: u32) -> Vec<Effect> {
@@ -1550,17 +1646,72 @@ impl App {
             );
             return Vec::new();
         }
+        if self.shared.trial_off().is_some() {
+            self.shared.message = Some(words::SIZE_NEEDS_FONT_OPS.to_owned());
+            return Vec::new();
+        }
         let Some(font) = font.or_else(|| self.shared.shown_font.clone()) else {
             return Vec::new();
         };
+        // the font the console draws once any switch in flight is answered
+        let shown = self
+            .shared
+            .want
+            .clone()
+            .or_else(|| self.shared.shown_font.clone());
+        if shown.as_deref() != Some(font.as_str()) {
+            return self.try_size_in(font, shown.unwrap_or_default(), points);
+        }
         let height = crate::specimen::pixel_height(points, self.shared.inputs.dpi.0);
         self.shared.size_asked = Some(SizeAsked {
             font: font.clone(),
             height,
             points,
-            look: false,
+            trial: false,
         });
         vec![Effect::Cell { font, height }]
+    }
+
+    /// The trial of the size `points` in the font set `font`, which the
+    /// console does not draw now: the console switches to the font set
+    /// first, as a look's trial switches it, and [`App::trial_size`] asks
+    /// for the size's grid once the console draws the font set. vtium
+    /// meets a grid request with the zoom steps of the font it draws, so a
+    /// grid measured in one font set and asked for in another lands on
+    /// the wrong font's steps. The countdown starts with the switch, and
+    /// the end of the trial gives the console back `back` and its grid.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "Sizes, live on a vtium console": the preview shows
+    ///   the look at the chosen size, and vtium meets the grid request
+    ///   with the zoom step nearest that size.
+    fn try_size_in(&mut self, font: String, back: String, points: u32) -> Vec<Effect> {
+        if self.shared.refused.contains(&font) {
+            self.shared.message = Some(if is_file(&font) {
+                words::font_file_refused(font_shown(&font))
+            } else {
+                words::KEPT.to_owned()
+            });
+            return Vec::new();
+        }
+        self.shared.message = Some(words::size_countdown(
+            points,
+            Some(&font_shown(&font)),
+            TRIAL_TICKS,
+        ));
+        self.nav.trial = Some(Trial {
+            font: font.clone(),
+            back,
+            left: TRIAL_TICKS,
+            grid: None,
+            size: Some(points),
+            look: None,
+        });
+        self.shared.want = Some(font);
+        let mut out = self.follow();
+        out.extend(self.trial_size());
+        out.push(Effect::Wait(TICK));
+        out
     }
 
     /// The cell of a size that [`App::try_size`] or a look's trial asked
@@ -1581,10 +1732,10 @@ impl App {
             return None;
         }
         let points = asked.points;
-        let kept_look = asked.look && self.nav.trial.is_none();
+        let by_trial = asked.trial;
+        let kept = by_trial && self.nav.trial.is_none();
         self.shared.size_asked = None;
-        let look_trial = self.nav.trial.as_ref().is_some_and(|t| t.look.is_some());
-        if self.shared.leaving.is_some() || (self.nav.trial.is_some() && !look_trial) {
+        if self.shared.leaving.is_some() || (self.nav.trial.is_some() && !by_trial) {
             return Some(Vec::new());
         }
         let cell = match cell {
@@ -1593,7 +1744,7 @@ impl App {
             Ok((cell, face_height)) => crate::specimen::drawn_cell(*cell, *face_height),
             Err(why) => {
                 // a look's trial goes on without its size, and its
-                // countdown says why
+                // countdown says why; any other trial goes on with its font
                 match self.nav.trial.as_mut().and_then(|t| t.look.as_mut()) {
                     Some(look) => look.later = Some(words::size_unmeasured(why)),
                     None => self.shared.message = Some(words::size_unmeasured(why)),
@@ -1609,7 +1760,7 @@ impl App {
             across(display.1, cell.height).clamp(1, GRID_MAX.1),
         );
         let back = (self.size.cols, self.size.rows);
-        if kept_look {
+        if kept {
             if to == back {
                 return Some(Vec::new());
             }
@@ -1619,16 +1770,16 @@ impl App {
                 grid: to,
             });
             self.shared.grid_moved = true;
-            self.shared.grid_after_font = false;
+            self.shared.grid_after_font = None;
             return Some(vec![Effect::Write(grid_request(to))]);
         }
-        if let Some(t) = self.nav.trial.as_mut().filter(|t| t.look.is_some()) {
+        if let Some(t) = self.nav.trial.as_mut().filter(|_| by_trial) {
             if to == back {
                 return Some(Vec::new());
             }
             t.grid = Some(GridTrial { points, to, back });
             self.shared.grid_moved = true;
-            self.shared.grid_after_font = false;
+            self.shared.grid_after_font = None;
             return Some(vec![Effect::Write(grid_request(to))]);
         }
         if to == back {
@@ -1641,12 +1792,13 @@ impl App {
             back: font,
             left: TRIAL_TICKS,
             grid: Some(GridTrial { points, to, back }),
+            size: None,
             look: None,
         });
         self.shared.grid_moved = true;
         // a trial of a size replaces the start grid that `u` asked for
-        self.shared.grid_after_font = false;
-        self.shared.message = Some(words::size_countdown(points, TRIAL_TICKS));
+        self.shared.grid_after_font = None;
+        self.shared.message = Some(words::size_countdown(points, None, TRIAL_TICKS));
         Some(vec![Effect::Write(grid_request(to)), Effect::Wait(TICK)])
     }
 
@@ -1660,9 +1812,9 @@ impl App {
         if t.left == 0 {
             return self.put_back();
         }
-        self.shared.message = Some(match (&t.look, t.grid) {
+        self.shared.message = Some(match (&t.look, t.points()) {
             (Some(look), _) => words::look_countdown(&look.name, t.left, look.later.as_deref()),
-            (None, Some(g)) => words::size_countdown(g.points, t.left),
+            (None, Some(points)) => words::size_countdown(points, t.size_font().as_deref(), t.left),
             (None, None) => countdown(&self.shared, &t.font, t.left),
         });
         vec![Effect::Wait(TICK)]
