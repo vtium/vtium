@@ -39,7 +39,8 @@ own-dirs = CARGO_TARGET_DIR=$(1) CARGO_BUILD_BUILD_DIR=$(1)
 
 # Every cargo build this file starts goes through sccache when it is
 # installed. sccache keeps each compiled crate in a cache that every vtium
-# checkout shares, under $XDG_CACHE_HOME/vtium/sccache, so a fresh worktree or
+# checkout shares, under $XDG_CACHE_HOME/vtium/sccache, up to
+# SCCACHE_CACHE_SIZE, so a fresh worktree or
 # a gate's fresh target directory takes the crates it already compiled from
 # the cache. sccache skips the crates cargo builds incrementally, the
 # workspace's own crates in a debug build, and binaries and proc macros; it
@@ -54,7 +55,7 @@ SCCACHE := $(if $(filter undefined,$(origin RUSTC_WRAPPER)),$(shell command -v s
 ifneq ($(SCCACHE),)
 export RUSTC_WRAPPER := $(SCCACHE)
 export SCCACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/vtium/sccache
-export SCCACHE_CACHE_SIZE ?= 30G
+export SCCACHE_CACHE_SIZE ?= 100G
 endif
 # make gates names the install command when sccache is missing.
 define sccache-note
