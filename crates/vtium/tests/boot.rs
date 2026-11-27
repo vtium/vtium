@@ -6330,6 +6330,65 @@ fn a_text_area_request_measures_an_outline_frits_cell_at_each_height() {
     );
 }
 
+// ctlseqs, XTWINOPS 8, on a 7680×2160 display: the program switches to
+// the outline frit `t` with OSC 50, then asks for 100 rows of 1097 or 1280
+// columns, which a cell 7 or 6 pixels wide gives on that display. The
+// built-in font's 8 pixels give only 960 columns. vtium measures the
+// frit's own cell at each height it tries, so no bound below what the
+// display holds caps the grid: the grid and the terminal's own screen are
+// exactly the size asked for, and no line says the display cannot hold
+// it.
+//
+// References:
+// - ADR-1200 D17: an outline frit draws in the helper's cell at each
+//   height.
+#[test]
+fn a_text_area_request_on_a_7680_pixel_display_takes_every_column_asked_for() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
+    for cols in [1097, 1280] {
+        let (_dir, fonts, _kinds, _go) = outline_frit(&format!("window-wide-{cols}"), false);
+        logged();
+        let command = format!("printf '\\033]50;t\\007\\033[8;100;{cols}tdone'; read x");
+        let args = [
+            "--font-size=22",
+            "--allow-window-ops",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            &command,
+        ];
+        let mut h = Harness::fonts(&args, Memory::sized(7680, 2160), fonts);
+        assert!(
+            h.until(BOUND, |a| a
+                .screen_text()
+                .iter()
+                .any(|l| l.contains("done"))),
+            "{cols}: the session wrote its request"
+        );
+        let lines = logged();
+        assert_eq!(h.app.grid(), (cols, 100), "the grid asked for: {lines:?}");
+        let screen = h.app.term().map(|t| t.terminal.screen());
+        assert_eq!(
+            screen.map(|s| (s.cols(), s.rows())),
+            Some((cols, 100)),
+            "{cols}: the terminal's own screen is the grid"
+        );
+        let cell = h.app.cells();
+        assert!(
+            cell.first()
+                .is_some_and(|c| c.0 as usize * cols <= 7680 && c.1 * 100 <= 2160),
+            "{cols}: the display holds the grid in the cell it draws: {cell:?}"
+        );
+        let capped: Vec<&String> = lines.iter().filter(|l| l.contains("cannot hold")).collect();
+        assert_eq!(
+            capped,
+            Vec::<&String>::new(),
+            "{cols}: no line says the grid is capped"
+        );
+    }
+}
+
 // ctlseqs, XTWINOPS 8, with a font helper that has yet to answer: the
 // console starts drawing the outline frit `t` at 22 pixels, and the held
 // helper gives no cell in time, so the console draws as wide as the
