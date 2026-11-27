@@ -38,10 +38,13 @@ fn main() {
         }
         return;
     }
-    let filter: Vec<String> = std::env::args()
-        .skip(1)
-        .filter(|a| !a.starts_with('-'))
-        .collect();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let flag = |f: &str| args.iter().any(|a| a == f);
+    let filter: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    // With --exact a filter names one case whole, as libtest reads it, so
+    // that cargo-nextest, which runs each case by its name in a process of
+    // its own, runs only that case.
+    let exact = flag("--exact");
     let cases: [(&str, fn()); 13] = [
         // first: no thread has started yet
         (
@@ -94,9 +97,27 @@ fn main() {
             a_pty_whose_session_ended_is_not_adopted,
         ),
     ];
+    // `--list --format terse` lists the cases the way libtest does, one
+    // `name: test` line each, so cargo-nextest can find them. None is
+    // ignored, so the list of ignored cases is empty.
+    if flag("--list") {
+        if !flag("--ignored") {
+            for (name, _) in cases {
+                println!("{name}: test");
+            }
+        }
+        return;
+    }
     let mut ran = 0;
     for (name, case) in cases {
-        if !filter.is_empty() && !filter.iter().any(|f| name.contains(f.as_str())) {
+        let named = |f: &&String| {
+            if exact {
+                name == f.as_str()
+            } else {
+                name.contains(f.as_str())
+            }
+        };
+        if !filter.is_empty() && !filter.iter().any(named) {
             continue;
         }
         print!("test {name} ... ");
