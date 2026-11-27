@@ -34,6 +34,19 @@ const EDID_READ: u64 = 128;
 /// The most bytes read of a connector's `modes`.
 const MODES_MAX: u64 = 4096;
 
+/// The longest card or connector name in brackets that a `mode` line may
+/// give, in bytes. vtium refuses a longer name, so vtium-config leaves
+/// that line out as vtium does.
+const MODE_NAME_MAX: usize = 63;
+
+/// The largest side of a mode in a `mode` line, in pixels: the most that
+/// a DRM mode's 16-bit width and height hold. vtium refuses a larger side,
+/// so vtium-config leaves that line out as vtium does.
+const MODE_SIDE_MAX: u32 = 65_535;
+
+/// The length of a PCI device's address in sysfs, `DDDD:BB:DD.F`.
+const PCI_ADDRESS_LEN: usize = 12;
+
 /// A connected display: its preferred mode in pixels, its physical size in
 /// millimetres where its EDID states one, its connector's name, its card's
 /// udev `ID_PATH` where sysfs shows it, and the size of each mode it
@@ -42,7 +55,7 @@ const MODES_MAX: u64 = 4096;
 pub struct Display {
     pub pixels: (u32, u32),
     pub mm: Option<(u32, u32)>,
-    /// The connector's name, as `DP-3` or `HDMI-A-1`.
+    /// The connector's name, as `DP-1` or `HDMI-A-1`.
     pub connector: String,
     /// udev's `ID_PATH` of the card, as `pci-0000:03:00.0`.
     pub card: Option<String>,
@@ -130,11 +143,11 @@ pub fn mode_lines(text: &str) -> Vec<ModeLine> {
 }
 
 /// A `mode` line's value, `[GPU][CONNECTOR]WxH[@RATE]`, read as vtium
-/// reads it: each side a whole number from 1 to 65535, a rate a whole
-/// number of Hz, and a name in brackets neither empty nor longer than 63
-/// bytes.
+/// reads it: each side a whole number from 1 to [`MODE_SIDE_MAX`], a rate
+/// a whole number of Hz, and a name in brackets neither empty nor longer
+/// than [`MODE_NAME_MAX`] bytes.
 fn mode_line(text: &str) -> Option<ModeLine> {
-    let name = |s: &str| (!s.is_empty() && s.len() <= 63).then(|| s.to_owned());
+    let name = |s: &str| (!s.is_empty() && s.len() <= MODE_NAME_MAX).then(|| s.to_owned());
     let (card, connector, dims) = match text.split_once('[') {
         Some((card, rest)) => {
             let (connector, dims) = rest.split_once(']')?;
@@ -160,7 +173,7 @@ fn mode_line(text: &str) -> Option<ModeLine> {
         None => dims,
     };
     let (w, h) = size.split_once('x')?;
-    let side = |s: &str| number(s).filter(|n| (1..=65_535).contains(n));
+    let side = |s: &str| number(s).filter(|n| (1..=MODE_SIDE_MAX).contains(n));
     Some(ModeLine {
         card,
         connector,
@@ -196,7 +209,7 @@ fn card_path(card: &Path) -> Option<String> {
     let name = device.file_name()?.to_str()?;
     let pci = |n: &str| {
         let b = n.as_bytes();
-        b.len() == 12
+        b.len() == PCI_ADDRESS_LEN
             && b.get(4) == Some(&b':')
             && b.get(7) == Some(&b':')
             && b.get(10) == Some(&b'.')
@@ -333,63 +346,63 @@ mod tests {
         assert_eq!(first_mode(""), None);
     }
 
-    /// The maintainer's display: DP-3 on the card at `pci-0000:03:00.0`,
-    /// preferring 5120×1440 and offering 7680×2160 too.
-    fn dp3() -> Display {
+    /// An 8K display, DP-1 on the card at `pci-0000:03:00.0`, preferring
+    /// 5120×1440 and offering 7680×4320 too.
+    fn eight_k() -> Display {
         Display {
             pixels: (5120, 1440),
             mm: None,
-            connector: "DP-3".to_owned(),
+            connector: "DP-1".to_owned(),
             card: Some("pci-0000:03:00.0".to_owned()),
-            modes: vec![(5120, 1440), (7680, 2160), (1920, 1080)],
+            modes: vec![(5120, 1440), (7680, 4320), (1920, 1080)],
         }
     }
 
     #[test]
     fn a_display_runs_at_the_mode_vtium_conf_sets_for_it() {
-        let d = dp3();
+        let d = eight_k();
         assert_eq!(d.runs_at(None), (5120, 1440), "no file: preferred");
         assert_eq!(d.runs_at(Some("font-size=12\n")), (5120, 1440));
-        assert_eq!(d.runs_at(Some("mode=[DP-3]7680x2160@120\n")), (7680, 2160));
+        assert_eq!(d.runs_at(Some("mode=[DP-1]7680x4320@120\n")), (7680, 4320));
         assert_eq!(
-            d.runs_at(Some("mode = 7680x2160\n")),
-            (7680, 2160),
+            d.runs_at(Some("mode = 7680x4320\n")),
+            (7680, 4320),
             "any display"
         );
         // a line for the card and the connector wins over one for the
         // connector, which wins over one for any display
-        let three = "mode=1920x1080\nmode=[DP-3]7680x2160\nmode=pci-0000:03:00.0[DP-3]5120x1440\n";
+        let three = "mode=1920x1080\nmode=[DP-1]7680x4320\nmode=pci-0000:03:00.0[DP-1]5120x1440\n";
         assert_eq!(d.runs_at(Some(three)), (5120, 1440));
-        let two = "mode=1920x1080\nmode=[DP-3]7680x2160\n";
-        assert_eq!(d.runs_at(Some(two)), (7680, 2160));
+        let two = "mode=1920x1080\nmode=[DP-1]7680x4320\n";
+        assert_eq!(d.runs_at(Some(two)), (7680, 4320));
         // a line for another connector or card does not apply
         assert_eq!(d.runs_at(Some("mode=[HDMI-A-1]1920x1080\n")), (5120, 1440));
         assert_eq!(
-            d.runs_at(Some("mode=pci-0000:04:00.0[DP-3]1920x1080\n")),
+            d.runs_at(Some("mode=pci-0000:04:00.0[DP-1]1920x1080\n")),
             (5120, 1440)
         );
         // a size the display does not offer leaves it at its preferred mode
-        assert_eq!(d.runs_at(Some("mode=[DP-3]3840x2160\n")), (5120, 1440));
+        assert_eq!(d.runs_at(Some("mode=[DP-1]3840x2160\n")), (5120, 1440));
         // a line in a section, or one vtium does not read, is no mode line
         assert_eq!(
-            d.runs_at(Some("[head desk]\nmode=[DP-3]7680x2160\n")),
+            d.runs_at(Some("[head desk]\nmode=[DP-1]7680x4320\n")),
             (5120, 1440)
         );
-        assert_eq!(d.runs_at(Some("mode=[DP-3]7680x2160@fast\n")), (5120, 1440));
-        assert_eq!(d.runs_at(Some("mode=[]7680x2160\n")), (5120, 1440));
-        assert_eq!(d.runs_at(Some("mode=[DP-3]7680x0\n")), (5120, 1440));
+        assert_eq!(d.runs_at(Some("mode=[DP-1]7680x4320@fast\n")), (5120, 1440));
+        assert_eq!(d.runs_at(Some("mode=[]7680x4320\n")), (5120, 1440));
+        assert_eq!(d.runs_at(Some("mode=[DP-1]7680x0\n")), (5120, 1440));
     }
 
     #[test]
     fn mode_lines_read_as_vtium_reads_them() {
-        let lines = mode_lines("mode=gpu[DP-3]7680x2160@120 # mine\nmode=640x480@0\nmode=x\n");
+        let lines = mode_lines("mode=gpu[DP-1]7680x4320@120 # mine\nmode=640x480@0\nmode=x\n");
         assert_eq!(
             lines,
             [
                 ModeLine {
                     card: Some("gpu".to_owned()),
-                    connector: Some("DP-3".to_owned()),
-                    size: (7680, 2160),
+                    connector: Some("DP-1".to_owned()),
+                    size: (7680, 4320),
                 },
                 ModeLine {
                     card: None,
@@ -400,6 +413,22 @@ mod tests {
         );
     }
 
+    /// A name or a side past vtium's bound leaves the line out, and one at
+    /// the bound keeps it.
+    #[test]
+    fn mode_lines_keep_vtium_s_bounds() {
+        let name = |n: usize| "c".repeat(n);
+        let side = MODE_SIDE_MAX;
+        let text = format!(
+            "mode=[{}]640x480\nmode=[{}]800x600\nmode={side}x480\nmode={}x480\n",
+            name(MODE_NAME_MAX),
+            name(MODE_NAME_MAX + 1),
+            side + 1
+        );
+        let sizes: Vec<(u32, u32)> = mode_lines(&text).iter().map(|l| l.size).collect();
+        assert_eq!(sizes, [(640, 480), (side, 480)]);
+    }
+
     #[test]
     fn displays_name_their_connector_card_and_modes() {
         let root =
@@ -407,13 +436,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let device = root.join("devices/pci0000:00/0000:00:01.0/0000:03:00.0");
         let class = root.join("class/drm");
-        let dp = class.join("card1-DP-3");
+        let dp = class.join("card1-DP-1");
         std::fs::create_dir_all(&device).expect("device");
         std::fs::create_dir_all(class.join("card1")).expect("card");
         std::fs::create_dir_all(&dp).expect("connector");
         std::os::unix::fs::symlink(&device, class.join("card1/device")).expect("link");
         std::fs::write(dp.join("status"), "connected\n").expect("status");
-        std::fs::write(dp.join("modes"), "5120x1440\n7680x2160\n1920x1080i\n").expect("modes");
+        std::fs::write(dp.join("modes"), "5120x1440\n7680x4320\n1920x1080i\n").expect("modes");
         let found = displays(&root);
         let _ = std::fs::remove_dir_all(&root);
         assert_eq!(
@@ -421,9 +450,9 @@ mod tests {
             [Display {
                 pixels: (5120, 1440),
                 mm: None,
-                connector: "DP-3".to_owned(),
+                connector: "DP-1".to_owned(),
                 card: Some("pci-0000:03:00.0".to_owned()),
-                modes: vec![(5120, 1440), (7680, 2160), (1920, 1080)],
+                modes: vec![(5120, 1440), (7680, 4320), (1920, 1080)],
             }]
         );
     }

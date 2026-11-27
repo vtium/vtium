@@ -262,10 +262,10 @@ mod tests {
             b"\x1b[14t\x1b[c"
         );
         assert_eq!(
-            q.answer(Reply::TextArea((7680, 2160))),
+            q.answer(Reply::TextArea((7680, 4320))),
             [(
                 Asker::TextArea,
-                Answer::Reply(Reply::TextArea((7680, 2160)))
+                Answer::Reply(Reply::TextArea((7680, 4320)))
             )]
         );
         q.answer(Reply::Attributes);

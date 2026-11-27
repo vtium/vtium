@@ -1975,29 +1975,29 @@ mod tests {
     use super::*;
 
     /// A text area that the mode cuts down to whole cells gives that mode,
-    /// and any other text area gives itself. vtium draws the 7680×2160
-    /// display at a 18×36 cell as 426×60, a text area of 7668×2160.
+    /// and any other text area gives itself. vtium draws the 7680×4320
+    /// display at a 18×36 cell as 426×120, a text area of 7668×4320.
     #[test]
     fn the_text_area_gives_the_mode_it_is_cut_from() {
         let area = TextArea {
-            pixels: (7668, 2160),
-            grid: (426, 60),
+            pixels: (7668, 4320),
+            grid: (426, 120),
         };
-        assert_eq!(area.display(Some((7680, 2160))), (7680, 2160));
+        assert_eq!(area.display(Some((7680, 4320))), (7680, 4320));
         assert_eq!(
-            area.display(Some((7685, 2160))),
-            (7685, 2160),
+            area.display(Some((7685, 4320))),
+            (7685, 4320),
             "under a cell more"
         );
         assert_eq!(
-            area.display(Some((7686, 2160))),
-            (7668, 2160),
+            area.display(Some((7686, 4320))),
+            (7668, 4320),
             "a cell more"
         );
-        assert_eq!(area.display(Some((7660, 2160))), (7668, 2160), "less");
-        assert_eq!(area.display(Some((5120, 1440))), (7668, 2160));
-        assert_eq!(area.display(Some((7680, 2196))), (7668, 2160));
-        assert_eq!(area.display(None), (7668, 2160));
+        assert_eq!(area.display(Some((7660, 4320))), (7668, 4320), "less");
+        assert_eq!(area.display(Some((5120, 1440))), (7668, 4320));
+        assert_eq!(area.display(Some((7680, 4356))), (7668, 4320));
+        assert_eq!(area.display(None), (7668, 4320));
         let empty = TextArea {
             pixels: (0, 0),
             grid: (0, 0),

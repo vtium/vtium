@@ -546,17 +546,17 @@ mod tests {
     #[test]
     fn the_text_area_s_reply_decodes_width_first() {
         assert_eq!(
-            keys(b"\x1b[4;2160;7680t"),
-            [Input::Reply(Reply::TextArea((7680, 2160)))]
+            keys(b"\x1b[4;4320;7680t"),
+            [Input::Reply(Reply::TextArea((7680, 4320)))]
         );
         // another report, or a text area's reply that does not read, is
         // no reply the TUI asked for
         for other in [
             b"\x1b[8;24;80t".as_slice(),
-            b"\x1b[4;2160t",
-            b"\x1b[4;2160;7680;1t",
+            b"\x1b[4;4320t",
+            b"\x1b[4;4320;7680;1t",
             b"\x1b[4;;7680t",
-            b"\x1b[5;2160;7680t",
+            b"\x1b[5;4320;7680t",
         ] {
             assert_eq!(keys(other), [], "{other:?}");
         }
