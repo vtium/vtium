@@ -134,7 +134,7 @@ impl Change {
             Change::RuleRm(n) => ops::rule_rm(text, *n),
             Change::HeadAdd { name, look } => ops::head_add(text, name, look.as_deref()),
             Change::HeadKey { name, key, value } => {
-                ops::section_keys(text, Of::Head(name), &[(key, value.as_deref())])
+                ops::head_keys(text, name, &[(key, value.as_deref())])
             }
             Change::HeadRename { name, new } => ops::rename(text, Of::Head(name), new),
             Change::HeadRm(name) => ops::head_rm(text, name),

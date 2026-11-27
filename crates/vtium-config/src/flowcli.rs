@@ -332,19 +332,24 @@ impl Command<'_, '_> {
             .install(&name, &text, unrouted, &mut run_child, ask, self.out)
     }
 
-    /// Prints a note for each look in the draft `text` that no head uses.
-    /// Such a look changes nothing on screen, which a person who just made
-    /// it or set it would not otherwise learn; the note gives the command
-    /// that gives it to the first head.
+    /// Prints a note for each look in the draft `text` that no head vtium
+    /// runs uses. Such a look changes nothing on screen, which a person who
+    /// just made it or set it would not otherwise learn; the note gives the
+    /// command that gives it to the first head. A draft that defines no
+    /// head and no rule runs vtium's built-in terminal, whose head
+    /// `console` draws the look `default`, so that look is in use and the
+    /// note names `console`.
+    ///
+    /// References:
+    /// - ADR-1401 D3: vtium runs the built-in default terminal when the
+    ///   file defines no head and no rule.
     fn unused_looks(&mut self, text: &str) {
         let flow = flowmodel::build(text, &flowmodel::Present::default(), None);
-        let head = flow.heads.first().map(|h| h.name.clone());
-        for (i, look) in flow.looks.iter().enumerate() {
-            if !flow.used(i) {
-                self.say(&crate::tui::words::no_head_uses(
-                    &look.name,
-                    head.as_deref(),
-                ));
+        let heads = ops::heads_run(text);
+        let head = heads.first().map(|h| h.name.as_str());
+        for look in &flow.looks {
+            if !heads.iter().any(|h| h.look == look.name) {
+                self.say(&crate::tui::words::no_head_uses(&look.name, head));
             }
         }
     }
@@ -676,7 +681,7 @@ impl Command<'_, '_> {
                     return Err(Fail::Usage("head set needs at least one setting to change".to_owned()));
                 }
                 self.change(&args, |t| {
-                    let set = ops::section_keys(t, Of::Head(name), &keys)?;
+                    let set = ops::head_keys(t, name, &keys)?;
                     match &rename {
                         Some(new) => ops::rename(&set, Of::Head(name), new),
                         None => Ok(set),
