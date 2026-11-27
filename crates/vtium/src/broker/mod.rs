@@ -788,7 +788,7 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
         );
     }
     let home = start::home(ACCOUNT).unwrap_or_else(|| std::path::PathBuf::from("/"));
-    program.as_account(ACCOUNT, &home, gpu.as_deref().ok());
+    program.as_account(ACCOUNT, &home, gpu.as_deref().ok(), &env);
     let drawer = start::spawn(&program, account, theirs, true)?;
     // The socket is empty, so these first orders fit in it.
     for (order, fd) in &kernel {
@@ -1175,7 +1175,7 @@ mod tests {
             ]
             .map(OsString::from)
             .to_vec(),
-            unset: Vec::new(),
+            clear_env: false,
             env: vec![(MODE.into(), mode.into())],
         }
     }

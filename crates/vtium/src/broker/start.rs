@@ -170,16 +170,17 @@ fn group_list(name: &CString, gid: u32) -> Option<Vec<u32>> {
     }
 }
 
-/// The program the broker starts as the drawer, its arguments, the
-/// variables of the broker's environment it leaves out of the drawer's,
-/// and the variables it sets in the drawer's environment on top of the
-/// broker's.
+/// The program the broker starts as the drawer, its arguments, and its
+/// environment. With `clear_env`, the drawer's environment is `env` alone.
+/// Without it, the drawer inherits the broker's environment, less the
+/// variables through which systemd talks to the broker, with `env` set on
+/// top, as a test's stand-in for the drawer does.
 #[derive(Clone, Debug)]
 pub struct Program {
     pub path: PathBuf,
     pub arg0: OsString,
     pub args: Vec<OsString>,
-    pub unset: Vec<OsString>,
+    pub clear_env: bool,
     pub env: Vec<(OsString, OsString)>,
 }
 
@@ -190,19 +191,69 @@ pub const CACHE: &str = "/var/cache/vtium";
 /// shader cache, which only the account that draws can read and write.
 const GPU_CACHE: &str = "gpu";
 
-/// The variables of the broker's environment that name the folders of the
-/// user who started vtium, such as root's runtime and configuration
-/// folders. The drawer runs as another account, so it never inherits
-/// them: a program that it starts or a library that it loads would
-/// otherwise look for its files there, and fail.
-const OF_THE_BROKERS_USER: [&str; 6] = [
-    "XDG_RUNTIME_DIR",
-    "XDG_CONFIG_HOME",
-    "XDG_CACHE_HOME",
-    "XDG_DATA_HOME",
-    "XDG_STATE_HOME",
-    "MAIL",
+/// The variables of the broker's environment that the drawer keeps, by
+/// their full names. Every other variable of the broker's stays out of
+/// the drawer's environment, so that what a root shell or sudo leaves
+/// there, such as the shell's desktop session bus, its SSH agent, its
+/// display, sudo's record of who ran it or a preloaded library, never
+/// reaches the drawer, which runs as another account. Each entry stays
+/// for this reason:
+///
+/// - `PATH`, for any program that a library the drawer loads looks up.
+/// - `TERM`, which names the terminal vtium started from.
+/// - `LANG` and `LANGUAGE`, with the `LC_` variables below: the locale,
+///   which vtium reads for compose and which the C library reads.
+/// - `TMPDIR`, which vtium reads for the image helper's rule on temporary
+///   files.
+/// - `RUST_BACKTRACE`, so that a panic of the drawer writes its backtrace
+///   to the log when the administrator asked for one.
+/// - `XCOMPOSEFILE` and `XLOCALEDIR`, which libxkbcommon reads for the
+///   compose table, with the `XKB_` variables below.
+/// - `DRI_PRIME`, with which Mesa chooses the GPU on a machine that has
+///   two.
+const DRAWER_KEEPS: [&str; 9] = [
+    "PATH",
+    "TERM",
+    "LANG",
+    "LANGUAGE",
+    "TMPDIR",
+    "RUST_BACKTRACE",
+    "XCOMPOSEFILE",
+    "XLOCALEDIR",
+    "DRI_PRIME",
 ];
+
+/// The starts of the names of the variables of the broker's environment
+/// that the drawer keeps:
+///
+/// - `LC_`, the locale's categories.
+/// - `XKB_`, the folders where libxkbcommon finds its keyboard layouts.
+/// - `MESA_`, `GALLIUM_`, `LIBGL_` and `LP_`: Mesa's settings, the
+///   choice of its driver, and llvmpipe's, its driver that renders on the
+///   CPU.
+/// - `__GL_`, NVIDIA's driver's settings.
+/// - `EGL_` and `__EGL_`, the EGL loader's and libglvnd's choice of
+///   vendor library.
+/// - `GBM_`, the choice of the GBM backend.
+/// - `VK_`, the Vulkan loader's settings.
+///
+/// Some of these name a library that the drawer then loads. Only the
+/// administrator who starts vtium sets them, and the drawer loads the
+/// library as the account that draws, which gains nothing by it.
+const DRAWER_KEEPS_PREFIX: [&str; 11] = [
+    "LC_", "XKB_", "MESA_", "GALLIUM_", "LIBGL_", "LP_", "__GL_", "EGL_", "__EGL_", "GBM_", "VK_",
+];
+
+/// Whether the drawer keeps the variable `name` of the broker's
+/// environment: [`DRAWER_KEEPS`] names it, or it starts with one of
+/// [`DRAWER_KEEPS_PREFIX`].
+fn kept(name: &std::ffi::OsStr) -> bool {
+    let name = name.as_bytes();
+    DRAWER_KEEPS.iter().any(|k| name == k.as_bytes())
+        || DRAWER_KEEPS_PREFIX
+            .iter()
+            .any(|p| name.starts_with(p.as_bytes()))
+}
 
 /// The cache folder that systemd made for vtium's unit, the first that
 /// `CACHE_DIRECTORY` names in `env`, the broker's environment, or else
@@ -365,15 +416,17 @@ impl Program {
             path: PathBuf::from("/proc/self/exe"),
             arg0,
             args: all,
-            unset: Vec::new(),
+            clear_env: false,
             env: Vec::new(),
         }
     }
 
     /// Gives the drawer the environment of the account it runs as, named
-    /// `name`, whose passwd entry names the home folder `home`. `HOME`,
-    /// `USER` and `LOGNAME` name that account, and the variables that name
-    /// the folders of the user who started vtium are left out. `gpu` is
+    /// `name`, whose passwd entry names the home folder `home`, in place
+    /// of `broker`, the broker's own environment. `HOME`, `USER` and
+    /// `LOGNAME` name that account. Of `broker`, the drawer keeps only
+    /// what [`kept`] lets through, so the folders of the user who started
+    /// vtium and that user's session stay out. `gpu` is
     /// the folder for the GPU driver's shader cache, which each driver
     /// learns from its own variable: Mesa from `MESA_SHADER_CACHE_DIR` and
     /// NVIDIA's driver from `__GL_SHADER_DISK_CACHE_PATH`. Without the
@@ -384,10 +437,15 @@ impl Program {
     /// References:
     /// - ADR-1304 D20: the drivers' variables, and the cache turned off
     ///   where the folder cannot be made.
-    pub fn as_account(&mut self, name: &str, home: &Path, gpu: Option<&Path>) {
-        self.unset
-            .extend(OF_THE_BROKERS_USER.iter().map(OsString::from));
-        let mut set = |k: &str, v: &std::ffi::OsStr| self.env.push((k.into(), v.to_owned()));
+    pub fn as_account(
+        &mut self,
+        name: &str,
+        home: &Path,
+        gpu: Option<&Path>,
+        broker: &[(OsString, OsString)],
+    ) {
+        let mut ours: Vec<(OsString, OsString)> = Vec::new();
+        let mut set = |k: &str, v: &std::ffi::OsStr| ours.push((k.into(), v.to_owned()));
         set("HOME", home.as_os_str());
         set("USER", name.as_ref());
         set("LOGNAME", name.as_ref());
@@ -401,6 +459,14 @@ impl Program {
                 set("__GL_SHADER_DISK_CACHE", "0".as_ref());
             }
         }
+        self.clear_env = true;
+        let mut env: Vec<(OsString, OsString)> = broker
+            .iter()
+            .filter(|(k, _)| kept(k) && !ours.iter().any(|(o, _)| o == k))
+            .cloned()
+            .collect();
+        env.extend(ours);
+        self.env = env;
     }
 }
 
@@ -449,10 +515,10 @@ pub fn spawn(
     )?;
     let mut command = Command::new(&program.path);
     command.arg0(&program.arg0).args(&program.args);
-    for name in SYSTEMD_ONLY {
-        command.env_remove(name);
+    if program.clear_env {
+        command.env_clear();
     }
-    for name in &program.unset {
+    for name in SYSTEMD_ONLY {
         command.env_remove(name);
     }
     command.envs(program.env.iter().map(|(k, v)| (k, v)));
@@ -909,15 +975,25 @@ mod tests {
         }
     }
 
+    /// `list` as the environment of a process, as `std::env::vars_os`
+    /// gives it.
+    fn os_env(list: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
+        list.iter()
+            .map(|(k, v)| ((*k).into(), (*v).into()))
+            .collect()
+    }
+
     /// The environment `program` gives the drawer over a broker whose own
     /// environment is `broker`: what the drawer would see.
     fn seen(program: &Program, broker: &[(&str, &str)]) -> Vec<(String, String)> {
-        let mut env: std::collections::BTreeMap<String, String> = broker
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-            .collect();
-        for name in &program.unset {
-            env.remove(&*name.to_string_lossy());
+        let mut env: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+        if !program.clear_env {
+            env.extend(
+                broker
+                    .iter()
+                    .filter(|(k, _)| !SYSTEMD_ONLY.contains(k))
+                    .map(|(k, v)| ((*k).to_owned(), (*v).to_owned())),
+            );
         }
         for (k, v) in &program.env {
             env.insert(
@@ -928,70 +1004,105 @@ mod tests {
         env.into_iter().collect()
     }
 
+    /// The environment of a broker started from a root shell: root's own
+    /// folders, the shell's desktop session, sudo's record of who ran it,
+    /// systemd's socket, and what the drawer needs.
+    const ROOT_SHELL: [(&str, &str); 25] = [
+        ("HOME", "/root"),
+        ("USER", "root"),
+        ("LOGNAME", "root"),
+        ("MAIL", "/var/mail/root"),
+        ("XDG_RUNTIME_DIR", "/run/user/0"),
+        ("XDG_CONFIG_HOME", "/root/.config"),
+        ("XDG_CACHE_HOME", "/root/.cache"),
+        ("XDG_DATA_HOME", "/root/.local/share"),
+        ("XDG_STATE_HOME", "/root/.local/state"),
+        ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus"),
+        ("SSH_AUTH_SOCK", "/run/user/1000/ssh-agent.socket"),
+        ("DISPLAY", ":0"),
+        ("WAYLAND_DISPLAY", "wayland-0"),
+        ("SUDO_USER", "someone"),
+        ("SUDO_UID", "1000"),
+        ("SUDO_COMMAND", "/usr/bin/vtium"),
+        ("NOTIFY_SOCKET", "/run/systemd/notify"),
+        ("LD_PRELOAD", "/root/preload.so"),
+        ("PATH", "/usr/bin:/bin"),
+        ("TERM", "linux"),
+        ("LANG", "en_US.UTF-8"),
+        ("LC_TIME", "C"),
+        ("MESA_LOADER_DRIVER_OVERRIDE", "iris"),
+        ("MESA_SHADER_CACHE_DIR", "/root/.cache/mesa_shader_cache"),
+        ("VK_ICD_FILENAMES", "/usr/share/vulkan/icd.d/intel_icd.json"),
+    ];
+
     /// The drawer runs with the environment of its own account: its home
-    /// folder and its name, and none of the folders of the user who
-    /// started vtium, here root. Each GPU driver finds its shader cache in
-    /// the folder the broker made, and where the broker could not make
-    /// one, each driver's disk cache is off. What is not a user's folder,
-    /// such as the locale, stays.
+    /// folder and its name, and only the variables of the broker's
+    /// environment that it needs, such as the locale and the GPU driver's
+    /// settings. Root's folders, the root shell's desktop session and
+    /// sudo's record do not reach it. Each GPU driver finds its shader
+    /// cache in the folder the broker made, and where the broker could
+    /// not make one, each driver's disk cache is off.
     ///
     /// References:
     /// - ADR-1304 D20: the drivers' variables, and the cache turned off
     ///   where the folder cannot be made.
     #[test]
     fn the_drawer_runs_with_its_accounts_home_and_the_drivers_cache_folder() {
-        let root = [
-            ("HOME", "/root"),
-            ("USER", "root"),
-            ("LOGNAME", "root"),
-            ("LANG", "en_US.UTF-8"),
-            ("MAIL", "/var/mail/root"),
-            ("XDG_RUNTIME_DIR", "/run/user/0"),
-            ("XDG_CONFIG_HOME", "/root/.config"),
-            ("XDG_CACHE_HOME", "/root/.cache"),
-            ("XDG_DATA_HOME", "/root/.local/share"),
-            ("XDG_STATE_HOME", "/root/.local/state"),
-        ];
         let pairs = |list: &[(&str, &str)]| -> Vec<(String, String)> {
             list.iter()
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                 .collect()
         };
+        let kept = [
+            ("LANG", "en_US.UTF-8"),
+            ("LC_TIME", "C"),
+            ("MESA_LOADER_DRIVER_OVERRIDE", "iris"),
+            ("PATH", "/usr/bin:/bin"),
+            ("TERM", "linux"),
+            ("VK_ICD_FILENAMES", "/usr/share/vulkan/icd.d/intel_icd.json"),
+        ];
         let mut program = Program::vtium("vtium".into(), 3, &[]);
         program.as_account(
             "vtium",
             Path::new("/"),
             Some(Path::new("/var/cache/vtium/gpu")),
+            &os_env(&ROOT_SHELL),
         );
-        assert_eq!(
-            seen(&program, &root),
-            pairs(&[
-                ("HOME", "/"),
-                ("LANG", "en_US.UTF-8"),
-                ("LOGNAME", "vtium"),
-                ("MESA_SHADER_CACHE_DIR", "/var/cache/vtium/gpu"),
-                ("USER", "vtium"),
-                ("__GL_SHADER_DISK_CACHE_PATH", "/var/cache/vtium/gpu"),
-            ])
-        );
+        let mut want = pairs(&kept);
+        want.extend(pairs(&[
+            ("HOME", "/"),
+            ("LOGNAME", "vtium"),
+            ("MESA_SHADER_CACHE_DIR", "/var/cache/vtium/gpu"),
+            ("USER", "vtium"),
+            ("__GL_SHADER_DISK_CACHE_PATH", "/var/cache/vtium/gpu"),
+        ]));
+        want.sort();
+        assert_eq!(seen(&program, &ROOT_SHELL), want);
         let mut program = Program::vtium("vtium".into(), 3, &[]);
-        program.as_account("vtium", Path::new("/"), None);
-        assert_eq!(
-            seen(&program, &root),
-            pairs(&[
-                ("HOME", "/"),
-                ("LANG", "en_US.UTF-8"),
-                ("LOGNAME", "vtium"),
-                ("MESA_SHADER_CACHE_DISABLE", "true"),
-                ("USER", "vtium"),
-                ("__GL_SHADER_DISK_CACHE", "0"),
-            ])
-        );
+        program.as_account("vtium", Path::new("/"), None, &os_env(&ROOT_SHELL));
+        let mut want = pairs(&kept);
+        want.extend(pairs(&[
+            ("HOME", "/"),
+            ("LOGNAME", "vtium"),
+            // the root shell's own choice of folder, which the account
+            // could not write anyway, and which the driver ignores while
+            // its cache is off
+            ("MESA_SHADER_CACHE_DIR", "/root/.cache/mesa_shader_cache"),
+            ("MESA_SHADER_CACHE_DISABLE", "true"),
+            ("USER", "vtium"),
+            ("__GL_SHADER_DISK_CACHE", "0"),
+        ]));
+        want.sort();
+        assert_eq!(seen(&program, &ROOT_SHELL), want);
     }
 
     /// The drawer that the broker starts sees the environment that
-    /// [`Program::as_account`] gives it: a shell run as the drawer writes
-    /// its environment to a file.
+    /// [`Program::as_account`] gives it, and nothing of the broker's own
+    /// environment besides: a shell run as the drawer writes its
+    /// environment to a file. The broker's environment is the test's
+    /// [`ROOT_SHELL`], so the test does not depend on the environment it
+    /// runs in, and none of the test runner's own variables may reach the
+    /// shell either.
     #[test]
     fn a_started_drawer_sees_its_accounts_environment() {
         use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
@@ -1006,13 +1117,14 @@ mod tests {
                 "sh".into(),
                 out.clone().into(),
             ],
-            unset: Vec::new(),
+            clear_env: false,
             env: Vec::new(),
         };
         program.as_account(
             "vtium-test",
             Path::new("/home-of-the-drawer"),
             Some(Path::new("/cache-of-the-drawer")),
+            &os_env(&ROOT_SHELL),
         );
         let (_ours, theirs) = socketpair(
             AddressFamily::UNIX,
@@ -1036,14 +1148,37 @@ mod tests {
             "LOGNAME=vtium-test",
             "MESA_SHADER_CACHE_DIR=/cache-of-the-drawer",
             "__GL_SHADER_DISK_CACHE_PATH=/cache-of-the-drawer",
+            "PATH=/usr/bin:/bin",
+            "LANG=en_US.UTF-8",
+            "LC_TIME=C",
+            "MESA_LOADER_DRIVER_OVERRIDE=iris",
+            "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.json",
         ] {
             assert!(lines.contains(&want), "{want} in {lines:#?}");
         }
-        for name in OF_THE_BROKERS_USER {
+        // the variables that the shell itself sets
+        let shells = ["PWD", "SHLVL", "_", "OLDPWD"];
+        let set = [
+            "HOME",
+            "USER",
+            "LOGNAME",
+            "MESA_SHADER_CACHE_DIR",
+            "__GL_SHADER_DISK_CACHE_PATH",
+        ];
+        for line in &lines {
+            let name = line.split('=').next().unwrap_or(line);
             assert!(
-                !lines.iter().any(|l| l.starts_with(&format!("{name}="))),
-                "{name} in {lines:#?}"
+                set.contains(&name) || shells.contains(&name) || kept(name.as_ref()),
+                "{name} reached the drawer: {lines:#?}"
             );
+        }
+        for (name, _) in ROOT_SHELL {
+            if !set.contains(&name) && !kept(name.as_ref()) {
+                assert!(
+                    !lines.iter().any(|l| l.starts_with(&format!("{name}="))),
+                    "{name} in {lines:#?}"
+                );
+            }
         }
     }
 
