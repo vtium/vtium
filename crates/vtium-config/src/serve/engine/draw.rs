@@ -510,7 +510,7 @@ impl Engine {
         // built-in font. A layer spliced in before that line draws first.
         let built_in = self.built_in_at(cell);
         let text_line = match &self.text_left_out {
-            Some(TextOut::LeftOut(_, line) | TextOut::Dropped(_, line)) => *line,
+            Some(TextOut::LeftOut { line, .. } | TextOut::Dropped(_, line)) => *line,
             Some(TextOut::NoneOwn) | None => 0,
         };
         let mut standing: Option<BTreeSet<u32>> = None;

@@ -1603,9 +1603,12 @@ fn a_missing_text_font_leaves_the_cell_to_the_configuration() {
         [FRAME_NO_OWN_CELL; 4]
     );
     let why = |i: usize| String::from_utf8_lossy(&frames[i].1).into_owned();
-    assert_eq!(
-        why(0),
-        "the text font source=font:Nonesuch Mono is missing or cannot be read, so the built-in font draws the text in its place, and the cell comes from the configuration"
+    // the reason names the folders this machine looked in
+    assert!(
+        why(0).starts_with("the text font source=font:Nonesuch Mono is missing: no font of family Nonesuch Mono: ")
+            && why(0).ends_with(". The built-in font draws the text in its place, and the character cell comes from the configuration"),
+        "{}",
+        why(0)
     );
     assert_eq!(
         why(3),
@@ -3829,6 +3832,153 @@ fn the_console_s_active_fonts_gate_every_font_file_the_helper_reads() {
             font.display()
         )),
         "{layer:?}"
+    );
+}
+
+/// The font helper's answer to a cell query at 16 pixels for the frit
+/// `text`, its fonts found in `paths`, with `active` sent first when it
+/// is given: the reason it gives for the frit's having no character cell
+/// of its own, `None` when it gives a cell.
+fn no_cell_reason(paths: &Paths, active: Option<ActiveAsk>, text: &str) -> Option<String> {
+    let mut bytes = active.map(|a| a.encode()).unwrap_or_default();
+    bytes.extend(query_at(frit(text), 16).encode());
+    let mut out = Vec::new();
+    let status = answer_requests(
+        &read_requests(std::io::Cursor::new(bytes)),
+        &mut out,
+        paths,
+        Duration::from_secs(5),
+        None,
+        Gate::Open,
+    );
+    assert_eq!(status, 0);
+    frames(&out)
+        .into_iter()
+        .find(|f| f.0 == FRAME_NO_OWN_CELL)
+        .map(|f| String::from_utf8_lossy(&f.1).into_owned())
+}
+
+// When the font helper leaves a font set's text font out, and a later
+// font of the set is left to draw, its answer to the console's cell
+// query says why the text font is out: a file that is not among the active
+// fonts, with the command that activates it, a file that does not exist,
+// a file that cannot be read, and a file that fails the trust rule. Each
+// reason names the text font and its file. The console logs the reason
+// as the helper sends it.
+//
+// References:
+// - ADR-1204 D5: a missing text font leaves the cell to the configuration.
+// - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
+#[test]
+fn a_left_out_text_font_s_cell_reason_says_why_the_helper_left_it_out() {
+    let none = || {
+        Some(ActiveAsk {
+            owner: me(),
+            paths: Vec::new(),
+        })
+    };
+    let system = Paths::default();
+    let tail = "The built-in font draws the text in its place, and the character cell comes from the configuration";
+    let font = fixture_font();
+    let inactive = no_cell_reason(
+        &system,
+        none(),
+        &format!(
+            "source=outline:{}\nsource=builtin:unscii-8\n",
+            font.display()
+        ),
+    );
+    assert_eq!(
+        inactive.as_deref(),
+        Some(
+            format!(
+                "the text font source=outline:{0} is not among the active fonts. {tail}. To activate the font file, run vtium-config activate {0} --install",
+                font.display()
+            )
+            .as_str()
+        )
+    );
+    let missing = no_cell_reason(
+        &system,
+        none(),
+        "source=outline:/nonesuch/mono.ttf\nsource=builtin:unscii-8\n",
+    );
+    assert_eq!(
+        missing.as_deref(),
+        Some(
+            format!(
+                "the text font source=outline:/nonesuch/mono.ttf is missing: /nonesuch/mono.ttf is not on this machine. {tail}"
+            )
+            .as_str()
+        )
+    );
+    let dir = scratch("reason-unread");
+    let junk = dir.join("junk.ttf");
+    std::fs::write(&junk, b"not a font").unwrap();
+    let unread = no_cell_reason(
+        &system,
+        None,
+        &format!(
+            "source=outline:{}\nsource=builtin:unscii-8\n",
+            junk.display()
+        ),
+    )
+    .unwrap();
+    assert!(
+        unread.starts_with(&format!(
+            "the text font source=outline:{} cannot be read: ",
+            junk.display()
+        )) && unread.ends_with(&format!(". {tail}")),
+        "{unread}"
+    );
+    // a font file that others can write fails the trust rule, and the
+    // reason gives the command that mends the file or its folder
+    let open = dir.join("open.ttf");
+    std::fs::copy(&font, &open).unwrap();
+    std::fs::set_permissions(&open, std::os::unix::fs::PermissionsExt::from_mode(0o666)).unwrap();
+    let listed = ActiveAsk {
+        owner: me(),
+        paths: vec![open.clone()],
+    };
+    let untrusted = no_cell_reason(
+        &system,
+        Some(listed),
+        &format!(
+            "source=outline:{}\nsource=builtin:unscii-8\n",
+            open.display()
+        ),
+    )
+    .unwrap();
+    assert!(
+        untrusted.starts_with(&format!(
+            "the text font source=outline:{} counts as missing, because ",
+            open.display()
+        )) && untrusted.contains("chmod go-w")
+            && untrusted.ends_with(&format!(". {tail}")),
+        "{untrusted}"
+    );
+    // a font: source that names a family names the file it found too
+    let named = dir.join("NonesuchMono-Regular.ttf");
+    std::fs::copy(&font, &named).unwrap();
+    let dirs = Paths {
+        kbd_dirs: Vec::new(),
+        font_dirs: vec![dir.to_path_buf()],
+        ..Paths::default()
+    };
+    let family = no_cell_reason(
+        &dirs,
+        none(),
+        "source=font:Nonesuch Mono\nsource=builtin:unscii-8\n",
+    );
+    assert_eq!(
+        family.as_deref(),
+        Some(
+            format!(
+                "the text font source=font:Nonesuch Mono, the font file {0}, is not among the active fonts. {tail}. To activate the font file, run vtium-config activate {0} --install",
+                named.display()
+            )
+            .as_str()
+        )
     );
 }
 
