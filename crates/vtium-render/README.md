@@ -5,7 +5,15 @@ vtium-render is vtium's renderer. It takes in frames from `vtium-term`, and it p
 | Path | What it is |
 |---|---|
 | `src/lib.rs` | The crate's documentation, its determinism lints and its public names. |
-| `src/renderer.rs` | `Renderer`: the grid's place on the display, the cell jobs, the cursor and the pointer, and the CPU path's back end. `Config`, `DrawState`, `Drawn` and `Stats`. |
+| `src/renderer.rs`, `src/renderer/tests.rs` | `Renderer` with its setters and accessors, and `Config`, `DrawState`, `Drawn` and `Stats`. The modules below draw each frame. The renderer's unit tests are in `tests.rs`. |
+| `src/renderer/layout.rs` | `Grid`, the grid's place on the display, and `Layout`, which turns the grid's cells and pixels into display areas from the display's size, the cell's size and the orientation. `grid_origin`. |
+| `src/renderer/pass.rs` | `Pass`, one frame's inputs as each row reads them, and `Plan`, what a frame draws, decided before anything is drawn. |
+| `src/renderer/cpu.rs` | The `Back` trait, which draws the border and each row's cell jobs, and `Cpu`, the CPU path's back end, which writes the row scratch into a target. |
+| `src/renderer/frame.rs` | A frame from start to end: `Renderer::draw` plans the frame, paints the border and the cells the buffer lacks, and finishes with the damage and the figures. |
+| `src/renderer/changes.rs` | What changed for the buffer being drawn: the rows and cells that changed, what each cell last drew, and how far each cell's ink reaches past its cells. |
+| `src/renderer/rows.rs` | Each row's drawing: the scan of the row, its cells' jobs, the rows of double size, and the neighbours whose ink each job receives. |
+| `src/renderer/jobs.rs` | The jobs of one cell, with its colors, decorations and text and the bar cursor's bar, and the helpers that find the cells a cell draws over. |
+| `src/renderer/pointer.rs` | Where the pointer's arrow draws on the grid, and the cells and the border it changes. |
 | `src/renderer/double.rs` | Double-width and double-height lines: the pieces that a doubled glyph and its decorations are cut into, and the one place that cuts a piece from the font's double-size glyph or from the normal glyph with its pixels doubled. |
 | `src/renderer/sized.rs` | Sized runs (OSC 66): a run's text drawn once at its size into a block, and the piece of that block each cell draws. |
 | `src/renderer/wider.rs`, `src/renderer/wider/gpu.rs` | Tests of the composition and damage at a reach of two cells to the side and two rows up and down, on the CPU path and on the GPU path, against a whole draw. |
@@ -17,7 +25,7 @@ vtium-render is vtium's renderer. It takes in frames from `vtium-term`, and it p
 | `src/arrow.rs` | `Arrow`, the pointer's image, and the target that blends the pointer over what is written beneath it. |
 | `src/damage.rs` | What each buffer lacks, cell by cell, and the damage rectangles. |
 | `src/compose.rs` | The row's jobs, composed into display lines through the row scratch. |
-| `src/cache.rs` | The drawn-glyph cache. It has four pools by format and width, keyed by the glyph's text, width and variant. It holds an LRU on the drawn frame, and the `Profile` budgets. |
+| `src/cache.rs`, `src/cache/tests.rs` | The drawn-glyph cache, and its unit tests in `tests.rs`. It has four pools by format and width, keyed by the glyph's text, width and variant. It holds an LRU on the drawn frame, and the `Profile` budgets. |
 | `src/reach.rs` | `Reach`, how far a glyph's ink reaches past its cells, kept in one byte for each cell, and `Bound`, the bounds that reach. |
 | `src/variant.rs` | The glyph variant that a cell's attributes ask for: bold, italic, and superscript or subscript. |
 | `src/stored.rs` | A glyph as the cache keeps it. The cache turns the glyph once, keeps it at 1 bit when that is lossless, keeps it at the bitmap font's own size, and draws it a line at a time. |
@@ -38,7 +46,7 @@ vtium-render is vtium's renderer. It takes in frames from `vtium-term`, and it p
 | `src/mono.rs` | `Depth`. A 1-bit display's colors by cell, its coverage cut at half, and a color glyph's stand-in. |
 | `src/target.rs` | `Target`, the write-only display buffer. `Canvas`, a buffer in memory. `Mapped`, a mapped dumb buffer. `Orientation` and `Rect`. |
 | `src/sprite.rs` | `hollow_box`: the hollow box vtium's messages draw for a character the built-in font lacks. |
-| `src/notice.rs` | The console's own drawing over a display's frame (ADR-1401). `Notice` is vtium's message in a box. `Mark` is a head's focus mark. `Surface` is the display they draw on. `quote` is for text from a file. |
+| `src/notice.rs`, `src/notice/tests.rs` | The console's own drawing over a display's frame (ADR-1401), and its unit tests in `tests.rs`. `Notice` is vtium's message in a box. `Mark` is a head's focus mark. `Surface` is the display they draw on. `quote` is for text from a file. |
 | `src/timer.rs` | `RenderTimer` and its `Report`. |
 | `src/picture/mod.rs` | With `images`: where each of a frame's placements draws on the display, and the cells that a picture which moved or changed draws again. It also gives a picture's pixels a display line at a time. |
 | `src/picture/scale.rs` | With `images`: scaling and turning a picture in integer arithmetic. |
@@ -52,8 +60,11 @@ vtium-render is vtium's renderer. It takes in frames from `vtium-term`, and it p
 | `src/gpu/beside.rs` | With `gpu`: the texture of the ink beside the pieces of magnified characters, which the cell shader reads for each piece whose underline the frame draws. |
 | `src/gpu/box_lines.rs` | With `gpu`: where the box of a glyph whose ink passes its cells holds ink, cell by cell. The ink grid sets a cell's line bits from it. |
 | `src/gpu/pipeline.rs` | With `gpu`: `Pipeline`, a display's frame through the five slots, what fills each slot, and present. |
-| `src/gpu/compose.rs` | With `gpu`: the composition into the upright frame and its tiles, `Work`, and the renderer's back end that turns cell jobs into quads. |
-| `src/gpu/glyphs.rs` | With `gpu`: the glyph pools as textures and their slots. The boxes of the glyphs whose ink passes their cells. The decoration sprites' texture, and the textures that they give back. |
+| `src/gpu/compose.rs`, `src/gpu/compose/tests.rs` | With `gpu`: the shaders' sources and inputs, and `Work`, one frame's work for the composition. Its unit tests are in `tests.rs`. |
+| `src/gpu/compose/composition.rs` | With `gpu`: `Composition`, the upright frame in its tiles, the programs it draws with and the copy of the pixels beneath a draw. |
+| `src/gpu/compose/back.rs` | With `gpu`: `GpuBack`, the renderer's back end that turns the border into clears and each cell job into a quad. |
+| `src/gpu/glyphs.rs`, `src/gpu/glyphs/tests.rs` | With `gpu`: the glyph pools as textures and their slots, and the textures that they give back. Its unit tests are in `tests.rs`. |
+| `src/gpu/glyphs/boxes.rs` | With `gpu`: the boxes of the glyphs whose ink passes their cells, and the decoration sprites' texture. |
 | `src/gpu/pictures.rs` | With `gpu` and `images`: slot 1, the pictures' textures by GPU scaling or by the CPU copy, under the display's bound, and the scratch texture. |
 | `src/gpu/tile.rs` | With `gpu`: `tiles`, an image as a grid of tiles within the largest tile. |
 | `src/gpu/turn.rs` | With `gpu`: `Turn`, which maps a rectangle between the display's pixels and the upright frame's pixels. |
