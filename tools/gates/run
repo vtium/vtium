@@ -22,7 +22,7 @@ its standard input at /dev/null.
 Each gate writes its output to a log of its own, DIR/logs/NN-NAME.log, where NN
 is the gate's place in the gate line and NAME is the gate's command in lower
 case with each run of other characters than a-z and 0-9 made one hyphen, such
-as 03-cargo-test-workspace-all-features.log. The script replaces each log at
+as 03-make-test-all-features.log. The script replaces each log at
 each run. With N at 1, the output also goes to the terminal as the gate runs.
 With N above 1 it goes to the log alone, so the output of gates that run at the
 same time never interleaves, and the terminal gets a line as each gate starts
@@ -30,8 +30,8 @@ and as it ends.
 
 Each gate runs with CARGO_TARGET_DIR set to DIR/NAME, a cargo target directory
 of its own. Two gates that shared one would wait on each other's lock on it,
-and two that build with different features, such as `cargo test --workspace
---all-features` and `cargo test --workspace`, would each rebuild what the other
+and two that build with different features, such as `make test-all-features`
+and `make test-default`, would each rebuild what the other
 built. Each directory stays between runs, so a second run builds only what
 changed. The Makefile's targets read CARGO_TARGET_DIR wherever they name a
 cargo target directory, except `make msrv`, which builds in target/msrv, a

@@ -89,8 +89,8 @@ A gate is a check that must pass before a change goes to review. The gate line b
 ```sh
 cargo fmt --all --check \
   && cargo clippy --workspace --all-features --all-targets -- -D warnings \
-  && cargo test --workspace --all-features \
-  && cargo test --workspace \
+  && make test-all-features \
+  && make test-default \
   && cargo build --profile minspec \
   && make msrv \
   && make deny \
@@ -113,7 +113,7 @@ cargo fmt --all --check \
   && make arm-memory
 ```
 
-`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. `make tier2` reads tier 2's goldens from `tools/tier2/goldens/`. `make arm-memory` runs vtium-term's memory tests for armv7 under qemu-user, so a change that moves a 32-bit memory figure fails there. `make api` builds the reference that rustdoc generates for each crate under `crates/`, and fails on any rustdoc warning, a broken intra-doc link included. `make features-check` runs clippy and rustdoc on each crate with cargo features, once with no feature and once with each feature alone. `make conformance-issues` uses `gh` to check the conformance lists and ADR-1000's issue column against GitHub's issue states. An open issue that only supported rows name is not a failure: the check lists it as one for the next stage to close. Without network access `make conformance-issues` cannot run, so report the gate as not run, with that reason. `make deny` checks the license and the source of every crate that a lock file of vtium's names, against `deny.toml`. It needs cargo-deny at the version that the Makefile's `DENY_VERSION` names, and it tells you the `cargo install` command when that version is missing. The check of the workspace's crates against the RustSec advisory database needs the network, so it is not a gate: CI runs it as the job `advisories`, and `make advisories` runs it here. `make ci-local` runs the workspace's tests in a container that matches CI's Ubuntu 24.04 runner, so a test that fails only on CI shows up before the push. `docs/scripts/claims` checks the claim files beside the docs' figures and pages: each claim's file must exist, and the symbol the claim names must still be defined there. [docs/AGENTS.md](docs/AGENTS.md) says what to do when `docs/scripts/claims` fails.
+`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. `make tier2` reads tier 2's goldens from `tools/tier2/goldens/`. `make arm-memory` runs vtium-term's memory tests for armv7 under qemu-user, so a change that moves a 32-bit memory figure fails there. `make api` builds the reference that rustdoc generates for each crate under `crates/`, and fails on any rustdoc warning, a broken intra-doc link included. `make features-check` runs clippy and rustdoc on each crate with cargo features, once with no feature and once with each feature alone. `make conformance-issues` uses `gh` to check the conformance lists and ADR-1000's issue column against GitHub's issue states. An open issue that only supported rows name is not a failure: the check lists it as one for the next stage to close. Without network access `make conformance-issues` cannot run, so report the gate as not run, with that reason. `make test-all-features` and `make test-default` run the workspace's tests with cargo-nextest, which runs the tests of every test binary in parallel across the cores. nextest does not run doctests, so both targets then run `cargo test --doc`. They need cargo-nextest at the version that the Makefile's `NEXTEST_VERSION` names, and they tell you the `cargo install` command when that version is missing. `make deny` checks the license and the source of every crate that a lock file of vtium's names, against `deny.toml`. It needs cargo-deny at the version that the Makefile's `DENY_VERSION` names, and it tells you the `cargo install` command when that version is missing. The check of the workspace's crates against the RustSec advisory database needs the network, so it is not a gate: CI runs it as the job `advisories`, and `make advisories` runs it here. `make ci-local` runs the workspace's tests in a container that matches CI's Ubuntu 24.04 runner, so a test that fails only on CI shows up before the push. `docs/scripts/claims` checks the claim files beside the docs' figures and pages: each claim's file must exist, and the symbol the claim names must still be defined there. [docs/AGENTS.md](docs/AGENTS.md) says what to do when `docs/scripts/claims` fails.
 
 vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34), C stays at that boundary as a binding or the thinnest possible shim, and everything around the C code is Rust.
 
@@ -141,7 +141,7 @@ vtium is judged in tiers, from unit tests up to the maintainer's own review on a
 
 | Tier | What it compares | Where it runs | Command |
 |---|---|---|---|
-| Unit | each crate's behaviour | here | `cargo test --workspace --all-features` |
+| Unit | each crate's behaviour | here | `make test-all-features` |
 | 1, conformance | the screen state and replies vtium produces after a stream of input bytes, written as text and compared against vtium's goldens | the replay corpus in `tools/conformance/corpus/`, through the language-neutral interface that its `INTERFACE.md` describes | `make conformance` (`tools/conformance/`, #14), which also runs the interface check |
 | Capability probes | each capability vtium claims, tested through a replay, against `tools/conformance/capabilities.list` | `tools/conformance/scenarios/` | `make conformance-probes` |
 | 2, pixels | what the renderer draws in memory, compared pixel for pixel | `tools/tier2/`: its goldens in `tools/tier2/goldens/` | `make tier2` |
