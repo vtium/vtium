@@ -275,15 +275,69 @@ done
 
 FORBIDDEN = "#!/bin/bash\n" + RECORD + "exit 1\n"
 
+# The lines vtium check-config writes on a font file that a font set names
+# by its path and that a start would treat as missing: one the batch does
+# not list, and one the trust rule refuses. These are the format strings of
+# crates/vtium/src/check/resources.rs, word for word, which
+# test_the_stand_in_check_writes_the_real_check_lines holds them to.
+INACTIVE_LINE = ("{at}: The font {} is not active, so vtium treats it as missing and draws its characters from the "
+                 "next font in the set. A font is active while {b} lists the file's path. To activate it, press Space "
+                 "on it in vtium-config's Fonts tab, or run vtium-config activate with the file's path, then install "
+                 "the change.")
+REFUSED_LINE = ("{at}: vtium treats the font {} as missing, because {} vtium draws its characters from the next font "
+                "in the set.")
+
+# The stand-in vtium check-config, as vt.sh asks it about one font set: a
+# vtium built with its batch file at $BIN_BATCH. For each font file that the
+# font set font-name names by its path, on a source=, script-source= or
+# strike= line, it writes the real check's line on standard error when the
+# file exists under $BIN_FONT_ROOT and the batch does not list it, or when
+# $BIN_UNTRUSTED lists it, which stands for a file the trust rule refuses.
+# As in the real check, a file that does not exist gets no line. Without
+# $BIN_BATCH every file is active. Each check appends "vtium-check NAME" to
+# $CALLS, and $BIN_CHECK_STATUS makes the check fail as a broken binary would.
+CHECK_CONFIG = r"""for a; do
+	[ "$a" = check-config ] || continue
+	frits= conf=
+	for b; do
+		case $b in --font-frits=*) frits=${b#*=} ;; check-config | --no-devices) ;; *) conf=$b ;; esac
+	done
+	name=$(sed -n 's/^font-name=//p' "$conf")
+	printf 'vtium-check %s\n' "$name" >>"$CALLS"
+	[ -z "${BIN_CHECK_STATUS:-}" ] || { echo "vtium: the stand-in check fails" >&2; exit "$BIN_CHECK_STATUS"; }
+	frit=$frits/$name.vtfrit n=0 status=0
+	echo "each display uses the density it reports from its physical size for font sizes"
+	while IFS= read -r line || [ -n "$line" ]; do
+		n=$((n + 1))
+		line=${line%%#*}
+		[[ $line =~ ^(source|script-source|strike)=(file|bdf|hex|outline):(/.*)$ ]] || continue
+		path=${BASH_REMATCH[3]}
+		[ -e "${BIN_FONT_ROOT:-}$path" ] || continue
+		if [ -n "${BIN_UNTRUSTED:-}" ] && grep -qxF -- "$path" "$BIN_UNTRUSTED"; then
+			echo "REFUSED" >&2
+			status=6
+		elif [ -n "${BIN_BATCH:-}" ] && ! grep -qxF -- "$path" "$BIN_BATCH"; then
+			echo "INACTIVE" >&2
+			status=6
+		fi
+	done <"$frit"
+	exit "$status"
+done
+""".replace('"REFUSED"', '"' + REFUSED_LINE.replace("{at}", "$frit:$n").replace("{}", "$path", 1)
+            .replace("{}", "its folder is writable by others.") + '"') \
+   .replace('"INACTIVE"', '"' + INACTIVE_LINE.replace("{at}", "$frit:$n").replace("{}", "$path")
+            .replace("{b}", "$BIN_BATCH") + '"')
+
 # The stand-in vtium: records its arguments, prints $BIN_LOG, then as
 # $BIN_MODE says: exit (with $BIN_STATUS), wait (until a signal, recording
 # it), linger (exits, leaving a sleep that never ends and holds its
 # output open, as a process vtium started might), or session (runs the argv after --, with $BIN_STDIN as its input, as
 # vtium runs its first head's first console: VTIUM_HEAD=console and
 # VTIUM_CONSOLE=1 in its environment, and a word that is $VTIUM_HEAD or
-# $VTIUM_CONSOLE replaced by its value).
+# $VTIUM_CONSOLE replaced by its value). Asked check-config, it runs
+# CHECK_CONFIG instead.
 BIN = """#!/bin/bash
-# Built to start its glyph helper at /usr/local/bin/vtium-dev-config, as make
+""" + CHECK_CONFIG + """# Built to start its glyph helper at /usr/local/bin/vtium-dev-config, as make
 # vt-install builds it.
 echo $$ >"$BIN_PID"
 # The run's lock is root's; vtium, and the login and shell it starts, never
@@ -1631,6 +1685,117 @@ class VtSh(Case):
         for want in ["VT 5: it is on screen", "VT 6: it is logind's reserved VT"] + \
                 [f"VT {v}: logind session c{v}_active" for v in (4, 3, 2)]:
             self.assertIn(want, p.stderr)
+
+    # The acceptance pass's font sets, as the pages' "# frits:" and "# font-switch:" lines name them.
+    PASS_FRITS = ["acceptance-bitmap", "acceptance-large", "acceptance-outline", "bitmap-outline",
+                  "bitmap-outline-smooth", "glyph-fit-default", "glyph-fit-natural", "ligatures-jetbrains",
+                  "script-terminus"]
+    DEJAVU = "/usr/share/fonts/TTF/DejaVuSansMono.ttf"
+    JETBRAINS = "/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf"
+
+    def frit_fonts(self):
+        """Each font set of tools/vt/sections/frits by name, with the font files it names by path."""
+        d = os.path.join(VT, "sections", "frits")
+        return {f[:-len(".vtfrit")]: re.findall(r"^(?:source|script-source|strike)=(?:file|bdf|hex|outline):(/\S+)",
+                                                read(os.path.join(d, f)), re.M)
+                for f in sorted(os.listdir(d)) if f.endswith(".vtfrit")}
+
+    def fonts(self, lacking=(), untrusted=(), absent=()):
+        """The stand-in check's machine: every font file the font sets name,
+        under a font root of the test's own but those in `absent`, and a
+        batch that lists each of them but those in `lacking`. The files in
+        `untrusted` fail the trust rule."""
+        root = os.path.join(self.s.tmp, "font-root")
+        paths = sorted({p for ps in self.frit_fonts().values() for p in ps})
+        for p in paths:
+            if p not in absent:
+                os.makedirs(os.path.dirname(root + p), exist_ok=True)
+                write(root + p, "", 0o644)
+        batch = os.path.join(self.s.tmp, "batch.conf")
+        write(batch, "".join(p + "\n" for p in paths if p not in lacking), 0o644)
+        env = dict(BIN_FONT_ROOT=root, BIN_BATCH=batch)
+        if untrusted:
+            env["BIN_UNTRUSTED"] = os.path.join(self.s.tmp, "untrusted")
+            write(env["BIN_UNTRUSTED"], "".join(p + "\n" for p in untrusted), 0o644)
+        return env
+
+    def test_the_stand_in_check_writes_the_real_check_lines(self):
+        # vt.sh reads vtium check-config's lines on a font file that a start
+        # treats as missing, so the stand-in writes them in the real check's
+        # words.
+        src = read(os.path.join(ROOT, "crates", "vtium", "src", "check", "resources.rs"))
+        for line in (INACTIVE_LINE, REFUSED_LINE):
+            self.assertIn(f'"{line}"', src)
+
+    def test_the_pass_refuses_font_sets_whose_fonts_are_not_active(self):
+        # Before vtium starts, vt.sh asks vtium check-config about each font
+        # set the pass uses. A font the batch does not list would make a page
+        # judge vtium's built-in font, so vt.sh refuses the run, names each
+        # font and font set, and says how to activate the fonts.
+        env = self.fonts(lacking=(self.DEJAVU, self.JETBRAINS))
+        users = [n for n, ps in self.frit_fonts().items() if self.DEJAVU in ps]
+        self.assertIn("acceptance-outline", users)
+        for dry in ("1", ""):
+            with self.subTest(dry_run=dry):
+                open(self.s.calls, "w").close()
+                p = self.vt_sh(VTIUM_VT_DRY_RUN=dry, **env)
+                self.refused(p, "vt: vtium cannot use some fonts that the acceptance pass needs.\n")
+                for n in users:
+                    self.assertIn(f"  font set {n}: {self.DEJAVU} is not active\n", p.stderr)
+                self.assertIn(f"  font set ligatures-jetbrains: {self.JETBRAINS} is not active\n", p.stderr)
+                self.assertIn(f"  vtium config activate {self.DEJAVU} {self.JETBRAINS} --install\n", p.stderr)
+                self.assertIn(f"Or add each path, one a line, to the batch file {env['BIN_BATCH']}.", p.stderr)
+                self.assertIn("The pass judges a font page only with its fonts active, so vt.sh does not start the pass.", p.stderr)
+                # The fonts the batch lists are named nowhere.
+                self.assertNotIn("NotoSansHebrew", p.stderr)
+                self.assertEqual(sorted(self.s.calls_of("vtium-check")), self.PASS_FRITS)
+                self.assertEqual(self.s.calls_of("sudo"), [])
+                self.assertFalse(os.path.exists(self.s.bin_args), "vtium started")
+
+    def test_the_pass_starts_when_every_font_is_active(self):
+        # A font file that does not exist is the pass's own to report, as a
+        # page it cannot show, so only a file that is there and not active
+        # refuses the run.
+        env = self.fonts(lacking=(self.DEJAVU,), absent=(self.DEJAVU,))
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", **env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("not active", p.stderr)
+        self.assertEqual(sorted(self.s.calls_of("vtium-check")), self.PASS_FRITS)
+
+    def test_only_the_font_sets_of_the_pages_named_are_checked(self):
+        env = self.fonts(lacking=tuple(p for ps in self.frit_fonts().values() for p in ps))
+        # A page with no font set needs no active font.
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_PAGES="10", **env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("vtium-check"), [])
+        # A page's own font sets are checked, and no other.
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_PAGES="53", **env)
+        self.refused(p, f"  font set ligatures-jetbrains: {self.JETBRAINS} is not active\n")
+        self.assertNotIn(self.DEJAVU, p.stderr)
+        self.assertEqual(self.s.calls_of("vtium-check"), ["ligatures-jetbrains"])
+        # A login and a shell run no acceptance pass.
+        open(self.s.calls, "w").close()
+        for mode in ("login", "shell"):
+            with self.subTest(mode=mode):
+                p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_SESSION=mode, **env)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("vtium-check"), [])
+
+    def test_a_font_the_trust_rule_refuses_refuses_the_pass(self):
+        env = self.fonts(untrusted=(self.JETBRAINS,))
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_PAGES="53", **env)
+        self.refused(p, f"  font set ligatures-jetbrains: {self.JETBRAINS}: its folder is writable by others.\n")
+        self.assertNotIn("vtium config activate", p.stderr)
+        self.assertIn("For each other font, its line says why vtium refuses the file.", p.stderr)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+
+    def test_a_check_that_fails_refuses_the_pass(self):
+        # A check that cannot judge a font set never lets the pass start in
+        # silence.
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_PAGES="53", BIN_CHECK_STATUS="2", **self.fonts())
+        self.refused(p, "vt: vtium check-config failed with status 2 on the font set ligatures-jetbrains")
+        self.assertIn("vtium: the stand-in check fails", p.stderr)
+        self.assertEqual(self.s.calls_of("sudo"), [])
 
     def installed(self, vt):
         """The stand-in manifest make vt-install writes for VT vt."""

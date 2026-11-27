@@ -32,7 +32,7 @@
 # It runs in any terminal as any user and needs nothing from vtium, so the same
 # pages can be compared in vtium and in another terminal.
 #
-#   accept.sh [--check] [PAGE...]
+#   accept.sh [--check | --frits] [PAGE...]
 #
 # PAGE names a page by its number (51), its file name without .sh
 # (51-double-size) or that name without its number (double-size). ACCEPT_ONLY
@@ -44,6 +44,10 @@
 # that matches no page refuses the pass before it starts, naming the page.
 # --check prints the pages chosen, one file name without .sh per line, and
 # exits 0, or names a page that matches none and exits 2; it draws nothing.
+# --frits prints the font sets the chosen pages use, from their "# frits:"
+# and "# font-switch:" lines, one name per line in sorted order, and nothing
+# when they use none; it draws nothing either, and vt.sh asks it which font
+# sets to check before it starts vtium.
 #
 # ACCEPT_LABEL names the terminal on the title page and in the record; run-vt.sh
 # sets it to "vtium dev build <git describe>". ACCEPT_VT, ACCEPT_BINARY and
@@ -65,7 +69,7 @@ noprompt=${ACCEPT_NOPROMPT:-$nopage}
 passes=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
 label=${ACCEPT_LABEL:-unlabelled}
 check=
-[ "${1:-}" != --check ] || { check=1; shift; }
+case ${1:-} in --check | --frits) check=$1; shift ;; esac
 # The render path the pass judges, as the record names it (ADR-1501 D3).
 case ${ACCEPT_RENDER_PATH:-} in
 gpu) render_path='gpu, vtium run with --hwaccel' ;;
@@ -823,10 +827,14 @@ for f in "${all[@]}"; do
 	fi
 done
 [ ${#pages[@]} -gt 0 ] || { echo "accept: no page in ${ACCEPT_PAGES:-$here/sections}" >&2; exit 2; }
-if [ -n "$check" ]; then
+case $check in
+--check)
 	printf '%s\n' "${chosen[@]}"
-	exit 0
-fi
+	exit 0 ;;
+--frits)
+	printf '%s\n' "${frits[@]}" "${switches[@]}" | tr ' ' '\n' | sed '/^$/d' | sort -u
+	exit 0 ;;
+esac
 # A pass of only some pages says so on its title page and in its record, so
 # that it never reads as a full pass. A pass resumes only a pass of the same
 # pages (resumable).
