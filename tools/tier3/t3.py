@@ -332,8 +332,9 @@ def recorded_tree(tree, declared):
 
 def build_features(variants, log):
     """vtium built with each feature set a variant in `variants` names, as
-    {features: binary path}, each in a target directory of its own under
-    OUT, with the minspec profile and the revision the tree's build logs."""
+    {features: binary path}, each in a directory of its own under OUT,
+    which is both its cargo target directory and its build directory, with
+    the minspec profile and the revision the tree's build logs."""
     out = {}
     for features in sorted({t3_scenario.VARIANTS[v]["features"] for v in variants
                             if "features" in t3_scenario.VARIANTS[v]}):
@@ -343,7 +344,7 @@ def build_features(variants, log):
                              capture_output=True, text=True).stdout.strip() or "unknown"
         r = subprocess.run(["cargo", "build", "--profile", "minspec", "-p", "vtium",
                             "--features", features, "--target-dir", target], cwd=ROOT,
-                           env=dict(os.environ, VTIUM_REVISION=rev))
+                           env=dict(os.environ, VTIUM_REVISION=rev, CARGO_BUILD_BUILD_DIR=target))
         if r.returncode:
             raise SystemExit("building vtium with %s failed with exit code %d"
                              % (features, r.returncode))

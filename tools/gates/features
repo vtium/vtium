@@ -37,10 +37,12 @@ makes when nobody names a feature.
 The script reads the crates and their features from `cargo metadata`, so a new
 crate or a new feature joins the check by itself. The runs go in lanes that
 run at the same time: each crate's runs, up to four sets of features to a lane,
-one after another in a lane. Each lane builds in a cargo target directory of
-its own, features/CRATE-N under the target directory that CARGO_TARGET_DIR
-names, as cargo does; `make gates` gives each gate a directory of its own. Two
-lanes that shared one would wait on each other's lock. It runs every
+one after another in a lane. Each lane builds in a cargo directory of its
+own, features/CRATE-N under the target directory that CARGO_TARGET_DIR names,
+as cargo does; `make gates` gives each gate a directory of its own. That
+directory is both the lane's target directory and its build directory, set
+through CARGO_TARGET_DIR and CARGO_BUILD_BUILD_DIR. Two lanes that shared
+either would wait on each other's lock. It runs every
 combination to the end, prints one line for each with its result as it
 finishes, and then prints the output of each failed run in the plan's order.
 It exits 0 when every run passed and 1 when one failed, naming the crate, the
@@ -148,7 +150,8 @@ def main():
     results = {}
 
     def lane(name, mine):
-        lane_env = dict(env, CARGO_TARGET_DIR=str(target / name))
+        own = str(target / name)
+        lane_env = dict(env, CARGO_TARGET_DIR=own, CARGO_BUILD_BUILD_DIR=own)
         for crate, label, flags in mine:
             for check, argv in commands(crate, flags):
                 p = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True,

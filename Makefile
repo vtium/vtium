@@ -12,6 +12,16 @@ X86_TARGET := x86_64-unknown-linux-gnu
 # run at once.
 CORES := $(shell nproc 2>/dev/null || echo 8)
 
+# Cargo writes a build's final artifacts to its target directory and its
+# intermediate files to its build directory, which a build.build-dir in
+# cargo's own configuration can set for every build of the checkout. Each
+# cargo command here that names a target directory of its own, with
+# --target-dir DIR, starts with $(call build-dir,DIR), which makes DIR its
+# build directory too. No two of those builds then share intermediate files
+# or wait on one lock. Rust 1.91 and later read CARGO_BUILD_BUILD_DIR; older
+# ones, as make msrv runs, ignore it and keep both in the target directory.
+build-dir = CARGO_BUILD_BUILD_DIR=$(1)
+
 # Every cargo build this file starts goes through sccache when it is
 # installed. sccache keeps each compiled crate in a cache that every vtium
 # checkout shares, under $XDG_CACHE_HOME/vtium/sccache, so a fresh worktree or
@@ -577,7 +587,7 @@ endif
 
 .PHONY: install-build
 install-build: ## Build what make install stages, for PREFIX (default /usr/local), with FEATURES='...', HWACCEL=on|off, DISPLAY_BUFFERS=1|2|3 and CARGO_BUILD_FLAGS='...' when named
-	$(build_settings)$(package_folders) VTIUM_FONT_HELPER=$(PREFIX)/bin/vtium-config $(if $(IMAGES),VTIUM_IMAGE=$(PREFIX)/bin/vtium-image) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc $(CARGO_BUILD_FLAGS) --profile minspec -p vtium --bin vtium --target-dir $(INSTALL_TARGET_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)$(package_folders) VTIUM_FONT_HELPER=$(PREFIX)/bin/vtium-config $(if $(IMAGES),VTIUM_IMAGE=$(PREFIX)/bin/vtium-image) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) $(call build-dir,$(INSTALL_TARGET_DIR)) cargo rustc $(CARGO_BUILD_FLAGS) --profile minspec -p vtium --bin vtium --target-dir $(INSTALL_TARGET_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(INSTALL_TARGET_DIR)/minspec/vtium)
 	grep -qaF '$(PREFIX)/bin/vtium-config' $(INSTALL_TARGET_DIR)/minspec/vtium || { echo "$(INSTALL_TARGET_DIR)/minspec/vtium does not start its helper at $(PREFIX)/bin/vtium-config" >&2; exit 1; }
 # At PREFIX=/usr this path is also the one vtium is built with when
@@ -587,7 +597,7 @@ install-build: ## Build what make install stages, for PREFIX (default /usr/local
 ifneq ($(IMAGES),)
 	grep -qaF '$(PREFIX)/bin/vtium-image' $(INSTALL_TARGET_DIR)/minspec/vtium || { echo "$(INSTALL_TARGET_DIR)/minspec/vtium does not start its image helper at $(PREFIX)/bin/vtium-image" >&2; exit 1; }
 endif
-	$(build_settings)$(package_folders) cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config -p vtium-clipboard $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
+	$(build_settings)$(package_folders) $(call build-dir,$(INSTALL_TARGET_DIR)) cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config -p vtium-clipboard $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
 
 .PHONY: install
 install: font-files-check install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default terminus cullet-mono jetbrains-mono unifont-icons unscii-icons), with the font files make font-files and make cullet-mono stage: make install DESTDIR=DIR PREFIX=/usr
@@ -749,8 +759,8 @@ advisories: ## Check the workspace's crates against the RustSec advisory databas
 msrv: ## Build the workspace, its tests and the minspec profile with the oldest Rust vtium builds on, Cargo.toml's rust-version, in target/msrv or CARGO_TARGET_DIR/msrv (rustup installs that Rust when it is missing)
 	@[ -n "$(MSRV)" ] || { echo "msrv: Cargo.toml declares no rust-version" >&2; exit 1; }
 	@rustup run $(MSRV) rustc --version >/dev/null 2>&1 || rustup toolchain install $(MSRV) --profile minimal --no-self-update
-	cargo +$(MSRV) build --workspace --all-features --all-targets --locked --target-dir $(MSRV_DIR)
-	cargo +$(MSRV) build --profile minspec --locked --target-dir $(MSRV_DIR)
+	$(call build-dir,$(MSRV_DIR)) cargo +$(MSRV) build --workspace --all-features --all-targets --locked --target-dir $(MSRV_DIR)
+	$(call build-dir,$(MSRV_DIR)) cargo +$(MSRV) build --profile minspec --locked --target-dir $(MSRV_DIR)
 
 .PHONY: arm
 arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE/minspec (ARM_TARGETS='...'; needs clang)
@@ -856,9 +866,9 @@ test-tools: ## Test the VT review tools, the locale mode scripts with the real v
 	cargo test -q -p vtium-font --test set
 	cargo test -q -p vtium-tier1-shots --features draw
 	cargo test -q -p vtium-site
-	cargo test -q --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool
-	cargo test -q --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/shader-timing-tool
-	cargo test -q --locked --manifest-path tools/scroll-timing/Cargo.toml --target-dir $(SCROLL_TIMING_TARGET)
+	$(call build-dir,$(CULLET_MONO_TARGET)) cargo test -q --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(CULLET_MONO_TARGET)
+	$(call build-dir,$(SHADER_TIMING_TARGET)) cargo test -q --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(SHADER_TIMING_TARGET)
+	$(call build-dir,$(SCROLL_TIMING_TARGET)) cargo test -q --locked --manifest-path tools/scroll-timing/Cargo.toml --target-dir $(SCROLL_TIMING_TARGET)
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
@@ -869,7 +879,8 @@ test-tools: ## Test the VT review tools, the locale mode scripts with the real v
 # vtium's gpu feature, in a target directory of their own so the other
 # builds keep their cache. --lib runs the unit tests alone and leaves out
 # every integration test.
-TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 cargo test -q --target-dir $(or $(CARGO_TARGET_DIR),target)/build-settings -p vtium-settings -p vtium -p vtium-config --features vtium/gpu --lib
+BUILD_SETTINGS_TARGET = $(or $(CARGO_TARGET_DIR),target)/build-settings
+TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 $(call build-dir,$(BUILD_SETTINGS_TARGET)) cargo test -q --target-dir $(BUILD_SETTINGS_TARGET) -p vtium-settings -p vtium -p vtium-config --features vtium/gpu --lib
 
 .PHONY: fuzz
 # FUZZ_TARGETS and FUZZ_TIME reach tools/fuzz/run through the environment;
@@ -973,7 +984,7 @@ $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 .PHONY: vt-dev-console
 vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec $(REMAP_PATHS) -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
+	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) $(call build-dir,$(VTIUM_DEV_DIR)) cargo rustc --profile minspec $(REMAP_PATHS) -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
 	$(call check-relr,$(VTIUM_DEV))
 	$(call check-paths,$(VTIUM_DEV))
 	$(call check-glibc,$(VTIUM_DEV))
@@ -1045,7 +1056,8 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 #
 # References:
 # - ADR-1204 D2: the sources, the name and the icon sets.
-CULLET_MONO := cargo run --release --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool --
+CULLET_MONO_TARGET = $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool
+CULLET_MONO := $(call build-dir,$(CULLET_MONO_TARGET)) cargo run --release --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(CULLET_MONO_TARGET) --
 CULLET_MONO_OUT := $(or $(CARGO_TARGET_DIR),target)/cullet-mono
 .PHONY: font-files font-files-check
 font-files: ## Stage the Terminus and Unifont files every build installs in target/font-files: Terminus 4.49.1's archive fetched once into the cache, and each file checked against tools/fonts/pins.tsv (needs curl and the network once)
@@ -1070,7 +1082,8 @@ cullet-mono-check: ## Check the Cullet Mono faces in target/cullet-mono against 
 #
 # References:
 # - ADR-1304 D18, "measuring first": what the harness measures, and why.
-SHADER_TIMING := cargo run --release --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/shader-timing-tool --
+SHADER_TIMING_TARGET = $(or $(CARGO_TARGET_DIR),target)/shader-timing-tool
+SHADER_TIMING := $(call build-dir,$(SHADER_TIMING_TARGET)) cargo run --release --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(SHADER_TIMING_TARGET) --
 SHADER_TIMING_OUT := $(or $(CARGO_TARGET_DIR),target)/shader-timing
 .PHONY: shader-timing
 shader-timing: ## Time the spatial shaders of ADR-1304 D18 off-screen on DEVICE (surfaceless, software or a render node; default surfaceless) at 1920x1080 and 3840x2160, into target/shader-timing/DEVICE.tsv; ARGS='...' passes more options
@@ -1098,7 +1111,7 @@ scroll-timing: ## Time ADR-1310 D6's three ways to scroll on DEVICE (default tie
 	@if [ '$(or $(DEVICE),tier3)' = tier3 ]; then \
 		$(MAKE) --no-print-directory tier3-image && $(T3_PY) tools/tier3/t3_scrolltiming.py -- $(ARGS); \
 	else \
-		cargo build --release --locked --manifest-path tools/scroll-timing/Cargo.toml --target-dir $(SCROLL_TIMING_TARGET) && \
+		$(call build-dir,$(SCROLL_TIMING_TARGET)) cargo build --release --locked --manifest-path tools/scroll-timing/Cargo.toml --target-dir $(SCROLL_TIMING_TARGET) && \
 		mkdir -p $(SCROLL_TIMING_OUT) && \
 		$(SCROLL_TIMING_TARGET)/release/scroll-timing run --device '$(DEVICE)' --tsv '$(SCROLL_TIMING_OUT)/$(notdir $(DEVICE)).tsv' $(ARGS); \
 	fi
