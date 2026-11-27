@@ -1263,6 +1263,30 @@ fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
     assert_eq!(app.shared.live, Live::NotVtium);
 }
 
+/// While the TUI is still finding out what this terminal is, the status
+/// line says that it is checking this terminal, on every tab that shows
+/// the live trial's words, and does not yet say that there is no live
+/// trial. Once the wait ends with no answer, it says that there is none.
+/// The Flow view's status line says nothing about the live trial.
+#[test]
+fn the_status_line_says_it_is_checking_this_terminal_while_the_tui_asks() {
+    use vtium_config::tui::model::{App, Event, View};
+    use vtium_config::tui::view;
+    use vtium_config::tui::words;
+    for tab in View::TABS.into_iter().filter(|v| *v != View::Flow) {
+        let mut i = inputs();
+        i.view = tab;
+        let (mut app, _) = App::new(i, 100, 30);
+        let screen = view::as_text(&view::screen(&app));
+        assert!(screen.contains(words::PREVIEW_ASKING), "{tab:?}: {screen}");
+        assert!(!screen.contains(words::TRIAL_NONE), "{tab:?}: {screen}");
+        app.event(Event::Timeout);
+        let screen = view::as_text(&view::screen(&app));
+        assert!(!screen.contains(words::PREVIEW_ASKING), "{tab:?}: {screen}");
+        assert!(screen.contains(words::TRIAL_NONE), "{tab:?}: {screen}");
+    }
+}
+
 /// The wait for the terminal's answers at start begins only after the
 /// desk has opened the draft. Opening the draft runs `vtium check-config`,
 /// which can take longer than the wait on a loaded machine, so the TUI's

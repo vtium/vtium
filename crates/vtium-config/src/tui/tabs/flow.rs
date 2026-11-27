@@ -367,14 +367,19 @@ impl Flow {
             // the key line offers Esc to clear NEW PATH, so Esc says why
             // it has nothing to clear
             Key::Escape => say(words::NOTHING_TO_CLEAR),
+            // `p` and `t` say only what the TUI knows: while it still asks
+            // this terminal what it is, they say so, and a vtium console
+            // with allow-font-ops off is still a vtium console
             Key::Char('p') => say(match shared.live {
-                Live::On => words::PREVIEW_PATH_LATER,
-                _ => words::PREVIEW_PATH_NOT_HERE,
+                Live::On | Live::OpsOff => words::PREVIEW_PATH_LATER,
+                Live::Asking => words::PREVIEW_PATH_ASKING,
+                Live::NotVtium => words::PREVIEW_PATH_NOT_HERE,
             }),
             Key::Char('t') => say(match shared.live {
                 Live::On => words::LIVE_ON,
                 Live::OpsOff => words::OPS_OFF,
-                _ => words::NOT_VTIUM,
+                Live::Asking => words::TRIAL_ASKING,
+                Live::NotVtium => words::NOT_VTIUM,
             }),
             // the file, with the highlighted box's line marked
             Key::Char('v') => {

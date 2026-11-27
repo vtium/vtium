@@ -822,7 +822,9 @@ impl App {
         let notice = match self.shared.live {
             Live::OpsOff => super::words::OPS_OFF,
             Live::NotVtium => super::words::NOT_VTIUM,
-            _ => return,
+            // nothing is off with the trial on, and while the TUI still
+            // asks, the notice waits for the answers, which call this again
+            Live::On | Live::Asking => return,
         };
         self.shared.live_said = true;
         self.shared.message = Some(notice.to_owned());

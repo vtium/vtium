@@ -78,6 +78,10 @@ pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-
 
 pub const NOT_VTIUM: &str = "Live trial is off: this terminal is not a vtium console, so t cannot try a font on it. You can still install fonts.";
 
+/// Why `t` cannot try a font yet, on the message line: the TUI has asked
+/// this terminal what it is, and the answers have not all come.
+pub const TRIAL_ASKING: &str = "Live trial is not ready: vtium-config is still finding out what this terminal is, so t cannot try a font yet. Press t again in a moment.";
+
 /// The live trial (ADR-1201 D4).
 pub const TRIAL_OFF: &str = "The live trial works only in a vtium console with allow-font-ops on.";
 

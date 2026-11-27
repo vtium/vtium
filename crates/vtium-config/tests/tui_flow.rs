@@ -291,6 +291,49 @@ mod flow_view {
             assert_eq!(out.last(), Some(&Effect::Exit(0)));
         }
     }
+
+    /// While the TUI is still finding out what this terminal is, `t` and
+    /// `p` on the Flow view say so, and neither says that this terminal
+    /// is not a vtium console. Once the wait ends with no answer, both
+    /// say that it is not one.
+    #[test]
+    fn t_and_p_while_the_tui_still_asks_say_it_is_still_finding_out() {
+        use vtium_config::tui::model::Live;
+        let mut a = app(80, 25);
+        assert_eq!(a.shared.live, Live::Asking);
+        press(&mut a, Key::Char('t'));
+        assert_eq!(a.shared.message.as_deref(), Some(words::TRIAL_ASKING));
+        press(&mut a, Key::Char('p'));
+        assert_eq!(
+            a.shared.message.as_deref(),
+            Some(words::PREVIEW_PATH_ASKING)
+        );
+        a.event(Event::Timeout);
+        assert_eq!(a.shared.live, Live::NotVtium);
+        press(&mut a, Key::Char('t'));
+        assert_eq!(a.shared.message.as_deref(), Some(words::NOT_VTIUM));
+        press(&mut a, Key::Char('p'));
+        assert_eq!(
+            a.shared.message.as_deref(),
+            Some(words::PREVIEW_PATH_NOT_HERE)
+        );
+    }
+
+    /// `p` on the Flow view in a vtium console with `allow-font-ops` off
+    /// says what previewing a path waits for, as it does with the trial
+    /// on, because this terminal is a vtium console.
+    #[test]
+    fn p_in_a_vtium_console_with_font_ops_off_does_not_say_it_is_not_one() {
+        use vtium_config::tui::input::{Input, Reply};
+        use vtium_config::tui::model::Live;
+        let mut a = app(80, 25);
+        for r in [Reply::Version("vtium(test)".into()), Reply::Attributes] {
+            a.event(Event::Input(Input::Reply(r)));
+        }
+        assert_eq!(a.shared.live, Live::OpsOff);
+        press(&mut a, Key::Char('p'));
+        assert_eq!(a.shared.message.as_deref(), Some(words::PREVIEW_PATH_LATER));
+    }
 }
 
 /// The Flow view on a draft (ADR-1403 D7, D8), driven through the real
