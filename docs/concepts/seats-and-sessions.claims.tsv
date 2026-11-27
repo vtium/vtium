@@ -12,7 +12,7 @@ vtium opens seat0 at once and logs that the seat is open	crates/vtium-platform/s
 vtium logs that it waits for the seat manager to give it the seat	crates/vtium-platform/src/seat.rs	LibseatVt::wait
 the vtium of each VT starts without switching to its VT	crates/vtium/src/main.rs	run
 logind gives vtium the seat: vtium takes its VT into graphics mode with the kernel's keyboard off, and draws	crates/vtium-platform/src/seat.rs	LibseatVt::enable
-the seat taken: vtium wakes its input and displays and draws whole	crates/vtium/src/app.rs	App::vt_event
+the seat taken: vtium wakes its input and displays and draws whole	crates/vtium/src/app/devices.rs	App::vt_event
 Ctrl+Alt and a function key ask logind through libseat for that VT, and the shown VT's own key does nothing	crates/vtium-platform/src/seat.rs	LibseatVt::key
 logind asks for the seat back: vtium stops drawing, closes its keyboards and pointers, and lets the graphics card go	crates/vtium-platform/src/seat.rs	LibseatVt::disable
 vtium tells logind it is done once its displays sleep	crates/vtium-platform/src/seat.rs	LibseatVt::acknowledge_release

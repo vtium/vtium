@@ -24,9 +24,13 @@ use core::ops::Range;
 
 use crate::cell::{Cell, StyleIndex, Width};
 use crate::damage::{Age, Damage};
+#[cfg(all(feature = "bidi", feature = "rows-beyond"))]
+use crate::line::LineFlags;
 use crate::line::{Glyph, Line, LineSize, LinkId};
 #[cfg(feature = "bidi")]
 use crate::order::Order;
+#[cfg(all(feature = "bidi", feature = "rows-beyond"))]
+use crate::order::RowOrder;
 use crate::palette::{Palette, Special};
 use crate::style::{Attrs, Color, Rgb, Style};
 
@@ -190,6 +194,60 @@ pub struct Frame<'a> {
     /// changed since `since`, which marks every cell of the row changed.
     #[cfg(feature = "bidi")]
     paragraph_changed: Vec<bool>,
+    /// For each row with an order, whether any row of its paragraph
+    /// changed in place since `since`, as the scroll record reads it.
+    #[cfg(feature = "bidi")]
+    paragraph_in_place: Vec<bool>,
+    /// The rows captured beyond the screen, with what each carries.
+    #[cfg(feature = "rows-beyond")]
+    beyond: Beyond<'a>,
+}
+
+/// The rows a frame holds beyond the screen: rows of the scrollback above
+/// it, and rows below it while the view is scrolled back. Each row
+/// carries what a row on the screen carries, its cells and styles, its
+/// selection, its line size and the pictures on it, but never the cursor.
+///
+/// References:
+/// - ADR-1310 D2, "What a row beyond the screen carries": the list, and
+///   that the cursor is reported only on the screen's rows.
+#[cfg(feature = "rows-beyond")]
+#[derive(Clone, Debug, Default)]
+struct Beyond<'a> {
+    /// The rows above the screen, top to bottom, so the last is row -1.
+    above: Vec<&'a Line>,
+    /// The rows below the screen, top to bottom, so the first is the row
+    /// at the screen's row count.
+    below: Vec<&'a Line>,
+    /// The selected logical columns of each row above, top to bottom; a
+    /// row past the list has none.
+    selection_above: Vec<Range<usize>>,
+    /// The selected logical columns of each row below, top to bottom.
+    selection_below: Vec<Range<usize>>,
+    /// The image placements with a row in the capture.
+    #[cfg(feature = "images")]
+    placements: Vec<vtium_image::FramePlacement>,
+    /// The order each row above is drawn in, top to bottom.
+    #[cfg(feature = "bidi")]
+    order_above: Order,
+    /// The order each row below is drawn in, top to bottom.
+    #[cfg(feature = "bidi")]
+    order_below: Order,
+    /// How many rows above, counted up from row -1, continue the paragraph
+    /// of the screen's top row, and how many rows below, counted down from
+    /// the first, continue the paragraph of its bottom row.
+    #[cfg(feature = "bidi")]
+    joined: (usize, usize),
+}
+
+/// Where a row of a frame's capture lies: on the screen, or the index of
+/// a row in the list above or below it.
+#[cfg(feature = "rows-beyond")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Place {
+    Above(usize),
+    Screen(usize),
+    Below(usize),
 }
 
 impl<'a> Frame<'a> {
@@ -221,6 +279,10 @@ impl<'a> Frame<'a> {
             order: Order::default(),
             #[cfg(feature = "bidi")]
             paragraph_changed: Vec::new(),
+            #[cfg(feature = "bidi")]
+            paragraph_in_place: Vec::new(),
+            #[cfg(feature = "rows-beyond")]
+            beyond: Beyond::default(),
         }
     }
 
@@ -228,28 +290,38 @@ impl<'a> Frame<'a> {
     /// screen built it. A row of a paragraph that draws in another order
     /// than it was written reads as changed in every cell whenever any row
     /// of the paragraph changed since `since` (ADR-1004 D8).
+    ///
+    /// The scroll record reads such a row the same way: it changed in
+    /// place when any row of its paragraph changed in place.
     #[cfg(feature = "bidi")]
     pub fn with_order(mut self, order: Order) -> Self {
-        let mut changed = vec![false; self.lines.len()];
-        let mut last: Option<(Range<usize>, bool)> = None;
+        let rows = self.lines.len();
+        let mut changed = vec![false; rows];
+        let mut in_place = vec![false; rows];
+        let mut last: Option<(Range<usize>, bool, bool)> = None;
         for (row, r) in order.rows() {
-            let any = match &last {
-                Some((p, any)) if *p == r.paragraph => *any,
+            let (any, here) = match &last {
+                Some((p, any, here)) if *p == r.paragraph => (*any, *here),
                 _ => {
-                    let any = r
-                        .paragraph
+                    let p = r.paragraph.clone();
+                    let any = p.clone().any(|y| self.damage.row_changed(y, self.since));
+                    let here = p
                         .clone()
-                        .any(|y| self.damage.row_changed(y, self.since));
-                    last = Some((r.paragraph.clone(), any));
-                    any
+                        .any(|y| self.damage.row_changed_in_place(y, self.since));
+                    last = Some((p, any, here));
+                    (any, here)
                 }
             };
             if let Some(slot) = changed.get_mut(row) {
                 *slot = any;
             }
+            if let Some(slot) = in_place.get_mut(row) {
+                *slot = here;
+            }
         }
         self.order = order;
         self.paragraph_changed = changed;
+        self.paragraph_in_place = in_place;
         self
     }
 
@@ -436,6 +508,58 @@ impl<'a> Frame<'a> {
         self.damage.row_changed(row, self.since)
     }
 
+    /// The rows the whole view moved since this display's age, from the
+    /// scroll record: up counting positive, down negative. A display that
+    /// kept what it drew can move its picture by this many rows, then
+    /// redraw only the rows and cells that
+    /// [`row_changed_in_place`](Self::row_changed_in_place) and
+    /// [`changed_in_place`](Self::changed_in_place) mark. `None` when the
+    /// record cannot say, as [`Damage::scrolled`] lists; the display then
+    /// redraws what [`row_changed`](Self::row_changed) and
+    /// [`FrameCell::changed`] mark, which covers every row that moved.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "A scroll record in every build": the count each
+    ///   display reads since its own buffer's age.
+    pub fn scrolled(&self) -> Option<isize> {
+        self.damage.scrolled(self.since)
+    }
+
+    /// Whether any cell of `row` still differs for this display once it
+    /// moved its picture by [`scrolled`](Self::scrolled) rows. While the
+    /// record cannot say, it is [`row_changed`](Self::row_changed).
+    pub fn row_changed_in_place(&self, row: usize) -> bool {
+        if self.scrolled().is_none() {
+            return self.row_changed(row);
+        }
+        #[cfg(feature = "bidi")]
+        if self.order.row(row).is_some() {
+            return self.paragraph_in_place.get(row).copied().unwrap_or(true);
+        }
+        self.damage.row_changed_in_place(row, self.since)
+    }
+
+    /// Whether the cell drawn at `row`, column `col` from the left still
+    /// differs for this display once it moved its picture by
+    /// [`scrolled`](Self::scrolled) rows. While the record cannot say, it
+    /// is the cell's [`FrameCell::changed`].
+    pub fn changed_in_place(&self, row: usize, col: usize) -> bool {
+        #[cfg(feature = "bidi")]
+        if self.order.row(row).is_some() {
+            let changed = if self.scrolled().is_none() {
+                &self.paragraph_changed
+            } else {
+                &self.paragraph_in_place
+            };
+            return changed.get(row).copied().unwrap_or(true);
+        }
+        let col = self.logical(row, col);
+        if self.scrolled().is_none() {
+            return self.damage.changed(row, col, self.since);
+        }
+        self.damage.changed_in_place(row, col, self.since)
+    }
+
     /// The share of each sized run that crosses `row`, ordered by column:
     /// the block of cells that one OSC 66 sequence writes, with the row of
     /// the run this line holds, the run's columns, its scale, its width,
@@ -453,7 +577,7 @@ impl<'a> Frame<'a> {
     /// The cell drawn at `row`, column `col` from the left, resolved;
     /// `None` outside the frame. A row drawn in another order than it was
     /// written shows there the cell of another logical column
-    /// ([`FrameCell::col`] in a build with the bidi feature).
+    /// (`FrameCell::col` in a build with the bidi feature).
     pub fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'a>> {
         let line = self.line(row)?;
         if col >= self.cols() {
@@ -588,6 +712,378 @@ impl<'a> Frame<'a> {
             default_bg,
             selected,
         }
+    }
+}
+
+/// The rows beyond the screen. A row of the capture is addressed by its
+/// position: negative above the screen, from 0 up to the screen's last row
+/// on it, and from the screen's row count up below it. Each method answers
+/// for a row on the screen as the method of the screen's rows does.
+///
+/// References:
+/// - ADR-1310 D2, "The snapshot asks for them": the positions, and the
+///   count of rows the capture holds on each side.
+#[cfg(feature = "rows-beyond")]
+impl<'a> Frame<'a> {
+    /// The frame with the rows beyond the screen: `above`, top to bottom,
+    /// ending with the row just above the screen, and `below`, top to
+    /// bottom, starting with the row just below it.
+    pub fn with_rows_beyond(mut self, above: Vec<&'a Line>, below: Vec<&'a Line>) -> Self {
+        #[cfg(feature = "bidi")]
+        {
+            let wrapped = |l: &&&Line| l.flags().contains(LineFlags::WRAPPED);
+            let up = above.iter().rev().take_while(wrapped).count();
+            let last = self.lines.last().into_iter();
+            let down = last.chain(&below).take_while(wrapped).count();
+            self.beyond.joined = (up, down.min(below.len()));
+        }
+        self.beyond.above = above;
+        self.beyond.below = below;
+        self
+    }
+
+    /// The frame with the logical columns the selection covers in each row
+    /// above the screen and in each row below it, each list top to bottom.
+    pub fn with_selection_beyond(
+        mut self,
+        above: Vec<Range<usize>>,
+        below: Vec<Range<usize>>,
+    ) -> Self {
+        self.beyond.selection_above = above;
+        self.beyond.selection_below = below;
+        self
+    }
+
+    /// The frame with the image placements that have a row in the
+    /// capture, in draw order.
+    #[cfg(feature = "images")]
+    pub fn with_placements_beyond(mut self, placements: Vec<vtium_image::FramePlacement>) -> Self {
+        self.beyond.placements = placements;
+        self
+    }
+
+    /// The frame with the order each row above and each row below the
+    /// screen is drawn in, each top to bottom, as the screen built them.
+    #[cfg(feature = "bidi")]
+    pub fn with_order_beyond(mut self, above: Order, below: Order) -> Self {
+        self.beyond.order_above = above;
+        self.beyond.order_below = below;
+        self
+    }
+
+    /// How many rows the capture holds above the screen.
+    pub fn rows_above(&self) -> usize {
+        self.beyond.above.len()
+    }
+
+    /// How many rows the capture holds below the screen.
+    pub fn rows_below(&self) -> usize {
+        self.beyond.below.len()
+    }
+
+    /// The positions of every row the capture holds, from the topmost row
+    /// above the screen to the last row below it.
+    pub fn captured(&self) -> Range<isize> {
+        let above = isize::try_from(self.rows_above()).unwrap_or(isize::MAX);
+        let end = self.rows().saturating_add(self.rows_below());
+        0isize.saturating_sub(above)..isize::try_from(end).unwrap_or(isize::MAX)
+    }
+
+    /// The rows above the screen, top to bottom, for a holder of the
+    /// frame's parts.
+    pub fn lines_above(&self) -> &[&'a Line] {
+        &self.beyond.above
+    }
+
+    /// The rows below the screen, top to bottom.
+    pub fn lines_below(&self) -> &[&'a Line] {
+        &self.beyond.below
+    }
+
+    /// The selected logical columns of each row above and each row below
+    /// the screen, each list top to bottom.
+    pub fn selection_beyond(&self) -> (&[Range<usize>], &[Range<usize>]) {
+        (&self.beyond.selection_above, &self.beyond.selection_below)
+    }
+
+    /// The image placements with a row in the capture, in the order the
+    /// frame draws them. Each placement's row is the row of its box's top,
+    /// counted from the screen's top and negative above it, and the
+    /// renderer cuts the box to the rows it draws, as for
+    /// [`placements`](Self::placements). A renderer reads this list for a
+    /// row beyond the screen, and `placements` for the screen's rows.
+    #[cfg(feature = "images")]
+    pub fn placements_beyond(&self) -> &[vtium_image::FramePlacement] {
+        &self.beyond.placements
+    }
+
+    /// The order each row above and each row below the screen is drawn
+    /// in, each top to bottom.
+    #[cfg(feature = "bidi")]
+    pub fn order_beyond(&self) -> (&Order, &Order) {
+        (&self.beyond.order_above, &self.beyond.order_below)
+    }
+
+    /// Where the row at position `row` lies, or `None` outside the
+    /// capture.
+    fn place(&self, row: isize) -> Option<Place> {
+        match usize::try_from(row) {
+            Ok(y) if y < self.rows() => Some(Place::Screen(y)),
+            Ok(y) => {
+                let i = y.checked_sub(self.rows())?;
+                (i < self.rows_below()).then_some(Place::Below(i))
+            }
+            Err(_) => {
+                let back = row.unsigned_abs();
+                self.rows_above().checked_sub(back).map(Place::Above)
+            }
+        }
+    }
+
+    /// The line at position `row`, on the screen or beyond it.
+    pub fn line_at(&self, row: isize) -> Option<&'a Line> {
+        match self.place(row)? {
+            Place::Above(i) => self.beyond.above.get(i).copied(),
+            Place::Screen(y) => self.line(y),
+            Place::Below(i) => self.beyond.below.get(i).copied(),
+        }
+    }
+
+    /// The size the row at position `row` draws at, as
+    /// [`size`](Self::size) gives it on the screen. A row outside the
+    /// capture draws at the normal size.
+    pub fn size_at(&self, row: isize) -> LineSize {
+        match self.place(row) {
+            Some(Place::Screen(y)) => self.size(y),
+            _ => self
+                .line_at(row)
+                .map_or(LineSize::Single, |l| l.flags().size()),
+        }
+    }
+
+    /// The other row of the pair of double-height lines that the row at
+    /// position `row` belongs to, by the rule of [`pair_row`](Self::pair_row)
+    /// over every row of the capture. A pair split by the screen's top or
+    /// bottom edge pairs here, where `pair_row`, which sees only the
+    /// screen, leaves both halves alone.
+    pub fn pair_at(&self, row: isize) -> Option<isize> {
+        let top = self.captured().start;
+        let index = usize::try_from(row.checked_sub(top)?).ok()?;
+        let size = |i: usize| {
+            let r = isize::try_from(i).map_or(isize::MAX, |i| top.saturating_add(i));
+            self.size_at(r)
+        };
+        let other = pair_of(index, size)?;
+        isize::try_from(other).ok().map(|o| top.saturating_add(o))
+    }
+
+    /// The logical columns of the row at position `row` that the
+    /// selection covers; an empty range where it covers none.
+    pub fn selection_at(&self, row: isize) -> Range<usize> {
+        let cols = match self.place(row) {
+            Some(Place::Above(i)) => self.beyond.selection_above.get(i),
+            Some(Place::Screen(y)) => self.selection.get(y),
+            Some(Place::Below(i)) => self.beyond.selection_below.get(i),
+            None => None,
+        };
+        cols.cloned().unwrap_or(0..0)
+    }
+
+    /// Whether the rows beyond the screen changed for this display: only
+    /// in a frame drawn whole, when the scroll record cannot say how the
+    /// rows moved since the display's age. A line of the scrollback never
+    /// changes in place, and output while the view is scrolled back marks
+    /// everything, so a row beyond the screen has no change of its own.
+    /// The row's line id tells a display whether it already drew the line.
+    ///
+    /// References:
+    /// - ADR-1310 D2, "What the capture holds under `scroll-pan`": a row
+    ///   beyond the screen reads as changed only in a frame drawn whole.
+    pub fn beyond_changed(&self) -> bool {
+        self.scrolled().is_none()
+    }
+
+    /// Whether any cell of the row at position `row` changed for this
+    /// display: [`row_changed`](Self::row_changed) on the screen, and
+    /// [`beyond_changed`](Self::beyond_changed) beyond it.
+    ///
+    /// Under bidi, a row beyond the screen that continues the paragraph of
+    /// the screen's top or bottom row is ordered with that whole paragraph,
+    /// so it also reads as changed whenever that screen row does.
+    pub fn row_changed_at(&self, row: isize) -> bool {
+        match self.place(row) {
+            Some(Place::Screen(y)) => self.row_changed(y),
+            Some(place) => self.beyond_row_changed(place),
+            None => false,
+        }
+    }
+
+    /// Whether the row beyond the screen at `place` changed for this
+    /// display, as [`row_changed_at`](Self::row_changed_at) reads it.
+    fn beyond_row_changed(&self, place: Place) -> bool {
+        if self.beyond_changed() {
+            return true;
+        }
+        #[cfg(feature = "bidi")]
+        {
+            let (up, down) = self.beyond.joined;
+            let edge = match place {
+                Place::Above(i) if self.rows_above().saturating_sub(i) <= up => Some(0),
+                Place::Below(i) if i < down => self.rows().checked_sub(1),
+                _ => None,
+            };
+            if let Some(y) = edge {
+                return self.row_changed(y);
+            }
+        }
+        #[cfg(not(feature = "bidi"))]
+        let _ = place;
+        false
+    }
+
+    /// The line beyond the screen at `place`, with its selection and, in a
+    /// build with the bidi feature, its order.
+    fn beyond_row(&self, place: Place) -> Option<BeyondRow<'a, '_>> {
+        let changed = self.beyond_row_changed(place);
+        let (line, selection, i, below) = match place {
+            Place::Above(i) => (
+                self.beyond.above.get(i)?,
+                self.beyond.selection_above.get(i),
+                i,
+                false,
+            ),
+            Place::Below(i) => (
+                self.beyond.below.get(i)?,
+                self.beyond.selection_below.get(i),
+                i,
+                true,
+            ),
+            Place::Screen(_) => return None,
+        };
+        #[cfg(feature = "bidi")]
+        let order = if below {
+            self.beyond.order_below.row(i)
+        } else {
+            self.beyond.order_above.row(i)
+        };
+        #[cfg(not(feature = "bidi"))]
+        let _ = (i, below);
+        Some(BeyondRow {
+            line,
+            selection,
+            changed,
+            #[cfg(feature = "bidi")]
+            order,
+        })
+    }
+
+    /// The cell drawn at position `row`, column `col` from the left, as
+    /// [`cell`](Self::cell) reads a cell of the screen; `None` outside the
+    /// capture.
+    pub fn cell_at(&self, row: isize, col: usize) -> Option<FrameCell<'a>> {
+        let place = self.place(row)?;
+        if let Place::Screen(y) = place {
+            return self.cell(y, col);
+        }
+        if col >= self.cols() {
+            return None;
+        }
+        let r = self.beyond_row(place)?;
+        let col = r.logical(col);
+        let cell = r.line.cell(col);
+        let selected = r.selection.is_some_and(|s| s.contains(&col));
+        let colors = self.resolve(
+            drawn(r.line.style(cell), is_placeholder(r.line, cell)),
+            selected,
+        );
+        Some(self.beyond_cell(&r, cell, col, colors))
+    }
+
+    /// The cells of the row at position `row` as drawn, left to right, as
+    /// [`cells`](Self::cells) reads a row of the screen; none outside the
+    /// capture.
+    pub fn cells_at(&self, row: isize) -> impl Iterator<Item = FrameCell<'a>> + '_ {
+        let place = self.place(row);
+        let screen = match place {
+            Some(Place::Screen(y)) => Some(y),
+            _ => None,
+        };
+        let beyond = place.and_then(|p| self.beyond_row(p));
+        let cols = self.cols();
+        let mut last: Option<(StyleIndex, bool, bool, Colors)> = None;
+        let beyond_cells = beyond
+            .into_iter()
+            .flat_map(move |r| (0..cols).map(move |col| (r, col)));
+        screen
+            .into_iter()
+            .flat_map(move |y| self.cells(y))
+            .chain(beyond_cells.map(move |(r, col)| {
+                let col = r.logical(col);
+                let cell = r.line.cell(col);
+                let selected = r.selection.is_some_and(|s| s.contains(&col));
+                let placeholder = is_placeholder(r.line, cell);
+                let colors = match last {
+                    Some((style, sel, ph, colors))
+                        if style == cell.style() && sel == selected && ph == placeholder =>
+                    {
+                        colors
+                    }
+                    _ => {
+                        let colors = self.resolve(drawn(r.line.style(cell), placeholder), selected);
+                        last = Some((cell.style(), selected, placeholder, colors));
+                        colors
+                    }
+                };
+                self.beyond_cell(&r, cell, col, colors)
+            }))
+    }
+
+    /// A cell of a row beyond the screen, at logical column `col`. The
+    /// frame builds it as a cell of no row on the screen, which has no
+    /// order and no damage, then gives it the row's change and, in a build
+    /// with the bidi feature, the row's order.
+    fn beyond_cell(
+        &self,
+        r: &BeyondRow<'a, '_>,
+        cell: Cell,
+        col: usize,
+        c: Colors,
+    ) -> FrameCell<'a> {
+        let mut out = self.frame_cell(r.line, cell, usize::MAX, col, c);
+        out.changed = r.changed;
+        #[cfg(feature = "bidi")]
+        if let Some(order) = r.order {
+            let glyph = r.line.glyph(cell);
+            out.glyph = order.drawn(col, glyph);
+            out.rtl = order.rtl_at(col);
+            out.joins = order.joins_at(col);
+            out.mirror = order.mirror(col, glyph);
+        }
+        out
+    }
+}
+
+/// A row beyond the screen, as a frame reads its cells.
+#[cfg(feature = "rows-beyond")]
+#[derive(Clone, Copy)]
+struct BeyondRow<'a, 'f> {
+    line: &'a Line,
+    selection: Option<&'f Range<usize>>,
+    /// Whether the row changed for this display.
+    changed: bool,
+    #[cfg(feature = "bidi")]
+    order: Option<&'f RowOrder>,
+}
+
+#[cfg(feature = "rows-beyond")]
+impl BeyondRow<'_, '_> {
+    /// The logical column drawn at column `col`.
+    fn logical(&self, col: usize) -> usize {
+        #[cfg(feature = "bidi")]
+        if let Some(r) = self.order {
+            return r.logical_at(col);
+        }
+        col
     }
 }
 

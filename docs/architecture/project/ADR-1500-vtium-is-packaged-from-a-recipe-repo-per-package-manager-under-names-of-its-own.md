@@ -236,6 +236,10 @@ considered:
   - operator: aaronsb
     said: "i agree on 2 and 3 [2: the Effects tab keeps its preview picture in a vtium console that draws its own vtlook, and the line beside it says the console draws the picture through that vtlook as well; 3: the vtium packages build the filters feature from 0.1.0-alpha.10 on]"
     via: steering session, 2026-11-20, on the wave 4 candidate
+  - operator: aaronsb
+    said: "Both (Recommended) [dev VT 5 runs scroll-pan, and the packages' and make vt-accept's default features gain scroll-pan; minspec leaves it out]"
+    via: the maintainer, through the question tool in the steering session, 2026-11-25; the option's wording is the steering session's
+    paraphrase: true
 observable:
   - "Installing vtium-git on this machine beside kmscon and kmscon-terminfo reports no conflicting file, and `pacman -Qo` on each file the package lists names vtium-git alone"
   - "Following vtium-arch's README for every VT on a machine with no C reference console gives vtium on VT 1 and on each VT logind spawns, and its way back leaves autovt@.service linked to getty@.service and getty@tty1 enabled, as the preset made them"
@@ -593,6 +597,10 @@ The minspec build is vtium's smallest console, the one tier 3 judges. It draws n
 - **More than one display.** Every build drives every display the console can see: with no head file vtium shows one grid on all of them, and a head file, the sections of vtium.conf, gives each display a terminal of its own (ADR-1401, ADR-1403 D3). Every console package ships the head file's template as the sections of the example configuration, `/etc/vtium/vtium.conf.example` (D3), for a user to copy into `/etc/vtium/vtium.conf` and edit.
 
 > Note 2026-11-20: the maintainer decided that the main package builds `filters` too, from 0.1.0-alpha.10 on (`considered`, 2026-11-20). `filters` is the feature that draws a look's vtlook: its filters, the presets and the `.cube` color maps (ADR-1304). Without it, the packaged console draws no effect, while vtium-config's Effects tab lists effects it cannot show. The `vtium` and `vtium-git` recipes in vtium-arch add `filters` to their default features with the release that first has the feature, because an earlier tag has no feature of that name. The minspec builds still leave it out (ADR-1304 D10).
+
+> Note 2026-11-25: the maintainer decided that the main package builds `scroll-pan` too (`considered`, 2026-11-25). With `scroll-pan`, vtium moves the picture of a scrolled screen instead of redrawing every line, and each display buffer is taller than the screen, so the console uses more display memory (ADR-1310 D6). The bullet on the main package reads "builds the console with the features `images logind gpu libseat`", and the note above adds `filters`. The `vtium` and `vtium-git` recipes in vtium-arch add `scroll-pan` to their default features with the release that first has the feature, as they did for `filters`. `make vt-accept` builds the console with it too, so the acceptance pass judges the packaged console's scrolling. The minspec builds still leave it out.
+
+> Note 2026-11-25: the maintainer decided that the main package builds `split` too, as ADR-1400 D4's note on the build of the same day records (`considered`, 2026-11-25). `split` builds the privilege split: a root process that holds the VT, opens the devices and starts the sessions, and a drawing process that runs everything else as the account `vtium`. The bullet on the main package and the notes above name the features without `split`. The `vtium` and `vtium-git` recipes in vtium-arch add `split` to their default features with the release that first has the feature, as they did for `filters` and `scroll-pan`. The minspec builds leave it out, so they run as one process.
 
 ### The maintainer's answers
 

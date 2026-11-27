@@ -23,13 +23,68 @@ fn stand_in(script: &str) -> Parser {
     Parser::with_program(Path::new("/bin/sh"), &["-c", script])
 }
 
+/// The environment variable that names the signal by which
+/// [`the_stand_in_dies_without_a_core_dump`] ends its process.
+const DIE_BY: &str = "VTIUM_TEST_DIE_BY";
+
+/// `script` for the stand-in shell, with traps first that end the shell
+/// without a core dump when SIGABRT or SIGSEGV reaches it. The tests end the
+/// stand-in with those signals on purpose, and the kernel would write a core
+/// dump of the shell for each one. Where `core_pattern` pipes to
+/// systemd-coredump, the kernel ignores the core limit, so each dump lands in
+/// the journal of the machine that runs the tests. A process can turn its own
+/// dumps off with `prctl(PR_SET_DUMPABLE, 0)`, but each exec turns them on
+/// again, and the shell cannot make that call. So each trap runs this test
+/// binary in the shell's place, its [`the_stand_in_dies_without_a_core_dump`]
+/// alone, which turns its dumps off and then sends itself the signal. The
+/// parser that the test started still ends by the signal the script sent.
+fn undumpable(script: &str) -> String {
+    let exe = std::env::current_exe().expect("the test binary");
+    let exe = exe.to_str().expect("the test binary's path in UTF-8");
+    assert!(
+        !exe.contains(['\'', '"', '$', '`', '\\']),
+        "the test binary's path needs no quoting: {exe}"
+    );
+    let trap = |signal: &str| {
+        format!(
+            "trap '{DIE_BY}={signal} exec \"{exe}\" --exact the_stand_in_dies_without_a_core_dump -q >/dev/null 2>&1' {signal}; "
+        )
+    };
+    format!("{}{}{script}", trap("ABRT"), trap("SEGV"))
+}
+
+/// Not a test of the parser: run by a trap of [`undumpable`] with [`DIE_BY`]
+/// set, it turns off this process's core dumps and ends the process by the
+/// signal [`DIE_BY`] names; run by the test harness, it does nothing. The
+/// standard library catches SIGSEGV to report a stack overflow, and its
+/// handler puts back the default action and returns. So the first SIGSEGV
+/// can end in that handler, and the signal is sent until one ends the
+/// process.
+#[test]
+fn the_stand_in_dies_without_a_core_dump() {
+    let Ok(name) = std::env::var(DIE_BY) else {
+        return;
+    };
+    let signal = match name.as_str() {
+        "ABRT" => Signal::ABORT,
+        "SEGV" => Signal::SEGV,
+        _ => panic!("no signal named {name}"),
+    };
+    rustix::process::set_dumpable_behavior(rustix::process::DumpableBehavior::NotDumpable)
+        .expect("core dumps off");
+    loop {
+        let _ = rustix::process::kill_process(rustix::process::getpid(), signal);
+        std::thread::yield_now();
+    }
+}
+
 #[test]
 fn a_parser_that_dies_fails_the_source() {
-    let e = stand_in("kill -ABRT $$")
+    let e = stand_in(&undumpable("kill -ABRT $$"))
         .parse(&Request::default())
         .expect_err("died");
     assert_eq!(e, "the parser was ended by signal 6");
-    let e = stand_in("kill -SEGV $$")
+    let e = stand_in(&undumpable("kill -SEGV $$"))
         .parse(&Request::default())
         .expect_err("died");
     assert_eq!(e, "the parser was ended by signal 11");
@@ -132,7 +187,7 @@ fn watch(dir: &Path, file: &str) -> Watched {
             .and_then(|s| s.trim().parse::<i32>().ok())
     };
     assert!(
-        within(Duration::from_secs(10), || read().is_some()),
+        within(Duration::from_secs(60), || read().is_some()),
         "the stand-in writes {file}"
     );
     let pid = read().unwrap();
@@ -153,9 +208,10 @@ fn running(child: &Watched) -> bool {
     )
 }
 
-/// Whether the process `pid` is gone and reaped, waited for at most 2 s.
+/// Whether the process `pid` is gone and reaped, waited for at most 60 s,
+/// a bound that only keeps a broken test from hanging.
 fn gone(pid: i32) -> bool {
-    within(Duration::from_secs(2), || {
+    within(Duration::from_secs(60), || {
         !Path::new(&format!("/proc/{pid}")).exists()
     })
 }

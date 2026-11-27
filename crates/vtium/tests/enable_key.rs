@@ -161,7 +161,7 @@ fn under_a_policy_line_vtium_cannot_read_the_key_writes_the_marker() {
 // covers: platform.heads.policy
 #[test]
 fn under_a_closed_file_with_broken_sections_the_key_writes_the_marker() {
-    let text = "policy = closed\n[head a]\nfocs = yes\n[rules]\ndisplay * -> nowhere\n";
+    let text = "policy = closed\n[head a]\nconsoles = 0\n[rules]\ndisplay * -> nowhere\n";
     let boot = Boot::new("closed-broken", OFF, &Conf::File(text, 0o644));
     assert_eq!(boot.start(), Some(1));
     assert!(boot.marker().is_file());

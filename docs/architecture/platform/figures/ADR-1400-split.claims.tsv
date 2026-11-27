@@ -1,0 +1,37 @@
+# Claims of ADR-1400-split.svg, the figure of ADR-1400 D4. The broker and the drawer are not built yet, so most rows rest on the record's own sentences. The rows for the pieces that exist today rest on the code that the broker takes over or that the drawer keeps.
+element	file	symbol
+the broker, which runs as root	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	The *broker* is the root process.
+the broker holds the VT and its switch signals	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	**It owns the VT.**
+the VT's switch signals today, which move to the broker	crates/vtium-platform/src/vt/kernel.rs	KernelVt::release_signal
+the broker sets and drops DRM master on its copies	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	**It holds DRM master for the drawer.**
+DRM master set and dropped today, in the one process	crates/vtium-platform/src/display/card.rs	set_master
+the broker opens the input devices and revokes them	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	revokes each input device
+the broker makes each pty and starts login on it	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	**It makes each session's pty and starts `login` on it.**
+the pty made today, which moves to the broker	crates/vtium-platform/src/pty.rs	Pty::spawn
+the drawer takes a pty master it did not make	crates/vtium-platform/src/pty.rs	Pty::adopt
+the broker starts the drawer and the helpers, and reaps	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	**It reaps every process it starts.**
+the broker runs the power keys	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	**It runs the power keys.**
+the power keys today	crates/vtium-platform/src/power.rs	suspend
+the broker restores the VT when the drawer ends	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	#### When the drawer dies
+the arrow to systemd: READY=1 from the broker	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	The broker sends `READY=1` to systemd once it holds the VT open
+the arrow to systemd: the unit's main process sends READY=1 and the store's messages	crates/vtium/install/vtium@.service	NotifyAccess=main
+the arrow to systemd: pty masters in and out of the store	crates/vtium/src/survive.rs	start
+the VT and /dev/kmsg opened by the broker	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	It opens `/dev/kmsg` and passes that descriptor too
+the kernel messages read today	crates/vtium/src/kernel.rs	System::open
+one SOCK_SEQPACKET socket, fixed-size messages, SCM_RIGHTS	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	The broker and the drawer talk over one Unix socket of type `SOCK_SEQPACKET`
+the list drawer to broker	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	The drawer sends: open a device by its path
+the list broker to drawer	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	The broker sends: a device's descriptor
+the dashed copies: the broker passes each descriptor to the drawer	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	it passes each descriptor to the drawer
+the drawer's backend for passed descriptors, modelled on libseat's	crates/vtium-platform/src/seat.rs	LibseatVt
+the drawer, which runs as vtium with no capabilities	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	The drawer runs as the system account `vtium`
+the drawer is not dumpable and has no new privileges	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	the drawer makes itself not dumpable with `PR_SET_DUMPABLE`
+the drawer parses every byte the sessions print	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	The *drawer* is everything else that vtium does today
+the drawer holds every console's pty master	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	Until session processes exist, the drawer holds every session's pty master.
+the drawer draws through its copies of the cards	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	That the drawer draws through its copy of a card's descriptor
+the font helper, which runs as nobody	crates/vtium/src/helper/launcher.rs	nobody
+the image helper, as the session's user and never root	crates/vtium-platform/src/image_helper/start.rs	drop_bounding_set
+each helper's socket: the broker starts the helper and passes the socket	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	passes the helper's socket to the drawer
+the session, as the user who logged in, joined by its pty	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	A session is what runs on one console
+the third slice's compositor, as vtium	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	The *compositor* is one process that shows the heads on the displays.
+the third slice's session processes, as vtium-session	docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md	share the system account `vtium-session`
+screens one way, keys the other	crates/vtium/src/term.rs	Snapshot

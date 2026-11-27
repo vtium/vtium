@@ -485,3 +485,287 @@ fn stand_in_that_waits_on_its_socket() {
     let mut byte = [0u8; 1];
     while rustix::io::read(socket, &mut byte).is_ok_and(|n| n > 0) {}
 }
+
+// The console's line on the image helper's sandbox names each part the
+// hello says is not in force and the reason the helper gives, tells the
+// setting apart from each kernel and from an architecture with no filter,
+// and says whether the workers' third filter stands in for their landlock
+// domains. A helper whose sandbox is whole draws no line.
+//
+// References:
+// - ADR-1200 D15, "Nothing on screen, and the log says why": the reasons
+//   the line tells apart.
+// - ADR-1101 D7: the hello carries the reasons.
+#[test]
+fn the_sandbox_line_names_each_missing_part_and_its_reason() {
+    use super::sandbox_line;
+    use vtium_image::decode::wire::{Hello, NoLandlock, NoSeccomp, VERSION};
+    let whole = Hello {
+        version: VERSION,
+        landlock: 6,
+        seccomp: true,
+        no_seccomp: None,
+        no_landlock: None,
+    };
+    assert_eq!(sandbox_line(&whole), None);
+    let off = Hello {
+        seccomp: false,
+        no_seccomp: Some(NoSeccomp::Off),
+        no_landlock: Some(NoLandlock::Off),
+        ..whole
+    };
+    assert_eq!(
+        sandbox_line(&off).as_deref(),
+        Some(
+            "The image helper runs without its seccomp filter, and its workers without their landlock domains, because the setting helper-sandbox=off turns them off. An image that took over the image helper could open network connections and change any file that the image helper's account may change."
+        )
+    );
+    let seccomp = |why: NoSeccomp| {
+        sandbox_line(&Hello {
+            seccomp: false,
+            no_seccomp: Some(why),
+            ..whole
+        })
+        .unwrap()
+    };
+    assert_eq!(
+        seccomp(NoSeccomp::NoTable),
+        "The image helper runs without its seccomp filter, because vtium has no seccomp filter for this machine's architecture."
+    );
+    assert_eq!(
+        seccomp(NoSeccomp::NotBuilt),
+        "The image helper runs without its seccomp filter, because this kernel is new enough to offer seccomp but was built without it."
+    );
+    assert_eq!(
+        seccomp(NoSeccomp::NoFilters),
+        "The image helper runs without its seccomp filter, because this kernel was built with seccomp but without seccomp filters."
+    );
+    assert_eq!(
+        seccomp(NoSeccomp::TooOld),
+        "The image helper runs without its seccomp filter, because this kernel is older than Linux 3.8, too old for vtium's seccomp filters."
+    );
+    let landlock = |why: NoLandlock| {
+        sandbox_line(&Hello {
+            landlock: 0,
+            no_landlock: Some(why),
+            ..whole
+        })
+        .unwrap()
+    };
+    let third =
+        "A third seccomp filter in each worker refuses opening and removing files in their place.";
+    assert_eq!(
+        landlock(NoLandlock::TooOld),
+        format!(
+            "The image helper's workers run without their landlock domains, because this kernel is older than Linux 5.13, which added landlock. {third}"
+        )
+    );
+    assert_eq!(
+        landlock(NoLandlock::NotBuilt),
+        format!(
+            "The image helper's workers run without their landlock domains, because this kernel was built without landlock. {third}"
+        )
+    );
+    assert_eq!(
+        landlock(NoLandlock::NotEnabled),
+        format!(
+            "The image helper's workers run without their landlock domains, because this kernel did not turn landlock on at boot, as when the boot's lsm= list leaves it out. {third}"
+        )
+    );
+    // a kernel without seccomp filters and without landlock: no filter
+    // stands in for the domains
+    let neither = Hello {
+        landlock: 0,
+        seccomp: false,
+        no_seccomp: Some(NoSeccomp::NotBuilt),
+        no_landlock: Some(NoLandlock::NotBuilt),
+        ..whole
+    };
+    assert_eq!(
+        sandbox_line(&neither).as_deref(),
+        Some(
+            "The image helper runs without its seccomp filter, because this kernel is new enough to offer seccomp but was built without it. The image helper's workers run without their landlock domains, because this kernel was built without landlock. No filter takes their place."
+        )
+    );
+}
+
+/// A launch whose helpers have each exited, and whose end the process
+/// that reaps them reports only at the second ask, as vtium's root
+/// process reports a helper's end after its socket has closed.
+struct LateReport {
+    started: std::rc::Rc<std::cell::Cell<u32>>,
+}
+
+#[derive(Debug)]
+struct Reported {
+    socket: std::os::fd::OwnedFd,
+    _peer: std::os::fd::OwnedFd,
+    asked: u32,
+}
+
+impl super::Launch for LateReport {
+    fn account(
+        &mut self,
+        _: &super::Session,
+        _: bool,
+    ) -> (Result<Account, super::Refusal>, Option<(u32, u32)>) {
+        let account = Account {
+            uid: 1000,
+            gid: 1000,
+            groups: None,
+        };
+        (Ok(account), None)
+    }
+
+    fn can_start(&self) -> bool {
+        true
+    }
+
+    fn start(
+        &mut self,
+        _: &Account,
+        _: bool,
+        _: u64,
+        _: u64,
+    ) -> Result<Box<dyn super::Process>, String> {
+        use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
+        self.started.set(self.started.get().saturating_add(1));
+        let (socket, peer) = socketpair(
+            AddressFamily::UNIX,
+            SocketType::SEQPACKET,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(Box::new(Reported {
+            socket,
+            _peer: peer,
+            asked: 0,
+        }))
+    }
+}
+
+impl super::Process for Reported {
+    fn socket(&self) -> std::os::fd::BorrowedFd<'_> {
+        use std::os::fd::AsFd;
+        self.socket.as_fd()
+    }
+    fn pid(&self) -> Option<u32> {
+        None
+    }
+    fn exited(&self) -> bool {
+        true
+    }
+    fn kill(self: Box<Self>) {}
+    fn finish(mut self: Box<Self>) -> super::Finish {
+        self.asked = self.asked.saturating_add(1);
+        if self.asked == 1 {
+            super::Finish::Unknown(self)
+        } else {
+            super::Finish::Failed
+        }
+    }
+}
+
+#[test]
+fn a_helpers_crash_counts_once_its_end_is_reported() {
+    let started = std::rc::Rc::default();
+    let mut host = super::ImageHost::starting_with(Box::new(LateReport {
+        started: std::rc::Rc::clone(&started),
+    }));
+    let session = super::Session {
+        child: None,
+        pty_owner: Ok(1000),
+    };
+    let sixel = || request(Medium::Direct(vec![1, 2, 3]));
+    assert!(host.send(&sixel(), &session).is_ok());
+    // the request's reply came; the helper is found exited before the
+    // second request, and its end is not known yet
+    host.out = None;
+    let _ = host.send(&sixel(), &session);
+    assert_eq!(host.crashes(), 0, "no end is known yet");
+    host.out = None;
+    let _ = host.send(&sixel(), &session);
+    assert_eq!(host.crashes(), 1, "the reported failure counts");
+    assert_eq!(started.get(), 3, "each exited helper is replaced");
+}
+
+/// A launch whose helper ends before it reads anything, as a helper on a
+/// kernel that refuses its seccomp filter does: the helper's end of the
+/// socket is closed by the time vtium sends the request.
+struct EndsAtStart;
+
+impl super::Launch for EndsAtStart {
+    fn account(
+        &mut self,
+        _: &super::Session,
+        _: bool,
+    ) -> (Result<Account, super::Refusal>, Option<(u32, u32)>) {
+        let account = Account {
+            uid: 1000,
+            gid: 1000,
+            groups: None,
+        };
+        (Ok(account), None)
+    }
+
+    fn can_start(&self) -> bool {
+        true
+    }
+
+    fn start(
+        &mut self,
+        _: &Account,
+        _: bool,
+        _: u64,
+        _: u64,
+    ) -> Result<Box<dyn super::Process>, String> {
+        use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
+        let (socket, peer) = socketpair(
+            AddressFamily::UNIX,
+            SocketType::SEQPACKET,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+        drop(peer);
+        Ok(Box::new(Ended { socket }))
+    }
+}
+
+#[derive(Debug)]
+struct Ended {
+    socket: std::os::fd::OwnedFd,
+}
+
+impl super::Process for Ended {
+    fn socket(&self) -> std::os::fd::BorrowedFd<'_> {
+        use std::os::fd::AsFd;
+        self.socket.as_fd()
+    }
+    fn pid(&self) -> Option<u32> {
+        None
+    }
+    fn exited(&self) -> bool {
+        false
+    }
+    fn kill(self: Box<Self>) {}
+    fn finish(self: Box<Self>) -> super::Finish {
+        super::Finish::Failed
+    }
+}
+
+/// A helper that ends before vtium's request goes out fails the request,
+/// as one that ends after it does: which of the two happens first depends
+/// only on how the kernel schedules the two processes.
+#[test]
+fn a_helper_that_ends_before_the_request_goes_out_fails_it() {
+    let mut host = super::ImageHost::starting_with(Box::new(EndsAtStart));
+    let session = super::Session {
+        child: None,
+        pty_owner: Ok(1000),
+    };
+    let sent = host.send(&request(Medium::Direct(vec![1, 2, 3])), &session);
+    assert!(matches!(sent, Err(Reply::Failed)), "{sent:?}");
+    assert_eq!(host.crashes(), 1, "the helper's end counts as a crash");
+}

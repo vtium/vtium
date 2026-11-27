@@ -47,14 +47,25 @@ fn every_screen_the_gpu_path_draws_has_its_own_exact_sidecar() {
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
-    // and no sidecar names a screen the GPU path does not draw
+    // and no sidecar names a screen the GPU path does not draw, apart from
+    // a screen that waits for the GPU path with a reason: its sidecar stays
+    // exact, so the screen is judged exactly again once it stops waiting
     let dir = root().join("gpu");
     for entry in fs::read_dir(&dir).unwrap() {
         let file = entry.unwrap().file_name().into_string().unwrap();
         let name = file.strip_suffix(".tol").unwrap_or(&file);
+        if names.contains(&name) {
+            continue;
+        }
+        let waiting = CASES
+            .iter()
+            .any(|c| c.screen.name == name && gpu::waits(&c.screen).is_some());
+        assert!(waiting, "{file}: no screen the GPU path draws or waits for");
+        let text = fs::read_to_string(dir.join(&file)).unwrap();
         assert!(
-            names.contains(&name),
-            "{file}: no screen the GPU path draws"
+            text.lines().any(|l| l.trim() == "max_delta=0")
+                && text.lines().any(|l| l.trim() == "max_pixels=0"),
+            "{file}: a waiting screen's sidecar stays exact"
         );
     }
 }

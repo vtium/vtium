@@ -68,7 +68,11 @@ GETTY_UNITS = (GETTY_UNIT, "serial-getty@tty2.service")
 # exits 1 (crates/vtium/src/app.rs, Exit::Hangup).
 FAILURES = {"kill": ("kill KILL", ("signal",)),
             "crash": ("kill ABRT", ("core-dump", "signal")),
-            "hangup": ("hangup", ("exit-code",))}
+            "hangup": ("hangup", ("exit-code",)),
+            # Under the privilege split, a kill of the drawing process alone:
+            # the root process puts the VT back and exits with a failure
+            # (ADR-1400 D4, "When the drawer dies").
+            "drawer-kill": ("kill-drawer KILL", ("exit-code",))}
 
 # The first systemd that starts a unit's OnFailure= at each failure that its
 # Restart= restarts, as the default RestartMode=normal passes through the
@@ -99,7 +103,7 @@ FAKE_VT_LINE = "vt: no VTs: using a fake VT"
 VT_LINE = "vt: using tty "
 
 # vtium's log line when no display came within display-wait under open
-# (crates/vtium/src/app.rs).
+# (crates/vtium/src/app/turn.rs).
 NO_DISPLAY_LINE = re.compile(r"no display appeared within (\d+) s")
 # The cell of each head's display in two-heads.conf, by connector: the cell
 # the frit of each head's look states, desk's 8x16 on the first output and
@@ -181,6 +185,15 @@ CHECKS = {
                         "typed on the console's keyboard reaches that shell, which writes its "
                         "own process id where the agent reads it. The capture is the screen "
                         "after the last line (ADR-1401 D13).",
+    "opened-survives": "Two shells logged in on vtium's console under an open policy, the "
+                       "second on a console that key-console-open opened, which the head does "
+                       "not open at its start; then vtium on tty2 restarted by its unit. "
+                       "Correct: the new vtium says it took back the session of each of the "
+                       "two consoles; both shells, by their process ids, still lead their "
+                       "sessions on the same ptys at the same sizes; a line typed on the "
+                       "console shown, the lowest, reaches the first shell; and a stop of the "
+                       "unit then ends every session. The capture is the screen after the line "
+                       "(ADR-1401 D13, ADR-1400 D4).",
     "two-heads": "A valid open vtium.conf with two heads, one on each output of the card, "
                  "each with its own look's font: the second output, the panel, read "
                  "after the first head, desk, took the login and drew its screens. "
@@ -251,7 +264,7 @@ FIRST = {
                     "line vtium cannot read, `policy = opne`, below a line naming a "
                     "version vtium does not know, `version = 2` (ADR-1401 D3, D7). "
                     "Correct: `vtium.conf has errors and counts as closed: all input is off.`, then that "
-                    "no head can run, then the policy line's error with its line of "
+                    "no display head can run, then the policy line's error with its line of "
                     "/etc/vtium/vtium.conf, listed first, before the error of the version "
                     "line above it, and how to read the full report; no login prompt and "
                     "no shell.",
@@ -1037,6 +1050,136 @@ def check_session_survives(variant, vm, work, caps, errors, log):
         errors[case] = str(e)
 
 
+def sessions_of(ptys):
+    """The sessions in the agent's answer `ptys` that a shell or a login
+    prompt leads, as {pid: (pty, size, command)}."""
+    return {pid: v for pid, v in ptys["ptys"].items() if v[2] in ("bash", "login")}
+
+
+def judge_all_survived(before, after, vtium, missing):
+    """Why the sessions in `before`, two shells at least, did not all
+    survive the restart that left `after` (the agent's answers
+    to `ptys`) with vtium's new process id `vtium`; `missing` lists the
+    consoles whose take-back the new vtium did not log. None when every
+    session survived."""
+    sessions = sessions_of(before)
+    shells = sorted(pid for pid, (_, _, command) in sessions.items() if command == "bash")
+    if len(shells) < 2:
+        return "fewer than two shells lead a session on a pty before the restart: %s" % (
+            before["ptys"])
+    if missing:
+        return "the new vtium did not log that it took back the session of console %s" % (
+            ", ".join(str(c) for c in missing))
+    for pid, (pty, size, command) in sorted(sessions.items()):
+        if pid not in after["ptys"]:
+            return "the %s %d is gone after the restart: %s" % (command, pid, after["ptys"])
+        pty_after, size_after, _ = after["ptys"][pid]
+        if pty_after != pty:
+            return "the %s %d leads its session on %s, not %s" % (command, pid, pty_after, pty)
+        if size_after != size:
+            return "the %s %d's pty is %s after the restart, not %s" % (
+                command, pid, size_after, size)
+    if after["masters"] is None or after["masters"][0] != vtium or (
+            after["masters"][1] < len(sessions)):
+        return "the new vtium %d does not hold the %d pty masters: %s" % (
+            vtium, len(sessions), after["masters"])
+    return None
+
+
+# The consoles of survive-open.conf's head after key-console-open: the one
+# it opens at its start, and the one the check opens.
+OPENED_CONSOLES = (1, 2)
+
+
+def check_opened_survives(variant, vm, work, caps, errors, log):
+    """The opened-survives check (CHECKS), after the scenario logged in on
+    console 1: key-console-open opens console 2, the user logs in there, and
+    the agent restarts vtium's unit. The new vtium is known by the agent's
+    state, its log since the restart in the serial file, and its process
+    id. A stop of the unit then ends every session."""
+    case = "opened-survives"
+    closed = variant["policy"] == "closed"
+    tmp = os.path.join(work, "wait.ppm")
+    try:
+        first = wait_state(vm, lambda s: judge_running(s, closed) is None,
+                           "vtium running on tty2")
+        shell = shell_of(ask_ptys(vm))
+        if shell is None:
+            raise RuntimeError("no one shell leads a session before the console opens: %s" % (
+                ask_ptys(vm)["ptys"]))
+        shown = wait_stable(vm, tmp)
+        vm.keys("ctrl", "meta_l", "ret")
+        prompt = wait_stable(vm, tmp, want=lambda img: img.data != shown.data)
+        vm.type("tester\n")
+        wait_stable(vm, tmp, want=lambda img: img.data != prompt.data)
+        vm.type("tester\n")
+        deadline = time.time() + 60
+        retyped = False
+        while True:
+            before = ask_ptys(vm)
+            shells = [p for p, (_, _, c) in sessions_of(before).items() if c == "bash"]
+            if len(shells) >= 2:
+                break
+            if time.time() > deadline:
+                raise RuntimeError("the second login never started a shell: %s" % (
+                    before["ptys"]))
+            if not retyped and time.time() > deadline - 40:
+                # PAM drops a password typed before it turned echo off, as
+                # in the scenario's own login.
+                log("%s: no second shell yet; typing the password again" % case)
+                vm.type("tester\n")
+                retyped = True
+            time.sleep(1)
+        since = serial_size(vm)
+        answer = vm.ask("restart")
+        log("%s: restart: %s" % (case, " ".join(answer)))
+        state = wait_state(vm, lambda s: judge_running(s, closed) is None
+                           and s["vtium"][0] != first["vtium"][0],
+                           "a new vtium on tty2 after the restart")
+        pid = state["vtium"][0]
+        lines = {c: "vtium[%d]: head console: console %d takes back the session" % (pid, c)
+                 for c in OPENED_CONSOLES}
+        deadline = time.time() + STATE_TIMEOUT
+        while (any(line not in serial_after(vm, since) for line in lines.values())
+               and time.time() < deadline):
+            time.sleep(0.2)
+        logged = serial_after(vm, since)
+        missing = [c for c, line in lines.items() if line not in logged]
+        after = ask_ptys(vm)
+        why = judge_all_survived(before, after, pid, missing)
+        log("%s: restart: %s" % (case, why or "every session survived"))
+        if why:
+            raise RuntimeError("after the restart: %s" % why)
+        vm.type("echo $$ > /tmp/t3-answer-opened\n")
+        deadline = time.time() + STATE_TIMEOUT
+        while ask_ptys(vm)["answers"].get("opened") != str(shell):
+            if time.time() > deadline:
+                raise RuntimeError("after the restart the first shell %s did not answer the "
+                                   "line typed: %s" % (shell, ask_ptys(vm)["answers"]))
+            time.sleep(0.5)
+        path = os.path.join(work, case + ".ppm")
+        wait_stable(vm, path)
+        caps[case] = path
+        before = ask_ptys(vm)
+        answer = vm.ask("stop")
+        log("%s: stop: %s" % (case, " ".join(answer)))
+        deadline = time.time() + STATE_TIMEOUT
+        while True:
+            left = sorted(p for p in sessions_of(before) if p in ask_ptys(vm)["ptys"])
+            if not left or time.time() > deadline:
+                break
+            time.sleep(0.5)
+        log("%s: stop: %s" % (case, "sessions still run: %s" % left if left
+                               else "the sessions ended"))
+        if left:
+            raise RuntimeError("after the stop, sessions still run: %s" % left)
+    except RuntimeError as e:
+        # A case with a capture and no golden passes on the capture, so a
+        # failure after the capture drops it.
+        caps.pop(case, None)
+        errors[case] = str(e)
+
+
 def judge_stopped(before, after):
     """Why the sessions in `before` did not end with the stop of vtium's
     unit that left `after` (the agent's answers to `ptys`); None when they
@@ -1485,4 +1628,5 @@ CHECK_RUNS = {"no-login": check_no_login, "getty-fallback": check_getty_fallback
               "display-away": check_display_away,
               "two-heads": check_two_heads, "kiosk": check_kiosk,
               "policy-line": check_policy_line, "session-survives": check_session_survives,
+              "opened-survives": check_opened_survives,
               "no-vt": check_no_vt, "display-off": check_display_off}

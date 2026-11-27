@@ -190,7 +190,7 @@ pub fn stopped() -> String {
 /// broken closed head file at `path` left.
 pub fn no_head_left(path: &std::path::Path) -> String {
     format!(
-        "No head can run because of the errors in {}, listed below.",
+        "No display head can run because of the errors in {}, listed below.",
         vtium_settings::Shown(path)
     )
 }
@@ -489,6 +489,13 @@ changes nothing.\n";
             "image-helper: when vtium runs as root, it refuses this helper: {why}. vtium would then refuse images sent as files or shared memory, and PNG and zlib images."
         )
     }
+
+    /// `helper-sandbox=off`, and what turning the helpers' sandbox off
+    /// gives up.
+    ///
+    /// References:
+    /// - ADR-1200 D15, "What turning it off gives up".
+    pub const HELPER_SANDBOX_OFF: &str = "helper-sandbox: the sandbox is off, so the font helper and the image helper run without their seccomp filters and landlock domains. A font or an image that takes over a helper can then open network connections, change any file that the helper's account may change, and signal and trace that account's other processes. Turn it off only when vtium runs inside another sandbox whose kernel refuses the helpers' filters.";
 
     /// A folder of `font-paths` that does not exist (ADR-1200 D25).
     pub fn font_path_missing(dir: &str) -> String {

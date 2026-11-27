@@ -270,7 +270,10 @@ fn r_removes_the_highlighted_frit_at_the_next_install() {
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("and 1 font set"), "{screen}");
+    // an install of the font set alone names only the font set, since
+    // "no lines changed" would read as if the install changed nothing
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(text.contains("Install the draft? 1 font set."), "{screen}");
     let mut c = console().keys(&on_set(4, &[b"r", b"i", b"y", b"q"]));
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
@@ -288,7 +291,7 @@ fn r_removes_the_highlighted_frit_at_the_next_install() {
     run_desk(&mut c, &mut desk());
     let screen = c.seen.clone().expect("the screen");
     assert!(
-        column(&screen).contains("tiny5: no font file on this machine, to remove."),
+        column(&screen).contains("tiny5: no font file vtium can use, to remove."),
         "{screen}"
     );
     let mut c = console().keys(&on_set(4, &[b"r", b"r", b"i", b"y", b"q"]));
@@ -460,7 +463,7 @@ fn keys_reach_the_tui_while_the_helper_finds_the_sources() {
 fn the_font_list_names_the_sources_a_frit_lacks() {
     for (n, says) in [
         (3, "proof: reads, 1 font file missing."),
-        (4, "tiny5: no font file on this machine."),
+        (4, "tiny5: no font file vtium can use."),
         (2, "minspec-16: reads."),
     ] {
         let mut c = console().keys(&to_set(n));
@@ -468,11 +471,21 @@ fn the_font_list_names_the_sources_a_frit_lacks() {
         let screen = c.seen.clone().expect("the screen");
         assert!(column(&screen).contains(says), "{says}: {screen}");
     }
+    // a font file the batch does not list is on this machine, so the note
+    // calls it not active
+    let mut c = console().keys(&to_set(4));
+    c.sources_found.insert("tiny5".into(), inactive_text_font());
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        column(&screen).contains("tiny5: reads, 1 font file not active."),
+        "{screen}"
+    );
 }
 
 #[test]
 fn a_refused_frit_s_long_reason_wraps_by_words() {
-    let reason = "line 2: unknown key colour, which a frit spells color, as vtium.conf spells it in every key";
+    let reason = "line 2: antialias= takes auto or no, and this line gives it red, which is a color and not a way to draw the edges of a glyph";
     let mut inputs = inputs();
     inputs.fonts[0] = font("broken", FontState::Refused(reason.into()));
     let mut c = console().keys(&to_set(1));
@@ -548,4 +561,274 @@ fn the_highlight_stays_on_a_font_set_the_install_puts_in_place() {
     assert_eq!(name(&app).as_deref(), Some("pale"));
     app.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
     assert_eq!(name(&app).as_deref(), Some("pale"));
+}
+
+/// The TUI's source finder reads a font set through the active fonts it is
+/// given, as the console's font helper reads it: a font file that the
+/// batch does not list is missing, with its path and why, and one that the
+/// batch lists is read.
+///
+/// References:
+/// - ADR-1205 D4: vtium draws only from the active fonts.
+#[test]
+fn the_finder_reads_font_sets_through_the_active_fonts() {
+    use vtium_settings::batch::{Batch, Entry, MISSING_BECAUSE, NOT_ACTIVE};
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("finder-active");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the frits' folder");
+    let font =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/DejaVuSansMono-W-M-0.ttf");
+    std::fs::write(
+        dir.join("t.vtfrit"),
+        format!(
+            "source=outline:{}\nsource=builtin:unscii-8\n",
+            font.display()
+        ),
+    )
+    .expect("the frit");
+    let helper = vtium_config::specimen::Helper::at(env!("CARGO_BIN_EXE_vtium-config"));
+    let me = rustix::process::geteuid().as_raw();
+    let find = |batch: Vec<Entry>| {
+        let active = vtium_config::serve::ActiveAsk::of_batch(me, &Batch::new(batch));
+        let finder = vtium_config::tui::finder_through(dir.clone(), helper.clone(), active);
+        finder(vec!["t".to_owned()])
+    };
+    let unlisted = find(Vec::new());
+    let [(name, Sources::LeftOut(left))] = unlisted.as_slice() else {
+        panic!("{unlisted:?}");
+    };
+    assert_eq!(name, "t");
+    assert_eq!(
+        left.as_slice(),
+        [LeftOut {
+            missing: true,
+            line: 1,
+            spelling: format!("outline:{}", font.display()),
+            why: format!("{}{MISSING_BECAUSE}{NOT_ACTIVE}", font.display()),
+        }]
+    );
+    let listed = find(vec![Entry::Path(font.clone())]);
+    assert_eq!(
+        listed,
+        [("t".to_owned(), Sources::LeftOut(Vec::new()))],
+        "{listed:?}"
+    );
+}
+
+/// The countdown of a font set whose text font is left out names why. A
+/// file that fails the trust rule is on this machine, so the countdown
+/// gives the font helper's reason, with no second full stop after a
+/// reason that ends in one. The sentence for a file that is not active
+/// says how to activate and install it.
+#[test]
+fn the_trial_says_why_the_text_font_is_left_out() {
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{App, Event};
+    use vtium_settings::batch::MISSING_BECAUSE;
+    // a font set's own trial asks to activate an inactive file first, so
+    // the inactive sentence shows on a look's trial whose check passed
+    assert_eq!(
+        vtium_config::tui::words::text_font_inactive("the font family JetBrains Mono"),
+        "Its text font, the font family JetBrains Mono, is not active, so vtium's built-in font draws the text. To use it, press Space on its file in the Fonts tab, i to install the draft, and log in again."
+    );
+    let path = "/usr/share/fonts/JetBrainsMono.ttf";
+    for (why, note) in [(
+        format!("{path}{MISSING_BECAUSE}a folder above it is one other accounts can write."),
+        "The font helper cannot use its text font, the font family JetBrains Mono, so vtium's built-in font draws the text: a folder above it is one other accounts can write.",
+    )] {
+        let (mut app, _) = App::new(inputs(), 80, 25);
+        for r in [
+            Reply::Version("vtium(test)".into()),
+            Reply::Font("unifont".into()),
+            Reply::Attributes,
+        ] {
+            app.event(Event::Input(Input::Reply(r)));
+        }
+        app.event(Event::Sourced(vec![(
+            "proof".into(),
+            Sources::LeftOut(vec![LeftOut {
+                missing: true,
+                line: 27,
+                spelling: "font:JetBrains Mono".into(),
+                why,
+            }]),
+        )]));
+        app.event(Event::Input(Input::Key(Key::Char('3'))));
+        for _ in 0..3 {
+            app.event(Event::Input(Input::Key(Key::Down)));
+        }
+        app.event(Event::Input(Input::Key(Key::Char('t'))));
+        assert_eq!(
+            app.shared.message.as_deref(),
+            Some(
+                format!(
+                    "Trying proof on the console for 10 s. Press k to keep it, or any other key to put the font back. {note}"
+                )
+                .as_str()
+            )
+        );
+    }
+}
+
+/// The finder reads a font set through the active-fonts request that the
+/// console sends, which names account 0: a font file the person owns,
+/// listed in the batch, fails the trust rule, as the root-run console
+/// refuses it.
+///
+/// References:
+/// - ADR-1205 D4: a resource passes the trust rule only when root owns it
+///   and every folder above it.
+#[test]
+fn the_finder_refuses_a_listed_font_the_person_owns_as_the_console_does() {
+    use vtium_settings::batch::{Batch, Entry, MISSING_BECAUSE, NOT_ACTIVE};
+    if rustix::process::geteuid().is_root() {
+        return;
+    }
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("finder-owner");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the frits' folder");
+    let font =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/DejaVuSansMono-W-M-0.ttf");
+    std::fs::write(
+        dir.join("t.vtfrit"),
+        format!(
+            "source=outline:{}\nsource=builtin:unscii-8\n",
+            font.display()
+        ),
+    )
+    .expect("the frit");
+    let helper = vtium_config::specimen::Helper::at(env!("CARGO_BIN_EXE_vtium-config"));
+    let active = vtium_config::tui::console_active(&Batch::new(vec![Entry::Path(font.clone())]));
+    assert_eq!(active.owner, 0);
+    let found = vtium_config::tui::finder_through(dir, helper, active)(vec!["t".to_owned()]);
+    let [(_, Sources::LeftOut(left))] = found.as_slice() else {
+        panic!("{found:?}");
+    };
+    let [l] = left.as_slice() else {
+        panic!("the font is not left out: {left:?}");
+    };
+    assert!(l.missing, "{l:?}");
+    let reason = l
+        .why
+        .split_once(MISSING_BECAUSE)
+        .map(|(_, r)| r)
+        .unwrap_or_default();
+    assert!(!reason.is_empty() && reason != NOT_ACTIVE, "{l:?}");
+}
+
+/// What the console's font helper says, through the installed batch, of a
+/// font set whose text font `/usr/share/fonts/misc/ter-u16n.otb` is not
+/// active.
+fn inactive_text_font() -> Sources {
+    let path = "/usr/share/fonts/misc/ter-u16n.otb";
+    Sources::LeftOut(vec![LeftOut {
+        missing: true,
+        line: 1,
+        spelling: format!("bdf:{path}"),
+        why: format!(
+            "{path}{}{}",
+            vtium_settings::batch::MISSING_BECAUSE,
+            vtium_settings::batch::NOT_ACTIVE
+        ),
+    }])
+}
+
+/// `t` on a font set whose fonts are not active tries nothing, since the
+/// console would draw the set without them. It asks whether to activate
+/// them in the draft, and `y` activates them through the desk.
+///
+/// References:
+/// - ADR-1205 D3: trying a font live needs an active system font.
+/// - ADR-1205 D4: activating a font is an act of trust.
+#[test]
+fn t_on_a_font_set_whose_fonts_are_not_active_offers_to_activate_them() {
+    let mut c = console().keys(&on_set(4, &[b"t", b"y"]));
+    c.sources_found.insert("tiny5".into(), inactive_text_font());
+    let mut d = desk();
+    vtium_config::tui::port::drive_with(&mut c, inputs(), Some(&mut d)).expect("the loop");
+    assert_eq!(c.switches(), Vec::<String>::new(), "{:?}", c.log);
+    assert!(
+        d.resources.contains(&(
+            PathBuf::from("/usr/share/fonts/misc/ter-u16n.otb"),
+            vtium_config::batch::State::Activates
+        )),
+        "{:?}",
+        d.resources
+    );
+    // the question names the font file and when it takes effect
+    let mut c = console().keys(&on_set(4, &[b"t"]));
+    c.sources_found.insert("tiny5".into(), inactive_text_font());
+    let mut d = desk();
+    vtium_config::tui::port::drive_with(&mut c, inputs(), Some(&mut d)).expect("the loop");
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    for part in [
+        "The font set tiny5 needs fonts that are not active, so t cannot try it.",
+        "Activate them in the draft? y activates /usr/share/fonts/misc/ter-u16n.otb, and n or Esc leaves them as they are.",
+    ] {
+        assert!(text.contains(part), "{part:?}:\n{screen}");
+    }
+    // where the draft activates them already, t says when the trial works
+    let mut c = console().keys(&on_set(4, &[b"t"]));
+    c.sources_found.insert("tiny5".into(), inactive_text_font());
+    let mut d = desk();
+    d.resources.push((
+        PathBuf::from("/usr/share/fonts/misc/ter-u16n.otb"),
+        vtium_config::batch::State::Activates,
+    ));
+    vtium_config::tui::port::drive_with(&mut c, inputs(), Some(&mut d)).expect("the loop");
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        text.contains("The draft activates them, so t can try the font set once you install the draft and log in again."),
+        "{screen}"
+    );
+    assert_eq!(c.switches(), Vec::<String>::new(), "{:?}", c.log);
+}
+
+/// The trial of a font set whose text font this machine lacks says, in
+/// its countdown, which font is missing and that vtium's built-in font
+/// draws the text in its place, as the console's log says.
+///
+/// References:
+/// - ADR-1204 D7: what vtium-config reports of each font a set needs.
+#[test]
+fn the_trial_of_a_font_set_whose_text_font_is_missing_names_the_font() {
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{App, Event};
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Font("unifont".into()),
+        Reply::Attributes,
+    ] {
+        app.event(Event::Input(Input::Reply(r)));
+    }
+    app.event(Event::Sourced(vec![(
+        "proof".into(),
+        Sources::LeftOut(vec![LeftOut {
+            missing: true,
+            line: 27,
+            spelling: "font:JetBrains Mono".into(),
+            why: "no such family".into(),
+        }]),
+    )]));
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    for _ in 0..3 {
+        app.event(Event::Input(Input::Key(Key::Down)));
+    }
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(
+            "Trying proof on the console for 10 s. Press k to keep it, or any other key to put the font back. Its text font, the font family JetBrains Mono, is not installed, so vtium's built-in font draws the text until you install it."
+        )
+    );
+    // the countdown shows whole in the message line at 80×25
+    let screen = vtium_config::tui::view::as_text(&vtium_config::tui::view::screen(&app));
+    let screen = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        screen.contains(app.shared.message.as_deref().unwrap_or("?")),
+        "{screen}"
+    );
 }

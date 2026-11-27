@@ -85,6 +85,7 @@ nav = [
       { "Architecture" = "architecture.md" },
       { "The VT review" = "vt-review.md" },
       { "The Linux console's unverified rows" = "vt-review-linux.md" },
+      { "Steering the work" = "contributing/steering.md" },
       { "AGENTS.md" = "https://github.com/vtium/vtium/blob/main/AGENTS.md" },
       { "CONTRIBUTING.md" = "https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md" },
       { "The crates' interfaces" = ["api/index.md"] },
@@ -111,7 +112,8 @@ exclude_docs = """
 # line for each of t3_showcase.CATEGORIES as ShowcaseTest checks, and the
 # tutorial Your first frit, which joins the menu once it is written.
 # The release pages, other than their index, are reached from the index, and
-# so are the pages of the escape sequences (ADR-1507 D1).
+# so are the pages of the escape sequences (ADR-1507 D1). The design notes
+# under design-notes/ are reached from the decision records that link them.
 # The crates' interfaces: Getting started and Conventions are reached from
 # the index under api/, which the menu lists. The index sits in a
 # sub-section of its own because the theme's navigation.indexes makes an
@@ -121,6 +123,7 @@ not_in_nav = """
 /tutorial-first-frit.md
 /architecture/*/ADR-*.md
 /acceptance/*.md
+/design-notes/*.md
 /specimens/*/README.md
 /specimens/simulated/*/README.md
 /showcase/text-and-fonts.md

@@ -347,18 +347,31 @@ fn a_narrowing_past_sb_size_drops_the_oldest_rows() {
 }
 
 // "Cost": the scrollback past the screen and its margin waits, and
-// rewraps when the view reaches it, as it would have at the resize.
+// rewraps when the view reaches it, as it would have at the resize. A
+// build with the rows beyond the screen also rewraps at once the
+// ROWS_MAX + 1 rows a frame can capture above the screen, so there the
+// text is that many rows longer.
 #[test]
 fn the_scrollback_rewraps_when_the_view_reaches_it() {
-    let text: Vec<u8> = (0..20)
-        .flat_map(|i| format!("line{i:02}-abcdef\r\n").into_bytes())
+    let captured = if cfg!(feature = "rows-beyond") {
+        vtium_term::ROWS_MAX + 1
+    } else {
+        0
+    };
+    let lines = 20 + captured.div_ceil(2);
+    let text: Vec<u8> = (0..lines)
+        .flat_map(|i| format!("line{:02}-abcdef\r\n", i % 100).into_bytes())
         .collect();
-    let mut t = with_scrollback(13, 2, 100, &text);
+    let mut t = with_scrollback(13, 2, 100 + 2 * captured, &text);
     t.resize(7, 2);
     let rewrapped = t.screen().scrollback().len();
-    assert!(rewrapped < 10, "{rewrapped} rows rewrapped at once");
-    t.screen_mut().scroll_view_up(39);
-    assert_eq!(t.screen().scrollback().len(), 39);
+    assert!(
+        rewrapped < 10 + captured,
+        "{rewrapped} rows rewrapped at once"
+    );
+    let back = 2 * lines - 1;
+    t.screen_mut().scroll_view_up(back);
+    assert_eq!(t.screen().scrollback().len(), back);
     let palette = Palette::new([Rgb::default(); 256], Rgb::default(), Rgb::default());
     let frame = t.screen().frame(&palette, Age::NEVER);
     let top: String = (0..7)
@@ -674,60 +687,104 @@ fn feed(t: &mut Terminal, bytes: &[u8], cuts: &[usize], events: &[(usize, Event)
 #[test]
 fn reflow_is_the_same_chunked_and_lazy_or_eager() {
     for seed in 0..common::seeds(150) {
-        let mut rng = Rng(seed ^ 0x2028);
-        let mut bytes = Vec::new();
-        for _ in 0..1 + rng.below(4) {
-            let rows_n = 1 + rng.below(5);
-            bytes.extend(shell_stream(&mut rng, rows_n));
-            let len = rng.below(40);
-            bytes.extend(common::grammar_stream(&mut rng, len));
+        lazy_and_eager_agree(seed);
+    }
+}
+
+/// The property above at one seed.
+fn lazy_and_eager_agree(seed: u64) {
+    let mut rng = Rng(seed ^ 0x2028);
+    let mut bytes = Vec::new();
+    for _ in 0..1 + rng.below(4) {
+        let rows_n = 1 + rng.below(5);
+        bytes.extend(shell_stream(&mut rng, rows_n));
+        let len = rng.below(40);
+        bytes.extend(common::grammar_stream(&mut rng, len));
+    }
+    // Long lines with no wide character, which a resize takes the
+    // newest rows of, and a drop past sb-size cuts by length. OSC 133
+    // sets no mark until vtium/vtium#40, so the marks such a line
+    // carries are tested in `screen/reflow.rs`.
+    if rng.below(2) == 0 {
+        for _ in 0..rng.below(4) {
+            let len = rng.below(400);
+            let line: String = (0..len)
+                .map(|i| char::from(b'a' + (i % 26) as u8))
+                .collect();
+            bytes.extend(format!("{line}\r\n").into_bytes());
         }
-        // Long lines with no wide character, which a resize takes the
-        // newest rows of, and a drop past sb-size cuts by length. OSC 133
-        // sets no mark until vtium/vtium#40, so the marks such a line
-        // carries are tested in `screen/reflow.rs`.
-        if rng.below(2) == 0 {
-            for _ in 0..rng.below(4) {
-                let len = rng.below(400);
-                let line: String = (0..len)
-                    .map(|i| char::from(b'a' + (i % 26) as u8))
-                    .collect();
-                bytes.extend(format!("{line}\r\n").into_bytes());
+    }
+    let mut events: Vec<(usize, Event)> = (0..1 + rng.below(10))
+        .map(|_| (rng.below(bytes.len() + 1), event(&mut rng)))
+        .collect();
+    // A run of events with no output between them: resizes, view moves
+    // and selections in turn reach rows still waiting.
+    for _ in 0..rng.below(8) {
+        events.push((bytes.len(), event(&mut rng)));
+    }
+    let cuts: Vec<usize> = (0..rng.below(20))
+        .map(|_| rng.below(bytes.len() + 1))
+        .collect();
+    let sb = rng.below(60);
+    let make = || {
+        let mut t = Terminal::new(1 + rng_cols(seed), 4, 100);
+        t.screen_mut().set_scrollback_max(sb);
+        t
+    };
+    let mut whole = make();
+    feed(&mut whole, &bytes, &[], &events, false);
+    let mut chunked = make();
+    feed(&mut chunked, &bytes, &cuts, &events, false);
+    assert!(
+        whole.screen() == chunked.screen(),
+        "seed {seed}: chunked differs"
+    );
+    let mut eager = make();
+    feed(&mut eager, &bytes, &[], &events, true);
+    assert_eq!(
+        snapshot(&mut whole),
+        snapshot(&mut eager),
+        "seed {seed}: lazy and eager differ"
+    );
+}
+
+// Seed 18815 found a row in the scrollback that kept the mark of a
+// right-to-left character it no longer held, because it waited through a
+// narrower width. A rewrap at each resize made the row anew at that
+// width, which cleared the mark.
+#[test]
+fn the_property_at_seed_18815() {
+    lazy_and_eager_agree(18815);
+}
+
+// A row that held a right-to-left character and then had it overwritten
+// keeps the mark that tells a frame to reorder it. The row waits in the
+// scrollback through a narrowing to 2 columns, where a rewrap would split
+// it, and back to 8, where it fits as it is. The rewrap that finally
+// reaches it takes the mark from the row's text, as a rewrap at each
+// resize does.
+//
+// References:
+// - ADR-1003, "Cost": a lazy rewrap gives the result of rewrapping at each
+//   resize.
+// - ADR-1004 D8: the mark of a row that has held a reordering character.
+#[cfg(feature = "bidi")]
+#[test]
+fn a_row_that_waited_through_a_narrower_width_takes_its_reorder_mark_from_its_text() {
+    let bytes = format!("\u{5d0}\rabc{}", "\r\n".repeat(4));
+    let run = |eager: bool| {
+        let mut t = with_scrollback(8, 2, 100, bytes.as_bytes());
+        for cols in [2, 8] {
+            t.resize(cols, 2);
+            if eager {
+                t.screen_mut().rewrap_scrollback();
             }
         }
-        let mut events: Vec<(usize, Event)> = (0..1 + rng.below(10))
-            .map(|_| (rng.below(bytes.len() + 1), event(&mut rng)))
-            .collect();
-        // A run of events with no output between them: resizes, view moves
-        // and selections in turn reach rows still waiting.
-        for _ in 0..rng.below(8) {
-            events.push((bytes.len(), event(&mut rng)));
-        }
-        let cuts: Vec<usize> = (0..rng.below(20))
-            .map(|_| rng.below(bytes.len() + 1))
-            .collect();
-        let sb = rng.below(60);
-        let make = || {
-            let mut t = Terminal::new(1 + rng_cols(seed), 4, 100);
-            t.screen_mut().set_scrollback_max(sb);
-            t
-        };
-        let mut whole = make();
-        feed(&mut whole, &bytes, &[], &events, false);
-        let mut chunked = make();
-        feed(&mut chunked, &bytes, &cuts, &events, false);
-        assert!(
-            whole.screen() == chunked.screen(),
-            "seed {seed}: chunked differs"
-        );
-        let mut eager = make();
-        feed(&mut eager, &bytes, &[], &events, true);
-        assert_eq!(
-            snapshot(&mut whole),
-            snapshot(&mut eager),
-            "seed {seed}: lazy and eager differ"
-        );
-    }
+        snapshot(&mut t)
+    };
+    let lazy = run(false);
+    assert!(lazy[0].contains("Char('a')"), "{lazy:?}");
+    assert_eq!(lazy, run(true));
 }
 
 // vtium/vtium#131: the scrollback's byte count is what its rows hold,

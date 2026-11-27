@@ -117,7 +117,7 @@ fn status_with_a_font_set_waiting(cols: u16) -> String {
 }
 
 #[test]
-fn the_four_requests_go_first_in_their_order() {
+fn the_requests_at_start_go_first_in_their_order() {
     let mut c = console().keys(&[b"q"]);
     run(&mut c);
     assert!(
@@ -127,7 +127,7 @@ fn the_four_requests_go_first_in_their_order() {
     );
     assert_eq!(
         model::probe(),
-        b"\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c"
+        b"\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[14t\x1b[c"
     );
 }
 
@@ -219,6 +219,17 @@ fn with_font_operations_off_the_tui_says_so_and_offers_the_key() {
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains("text preview · no live trial"), "{screen}");
     assert!(screen.contains("allow-font-ops turned off"), "{screen}");
+    // the running console reads allow-font-ops when vtium makes its head,
+    // and the TUI asks once at its start, so an install alone turns
+    // nothing on
+    assert!(
+        screen
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .contains("install, and restart vtium and vtium-config."),
+        "{screen}"
+    );
     // t says why it does nothing, and sends nothing
     let mut c = Console::vtium(80, 25, false, "unifont")
         .takes("tiny5", (80, 25))
@@ -288,18 +299,15 @@ fn a_grid_too_small_draws_the_way_out() {
         joined.starts_with(&vtium_config::tui::words::too_small(30, 8)),
         "{screen}"
     );
-    // the generated key line of the screen below the minimum size, and
-    // the sentence about u under it
+    // the generated key line of the screen below the minimum size, which
+    // names u
     let keys = vtium_config::tui::contract::key_pages("any.too-small")
         .and_then(|p| p.first())
         .expect("the key line below the minimum size");
-    assert!(
-        joined.ends_with(&format!(
-            "{keys} {}",
-            vtium_config::tui::words::TOO_SMALL_UNDO
-        )),
-        "{screen}"
-    );
+    assert!(keys.contains("u undo"), "{keys}");
+    // the key line wraps at 30 columns, so the words are compared
+    let words = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(words(&joined).ends_with(&words(keys)), "{screen}");
     assert!(rows.iter().all(|r| r.chars().count() <= 30), "{screen}");
 }
 
@@ -671,7 +679,7 @@ fn the_deadline_at_start_settles_the_four_requests() {
     use vtium_config::tui::input::{Input, Reply};
     use vtium_config::tui::model::{App, Event, Live};
     let (mut app, _) = App::new(inputs(), 80, 25);
-    assert!(app.awaiting(), "the four requests are outstanding");
+    assert!(app.awaiting(), "the requests at start are outstanding");
     app.event(Event::Input(Input::Reply(Reply::Version(
         "vtium(test)".into(),
     ))));
@@ -1255,6 +1263,51 @@ fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
     assert_eq!(app.shared.live, Live::NotVtium);
 }
 
+/// While the TUI is still finding out what this terminal is, the status
+/// line says that it is checking this terminal, on every tab that shows
+/// the live trial's words, and does not yet say that there is no live
+/// trial. Once the wait ends with no answer, it says that there is none.
+/// The Flow view's status line says nothing about the live trial.
+#[test]
+fn the_status_line_says_it_is_checking_this_terminal_while_the_tui_asks() {
+    use vtium_config::tui::model::{App, Event, View};
+    use vtium_config::tui::view;
+    use vtium_config::tui::words;
+    for tab in View::TABS.into_iter().filter(|v| *v != View::Flow) {
+        let mut i = inputs();
+        i.view = tab;
+        let (mut app, _) = App::new(i, 100, 30);
+        let screen = view::as_text(&view::screen(&app));
+        assert!(screen.contains(words::PREVIEW_ASKING), "{tab:?}: {screen}");
+        assert!(!screen.contains(words::TRIAL_NONE), "{tab:?}: {screen}");
+        app.event(Event::Timeout);
+        let screen = view::as_text(&view::screen(&app));
+        assert!(!screen.contains(words::PREVIEW_ASKING), "{tab:?}: {screen}");
+        assert!(screen.contains(words::TRIAL_NONE), "{tab:?}: {screen}");
+    }
+}
+
+/// The wait for the terminal's answers at start begins only after the
+/// desk has opened the draft. Opening the draft runs `vtium check-config`,
+/// which can take longer than the wait on a loaded machine, so the TUI's
+/// own work never uses up the time the terminal has to answer. The queries
+/// go before the draft opens, so the terminal answers them meanwhile.
+#[test]
+fn the_wait_for_the_answers_at_start_begins_once_the_draft_is_open() {
+    use vtium_config::tui::desk::Op;
+    use vtium_config::tui::model::{App, Effect};
+    let mut with_desk = inputs();
+    with_desk.desk = true;
+    let (_, first) = App::new(with_desk, 80, 25);
+    let open = first.iter().position(|e| *e == Effect::Desk(Op::Open));
+    let wait = first.iter().position(|e| *e == Effect::Wait(model::WAIT));
+    assert!(matches!(first.first(), Some(Effect::Write(_))), "{first:?}");
+    assert!(
+        matches!((open, wait), (Some(open), Some(wait)) if open < wait),
+        "{first:?}"
+    );
+}
+
 #[test]
 fn a_failed_command_s_words_show_on_the_message_line() {
     let mut c = console().keys(&font_name_tiny5(&[b"i", b"y"]));
@@ -1398,14 +1451,8 @@ fn display_dpi_outside_the_console_s_bounds_is_not_used() {
     // the first display that states its size
     use vtium_config::display::Display;
     let displays = [
-        Display {
-            pixels: (1024, 768),
-            mm: None,
-        },
-        Display {
-            pixels: (2560, 1440),
-            mm: Some((600, 340)),
-        },
+        Display::of((1024, 768), None),
+        Display::of((2560, 1440), Some((600, 340))),
     ];
     assert_eq!(density(None, &displays), (108, DpiFrom::Edid));
     assert_eq!(
@@ -1459,7 +1506,6 @@ fn below_the_minimum_the_screen_says_so_and_u_undoes_the_preview() {
             .and_then(|p| p.first())
             .expect("the key line below the minimum size");
         assert!(joined.contains(keys), "{screen}");
-        assert!(joined.contains(words::TOO_SMALL_UNDO), "{screen}");
         // keys that would move are ignored below the minimum; u gives the
         // console its start font back, and the views come back
         let mut c = Console::vtium(80, 25, true, "unifont")
@@ -1472,6 +1518,97 @@ fn below_the_minimum_the_screen_says_so_and_u_undoes_the_preview() {
         let screen = c.seen.clone().expect("the screen");
         assert!(screen.contains("Fonts"), "{screen}");
         assert!(!screen.contains("vtium-config needs"), "{screen}");
+    }
+}
+
+/// In a terminal that is too small from the start, no trial changed the
+/// font or the grid, so `u` says that it has nothing to put back and sends
+/// the console nothing.
+#[test]
+fn u_with_nothing_to_put_back_says_so() {
+    use vtium_config::tui::words;
+    let mut c = Console::vtium(79, 24, true, "unifont")
+        .takes("unifont", (79, 24))
+        .keys(&[b"u"]);
+    run(&mut c);
+    assert_eq!(c.switches(), Vec::<String>::new());
+    // no grid request, CSI 8 ; rows ; cols t
+    let written = String::from_utf8_lossy(&c.written).into_owned();
+    let grid_requests = written
+        .split("\x1b[8;")
+        .skip(1)
+        .filter(|rest| {
+            let end = rest
+                .find(|c: char| !c.is_ascii_digit() && c != ';')
+                .unwrap_or(rest.len());
+            rest[end..].starts_with('t')
+        })
+        .count();
+    assert_eq!(grid_requests, 0);
+    let screen = c.seen.clone().expect("the screen");
+    let joined = screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
+    assert!(joined.contains(words::NOTHING_TO_UNDO), "{screen}");
+}
+
+/// What `u` says when it has nothing to put back comes first on the
+/// screen below the minimum size, so the screen does not cut it where it
+/// has few rows. The whole sentence shows where the rows above the key
+/// line hold it, and its first clause shows where they do not. The key
+/// line keeps the way out at every size: where its rows outnumber the
+/// screen's, `u undo` is the item that goes, so `q quit` stays.
+#[test]
+fn u_with_nothing_to_put_back_says_so_at_every_small_size() {
+    const WHOLE: &str =
+        "u has nothing to put back: vtium-config has not changed this terminal's font or size.";
+    const TOPIC: &str = "u has nothing to put back.";
+    // how much of the sentence each size shows
+    enum Shows {
+        Whole,
+        Topic,
+        FirstRow(&'static str),
+        Nothing,
+    }
+    let sizes = [
+        (30, 8, Shows::Whole),
+        (30, 6, Shows::Whole),
+        (30, 4, Shows::Topic),
+        (25, 8, Shows::Whole),
+        (20, 5, Shows::Topic),
+        (16, 4, Shows::FirstRow("u has nothing to")),
+        (40, 2, Shows::Topic),
+        (79, 3, Shows::Whole),
+        (12, 3, Shows::Nothing),
+    ];
+    for (cols, rows, shows) in sizes {
+        let mut c = Console::vtium(cols, rows, true, "unifont")
+            .takes("unifont", (cols, rows))
+            .keys(&[b"u"]);
+        run(&mut c);
+        assert_eq!(c.switches(), Vec::<String>::new(), "{cols}x{rows}");
+        let screen = c.seen.clone().expect("the screen");
+        let lines: Vec<&str> = screen.lines().map(str::trim).collect();
+        let joined = lines.join(" ");
+        match shows {
+            Shows::Whole => assert!(joined.contains(WHOLE), "{cols}x{rows}:\n{screen}"),
+            Shows::Topic => {
+                assert!(joined.contains(TOPIC), "{cols}x{rows}:\n{screen}");
+                assert!(
+                    !joined.contains("has not changed"),
+                    "{cols}x{rows}:\n{screen}"
+                );
+            }
+            Shows::FirstRow(row) => {
+                assert_eq!(
+                    lines.first().copied(),
+                    Some(row),
+                    "{cols}x{rows}:\n{screen}"
+                )
+            }
+            Shows::Nothing => assert!(!joined.contains("nothing"), "{cols}x{rows}:\n{screen}"),
+        }
+        // the way out stays on the screen
+        assert!(joined.contains("q quit"), "{cols}x{rows}:\n{screen}");
+        assert!(joined.contains("Ctrl-C save"), "{cols}x{rows}:\n{screen}");
     }
 }
 
@@ -1692,17 +1829,19 @@ mod list_window {
     }
 }
 
-/// The status line names `t` only where `t` tries a font set: on a look or
-/// a font set in the Looks tab, and in a look's card. Among the Looks
-/// tab's color schemes and pointer themes, and in their details, `t` does
-/// nothing, so the status line says where the live trial works instead.
+/// The status line names `t` only where `t` tries a font: on a look or a
+/// font set in the Looks tab, in a look's card, and in the Fonts tab's
+/// list. Among the Looks tab's color schemes and pointer themes, in their
+/// details, and in the Fonts tab's filters, `t` does nothing, so the
+/// status line says where the live trial works instead. Every other tab
+/// names both tabs where `t` tries a font: Fonts and Looks.
 ///
 /// References:
 /// - ADR-1201 D4: the live trial of a font set.
 /// - ADR-1403 D7, its note of 2026-11-18: the screen names only keys that
 ///   act where it is shown.
 #[test]
-fn the_status_line_names_t_only_where_t_tries_a_font_set() {
+fn the_status_line_names_t_only_where_t_tries_a_font() {
     use vtium_config::tui::input::Key;
     use vtium_config::tui::model::{self, App};
     use vtium_config::tui::{nav, words};
@@ -1723,8 +1862,25 @@ fn the_status_line_names_t_only_where_t_tries_a_font_set() {
     press(&mut a, Key::Enter);
     assert_eq!(nav::node(&a), "looks.pointer");
     assert!(!status(&a).contains(words::TRIAL_KEY), "{}", status(&a));
-    // another tab says where the trial is
+    // the Fonts tab's list tries a font; its filters and a font's detail
+    // do not
     press(&mut a, Key::Escape);
     press(&mut a, Key::Char('1'));
-    assert!(status(&a).contains(words::TRIAL_IN_LOOKS), "{}", status(&a));
+    assert_eq!(nav::node(&a), "fonts");
+    assert!(status(&a).contains(words::TRIAL_KEY), "{}", status(&a));
+    press(&mut a, Key::Enter);
+    assert_eq!(nav::node(&a), "fonts.filter");
+    assert!(!status(&a).contains(words::TRIAL_KEY), "{}", status(&a));
+    assert!(status(&a).contains(words::TRIAL_ON_FONTS), "{}", status(&a));
+    // every other tab says where the trial is: in Fonts and in Looks.
+    // This draft's Flow tab fills the status line with its tags, so the
+    // scenarios' snapshots of the Flow nodes show its trial words
+    press(&mut a, Key::Escape);
+    for (tab, node) in [('2', "effects"), ('5', "settings"), ('6', "help")] {
+        press(&mut a, Key::Char(tab));
+        assert_eq!(nav::node(&a), node);
+        let line = status(&a);
+        assert!(line.ends_with(" · trial: Fonts, Looks"), "{line}");
+        assert!(!line.contains(words::TRIAL_KEY), "{line}");
+    }
 }

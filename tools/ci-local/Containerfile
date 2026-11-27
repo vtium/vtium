@@ -42,6 +42,14 @@ RUN curl -fsSL -o /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/
  && rm /tmp/rustup-init \
  && mkdir -p /home/runner/.cargo/registry /home/runner/.cargo/git /home/runner/work/vtium/vtium/target
 
+# cargo-nextest at the version the Makefile's NEXTEST_VERSION names, which
+# CI's check jobs install, so that the tests run under nextest as they do on
+# CI. cargo installs it from crates.io with its lock file, and checks each
+# crate against the checksum the lock file records.
+ARG NEXTEST_VERSION
+RUN /home/runner/.cargo/bin/cargo install --locked "cargo-nextest@${NEXTEST_VERSION}" \
+ && rm -rf /home/runner/.cargo/registry/* /home/runner/.cargo/git/*
+
 ENV PATH=/home/runner/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     CARGO_HOME=/home/runner/.cargo \
     CARGO_INCREMENTAL=0 \

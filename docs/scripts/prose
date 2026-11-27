@@ -5,9 +5,9 @@ prose - list the long sentences in the pages people read
 Usage:
     docs/scripts/prose [--root DIR] [--check] [--table] [FILE...]
 
-AGENTS.md asks for one idea in each sentence, and a sentence in a page people
-read stays under about 25 words. This script measures that. It reads each
-page, splits its prose into sentences, and counts each sentence's words. It
+docs/AGENTS.md asks for one idea in each sentence, and a sentence in a page
+people read stays under about 25 words. This script measures that. It reads
+each page, splits its prose into sentences, and counts each sentence's words. It
 prints `file:line: N words: SENTENCE` for each sentence over 30 words, and
 `file: average A words a sentence over N sentences` for each page whose
 average is over 20 words. It ends with a line of totals.

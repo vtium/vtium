@@ -292,6 +292,26 @@ fn install_installs_the_draft_and_keeps_the_file_it_replaced() {
     assert_eq!(f.draft(), INSTALLED);
 }
 
+/// An install over no vtium.conf replaces no file, so `history` lists
+/// nothing, and says so in the words the TUI's Restore uses.
+#[test]
+fn history_says_so_when_no_install_has_replaced_a_vtium_conf() {
+    let f = fixture("history-first");
+    std::fs::remove_file(f.path("etc/vtium.conf")).expect("no vtium.conf");
+    f.desk();
+    assert_eq!(f.run(&["set", "font-size", "14"]).status, 0);
+    let ran = f.run(&["install"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    let history = f.run(&["history"]);
+    assert_eq!(
+        (history.status, history.out.as_str()),
+        (
+            0,
+            "Nothing to restore: no install has replaced a vtium.conf yet, so there is no earlier file.\n"
+        )
+    );
+}
+
 #[test]
 fn edit_installs_nothing_when_the_editor_adds_a_bad_line() {
     let f = fixture("edit");
@@ -529,6 +549,122 @@ fn a_look_in_use_is_kept_unless_forced_to_the_default() {
 
 // ADR-1403 D5, D8: `look add` and `look set` take a look's cell, and
 // `set`, which writes the top level, refuses it and names `look set`
+/// A look that no head uses changes nothing on screen, so `look add`,
+/// `look set` and `install` say so for each such look, with the command
+/// that gives it to a head. Once a head uses the look, they say nothing.
+#[test]
+fn the_look_commands_and_install_name_a_look_that_no_head_uses() {
+    const NOTE: &str = "No head uses look big, so it changes nothing on screen. To use it, run vtium config head set desk --look big.";
+    let f = fixture("look-unused");
+    f.desk();
+    let added = f.run(&["look", "add", "big", "--frit", "monoid"]);
+    assert_eq!(added.status, 0, "{}", added.err);
+    assert!(added.out.ends_with(&format!("{NOTE}\n")), "{}", added.out);
+    let set = f.run(&["look", "set", "big", "--size", "20"]);
+    assert_eq!(set.status, 0, "{}", set.err);
+    assert!(set.out.ends_with(&format!("{NOTE}\n")), "{}", set.out);
+    let install = f.run(&["install"]);
+    assert_eq!(install.status, 0, "{}{}", install.out, install.err);
+    assert!(
+        install.out.starts_with(&format!("{NOTE}\n")),
+        "{}",
+        install.out
+    );
+    assert_eq!(f.run(&["head", "set", "desk", "--look", "big"]).status, 0);
+    let set = f.run(&["look", "set", "big", "--size", "22"]);
+    assert_eq!(set.status, 0, "{}", set.err);
+    assert!(!set.out.contains("No head uses"), "{}", set.out);
+}
+
+/// A draft that defines no head and no rule runs vtium's built-in
+/// terminal, whose head `console` draws the look `default`. So `look add
+/// default` says nothing, and the note on another look names `console`.
+/// The command the note gives works: it writes out the built-in terminal's
+/// head and rules, so the draft goes on running the same terminal, with
+/// the look, and the note then names `default` as the look no head uses.
+///
+/// References:
+/// - ADR-1401 D3: vtium runs the built-in default terminal when the file
+///   defines no head and no rule.
+#[test]
+fn on_the_built_in_terminal_the_unused_look_note_names_its_head_console() {
+    let f = fixture("look-unused-builtin");
+    std::fs::write(
+        f.path("etc/vtium.conf"),
+        "version = 1\nfont-name = monoid\n",
+    )
+    .expect("vtium.conf");
+    f.desk();
+    let default = f.run(&["look", "add", "default", "--size", "20"]);
+    assert_eq!(default.status, 0, "{}", default.err);
+    assert!(!default.out.contains("No head uses"), "{}", default.out);
+    let added = f.run(&["look", "add", "big", "--frit", "monoid"]);
+    assert_eq!(added.status, 0, "{}", added.err);
+    assert!(
+        added.out.ends_with("No head uses look big, so it changes nothing on screen. To use it, run vtium config head set console --look big.\n"),
+        "{}",
+        added.out
+    );
+    // once console draws big, the look default is the one no head uses
+    let given = f.run(&["head", "set", "console", "--look", "big"]);
+    assert_eq!(given.status, 0, "{}{}", given.out, given.err);
+    assert!(
+        !given.out.contains("No head uses look big"),
+        "{}",
+        given.out
+    );
+    assert!(
+        given.out.contains("No head uses look default"),
+        "{}",
+        given.out
+    );
+    let draft = f.draft();
+    let read = vtium_settings::sections(draft.as_bytes()).expect("sections");
+    let config = read.parsed.config;
+    let builtin = vtium_settings::Config::builtin();
+    assert_eq!(
+        config
+            .heads
+            .iter()
+            .map(|h| (&h.name[..], &h.look[..]))
+            .collect::<Vec<_>>(),
+        [("console", "big")],
+        "{draft}"
+    );
+    assert_eq!(config.rules.len(), builtin.rules.len(), "{draft}");
+    assert!(
+        vtium_settings::complete_route(&config, None).complete(),
+        "{draft}"
+    );
+    assert_eq!(draft.matches("version = 1").count(), 1, "{draft}");
+}
+
+/// A draft with rules and no head runs no terminal, so the note on a look
+/// no head uses gives the commands that make a head with the look and send
+/// the displays to it, and both commands work.
+#[test]
+fn with_no_head_the_unused_look_note_gives_commands_that_make_one() {
+    let f = fixture("look-unused-headless");
+    std::fs::write(
+        f.path("etc/vtium.conf"),
+        "version = 1\n[rules]\ninput class:keyboard -> roaming\n",
+    )
+    .expect("vtium.conf");
+    f.desk();
+    let added = f.run(&["look", "add", "big", "--frit", "monoid"]);
+    assert_eq!(added.status, 0, "{}", added.err);
+    assert!(
+        added.out.ends_with("No head uses look big, so it changes nothing on screen. The draft has no head yet. To use the look, run vtium config head add console --look big, then vtium config rule add 'display * -> console'.\n"),
+        "{}",
+        added.out
+    );
+    let head = f.run(&["head", "add", "console", "--look", "big"]);
+    assert_eq!(head.status, 0, "{}{}", head.out, head.err);
+    let rule = f.run(&["rule", "add", "display * -> console"]);
+    assert_eq!(rule.status, 0, "{}{}", rule.out, rule.err);
+    assert!(!rule.out.contains("No head uses"), "{}", rule.out);
+}
+
 #[test]
 fn look_add_and_look_set_take_a_look_s_cell() {
     let f = fixture("look-cell");
@@ -559,6 +695,42 @@ fn look_add_and_look_set_take_a_look_s_cell() {
         top.err
     );
     assert_eq!(f.draft(), before);
+}
+
+// ADR-1403 D8: every change the view makes is also a command, and the
+// look card sets a look's vtlook, so `look add` and `look set` take
+// --vtlook; the help's usage lines name --ligatures and --vtlook
+#[test]
+fn look_add_and_look_set_take_a_look_s_vtlook() {
+    let f = fixture("look-vtlook");
+    f.desk();
+    let added = f.run(&[
+        "look", "add", "big", "--frit", "monoid", "--vtlook", "amber",
+    ]);
+    assert_eq!(added.status, 0, "{}", added.err);
+    assert!(
+        f.draft()
+            .contains("[look big]\nfont-name = monoid\nvtlook = amber\n"),
+        "{}",
+        f.draft()
+    );
+    let set = f.run(&["look", "set", "big", "--vtlook", "sepia"]);
+    assert_eq!(set.status, 0, "{}", set.err);
+    assert!(
+        f.draft()
+            .contains("[look big]\nfont-name = monoid\nvtlook = sepia\n"),
+        "{}",
+        f.draft()
+    );
+    let help = f.run(&["--help", "look"]);
+    assert_eq!(help.status, 0, "{}", help.err);
+    let line = help
+        .out
+        .lines()
+        .find(|l| l.contains("look set NAME"))
+        .unwrap_or_else(|| panic!("look set's usage in {}", help.out));
+    assert!(line.contains("[--ligatures L]"), "{line}");
+    assert!(line.contains("[--vtlook NAME]"), "{line}");
 }
 
 #[test]

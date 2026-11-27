@@ -217,7 +217,8 @@ pub fn layers(dir: &Path) -> Vec<(String, vtium_font::set::layer::Role)> {
         .filter_map(|name| {
             let text = crate::frit::read_layer(&folder, &name).ok()??;
             let file = crate::frit::layer_file(&folder, &name);
-            let role = Frit::parse_layer(text.as_bytes(), &file, &name).ok()?;
+            // the list of layers has no place to show a layer's warnings
+            let (role, _) = Frit::parse_layer(text.as_bytes(), &file, &name).ok()?;
             Some((name, role))
         })
         .collect()
@@ -226,7 +227,8 @@ pub fn layers(dir: &Path) -> Vec<(String, vtium_font::set::layer::Role)> {
 /// The density pictures are drawn at, in ADR-1200 D17's order:
 /// vtium.conf's `display-dpi` where it is set within the bounds the
 /// console believes; else the density of the first of `displays` whose
-/// EDID states its size; else 96, as the console assumes.
+/// EDID states its size, at the mode `conf` sets for it; else 96, as the
+/// console assumes.
 pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32, DpiFrom) {
     use vtium_platform::display::{DPI_ASSUMED, DPI_MAX, DPI_MIN};
     let set = conf
@@ -236,7 +238,7 @@ pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32
     if let Some(dpi) = set {
         return (dpi, DpiFrom::Conf);
     }
-    if let Some(dpi) = displays.iter().find_map(crate::display::Display::dpi) {
+    if let Some(dpi) = displays.iter().find_map(|d| d.dpi_at(d.runs_at(conf))) {
         return (dpi, DpiFrom::Edid);
     }
     let assumed = format!("{DPI_ASSUMED}").parse::<u32>().unwrap_or(96);
@@ -245,8 +247,8 @@ pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32
 
 /// The density of each of `displays` as the console converts points at
 /// it: `display-dpi` where `conf` sets it within the bounds the console
-/// believes, else the display's own, else 96. With no display connected,
-/// the one density [`density`] gives.
+/// believes, else the display's own at the mode `conf` sets for it, else
+/// 96. With no display connected, the one density [`density`] gives.
 ///
 /// References:
 /// - ADR-1200 D17: the density, and the lowest density among the
@@ -259,7 +261,7 @@ pub fn densities(conf: Option<&str>, displays: &[crate::display::Display]) -> Ve
     let assumed = density(None, &[]).0;
     displays
         .iter()
-        .map(|d| d.dpi().unwrap_or(assumed))
+        .map(|d| d.dpi_at(d.runs_at(conf)).unwrap_or(assumed))
         .collect()
 }
 
@@ -293,6 +295,7 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         frits,
         view,
         display: displays.first().map(|d| d.pixels),
+        displays,
         // the desk reads the draft's flow once the loop runs
         flow: flow::Flow::default(),
         color: color::enabled(&|name| std::env::var(name).ok()),
@@ -394,7 +397,7 @@ pub fn scan_fonts(
         .map_err(|e| words::fonts_unjudged(&e.to_string()))?;
     let euid = crate::batch::rule_user(&paths.targets(), &paths.sudo);
     let found = crate::discover::scan(
-        &crate::discover::Folders::of_user(conf),
+        &font_folders(conf),
         &vtium_settings::cullet::Rule::running_as(euid),
         &mounts,
         &|path| {
@@ -405,6 +408,37 @@ pub fn scan_fonts(
     );
     let note = active.err().map(|fail| words::fonts_unread(fail.text()));
     Ok((found, note))
+}
+
+/// The folders the Fonts tab's font scan looks in: this machine's, with
+/// those that `font-paths` names in `conf`. In a build with the feature
+/// `test-hooks`, a test can aim the scan at folders of its own with
+/// [`aim_font_scan`].
+fn font_folders(conf: Option<&str>) -> crate::discover::Folders {
+    #[cfg(feature = "test-hooks")]
+    if let Some(aimed) = AIMED_FONT_SCAN.with(|a| a.borrow().clone()) {
+        return aimed;
+    }
+    crate::discover::Folders::of_user(conf)
+}
+
+#[cfg(feature = "test-hooks")]
+thread_local! {
+    /// The folders [`aim_font_scan`] set on this thread.
+    static AIMED_FONT_SCAN: std::cell::RefCell<Option<crate::discover::Folders>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A test hook: aims the Fonts tab's font scan on this thread at
+/// `folders`, in place of this machine's font folders, or with `None` back
+/// at this machine's. The scan at start and the scan after an install both
+/// read it, so a test that drives the TUI on this thread sees the font
+/// files it put there. Only a build with the feature `test-hooks` has it,
+/// which the workspace's `--all-features` test run turns on and no shipped
+/// build does.
+#[cfg(feature = "test-hooks")]
+pub fn aim_font_scan(folders: Option<crate::discover::Folders>) {
+    AIMED_FONT_SCAN.with(|a| *a.borrow_mut() = folders);
 }
 
 /// What the Fonts tab lists at start, from [`scan_fonts`], with the
@@ -540,6 +574,7 @@ pub fn summarizer(
 pub fn find_sources(
     frits: &Path,
     helper: &crate::specimen::Helper,
+    active: Option<&crate::serve::ActiveAsk>,
     names: &[String],
 ) -> Vec<(String, model::SourcesFound)> {
     let texts: Vec<(String, Result<crate::serve::FritText, String>)> = names
@@ -550,7 +585,7 @@ pub fn find_sources(
         .iter()
         .filter_map(|(_, t)| t.as_ref().ok().cloned())
         .collect();
-    let mut answers = crate::specimen::sources_of(helper, readable).into_iter();
+    let mut answers = crate::specimen::sources_through(helper, active, readable).into_iter();
     texts
         .into_iter()
         .map(|(name, text)| {
@@ -558,7 +593,7 @@ pub fn find_sources(
                 Ok(_) => answers.next().unwrap_or_else(|| {
                     crate::specimen::Sources::Unknown("the font helper did not answer".to_owned())
                 }),
-                Err(why) => crate::specimen::Sources::DrawsNothing(why),
+                Err(why) => crate::specimen::Sources::DrawsNothing(why, Vec::new()),
             };
             (name, found)
         })
@@ -566,9 +601,52 @@ pub fn find_sources(
 }
 
 /// The TUI's source finder, which runs on a thread of its own while the
-/// TUI goes on reading keys (ADR-1201 D3).
+/// TUI goes on reading keys. It reads each font set through the active
+/// fonts of the installed batch, as the console reads them, so the Looks
+/// tab and the live trial know which fonts the console leaves out because
+/// they are not active.
+///
+/// References:
+/// - ADR-1201 D3: the font helper finds the sources, never the TUI's own
+///   process.
+/// - ADR-1205 D4: the console draws only from the active fonts.
 pub fn finder(frits: PathBuf, helper: crate::specimen::Helper) -> port::Finder {
-    Box::new(move |names| find_sources(&frits, &helper, &names))
+    finder_through(frits, helper, installed_active())
+}
+
+/// [`finder`], reading each font set through `active`.
+pub fn finder_through(
+    frits: PathBuf,
+    helper: crate::specimen::Helper,
+    active: crate::serve::ActiveAsk,
+) -> port::Finder {
+    Box::new(move |names| find_sources(&frits, &helper, Some(&active), &names))
+}
+
+/// The active fonts of the batch the console reads: the installed batch
+/// file, read as root reads it, or the list of a fresh install where
+/// there is none.
+///
+/// References:
+/// - ADR-1205 D4: one batch, which the console reads, with the list of a
+///   fresh install in its place.
+fn installed_active() -> crate::serve::ActiveAsk {
+    let places = vtium_settings::batch::Places::system();
+    let read = vtium_settings::batch::Batch::system(&places, &vtium_settings::Trust::running_as(0));
+    console_active(&read.batch)
+}
+
+/// The active-fonts request that the console sends its font helper for
+/// `batch`. The system console runs as root, so it names account 0, and
+/// only root's files pass the trust rule. vtium-config's helper runs as
+/// the person and accepts account 0 as well, so a font file the person
+/// owns fails here as it fails on the console.
+///
+/// References:
+/// - ADR-1205 D4: a resource passes the trust rule only when root owns it
+///   and every folder above it.
+pub fn console_active(batch: &vtium_settings::batch::Batch) -> crate::serve::ActiveAsk {
+    crate::serve::ActiveAsk::of_batch(0, batch)
 }
 
 /// The TUI's describer: what each font file is, as `helper` describes it,
@@ -628,7 +706,14 @@ pub fn run(
             inputs.frits.clone(),
             paths.helper.clone(),
             locale(),
-            Some(inputs.display.unwrap_or(shot::ASSUMED_DISPLAY)),
+            Some(
+                inputs
+                    .displays
+                    .first()
+                    .map(|d| d.runs_at(inputs.conf.as_deref()))
+                    .or(inputs.display)
+                    .unwrap_or(shot::ASSUMED_DISPLAY),
+            ),
         ),
         finder: Some(finder(inputs.frits.clone(), paths.helper.clone())),
         describer: describer(paths.helper.clone()),
@@ -649,5 +734,31 @@ pub fn run(
             let _ = writeln!(err, "vtium-config: cannot use this terminal: {e}");
             1
         }
+    }
+}
+
+#[cfg(all(test, feature = "test-hooks"))]
+mod tests {
+    use super::*;
+
+    /// A test that aims the font scan at its own folder makes the scan
+    /// read that folder, on its own thread only, until it aims the scan
+    /// back at this machine's folders.
+    #[test]
+    fn aim_font_scan_points_the_font_scan_at_a_test_s_folders() {
+        let mine = crate::discover::Folders {
+            folders: vec![crate::discover::Folder {
+                path: std::path::PathBuf::from("/tmp/test-fonts"),
+                place: crate::discover::Place::User,
+            }],
+            packages: std::path::PathBuf::from("/tmp/test-fonts/packages"),
+            local: std::path::PathBuf::from("/tmp/test-fonts/local"),
+        };
+        aim_font_scan(Some(mine.clone()));
+        assert_eq!(font_folders(None), mine);
+        let other = std::thread::spawn(|| font_folders(None)).join();
+        assert_eq!(other.ok(), Some(crate::discover::Folders::of_user(None)));
+        aim_font_scan(None);
+        assert_eq!(font_folders(None), crate::discover::Folders::of_user(None));
     }
 }

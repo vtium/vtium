@@ -1,0 +1,30 @@
+kind how-do-i
+title How do I show one terminal on two displays?
+intro A path can hold several displays. Every display in the path shows the same terminal, and the keyboard in the path types into it.
+see heads-and-rules/show-a-terminal-on-a-display
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+device display HDMI-A-1 GSM:0x5b88:LEFT0001
+device display DP-1 DEL:0xa0c1:RIGHT0001
+device keyboard 046d:c31c USB Keyboard
+
+1. Go to the Flow tab.
+2. Highlight HDMI-A-1.
+3. Press Space to pick.
+4. Highlight DP-1.
+5. Press Space to pick.
+6. Highlight USB Keyboard.
+7. Press Space to pick.
+8. Press a to add path.
+9. Press s to save.
+at the save
+check draft display HDMI-A-1 reaches terminal-1
+check draft display DP-1 reaches terminal-1
+check draft input USB Keyboard reaches terminal-1

@@ -475,6 +475,72 @@ fn new_frit_writes_its_layers_in_the_order_of_their_roles() {
     assert!(ran.out.is_empty(), "{}", ran.out);
 }
 
+// new-frit keeps a font set or a layer that holds a line vtium ignores,
+// such as a key vtium does not know, and prints a warning for each such
+// line on standard error, in the words `vtium-config check` uses: the
+// file and line, why, and that vtium reads the rest of the font set.
+//
+// References:
+// - ADR-1510 D2: an unknown or misplaced key is reported with its file
+//   and line, and ignored alone.
+#[test]
+fn new_frit_warns_of_each_line_vtium_ignores() {
+    let f = fixture("new-ignored", None);
+    let fonts = f.etc().join("fonts");
+    let layers = fonts.join("layers");
+    std::fs::create_dir_all(&layers).expect("the layers' folder");
+    std::fs::write(
+        layers.join("sym.vtlayer"),
+        "role=symbols\nsource=font:S\nfrob=1\ncell=8x16\n",
+    )
+    .expect("a layer");
+    let ignored = "vtium ignores this line and reads the rest of the font set.";
+    let ran = f.run(&["new-frit", "T", "--layer", "sym", "--name", "mine"]);
+    f.kept(&ran, "mine.vtfrit");
+    let sym = layers.join("sym.vtlayer");
+    assert_eq!(
+        ran.err,
+        format!(
+            "warning\t{0}:3: frob= is not a key vtium knows. {ignored}\nwarning\t{0}:4: cell= is a font set's key, which applies to every source, so a layer cannot set it. {ignored}\n",
+            sym.display()
+        )
+    );
+    // a frit's own lines, from --from, warn the same way
+    let file = f.root.join("own.vtfrit");
+    std::fs::write(&file, "source=font:T\nfrob=1\n").expect("the frit");
+    let ran = f.run(&["new-frit", "--from", file.to_str().expect("a path")]);
+    f.kept(&ran, "own.vtfrit");
+    assert_eq!(
+        ran.err,
+        format!(
+            "warning\t{}:2: frob= is not a key vtium knows. {ignored}\n",
+            fonts.join("own.vtfrit").display()
+        )
+    );
+    // a layer= line that names a layer this machine lacks, or a layer it
+    // cannot read, keeps the frit and warns, as `vtium-config check` does
+    std::fs::write(layers.join("bad.vtlayer"), b"role=symbols\n\xff\n").expect("a layer");
+    std::fs::write(&file, "source=font:T\nlayer=gone\nlayer=bad\n").expect("the frit");
+    let ran = f.run(&[
+        "new-frit",
+        "--from",
+        file.to_str().expect("a path"),
+        "--name",
+        "holes",
+    ]);
+    f.kept(&ran, "holes.vtfrit");
+    let holes = fonts.join("holes.vtfrit");
+    assert_eq!(
+        ran.err,
+        format!(
+            "warning\t{0}:2: the layer gone is missing, because there is no file {1:?}. vtium draws the font set without that layer.\nwarning\t{0}:3: vtium-config cannot read the layer bad from {2:?}: the file is not UTF-8 text. vtium draws the font set without that layer.\n",
+            holes.display(),
+            layers.join("gone.vtlayer").display().to_string(),
+            layers.join("bad.vtlayer").display().to_string(),
+        )
+    );
+}
+
 // check FILE reads a frit's layers from the layers' folder of the frits'
 // directory, wherever the frit being checked is.
 //
@@ -710,8 +776,23 @@ fn check_judges_a_frit_and_a_vtium_conf_and_writes_nothing() {
         "{}",
         ran.out
     );
+    // a key vtium does not know is reported with its line and ignored,
+    // and the font set reads
+    let newer = f.root.join("newer.vtfrit");
+    std::fs::write(&newer, "source=builtin:unifont\ncolour=red\n").expect("a frit");
+    let ran = f.run(&["check", newer.to_str().expect("a path")]);
+    assert_eq!(ran.status, 0, "{}", ran.err);
+    assert_eq!(
+        ran.out,
+        format!(
+            "warning\t{}:2: colour= is not a key vtium knows. vtium ignores this line and reads the rest of the font set.\nok\t{}\n",
+            newer.display(),
+            newer.display()
+        )
+    );
+    // a value the key cannot take refuses the font set
     let bad = f.root.join("bad.vtfrit");
-    std::fs::write(&bad, "source=builtin:unifont\ncolour=red\n").expect("a frit");
+    std::fs::write(&bad, "source=builtin:unifont\nantialias=red\n").expect("a frit");
     let ran = f.run(&["check", bad.to_str().expect("a path")]);
     assert_eq!(ran.status, 1, "{}", ran.out);
     assert!(ran.err.contains("bad.vtfrit:2"), "{}", ran.err);
@@ -786,7 +867,7 @@ fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
         "source=font:No Such Family Anywhere\nversion=2.304\nurl=https://example.org/nsfa\n",
     )
     .expect("a frit");
-    std::fs::write(fonts.join("broken.vtfrit"), "colour=red\n").expect("a frit");
+    std::fs::write(fonts.join("broken.vtfrit"), "antialias=red\n").expect("a frit");
     let ran = f.run(&["--font-dir", "/nonexistent", "fonts"]);
     assert_eq!(ran.status, 0, "{}", ran.err);
     let lines: Vec<&str> = ran.out.lines().collect();

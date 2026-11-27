@@ -8,7 +8,7 @@ Usage:
     tools/stage/check [--remote NAME] [COMMIT]
 
 `stage` is the branch that holds one batch of `integration` while that batch
-goes to main through a pull request (AGENTS.md, "The working loop", step 7).
+goes to main through a pull request (docs/contributing/steering.md, step 7).
 When that pull request merges, main gains a merge commit that `integration`
 does not have. main must then be merged into `integration` before `stage`
 moves again. Otherwise the next `stage` does not descend from main, and its

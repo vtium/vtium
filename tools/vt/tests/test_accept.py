@@ -29,6 +29,18 @@ import unittest
 # The longest any test waits on another process. It only makes a broken test fail instead of hanging.
 WAIT_BOUND = 120
 
+# The tests start the tools as a terminal starts them, with the signals a
+# terminal sends at their defaults. A launcher can leave one of them ignored:
+# nohup ignores SIGHUP, and a shell ignores SIGINT and SIGQUIT in a job it
+# starts in the background. Every process the tests start inherits that, and
+# bash cannot trap a signal that was ignored when it started, so accept.sh
+# would go on through the hangup a test sends it, and the test would see the
+# walk carry on instead of end. So the tests put these signals back to their
+# defaults before they start anything.
+for _sig in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM):
+    if signal.getsignal(_sig) == signal.SIG_IGN:
+        signal.signal(_sig, signal.default_int_handler if _sig == signal.SIGINT else signal.SIG_DFL)
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 VT = os.path.join(ROOT, "tools", "vt")
 ACCEPT_SH = os.path.join(VT, "accept.sh")
@@ -217,9 +229,12 @@ class Case(unittest.TestCase):
     def env(self, label="vtium dev build v1-test", **extra):
         env = {"PATH": os.environ["PATH"], "TERM": "linux", "HOME": self.tmp,
                "ACCEPT_SYSFS": self.sysfs, "ACCEPT_PROC": self.proc,
-               "ACCEPT_DIR": self.passes, "ACCEPT_PAGES": self.pages, "ACCEPT_LABEL": label}
+               "ACCEPT_DIR": self.passes, "ACCEPT_PAGES": self.pages, "ACCEPT_LABEL": label,
+               # as a review run gives them, so no pass reads the machine's
+               # own /etc/vtium/vtium.conf; None leaves one out
+               "ACCEPT_MODES": "", "ACCEPT_MODE_FROM": ""}
         env.update(extra)
-        return env
+        return {k: v for k, v in env.items() if v is not None}
 
     def walk(self, env, *argv, da1=DA1_TEXT, frits=("unifont",), size=(25, 80), font="unifont"):
         return Pty(["/bin/bash", ACCEPT_SH, *argv], env, da1, frits, size, font)
@@ -1078,6 +1093,52 @@ class Pages(Case):
                     self.assertLessEqual(w, 160, line)
                 self.assertLessEqual(rows, 17)
 
+    def run_page(self, name, **env):
+        p = subprocess.run(["bash", os.path.join(SECTIONS, name)], capture_output=True, timeout=WAIT_BOUND,
+                           stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"], **env})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stdout.decode()
+
+    def test_the_sizes_page_judges_the_live_trial_of_a_size(self):
+        # The maintainer judges Enter's trial of a size on the console: 10
+        # seconds at that size, back on any key but k, and k keeping it
+        # until vtium-config quits.
+        text = read(os.path.join(SECTIONS, "74-looks-sizes.sh"))
+        look_for = " ".join(re.findall(r"^# look-for: (.*)$", text, re.M))
+        for words in ("Enter", "10 seconds", "any key but k", "k keeps", "vtium-config quits"):
+            self.assertIn(words, look_for)
+        self.assertNotIn("preview", look_for)
+        # vtium reads allow-window-ops only when it starts, so the console
+        # of the whole pass lets programs resize its grid
+        self.assertIs(top_switch(os.path.join(VT, "config", "vtium.conf"), "allow-window-ops"), True)
+
+    def test_double_size_shows_powerline_only_in_a_font_set_with_a_powerline_font(self):
+        # A font set without a font for the Powerline range draws U+E0B0
+        # from the built-in unifont, whose Private Use Area holds unrelated
+        # letters, so the page cannot pass there.
+        powerline = ""
+        for frit, shown in (("glyph-fit-default", True), ("acceptance-outline", False),
+                            ("acceptance-bitmap", False), ("", False)):
+            with self.subTest(frit=frit):
+                out = self.run_page("58-double-size-scripts.sh", ACCEPT_FRIT=frit)
+                if shown:
+                    self.assertIn(powerline, out)
+                    self.assertNotIn("no Powerline font", out)
+                else:
+                    self.assertNotIn(powerline, out)
+                    self.assertIn("no Powerline font", out)
+                self.assertIn("\x1b#6😀", out)
+
+    def test_skip_ink_shows_the_whole_sample_on_its_double_width_line(self):
+        out = self.run_page("21-skip-ink.sh")
+        words = "gjpqy: jog, pygmy, quip, yoga, gauge"
+        wide = [l for l in out.split("\n") if l.startswith("\x1b#6")]
+        self.assertEqual(len(wide), 1)
+        self.assertIn(f"\x1b[4m{words}\x1b[0m", wide[0])
+        # a double-width line takes two columns for each character, and
+        # the pass runs on displays as narrow as 80 columns
+        self.assertLessEqual(2 * widest(wide[0]), 80, wide[0])
+
     def test_every_page_is_a_file_of_its_own_numbered_in_order(self):
         names = self.page_files()
         self.assertEqual(len(set(n[:2] for n in names)), len(names), "two pages share a number")
@@ -1203,6 +1264,32 @@ exit 3
 """
 
 LOOKS_PAGES = ["64-look-pointer.sh", "74-looks-sizes.sh", "76-looks-font-set.sh"]
+STAGE_CONF = "version = 1\nallow-window-ops\n"
+
+
+def looks_conf(dir, top=()):
+    """The vtium.conf a Looks page gives vtium-config, from its folder DIR,
+    with the top-level lines TOP after font-frits."""
+    return "\n".join(["version = 1", f"font-frits = {dir}/frits", *top, "[look big]",
+                      "font-name = acceptance-outline", "font-size = 20", "[look small]",
+                      "font-name = acceptance-bitmap", "pointer-theme = /usr/share/vtium/pointers.svg",
+                      "[head desk]", "look = big", "[rules]", "display * -> desk", ""])
+
+
+def top_switch(path, key):
+    """Whether the vtium.conf at PATH turns the switch KEY on at its top
+    level, by its last line that sets it: True, False, or None when no
+    line does. A switch reads `key` for on and `no-key` for off."""
+    on = None
+    for line in read(path).splitlines():
+        line = re.sub(r"(^|\s)#.*", "", line).strip()
+        if line.startswith("["):
+            break
+        if line == key:
+            on = True
+        elif line == f"no-{key}":
+            on = False
+    return on
 
 
 class Looks(Case):
@@ -1215,7 +1302,8 @@ class Looks(Case):
         self.stage = os.path.join(self.tmp, "stage")
         os.makedirs(os.path.join(self.stage, "config"))
         os.makedirs(os.path.join(self.stage, "frits"))
-        write(os.path.join(self.stage, "config", "vtium.conf"), "version = 1\n")
+        # the pass's own vtium.conf turns allow-window-ops on, for page 74
+        write(os.path.join(self.stage, "config", "vtium.conf"), STAGE_CONF)
         write(os.path.join(self.stage, "frits", "acceptance-outline.frit"), "outline\n")
         write(os.path.join(self.stage, "frits", "acceptance-bitmap.frit"), "bitmap\n")
         write(os.path.join(self.stage, "vtium"), "#!/bin/sh\nexit 0\n", 0o755)
@@ -1280,7 +1368,7 @@ class Looks(Case):
         return os.path.dirname(argv[1])
 
     def test_a_looks_page_runs_vtium_config_on_a_vtium_conf_of_its_own_then_removes_it(self):
-        status, seen = self.looks("74-looks-sizes.sh")
+        status, seen = self.looks("64-look-pointer.sh")
         self.assertEqual(status, 0, seen[-500:])
         self.assertIn("vtium-config ended with status 3.", seen)
         dir = self.folder()
@@ -1297,16 +1385,55 @@ class Looks(Case):
                           f"XDG_CACHE_HOME={dir}/home/.cache"])
         self.assertEqual(read(os.path.join(self.log, "frits")).splitlines(),
                          ["acceptance-bitmap.frit", "acceptance-outline.frit"])
-        self.assertEqual(read(os.path.join(self.log, "vtium.conf")), "\n".join([
-            "version = 1", f"font-frits = {dir}/frits", "[look big]", "font-name = acceptance-outline",
-            "font-size = 20", "[look small]", "font-name = acceptance-bitmap",
-            "pointer-theme = /usr/share/vtium/pointers.svg", "[head desk]", "look = big", "[rules]",
-            "display * -> desk", ""]))
+        self.assertEqual(read(os.path.join(self.log, "vtium.conf")), looks_conf(dir))
         self.assertFalse(os.path.exists(dir))
         self.assertEqual(os.listdir(self.run_dir), [])
         self.assertEqual(os.listdir(self.tmpdir), [])
         # The stage's own vtium.conf is untouched.
-        self.assertEqual(read(os.path.join(self.stage, "config", "vtium.conf")), "version = 1\n")
+        self.assertEqual(read(os.path.join(self.stage, "config", "vtium.conf")), STAGE_CONF)
+
+    def test_only_the_sizes_page_lets_vtium_config_resize_the_console(self):
+        # Page 74 judges Enter's live trial of a size, which vtium-config
+        # offers only when its vtium.conf turns allow-window-ops on. The
+        # other Looks pages keep the vtium.conf they share.
+        for page in LOOKS_PAGES:
+            with self.subTest(page=page):
+                status, seen = self.looks(page)
+                self.assertEqual(status, 0, seen[-500:])
+                top = ["allow-window-ops"] if page == "74-looks-sizes.sh" else []
+                self.assertEqual(read(os.path.join(self.log, "vtium.conf")), looks_conf(self.folder(), top))
+
+    def test_a_looks_page_gives_vtium_config_the_consoles_display_modes(self):
+        # The console's vtium.conf carries the machine's display modes, and
+        # the page's own vtium.conf carries them on, so the TUI is given the
+        # mode each display runs at. Only the console's top level counts.
+        write(os.path.join(self.stage, "config", "vtium.conf"),
+              "# the machine's display modes\nmode=[DP-3]7680x2160@120\nuse-original-mode\n" + STAGE_CONF +
+              "  mode = 1920x1080  # a second display\n[look x]\nmode=640x480\n")
+        for page in LOOKS_PAGES:
+            with self.subTest(page=page):
+                status, seen = self.looks(page)
+                self.assertEqual(status, 0, seen[-500:])
+                top = ["mode=[DP-3]7680x2160@120", "use-original-mode", "mode=1920x1080"]
+                if page == "74-looks-sizes.sh":
+                    top.append("allow-window-ops")
+                self.assertEqual(read(os.path.join(self.log, "vtium.conf")), looks_conf(self.folder(), top))
+
+    def test_the_sizes_page_cannot_show_while_the_console_leaves_window_ops_off(self):
+        # vtium ignores vtium-config's grid request while the console's own
+        # vtium.conf leaves allow-window-ops off, so no size would change.
+        why = os.path.join(self.tmp, "why")
+        for conf in ("version = 1\n", "version = 1\nallow-window-ops\nno-allow-window-ops\n",
+                     "version = 1\n[look x]\nallow-window-ops\n"):
+            with self.subTest(conf=conf):
+                write(os.path.join(self.stage, "config", "vtium.conf"), conf)
+                p = subprocess.run(["bash", os.path.join(SECTIONS, "74-looks-sizes.sh")], capture_output=True,
+                                   timeout=WAIT_BOUND, stdin=subprocess.DEVNULL,
+                                   env={"PATH": os.environ["PATH"], "ACCEPT_WHY": why,
+                                        "ACCEPT_VTIUM_CONF": os.path.join(self.stage, "config", "vtium.conf")})
+                self.assertEqual(p.returncode, 77, p.stdout)
+                self.assertIn("allow-window-ops", read(why))
+                self.assertFalse(os.path.exists(os.path.join(self.log, "argv")))
 
     def test_without_a_runtime_directory_the_folder_goes_in_the_home_folder(self):
         status, seen = self.looks("74-looks-sizes.sh", runtime=False)
@@ -1532,6 +1659,19 @@ class Frits(Case):
         with open(path, "rb") as f:
             return hashlib.sha256(f.read()).hexdigest()
 
+    def test_frits_lists_the_font_sets_of_the_chosen_pages_and_starts_nothing(self):
+        # vt.sh asks --frits which font sets to check before it starts vtium:
+        # each name of a "# frits:" or "# font-switch:" line once, sorted.
+        write(os.path.join(self.pages, "30-switch.sh"),
+              "# look-for: big\n# wrong-looks-like: anything else\n# font-switch: large outline\nprintf 'big\\n'\n")
+        for only, want in (("", "absent\nlarge\noutline\nrefused\n"), ("20", ""), ("30", "large\noutline\n"),
+                           ("10, 20", "absent\noutline\nrefused\n")):
+            with self.subTest(only=only):
+                p = subprocess.run(["/bin/bash", ACCEPT_SH, "--frits"], env=self.env(ACCEPT_ONLY=only),
+                                   stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=WAIT_BOUND)
+                self.assertEqual((p.returncode, p.stdout, p.stderr), (0, want, ""))
+        self.assertFalse(os.path.exists(self.passes))
+
     def walk_all(self):
         # vtium's frits directory holds outline and absent, not refused
         d = self.walk(self.env(), frits=("unifont", "outline", "absent"))
@@ -1655,11 +1795,11 @@ class Hardware(Case):
     HARDWARE = ("- machine: Example Boards EB-1 2.0\n"
                 "- kernel: 7.2.14-test\n"
                 "- gpu: card0 driver amdgpu, 0x1002:0x744c at 0000:03:00.0\n"
-                "- display: DP-1, preferred mode 3840x2160, EDID make DEL product 0xA0F1 model DELL U2723QE\n"
+                "- display: DP-1, runs at its preferred mode 3840x2160, EDID make DEL product 0xA0F1 model DELL U2723QE\n"
                 "- text-area: 640x400 pixels, as vtium reports it (XTWINOPS 14)\n")
 
-    def one_pass(self, quit=False):
-        d = self.walk(self.env(), "one", "two")
+    def one_pass(self, quit=False, **env):
+        d = self.walk(self.env(**env), "one", "two")
         d.wait_for(b"press a key to start the pass")
         d.send(b" ")
         d.wait_for(ASK)
@@ -1675,6 +1815,52 @@ class Hardware(Case):
         _, text = self.record()
         self.assertIn(self.HARDWARE, text)
         self.assertRegex(text, r"- hardware: [0-9a-f]{64}; this pass is evidence about the hardware above only\n")
+
+    def display_line(self, **env):
+        """The record's display line, from a pass run with ENV."""
+        for n in os.listdir(self.passes) if os.path.isdir(self.passes) else ():
+            os.remove(os.path.join(self.passes, n))
+        self.one_pass(**env)
+        _, text = self.record()
+        return [l for l in text.splitlines() if l.startswith("- display: ")]
+
+    def test_a_pass_names_the_mode_each_display_runs_at_and_where_it_comes_from(self):
+        # run-vt.sh gives the pass the display-mode lines vtium is given and
+        # where they come from. The display runs at the line that matches
+        # it best, as vtium picks: one naming the card and the connector,
+        # then one naming the connector, then one naming neither.
+        edid = "EDID make DEL product 0xA0F1 model DELL U2723QE"
+        machine = "the machine's vtium.conf, /etc/vtium/vtium.conf"
+        for modes, line in (
+                ("mode=[DP-1]1920x1080@60",
+                 f"runs at 1920x1080@60 from {machine} (mode=[DP-1]1920x1080@60), preferred mode 3840x2160"),
+                ("mode=1920x1080 mode=[HDMI-A-1]1280x720 mode=[DP-1]1920x1080@60 "
+                 "mode=pci-0000:03:00.0[DP-1]3840x2160@30 mode=pci-0000:04:00.0[DP-1]1920x1080",
+                 f"runs at 3840x2160@30 from {machine} (mode=pci-0000:03:00.0[DP-1]3840x2160@30), "
+                 "preferred mode 3840x2160"),
+                ("mode=[HDMI-A-1]1280x720", "runs at its preferred mode 3840x2160"),
+                ("mode=[DP-1]1234x567",
+                 f"runs at its preferred mode 3840x2160, since it offers no 1234x567 for {machine} "
+                 "(mode=[DP-1]1234x567)"),
+                ("use-original-mode",
+                 f"keeps the mode the console showed, from {machine} (use-original-mode), preferred mode 3840x2160"),
+                ("use-original-mode no-use-original-mode", "runs at its preferred mode 3840x2160"),
+                # a mode line turns use-original-mode off
+                ("use-original-mode mode=1920x1080",
+                 f"runs at 1920x1080 from {machine} (mode=1920x1080), preferred mode 3840x2160")):
+            with self.subTest(modes=modes):
+                self.assertEqual(self.display_line(ACCEPT_MODES=modes, ACCEPT_MODE_FROM=machine),
+                                 [f"- display: DP-1, {line}, {edid}"])
+        # No line: the preferred mode.
+        self.assertEqual(self.display_line(ACCEPT_MODES="", ACCEPT_MODE_FROM=""),
+                         [f"- display: DP-1, runs at its preferred mode 3840x2160, {edid}"])
+        # A pass started by hand, in a login or a shell, reads the lines of
+        # the vtium.conf ACCEPT_VTIUM_CONF names.
+        conf = os.path.join(self.tmp, "vtium.conf")
+        write(conf, "font-size=34\nmode = [DP-1]1920x1080  # the desk\n[look big]\nmode=640x480\n")
+        self.assertEqual(self.display_line(ACCEPT_VTIUM_CONF=conf, ACCEPT_MODES=None, ACCEPT_MODE_FROM=None),
+                         [f"- display: DP-1, runs at 1920x1080 from {conf} (mode=[DP-1]1920x1080), "
+                          f"preferred mode 3840x2160, {edid}"])
 
     def test_a_pass_never_resumes_on_other_hardware(self):
         self.one_pass(quit=True)

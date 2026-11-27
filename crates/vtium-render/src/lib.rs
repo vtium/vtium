@@ -52,7 +52,7 @@
 //! device memory is never read. A [`Canvas`] keeps them in memory, for
 //! tests and tier 2; a [`Mapped`] writes them into a mapped dumb buffer.
 //!
-//! With the `gpu` feature, the [`gpu`] module holds the GPU path: the safe
+//! With the `gpu` feature, the `gpu` module holds the GPU path: the safe
 //! `Gl` trait it draws through and the pipeline of slots each frame passes
 //! (ADR-1303).
 //!
@@ -116,8 +116,8 @@ pub use pointer_file::{PictureSizes, PointerPictures, svg as pointer_file_svg};
 #[doc(hidden)]
 pub use renderer::TestInk;
 pub use renderer::{
-    BlinkStyle, Config, DecoColor, DecorationColors, DrawState, Drawn, PointerShape, Renderer,
-    Stats, TextBlink,
+    BlinkStyle, Config, DecoColor, DecorationColors, DrawState, Drawn, PartialRow, Placement,
+    PointerShape, Renderer, Stats, TextBlink, grid_origin,
 };
 pub use target::{Canvas, Mapped, Orientation, Rect, Target};
 pub use timer::{RenderTimer, Report};

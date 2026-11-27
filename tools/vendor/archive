@@ -288,7 +288,8 @@ stage_fonts() {
         done
     else
         echo "archive: $from does not hold Cullet Mono's faces, so the check builds them, which needs FontForge 20251009"
-        cargo run --release --locked --manifest-path "$work/src/tools/cullet-mono/Cargo.toml" \
+        CARGO_BUILD_BUILD_DIR="$work/cullet-mono-tool" \
+            cargo run --release --locked --manifest-path "$work/src/tools/cullet-mono/Cargo.toml" \
             --target-dir "$work/cullet-mono-tool" -- build --out "$cullet" ||
             die "cannot build Cullet Mono's faces, which make install installs"
     fi
@@ -319,13 +320,15 @@ check() {
         echo "archive: unshare -rn is not allowed here; building offline through CARGO_NET_OFFLINE=true and an empty CARGO_HOME"
     fi
     # Each build runs as a package build would, without the caller's
-    # compiler wrapper or make's variables. GIT_CEILING_DIRECTORIES keeps
-    # git, which make install asks for the revision, from finding a checkout
-    # that holds OUT.
+    # compiler wrapper or make's variables, and builds in its own directory,
+    # which is both cargo's target directory and its build directory, so a
+    # build.build-dir in the caller's cargo configuration does not reach it.
+    # GIT_CEILING_DIRECTORIES keeps git, which make install asks for the
+    # revision, from finding a checkout that holds OUT.
     cd "$work/src"
     set -- "$@" env -u RUSTC_WRAPPER -u MAKEFLAGS -u MFLAGS -u MAKELEVEL \
         CARGO_HOME="$work/cargo-home" CARGO_NET_OFFLINE=true \
-        CARGO_TARGET_DIR="$work/target" GIT_CEILING_DIRECTORIES="$work"
+        CARGO_TARGET_DIR="$work/target" CARGO_BUILD_BUILD_DIR="$work/target" GIT_CEILING_DIRECTORIES="$work"
     # The manifest must list the crates that cargo reads from the archive.
     "$@" python3 -I -B "$repo/tools/vendor/manifest" check "$work/src" "$out/$manifest" ||
         die "$manifest does not list the crates of $name"

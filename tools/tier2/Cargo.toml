@@ -24,8 +24,9 @@ vtium-term = { workspace = true, features = ["images", "bidi"] }
 # console leaves out
 vtium-font = { workspace = true, features = ["psf"] }
 # the screens drawn with a vtlook's color filters look each pixel up in
-# their color table (ADR-1304 D2)
-vtium-render = { workspace = true, features = ["images", "bidi", "filters"] }
+# their color table (ADR-1304 D2), and each screen is shown by the pan and
+# the copy too (ADR-1310 D6)
+vtium-render = { workspace = true, features = ["images", "bidi", "filters", "scroll-pan"] }
 # generates the test PSF fonts' glyphs through the engine the helper runs,
 # for the screens drawn from sets
 vtium-config = { path = "../../crates/vtium-config" }

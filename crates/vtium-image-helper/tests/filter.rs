@@ -31,12 +31,12 @@ fn child(worker: bool) -> u8 {
     }
     // the filters of a worker on a kernel without landlock, which adds a
     // third
-    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build(0) else {
+    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build(0, true) else {
         return 92;
     };
     match vtium_image_helper::sandbox::install_helper_filter() {
-        Ok(true) => {}
-        Ok(false) => return 0,
+        Ok(None) => {}
+        Ok(Some(_)) => return 0,
         Err(_) => return 91,
     }
     // an internet socket is outside the list
@@ -175,12 +175,12 @@ fn last_filter() -> u8 {
     if !vtium_image_helper::fork::one_thread() {
         return 90;
     }
-    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build(1) else {
+    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build(1, true) else {
         return 92;
     };
     match vtium_image_helper::sandbox::install_helper_filter() {
-        Ok(true) => {}
-        Ok(false) => return 0,
+        Ok(None) => {}
+        Ok(Some(_)) => return 0,
         Err(_) => return 91,
     }
     if seccomp_null() != libc::EFAULT {
@@ -294,8 +294,8 @@ fn attack(victim: i32) -> u8 {
         return 90;
     }
     match vtium_image_helper::sandbox::install_helper_filter() {
-        Ok(true) => {}
-        Ok(false) => return 0,
+        Ok(None) => {}
+        Ok(Some(_)) => return 0,
         Err(_) => return 91,
     }
     let nosys = libc::ENOSYS;
@@ -469,6 +469,16 @@ fn locked() -> u8 {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // `--list --format terse` lists this binary as one test named main,
+    // the way libtest lists a test, so that cargo-nextest finds the binary
+    // and runs it whole. No test is ignored, so the list of ignored tests
+    // is empty.
+    if args.iter().any(|a| a == "--list") {
+        if !args.iter().any(|a| a == "--ignored") {
+            println!("main: test");
+        }
+        return ExitCode::SUCCESS;
+    }
     match args.first().map(String::as_str) {
         Some("--child") => return ExitCode::from(child(false)),
         Some("--worker") => return ExitCode::from(child(true)),

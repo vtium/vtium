@@ -1,10 +1,9 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-assertion_line: 117
 description: "looks.new-frit.list at 100×30, keys: 3 Down n Enter"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
- draft mine · no changes · no problems                           text preview · live trial in Looks
+ draft mine · no changes · no problems                           text preview · trial: Fonts, Looks
 ----------------------------------------------------------------------------------------------------
    ○ DejaVu Sans Mono  /usr/share/fonts/TTF/DejaVuSansMono.ttf
    ○ Cullet Mono       /usr/share/vtium/fonts/cullet-mono.otf

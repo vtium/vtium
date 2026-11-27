@@ -128,14 +128,14 @@ pub(crate) enum Opening<D> {
     /// The device is refused until the seat is vtium's again. [`Input`]
     /// keeps it and tries it again at its next wake-up.
     #[cfg_attr(
-        not(feature = "libseat"),
-        expect(dead_code, reason = "only the seat manager answers it")
+        not(any(feature = "libseat", feature = "split")),
+        expect(dead_code, reason = "only the seat manager and the broker answer it")
     )]
     Wake,
 }
 
-/// How the devices are opened: directly, or through the seat manager
-/// (vtium/vtium#34).
+/// How the devices are opened: directly, through the seat manager
+/// (vtium/vtium#34), or through vtium's broker.
 pub(crate) trait Open {
     type Device: EventDevice;
     fn open(&mut self, node: &Path) -> io::Result<Opening<Self::Device>>;
@@ -591,10 +591,15 @@ impl<O: Open + 'static> Input<O> {
                 self.config.mouse,
                 &self.keymap,
             ) {
-                Some(probed) => device.probed = Some(probed),
-                None => {
+                Probe::Taken(probed) => device.probed = Some(*probed),
+                Probe::Dropped => {
                     close_with(&mut self.opener, &mut self.seat, &device.node, dev);
                     return false;
+                }
+                Probe::Later => {
+                    close_with(&mut self.opener, &mut self.seat, &device.node, dev);
+                    device.waiting = Some(Waiting::Wake);
+                    return true;
                 }
             }
         }
@@ -911,13 +916,16 @@ impl<O: Open + 'static> Input<O> {
         }
     }
 
-    /// From here on, every device opens through `seat`, the seat manager,
-    /// in place of the opener (ADR-1400's L2 layer). A device open already
-    /// is closed through the opener and opened again through the seat
-    /// while the input is awake.
+    /// From here on, every device opens through `seat`, the seat manager
+    /// or vtium's broker, in place of the opener (ADR-1400's L2 layer). A
+    /// device open already is closed through the opener and opened again
+    /// through the seat while the input is awake.
     #[cfg_attr(
-        not(feature = "libseat"),
-        expect(dead_code, reason = "only a libseat build opens through the seat")
+        not(any(feature = "libseat", feature = "split")),
+        expect(
+            dead_code,
+            reason = "only a build with libseat or the split opens through another process"
+        )
     )]
     pub(crate) fn open_with(&mut self, seat: impl Open<Device = O::Device> + 'static) {
         let open: Vec<DeviceId> = self
@@ -938,6 +946,21 @@ impl<O: Open + 'static> Input<O> {
     }
 }
 
+#[cfg(feature = "split")]
+impl Input<Direct> {
+    /// From here on, every keyboard and pointer opens through vtium's
+    /// broker, in place of a direct open, as the drawer must under the
+    /// privilege split. vtium calls it once with
+    /// [`crate::vt::BrokerVt::input`].
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker opens the input
+    ///   devices and revokes them at each release.
+    pub fn open_through_broker(&mut self, broker: crate::vt::BrokerInput) {
+        self.open_with(broker);
+    }
+}
+
 #[cfg(feature = "libseat")]
 impl Input<Direct> {
     /// From here on, every keyboard and pointer opens through the seat
@@ -949,29 +972,57 @@ impl Input<Direct> {
     }
 }
 
+/// What a probe found.
+enum Probe {
+    /// A device vtium takes.
+    Taken(Box<Probed>),
+    /// A device vtium does not take: its bitmaps cannot be read, or it is
+    /// no keyboard or pointer and no rule places it.
+    Dropped,
+    /// A device whose descriptor answered ENODEV. evdev answers so once the
+    /// seat manager has revoked the file, as logind does when another
+    /// session takes the seat, and once the device is unplugged. vtium
+    /// keeps the device closed and probes it at the next wake-up, and
+    /// udev's removal drops a device that was unplugged.
+    Later,
+}
+
 /// Probes a device opened the first time: what it reports, its keyboard
-/// and its pointer, and the line saying what it is used as. `None` when
-/// vtium does not take it: with no disposition, a device that is no
-/// keyboard or pointer by the rule vtium has always used.
+/// and its pointer, and the line saying what it is used as. Without a
+/// disposition, vtium drops a device that is no keyboard or pointer by the
+/// rule vtium has always used.
 fn probe<E: EventDevice>(
     dev: &E,
     node: &Path,
     disposition: Option<Disposition>,
     mouse: bool,
     keymap: &Keymap,
-) -> Option<Probed> {
+) -> Probe {
+    // A device whose name cannot be read is named by its node alone.
     let name = dev.name();
+    let label = if name.is_empty() {
+        node.display().to_string()
+    } else {
+        format!("{} [{name}]", node.display())
+    };
     let caps = match dev.bits() {
         Ok(bits) => Capabilities::from_bits(&bits),
+        Err(e) if rustix::io::Errno::from_io_error(&e) == Some(rustix::io::Errno::NODEV) => {
+            log::warn!(
+                target: "input",
+                "cannot probe {label}: {e}. vtium skips the device and probes it again the next time it opens the input devices."
+            );
+            return Probe::Later;
+        }
         Err(e) => {
-            log::warn!(target: "input", "cannot probe {name}: {e}");
-            Capabilities::default()
+            log::warn!(target: "input", "cannot probe {label}: {e}. vtium does not use the device.");
+            return Probe::Dropped;
         }
     };
     let placed = disposition.is_some();
     if !placed && !caps.usable(mouse) {
-        log::debug!(target: "input", "ignoring {} [{name}]", node.display());
-        return None;
+        log::debug!(target: "input", "ignoring {label}");
+        return Probe::Dropped;
     }
     let keys = caps.keys || (placed && caps.any_key);
     let kind = caps.pointer_kind();
@@ -980,25 +1031,21 @@ fn probe<E: EventDevice>(
         .map(|(vendor, product)| format!(" {vendor:04x}:{product:04x}"))
         .unwrap_or_default();
     if disposition == Some(Disposition::Rescue) {
-        log::info!(
-            target: "input",
-            "watching {} [{name}]{id} for the VT keys",
-            node.display()
-        );
+        log::info!(target: "input", "watching {label}{id} for the VT keys");
     } else {
-        log::info!(
-            target: "input",
-            "using {} [{name}]{id} as {}{}",
-            node.display(),
-            if keys { "keyboard" } else { "" },
-            kind.name()
-        );
+        let what = match (keys, kind.name()) {
+            (true, "") => "keyboard".to_owned(),
+            (true, pointer) => format!("keyboard and {pointer}"),
+            (false, "") => "a device with no keys and no pointer".to_owned(),
+            (false, pointer) => pointer.to_owned(),
+        };
+        log::info!(target: "input", "using {label}{id} as {what}");
     }
-    Some(Probed {
+    Probe::Taken(Box::new(Probed {
         caps,
         keyboard: keys.then(|| Keyboard::new(keymap)),
         pointer: Pointer::new(kind),
-    })
+    }))
 }
 
 /// A screen's width and height as the pointer's last pixel.

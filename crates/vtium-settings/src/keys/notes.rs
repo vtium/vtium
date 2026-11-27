@@ -172,6 +172,21 @@ pub static NOTES: [Note; KEYS.len()] = [
         "vtium-platform",
         "[the displays issue](https://github.com/vtium/vtium/issues/18)",
     ),
+    note(
+        SCROLL_DRAW,
+        "vtium",
+        "[the faster scrolling issue](https://github.com/vtium/vtium/issues/432)",
+    ),
+    note(
+        SMOOTH_SCROLL,
+        "vtium",
+        "[the smooth scrolling issue](https://github.com/vtium/vtium/issues/427)",
+    ),
+    note(
+        PARTIAL_ROW,
+        "vtium",
+        "[the smooth scrolling issue](https://github.com/vtium/vtium/issues/427)",
+    ),
     note(HWACCEL, "vtium", "kmscon's `hwaccel` key"),
     note(
         USE_ORIGINAL_MODE,
@@ -338,6 +353,11 @@ pub static NOTES: [Note; KEYS.len()] = [
         FONT_HELPER,
         "vtium",
         "[the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145); the maintainer's decision of 2026-11-01",
+    ),
+    note(
+        HELPER_SANDBOX,
+        "vtium",
+        "[the image helper issue](https://github.com/vtium/vtium/issues/31); the maintainer's decision of 2026-11-22",
     ),
     note(
         FONT_SIZE,

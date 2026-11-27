@@ -38,6 +38,39 @@ filters = ["vtium-render/filters", "vtium-settings/filters"]
 # switching come from it; otherwise the kernel's VT, as without the
 # feature.
 libseat = ["vtium-platform/libseat"]
+# Faster scrolling on the CPU path: each display that the driver lets pan
+# keeps buffers taller than the screen and shows a scroll by moving the
+# window it shows, and any other display copies the window from a ring of
+# drawn rows in system memory. vtium.conf's `scroll-draw` chooses the way.
+# The minspec build leaves it out and draws every scroll again.
+#
+# References:
+# - ADR-1310 D6: the pan, the copy, and the feature that builds them.
+# - ADR-1401 D2: the tall buffer and the copy's ring.
+scroll-pan = ["vtium-term/rows-beyond", "vtium-render/scroll-pan", "vtium-platform/scroll-pan"]
+# Smooth scrolling. A console whose `smooth-scroll` is on keeps its grid's
+# last row against the screen's bottom edge, and the spare pixel lines above
+# the grid show what `partial-row` says. A build without the feature centres
+# the grid on every console. The slide, its pacing and the row slot are the
+# later parts of the same work, and land behind this feature too.
+#
+# References:
+# - ADR-1310 D7: the feature, and the rows beyond the screen it shares with
+#   scroll-pan.
+# - ADR-1310 D10 and D12: where the grid sits with smooth scrolling on and
+#   off.
+smooth-scroll = ["vtium-term/rows-beyond"]
+# The privilege split: run as root with the account `vtium`, vtium becomes a
+# root process that holds the VT, opens the devices and starts every
+# process, and runs the rest of vtium as a drawing process under that
+# account (`src/broker/`, `src/app/broker.rs`, and vtium-platform's
+# `split`). The minspec build leaves it out and runs as one process.
+#
+# References:
+# - ADR-1400 D4: the split, and its note that builds it behind a feature.
+# - ADR-1200 D19: the minspec build's size budget, which the split's code
+#   would not fit.
+split = ["dep:vtium-broker-protocol", "vtium-platform/split"]
 
 [dependencies]
 vtium-term.workspace = true
@@ -53,6 +86,9 @@ vtium-settings.workspace = true
 # The devices present as the head file's rules see them, which the start
 # places and `check-config` lists (ADR-1403 D9).
 vtium-devices.workspace = true
+# The messages between the broker and the drawer, and the socket that
+# carries them (ADR-1513 D4); only with `split`.
+vtium-broker-protocol = { workspace = true, optional = true }
 # The messages vtium-platform writes through it, and the binary's own,
 # which the binary routes to stderr.
 log = "0.4"
@@ -60,12 +96,23 @@ log = "0.4"
 # helper's pidfd, and the sockets that keep the sessions' pty masters
 # through a restart (ADR-1401 D13); vtium-platform already builds the same
 # version with these features.
-rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "net", "process"] }
+#
+# The broker (`src/broker/`) adds the capability, credential and
+# no-new-privileges calls of the drawer's setup ("thread"), and the poll of
+# its stand-in drawers in tests ("event").
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "event", "fs", "net", "process", "thread"] }
+# The drawer's setup between fork and exec: dup2, prctl's bounding set,
+# getresuid and getresgid, and the account lookup; vtium-platform already
+# builds the same version.
+libc = "=0.2.191"
 # Key names in the power keys' chords, as xkb names them; vtium-platform
 # already builds the same version for its keyboards.
 xkbcommon = { version = "=0.9.0", default-features = false }
 
 [dev-dependencies]
+# `Link::wait_for_close`, which the broker's tests use to wait for the
+# drawer's end to close.
+vtium-broker-protocol = { workspace = true, features = ["test-support"] }
 # The window size and the name of a kept pty, which the tests of the
 # sessions that survive a restart read (ADR-1401 D13); vtium-platform
 # already builds the same version with these features.

@@ -46,7 +46,8 @@ pub const PROGRAM: &str = match option_env!("VTIUM_IMAGE") {
 pub struct Program {
     path: PathBuf,
     file: Arc<OwnedFd>,
-    /// Arguments before `--tmpdir`, for a stand-in a test starts.
+    /// Arguments before `--tmpdir`: a stand-in's that a test starts, and
+    /// [`SANDBOX_OFF`] under `helper-sandbox=off`.
     args: Vec<OsString>,
 }
 
@@ -69,7 +70,35 @@ impl Program {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// The arguments each helper starts with before its `--tmpdir`, such
+    /// as `--sandbox=off`.
+    pub fn args(&self) -> &[OsString] {
+        &self.args
+    }
+
+    /// This program, its helpers told `--sandbox=off` when `on` is false,
+    /// as vtium.conf's `helper-sandbox=off` asks: they then install no
+    /// seccomp filter, and their workers add none and enter no landlock
+    /// domain. A helper started without the option sandboxes itself in
+    /// full, so `on` adds nothing.
+    ///
+    /// References:
+    /// - ADR-1101 D9, "The sandbox setting": what the helper and its
+    ///   workers leave out.
+    /// - ADR-1200 D15, "A setting turns the sandbox off": vtium tells each
+    ///   helper on its command line.
+    #[must_use]
+    pub fn sandboxed(mut self, on: bool) -> Program {
+        if !on {
+            self.args.push(OsString::from(SANDBOX_OFF));
+        }
+        self
+    }
 }
+
+/// The option that tells the image helper `helper-sandbox=off`.
+pub const SANDBOX_OFF: &str = "--sandbox=off";
 
 /// Opens the program at `path` to start it from, close-on-exec and above
 /// descriptor 3, where the child puts its socket, and checks the opened

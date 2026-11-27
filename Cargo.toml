@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "tools/conformance", "tools/cover-tables", "tools/man", "tools/site", "tools/specimens", "tools/tier1-shots", "tools/tier2", "tools/tier3/probes", "tools/tui-review"]
 
 [workspace.package]
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -19,6 +19,7 @@ vtium-render = { path = "crates/vtium-render" }
 vtium-platform = { path = "crates/vtium-platform" }
 vtium-settings = { path = "crates/vtium-settings" }
 vtium-devices = { path = "crates/vtium-devices" }
+vtium-broker-protocol = { path = "crates/vtium-broker-protocol" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -29,6 +30,13 @@ all = { level = "warn", priority = -1 }
 # The sprite and font tests sample every cell size; optimised, they take
 # seconds instead of minutes.
 [profile.dev.package.vtium-font]
+opt-level = 2
+
+# vtium-config's scenario tests press every key in every state of the TUI,
+# about 77,000 transitions, and draw each node's frame at three grid sizes.
+# Built at opt-level 2, the scenarios binary runs in about 90 s instead of
+# 300 s.
+[profile.dev.package.vtium-config]
 opt-level = 2
 
 [profile.release]

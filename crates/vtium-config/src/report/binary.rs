@@ -18,7 +18,17 @@ const BINARIES: [(&str, bool); 2] = [
 
 /// The features a vtium build adds on top of minspec, as
 /// crates/vtium/Cargo.toml names them (a test holds them equal).
-pub const FEATURES: [&str; 6] = ["bidi", "filters", "gpu", "images", "libseat", "logind"];
+pub const FEATURES: [&str; 9] = [
+    "bidi",
+    "filters",
+    "gpu",
+    "images",
+    "libseat",
+    "logind",
+    "scroll-pan",
+    "smooth-scroll",
+    "split",
+];
 
 /// For each feature that has one, a line of text that only a build with
 /// the feature carries, with a `|` cut into it: what vtium says when it

@@ -559,10 +559,26 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     // another shape today: what the key does there today is not pinned
     let not_built: Check = |_| Err("not built".into());
     m.insert("list.filter-picker", (not_built, None));
-    // w asks whether to let programs resize the grid
+    // w asks whether to let programs resize the grid; where the draft
+    // already turns allow-window-ops on, a yes would change nothing, so w
+    // asks nothing and says when the console lets programs resize it
     m.insert(
         "window-ops.view.looks",
-        (|s| s.opens("question:window-ops"), None),
+        (
+            |s| {
+                if !s.before.app.shared.window_ops_drafted() {
+                    s.opens("question:window-ops")
+                } else if s.kept()
+                    && s.after.app.shared.message.as_deref()
+                        == Some(vtium_config::tui::words::WINDOW_OPS_ON)
+                {
+                    Ok(())
+                } else {
+                    Err("w did not say that the draft already lets programs resize the grid".into())
+                }
+            },
+            None,
+        ),
     );
     looks_checks(&mut m);
     m.insert(
@@ -720,6 +736,15 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                 }
                 if s.before.term == Term::Vtium && s.after.console_font != super::sim::START_FONT {
                     return Err("the start font is not back".into());
+                }
+                // with no trial to undo, u says so on the screen
+                let untouched = s.before.console_font == super::sim::START_FONT
+                    && !s.before.app.shared.grid_moved;
+                if untouched
+                    && s.after.app.shared.message.as_deref()
+                        != Some(vtium_config::tui::words::NOTHING_TO_UNDO)
+                {
+                    return Err("u had nothing to put back and did not say so".into());
                 }
                 Ok(())
             },

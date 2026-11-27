@@ -420,3 +420,29 @@ fn a_missing_key_adds_its_line_and_nothing_else() {
         "# The file's header.\n\nversion = 1\nfont-size=14\n\n[head console]\n"
     );
 }
+
+/// `helper-sandbox` is `on` or `off`, `on` by default, and only the top
+/// level of vtium.conf and the command line set it, so no look or head
+/// can turn the sandbox off. The vtium crate's reading refuses any other
+/// value as a bad value.
+///
+/// References:
+/// - ADR-1200 D15, "A setting turns the sandbox off": the key, its
+///   default and who can set it.
+#[test]
+fn helper_sandbox_is_on_or_off_and_only_the_top_level_sets_it() {
+    use vtium_settings::keys::{self, Default, Kind, Level, Scope};
+    for value in ["on", "off"] {
+        assert_eq!(
+            edit_conf("", &[Edit::Set("helper-sandbox", value)]).expect("the edit"),
+            format!("helper-sandbox={value}\n")
+        );
+    }
+    let key = keys::find("helper-sandbox").expect("the key table holds helper-sandbox");
+    assert_eq!(key.default, Default::Text("on"));
+    assert!(matches!(key.kind, Kind::Choice(["off", "on"])));
+    assert_eq!(key.scope, Scope::Anywhere);
+    assert!(key.levels.contains(Level::Top));
+    assert!(!key.levels.contains(Level::Look));
+    assert!(!key.levels.contains(Level::Head));
+}

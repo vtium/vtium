@@ -348,6 +348,12 @@ fn glyphs() -> Vec<(char, Glyph)> {
 
 /// The font's bytes.
 pub fn bytes() -> Vec<u8> {
+    font().build()
+}
+
+/// The font, before it is written as bytes: a test can change a table
+/// of it, such as its underline.
+pub fn font() -> Font {
     let all = glyphs();
     let mut glyphs = vec![Glyph::empty(600)];
     let mut cmap = Vec::new();
@@ -372,7 +378,6 @@ pub fn bytes() -> Vec<u8> {
         os2: None,
         empty_gpos: true,
     }
-    .build()
 }
 
 /// The directory the font is kept in, which the frit's engine reads as

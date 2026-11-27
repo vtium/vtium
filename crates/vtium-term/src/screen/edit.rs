@@ -898,6 +898,8 @@ impl Screen {
             self.move_cursor(self.left, y);
             return;
         }
+        #[cfg(feature = "bidi")]
+        let into = self.paragraphs_into_region(y);
         self.segment = None;
         let rows = y..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
@@ -911,6 +913,10 @@ impl Screen {
         self.images_scrolled(took);
         self.unwrap_shifted(y);
         self.mark_rows(rows);
+        #[cfg(feature = "bidi")]
+        for rows in into {
+            self.mark_rows(rows);
+        }
         self.margin_wrap = false;
         self.cursor_x = 0;
     }
@@ -930,6 +936,8 @@ impl Screen {
             self.move_cursor(self.left, y);
             return;
         }
+        #[cfg(feature = "bidi")]
+        let into = self.paragraphs_into_region(y);
         self.segment = None;
         let rows = y..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
@@ -943,6 +951,10 @@ impl Screen {
         self.images_scrolled(took);
         self.unwrap_shifted(y);
         self.mark_rows(rows);
+        #[cfg(feature = "bidi")]
+        for rows in into {
+            self.mark_rows(rows);
+        }
         self.margin_wrap = false;
         self.cursor_x = 0;
     }
@@ -964,6 +976,8 @@ impl Screen {
         let rows = self.top..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
         let into = !self.flags.alternate && self.scrollback.keeps_lines();
+        #[cfg(feature = "bidi")]
+        let paragraphs = self.paragraphs_into_region(self.top);
         self.erase_runs_moved((self.top, self.bottom), n, true, into, None);
         let took = self.images_scroll((self.top, self.bottom), n, true, into);
         let gone = self.replace_lines(rows.start..rows.start.saturating_add(n));
@@ -981,15 +995,90 @@ impl Screen {
                 })
                 .collect()
         };
+        // A dropped line that wrapped began a paragraph that may go on onto
+        // the screen, and in a build with the bidi feature the rest of that
+        // paragraph may now be drawn in another order.
+        #[cfg(feature = "bidi")]
+        let cut = gone
+            .iter()
+            .any(|l| l.flags().contains(LineFlags::WRAPPED))
+            .then(|| gone.iter().any(reorders));
         self.discard_lines(gone);
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_left(n);
+        }
+        // The damage moves with the lines before anything marks the rows
+        // in their new places.
+        self.mark_moved(rows.clone(), n, true);
+        #[cfg(feature = "bidi")]
+        if let Some(dropped_reorders) = cut {
+            self.mark_cut_paragraph_at_top(dropped_reorders);
         }
         self.images_scrolled(took);
         if let Some(above) = rows.start.checked_sub(1) {
             self.unwrap_rows(above..rows.start);
         }
-        self.mark_rows(rows);
+        #[cfg(feature = "bidi")]
+        for rows in paragraphs {
+            self.mark_rows(rows);
+        }
+    }
+
+    /// The screen rows of the reordered paragraph that runs from the row
+    /// above `y` into row `y`, before an edit replaces or moves row `y`'s
+    /// line. The edit takes that line out of the paragraph, so the rows
+    /// that stay in it may be drawn in another order, and they are marked
+    /// once the edit is done. Empty when the row above does not wrap, or
+    /// when the paragraph draws in the order it was written.
+    ///
+    /// References:
+    /// - ADR-1004 D8: a row of a reordered paragraph changes whenever its
+    ///   paragraph does.
+    #[cfg(feature = "bidi")]
+    fn paragraph_into(&self, y: usize) -> Range<usize> {
+        let wraps = y.checked_sub(1).filter(|&above| {
+            self.line(above)
+                .is_some_and(|l| l.flags().contains(LineFlags::WRAPPED))
+        });
+        wraps.map_or(y..y, |above| self.reordered_rows(above))
+    }
+
+    /// Marks the rows of the paragraph at the screen's top, down to its
+    /// first row that does not wrap, after a scroll dropped a wrapped line
+    /// that may have begun it. The dropped line came straight off the
+    /// screen when the scrollback is empty or the alternate screen is in
+    /// use, and may have begun the paragraph when the scrollback's newest
+    /// line wraps onto the screen.
+    /// Nothing is marked when neither the dropped lines
+    /// (`dropped_reorders`) nor the paragraph's rows on the screen draw in
+    /// another order than they were written.
+    #[cfg(feature = "bidi")]
+    fn mark_cut_paragraph_at_top(&mut self, dropped_reorders: bool) {
+        let wraps = |l: &Line| l.flags().contains(LineFlags::WRAPPED);
+        let newest = self.scrollback.len().checked_sub(1);
+        let reaches = self.flags.alternate
+            || newest.is_none_or(|i| self.scrollback.get(i).is_some_and(wraps));
+        let lines = self.lines();
+        let end = lines
+            .iter()
+            .position(|l| !wraps(l))
+            .map_or(lines.len(), |y| y.saturating_add(1));
+        let shown = lines.get(..end).unwrap_or_default();
+        if reaches && (dropped_reorders || shown.iter().any(reorders)) {
+            self.mark_rows(0..end);
+        }
+    }
+
+    /// The rows of the reordered paragraphs that run into the region's top
+    /// row `top` and into the row below its bottom margin, before an edit
+    /// moves the region's lines, as [`paragraph_into`](Self::paragraph_into)
+    /// gives each.
+    #[cfg(feature = "bidi")]
+    fn paragraphs_into_region(&self, top: usize) -> [Range<usize>; 2] {
+        [
+            self.paragraph_into(top),
+            self.paragraph_into(self.bottom.saturating_add(1)),
+        ]
     }
 
     /// SD: the region moves down `n` rows; the lines leaving the bottom go,
@@ -1003,11 +1092,17 @@ impl Screen {
             return self.scroll_in_margins(self.top, n, false);
         }
         let rows = self.bottom.saturating_add(1).saturating_sub(self.top);
+        #[cfg(feature = "bidi")]
+        let into = self.paragraphs_into_region(self.top);
         self.erase_runs_moved((self.top, self.bottom), n.min(rows), false, false, None);
         let took = self.images_scroll((self.top, self.bottom), n, false, false);
         self.rotate_down(n);
         self.images_scrolled(took);
         self.unwrap_shifted(self.top);
+        #[cfg(feature = "bidi")]
+        for rows in into {
+            self.mark_rows(rows);
+        }
     }
 
     /// Moves the region down `n` rows, blank lines coming in at the top.
@@ -1015,12 +1110,20 @@ impl Screen {
         self.segment = None;
         let rows = self.top..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
-        let gone = self.replace_lines(rows.end.saturating_sub(n)..rows.end);
+        let dropped = rows.end.saturating_sub(n)..rows.end;
+        // The lines that leave at the bottom take part of the paragraph
+        // that runs into them, which the bidi feature may then draw in
+        // another order; its rows above move down by `n`.
+        #[cfg(feature = "bidi")]
+        let cut = self.paragraph_into(dropped.start);
+        let gone = self.replace_lines(dropped);
         self.discard_lines(gone);
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_right(n);
         }
-        self.mark_rows(rows);
+        self.mark_moved(rows.clone(), n, false);
+        #[cfg(feature = "bidi")]
+        self.mark_rows(cut.start.saturating_add(n)..cut.end.saturating_add(n).min(rows.end));
     }
 
     /// Moves the cells between the left and right margins of the rows from
@@ -1150,4 +1253,12 @@ impl Screen {
 /// Whether DECSCA protected a cell of `style` from a selective erase.
 fn protected(style: Style) -> bool {
     style.attrs.contains(Attrs::PROTECTED)
+}
+
+/// Whether `line` holds text that a paragraph draws in another order than
+/// it was written: it runs right to left, or it has held a right-to-left
+/// or joining character.
+#[cfg(feature = "bidi")]
+fn reorders(line: &Line) -> bool {
+    line.flags().contains(LineFlags::RTL) || line.flags().contains(LineFlags::REORDERS)
 }

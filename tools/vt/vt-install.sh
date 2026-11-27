@@ -28,7 +28,14 @@
 # and vtium.pam under the development install's PAM name, as make install
 # stages them for vtium@ (ADR-1400 D3). A binary built with libseat alone is
 # for seatd and opens no PAM session, so an install of it, as of any binary
-# without both, removes the two files an earlier install wrote.
+# without both, removes the two files an earlier install wrote. When the
+# binary is built with split, which install reads from the binary too, install
+# writes the sysusers file /etc/sysusers.d/vtium-dev-split.conf, a copy of
+# crates/vtium/install/vtium-split.conf, and runs systemd-sysusers on it, which
+# creates the accounts vtium and vtium-session of the privilege split (ADR-1400
+# D4). Without the account vtium, such a binary runs as one process, as root.
+# An install of a binary without split removes the file an earlier install
+# wrote.
 # uninstall reads the manifest and undoes all of it: vtium-dev@ttyN stopped
 # and disabled, getty@ttyN enabled and started again where it was before, and
 # the files removed once no other VT's manifest needs them. It leaves the
@@ -166,6 +173,15 @@ images_marker='cannot open the image helper '
 # The image helper's account, under a name of the development install's
 # own, so it never masks a packaged /usr/lib/sysusers.d/vtium-image.conf.
 sysusers_path=/etc/sysusers.d/vtium-dev-image.conf
+# The privilege split's accounts, from a sysusers file of the development
+# install's own, so it never masks a packaged
+# /usr/lib/sysusers.d/vtium-split.conf. The accounts keep the names the
+# binary looks up.
+split_sysusers_path=/etc/sysusers.d/vtium-dev-split.conf
+# A line only a build with split carries: what vtium logs once it runs as
+# two processes (crates/vtium/src/broker/mod.rs, a module built only with
+# split). The tests hold it to that file.
+split_marker="vtium runs as two processes: this root process, and drawing process "
 # A line only a build with libseat carries: what vtium logs when no seat
 # manager answers (crates/vtium-platform/src/seat.rs, a module built only
 # with libseat). The tests hold it to that file.
@@ -200,9 +216,12 @@ pictures=("$image_path" "$sysusers_path")
 # What install writes only for a binary built with libseat and logind, kept
 # and removed the same way.
 seat=("$dropin_path" "$pam_path")
-# Uninstall removes both sets; install sorts them below by what the binary
+# What install writes only for a binary built with split, kept and removed
+# the same way.
+accounts=("$split_sysusers_path")
+# Uninstall removes these sets; install sorts them below by what the binary
 # was built with.
-dropped=("${pictures[@]}" "${seat[@]}")
+dropped=("${pictures[@]}" "${seat[@]}" "${accounts[@]}")
 # What an install made before the tool was renamed vtium-config (ADR-1201
 # D12) wrote under a name vt-install no longer uses. Install and uninstall
 # remove each one the record still holds unchanged, and keep any other.
@@ -458,7 +477,7 @@ program() {
 bin=$(program VTIUM_VT_BIN "vtium binary" "it would run as root")
 helper=$(program VTIUM_VT_CONFIG "glyph helper" "vtium, as root, would start it")
 # vtium starts the helper at the path it was built with (VTIUM_FONT_HELPER,
-# crates/vtium/src/helper.rs). One built for another path would start the
+# crates/vtium/src/helper/launcher.rs). One built for another path would start the
 # packaged helper, or none.
 grep -qaF -- "$helper_path" "$bin" ||
 	die "$bin does not look for its glyph helper at $helper_path, so it would start another build's helper or none; make vt-install builds one that looks there"
@@ -492,6 +511,14 @@ if grep -qaF -- "$libseat_marker" "$bin" && grep -qaF -- "$logind_marker" "$bin"
 	files+=("${seat[@]}")
 else
 	dropped+=("${seat[@]}")
+fi
+split=
+if grep -qaF -- "$split_marker" "$bin"; then
+	split=1
+	[ -f "$src/vtium-split.conf" ] || die "no $src/vtium-split.conf, the sysusers file of the privilege split's accounts"
+	files+=("${accounts[@]}")
+else
+	dropped+=("${accounts[@]}")
 fi
 
 # An installed kmscon's console, or the packaged vtium, on the VT would fight
@@ -546,6 +573,14 @@ if [ -n "$image" ]; then
 		cat "$src/vtium-image.conf"
 	} >"$tmp/sysusers"
 fi
+# The privilege split's sysusers file, made the same way.
+if [ -n "$split" ]; then
+	{
+		echo "# Written by make vt-install (tools/vt/vt-install.sh) from crates/vtium/install/vtium-split.conf."
+		echo "# make vt-uninstall removes it, and leaves the accounts: systemd-sysusers never removes one."
+		cat "$src/vtium-split.conf"
+	} >"$tmp/split-sysusers"
+fi
 # The drop-in and the PAM file: the shipped ones under an opening line of
 # their own, with the PAM name the development install's.
 if [ -n "$pam_session" ]; then
@@ -593,6 +628,9 @@ fi
 		printf '%s  %s\n' "$(sha256sum <"$image" | cut -d' ' -f1)" "$image_path"
 		printf '%s  %s\n' "$(sha256sum <"$tmp/sysusers" | cut -d' ' -f1)" "$sysusers_path"
 	fi
+	if [ -n "$split" ]; then
+		printf '%s  %s\n' "$(sha256sum <"$tmp/split-sysusers" | cut -d' ' -f1)" "$split_sysusers_path"
+	fi
 	if [ -n "$pam_session" ]; then
 		printf '%s  %s\n' "$(sha256sum <"$tmp/libseat.conf" | cut -d' ' -f1)" "$dropin_path"
 		printf '%s  %s\n' "$(sha256sum <"$tmp/pam" | cut -d' ' -f1)" "$pam_path"
@@ -606,6 +644,7 @@ if [ -n "$dry" ]; then
 		cat "$tmp/$f"
 	done
 	[ -z "$image" ] || { printf '\n--- %s\n' "$sysusers_path"; cat "$tmp/sysusers"; }
+	[ -z "$split" ] || { printf '\n--- %s\n' "$split_sysusers_path"; cat "$tmp/split-sysusers"; }
 	[ -z "$pam_session" ] || { printf '\n--- %s\n' "$dropin_path"; cat "$tmp/libseat.conf"; printf '\n--- %s\n' "$pam_path"; cat "$tmp/pam"; }
 	[ -z "$write_manifest" ] || { printf '\n--- %s\n' "$manifest"; cat "$tmp/manifest"; }
 	printf '\n--- %s\n' "$record"
@@ -672,6 +711,7 @@ if [ -n "$image" ]; then
 	put "$image" "$image_path" 0755
 	put "$tmp/sysusers" "$sysusers_path" 0644
 fi
+[ -z "$split" ] || put "$tmp/split-sysusers" "$split_sysusers_path" 0644
 # The PAM file goes in before the drop-in that names it.
 [ -z "$pam_session" ] || put "$tmp/pam" "$pam_path" 0644
 put "$bin" "$bin_path" 0755
@@ -686,6 +726,8 @@ retire
 put "$tmp/files" "$record" 0644
 # The account exists before vtium starts its image helper as it.
 [ -z "$image" ] || as_root "$sysusers" "$root$sysusers_path"
+# The account vtium exists before vtium starts, so vtium splits.
+[ -z "$split" ] || as_root "$sysusers" "$root$split_sysusers_path"
 as_root "$systemctl" daemon-reload
 # vtium starts first. Its Conflicts=getty@%i stops the getty, and its
 # After=getty@%i makes that stop finish before vtium starts, so the getty's

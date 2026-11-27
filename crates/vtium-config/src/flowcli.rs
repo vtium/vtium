@@ -303,10 +303,7 @@ impl Command<'_, '_> {
     /// What waits beside the draft `name`, as the state line counts it:
     /// its changes to the active resources and its font set changes.
     fn beside(&self, name: &str) -> Result<(usize, usize), Fail> {
-        Ok((
-            self.session.store.batch_changes(name)?.len(),
-            self.session.frit_changes(name)?.0.len(),
-        ))
+        self.session.beside(name)
     }
 
     /// `install [--force]`: installs the draft. A draft whose only problem
@@ -330,8 +327,31 @@ impl Command<'_, '_> {
             Unrouted::Refuse
         };
         let ask: Option<Ask<'_>> = if terminal { Some(&mut restart) } else { None };
+        self.unused_looks(&text);
         self.session
             .install(&name, &text, unrouted, &mut run_child, ask, self.out)
+    }
+
+    /// Prints a note for each look in the draft `text` that no head vtium
+    /// runs uses. Such a look changes nothing on screen, which a person who
+    /// just made it or set it would not otherwise learn; the note gives the
+    /// command that gives it to the first head. A draft that defines no
+    /// head and no rule runs vtium's built-in terminal, whose head
+    /// `console` draws the look `default`, so that look is in use and the
+    /// note names `console`.
+    ///
+    /// References:
+    /// - ADR-1401 D3: vtium runs the built-in default terminal when the
+    ///   file defines no head and no rule.
+    fn unused_looks(&mut self, text: &str) {
+        let flow = flowmodel::build(text, &flowmodel::Present::default(), None);
+        let heads = ops::heads_run(text);
+        let head = heads.first().map(|h| h.name.as_str());
+        for look in &flow.looks {
+            if !heads.iter().any(|h| h.look == look.name) {
+                self.say(&crate::tui::words::no_head_uses(&look.name, head));
+            }
+        }
     }
 
     /// `get KEY`: the key, its value in the draft's top level and where it
@@ -417,13 +437,12 @@ impl Command<'_, '_> {
     }
 
     /// After a change to the draft `name`, whose text is now `new`, was
-    /// written: prints what the check finds and the state line, and with
-    /// `install` installs the draft. A check that cannot run is printed
+    /// written: prints what the check finds, the state line and a note for
+    /// each look that no head uses, and with `install` installs the draft. A check that cannot run is printed
     /// and fails nothing, since the change is written whatever the check
     /// says, unless the draft is to be installed.
     fn after_write(&mut self, name: &str, new: &str, install: bool) -> Result<(), Fail> {
         let path = self.session.store.draft_path(name)?;
-        let state = self.session.state(name, new)?;
         let checked = match self.session.check(name, new, &path) {
             Ok(checked) => checked,
             // the draft is written whatever the check says, even when it
@@ -434,14 +453,10 @@ impl Command<'_, '_> {
             }
             Err(fail) => return Err(fail),
         };
-        self.print_check(&checked);
-        let beside = self.beside(name)?;
-        self.say(&flowmodel::state_line(
-            name,
-            &state,
-            beside,
-            checked.count(),
-        ));
+        for line in self.session.report(name, new, &checked)? {
+            self.say(&line);
+        }
+        self.unused_looks(new);
         if install {
             self.session
                 .install(name, new, Unrouted::Refuse, &mut run_child, None, self.out)?;
@@ -666,7 +681,7 @@ impl Command<'_, '_> {
                     return Err(Fail::Usage("head set needs at least one setting to change".to_owned()));
                 }
                 self.change(&args, |t| {
-                    let set = ops::section_keys(t, Of::Head(name), &keys)?;
+                    let set = ops::head_keys(t, name, &keys)?;
                     match &rename {
                         Some(new) => ops::rename(&set, Of::Head(name), new),
                         None => Ok(set),
@@ -703,22 +718,23 @@ impl Command<'_, '_> {
             .ok_or_else(|| Fail::Usage("look takes add, set or rm".to_owned()))?;
         match sub.as_str() {
             "add" => {
-                let valued: Vec<&str> = ops::LOOK_KEYS.iter().map(|(_, o)| *o).collect();
+                let valued: Vec<&str> = ops::LOOK_KEYS
+                    .iter()
+                    .map(|(_, o)| *o)
+                    .chain([VTLOOK_OPTION])
+                    .collect();
                 let args = Args::parse(rest, &CHANGE, &valued)?;
                 let [name] = args.words.as_slice() else {
                     return Err(Fail::Usage("look add takes NAME".to_owned()));
                 };
-                let keys: Vec<(&str, Option<&str>)> = ops::LOOK_KEYS
-                    .iter()
-                    .filter_map(|(k, o)| args.value(o).map(|v| (*k, Some(v))))
-                    .collect();
+                let keys = look_keys(&args);
                 self.change(&args, |t| ops::look_add(t, name, &keys))
             }
             "set" => {
                 let valued: Vec<&str> = ops::LOOK_KEYS
                     .iter()
                     .map(|(_, o)| *o)
-                    .chain(["--name"])
+                    .chain([VTLOOK_OPTION, "--name"])
                     .collect();
                 let args = Args::parse(rest, &CHANGE, &valued)?;
                 let [name] = args.words.as_slice() else {
@@ -726,10 +742,7 @@ impl Command<'_, '_> {
                         "look set takes NAME and the settings to change".to_owned(),
                     ));
                 };
-                let keys: Vec<(&str, Option<&str>)> = ops::LOOK_KEYS
-                    .iter()
-                    .filter_map(|(k, o)| args.value(o).map(|v| (*k, Some(v))))
-                    .collect();
+                let keys = look_keys(&args);
                 let rename = args.value("--name").map(str::to_owned);
                 if keys.is_empty() && rename.is_none() {
                     return Err(Fail::Usage(
@@ -827,12 +840,17 @@ impl Command<'_, '_> {
         }
     }
 
-    /// `history`: the installed history, newest first.
+    /// `history`: the installed history, newest first, or the line that
+    /// says no install has replaced a vtium.conf yet.
     fn history(&mut self, words: &[String]) -> Result<(), Fail> {
         if !words.is_empty() {
             return Err(Fail::Usage("history takes no argument".to_owned()));
         }
-        for (i, h) in self.session.store.history()?.iter().enumerate() {
+        let history = self.session.store.history()?;
+        if history.is_empty() {
+            self.say(crate::tui::words::NO_HISTORY);
+        }
+        for (i, h) in history.iter().enumerate() {
             let when = crate::report::utc_text(h.when);
             self.say(&format!(
                 "{}\t{}\t{when}",
@@ -1036,6 +1054,25 @@ pub fn editor(var: impl Fn(&str) -> Option<String>) -> String {
         .into_iter()
         .find_map(|k| var(k).filter(|v| !v.trim().is_empty()))
         .unwrap_or_else(|| "vi".to_owned())
+}
+
+/// The option of `look add` and `look set` that sets a look's `vtlook`,
+/// which the look card also sets. `vtlook` is not in [`ops::LOOK_KEYS`],
+/// because a look's section takes it beside the key table, as a head
+/// takes `look`.
+///
+/// References:
+/// - ADR-1403 D8: every change the view makes is also a command.
+const VTLOOK_OPTION: &str = "--vtlook";
+
+/// The look keys that `args` gives values to, in the order of
+/// [`ops::LOOK_KEYS`], then `vtlook`.
+fn look_keys(args: &Args) -> Vec<(&'static str, Option<&str>)> {
+    ops::LOOK_KEYS
+        .iter()
+        .chain([&("vtlook", VTLOOK_OPTION)])
+        .filter_map(|(k, o)| args.value(o).map(|v| (*k, Some(v))))
+        .collect()
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ element	file	symbol
 1: OSC 52 with c sets the selection	crates/vtium-term/src/terminal/clipboard.rs	State::set_clipboard
 1: the text arrives in base64	crates/vtium-term/src/terminal/clipboard.rs	decode
 2: vtium takes the text from the terminal	crates/vtium-term/src/terminal.rs	Terminal::take_clipboard_write
-2: vtium holds the text as its selection, for a paste	crates/vtium/src/app.rs	App::session_turn
+2: vtium holds the text as its selection, for a paste	crates/vtium/src/app/sessions.rs	App::session_turn
 2: no-clipboard-write drops it	crates/vtium-settings/src/keys.rs	key clipboard-write
 3: Shift+Insert pastes	crates/vtium/src/grab.rs	Action::Paste
 3: Shift+Insert is the paste key by default	crates/vtium-settings/src/keys.rs	key key-paste

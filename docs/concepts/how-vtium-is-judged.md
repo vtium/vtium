@@ -1,6 +1,6 @@
 # How VTium is judged
 
-vtium is judged in tiers, each with its harness in vtium's tree; [AGENTS.md](https://github.com/vtium/vtium/blob/main/AGENTS.md#how-vtium-is-judged) lists them with their commands.
+vtium is judged in tiers, each with its harness in vtium's tree; [tools/AGENTS.md](https://github.com/vtium/vtium/blob/main/tools/AGENTS.md#how-vtium-is-judged) lists them with their commands.
 
 - **Unit tests:** each crate's behaviour.
 - **Tier 1, conformance:** byte streams replayed through vtium's terminal, the screen and the replies compared as text with goldens ([tools/conformance](https://github.com/vtium/vtium/blob/main/tools/conformance/README.md)).

@@ -18,6 +18,7 @@ import t3_pictures
 import t3_pointer
 import t3_power
 import t3_seat
+import t3_split
 import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 
@@ -99,7 +100,9 @@ RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 # so that variant's goldens judge it.
 GOLDENS_OF = {"gl-1280x800": "2d-1280x800", "seat-seatd": "2d-potato-min",
               "seat-logind": "2d-potato-min", "direct-logind": "2d-potato-min",
-              "seat-seatd-wait": "2d-potato-min", "hand-over": "2d-potato-min",
+              "seat-seatd-wait": "2d-potato-min", "seat-seatd-stop": "2d-potato-min",
+              "hand-over": "2d-potato-min", "split-direct": "2d-potato-min",
+              "split-fallback": "heads-partly-open",
               "two-cards-mirror-hotplug": "two-cards-mirror",
               "novt-closed-broken": "heads-closed-broken", "novt-open": "2d-640x480-psf16"}
 
@@ -272,6 +275,7 @@ CHECKS = {
     **t3_images.CHECKS,
     **t3_seat.CHECKS,
     **t3_handover.CHECKS,
+    **t3_split.CHECKS,
     **t3_apply.CHECKS,
     **t3_keyecho.CHECKS,
     **t3_seat.CAPTIONS,
@@ -285,7 +289,7 @@ CHECKS = {
 # that the screen finished.
 NO_GOLDEN = {"vt-switch", "sync-clock", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS,
              *t3_images.CHECKS, *t3_seat.CHECKS, *t3_handover.CHECKS, *t3_keyecho.CHECKS,
-             *t3_heads.CHECKS, *t3_fonts.CHECKS, *t3_apply.CHECKS}
+             *t3_heads.CHECKS, *t3_fonts.CHECKS, *t3_apply.CHECKS, *t3_split.CHECKS}
 
 PROVISIONAL_FILE = os.path.join(HERE, "provisional.tsv")
 

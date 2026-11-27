@@ -10,7 +10,14 @@
 //! Each screen is drawn once with the default configuration and again with
 //! each way ADR-1300 says changes speed and never pixels: a cache of no
 //! glyphs, the performance profile's budgets, and glyphs stored at 8 bits
-//! and at their drawn size. Every one must draw the same bytes.
+//! and at their drawn size. Every one must draw the same bytes. On the CPU
+//! path, each screen is drawn twice more in the default configuration,
+//! with every frame shown by the pan over buffers taller than the screen
+//! and by the copy from a ring in memory, and each must show the bytes the
+//! redraw shows.
+//!
+//! References:
+//! - ADR-1310 D6: the pan and the copy show what a redraw shows.
 
 use std::sync::Arc;
 
@@ -23,7 +30,7 @@ use vtium_font::{Cell, Face, Font, Glyph, Psf, Style as FontStyle, Unifont};
 use vtium_render::filter::{Given, Map, Table};
 use vtium_render::{
     Budgets, Canvas, Config, DecoColor, DecorationColors, Depth, DrawState, Mark, Orientation,
-    Profile, Renderer, Storage,
+    Placement, Profile, Renderer, Storage,
 };
 use vtium_term::images::{Kitty, Sixel, Switches};
 use vtium_term::{Age, Glyph as Text, ImageString, Rgb, Terminal, WidthMethod};
@@ -95,7 +102,8 @@ pub enum FontKind {
     },
     /// A frit of `fonts`, its rows made taller by `spacing` when it is set
     /// (ADR-1302 D13), drawn as the console draws a frit, as for
-    /// [`FontKind::Outline`]. The screen is drawn once for each of
+    /// [`FontKind::Outline`], with the sprite policy the frit's own
+    /// `glyph-source=` lines set. The screen is drawn once for each of
     /// `takes`, and the drawings are stacked from the top in their order.
     Ink {
         takes: &'static [Take],
@@ -133,7 +141,16 @@ pub enum InkFonts {
     /// `smooth` puts a `render=smooth` line under each
     /// ([`crate::fonts::bitmap_frit_text`]).
     Bitmap { smooth: bool },
+    /// [`InkFonts::DejaVu`], or [`InkFonts::Scripts`] when `scripts`, with
+    /// the lines [`BLOCKS_FROM_FONT`] after its sources, so the fonts draw
+    /// the box lines and block elements they map, where every other font
+    /// set draws vtium's own sprites for them.
+    BlocksFromFont { scripts: bool },
 }
+
+/// The frit lines that have box lines and block elements drawn from the
+/// font: U+2500 to U+257F for `box`, U+2580 to U+259F for `block`.
+pub const BLOCKS_FROM_FONT: &str = "glyph-source-box=font\nglyph-source-block=font\n";
 
 /// One drawing of a [`FontKind::Ink`] screen: at `height` pixels, with
 /// `tail` fed after the screen's bytes, and in the blink phase `phase`.
@@ -661,6 +678,28 @@ pub struct Screen {
     /// References:
     /// - ADR-1205 D10: palette files and their format.
     pub palette: Option<&'static [u8]>,
+    /// The lines of scrollback the terminal keeps, 0 for none. Lines that
+    /// scroll off the screen into it are the rows of history above the
+    /// screen, which a renderer built with `scroll-pan` draws into the
+    /// spare lines above the grid.
+    ///
+    /// References:
+    /// - ADR-1310 D10: the spare lines show the rows of history above the screen.
+    pub scrollback: usize,
+    /// The overlay ends: it is drawn over the first frame's buffer, as the
+    /// console draws a notice, then goes, and the console hands its areas
+    /// to the renderer, which draws them again in two more frames, one
+    /// into each buffer. The screen shows what lies under the overlay.
+    pub overlay_ends: bool,
+    /// Where the grid sits, as the console's `smooth-scroll` and
+    /// `partial-row` place it: centred on both axes by default, as with
+    /// smooth scrolling off, or at the bottom with the spare lines above
+    /// it as `partial-row` says.
+    ///
+    /// References:
+    /// - ADR-1310 D10: the grid at the bottom while smooth scrolling is on.
+    /// - ADR-1310 D12: the partial row's three looks, and the grid centred while smooth scrolling is off.
+    pub placement: Placement,
 }
 
 impl Screen {
@@ -712,6 +751,9 @@ impl Screen {
             cube: None,
             vtlook: None,
             palette: None,
+            scrollback: 0,
+            overlay_ends: false,
+            placement: Placement::Centred,
         }
     }
 }
@@ -752,6 +794,18 @@ fn configs(screen: &Screen) -> [(&'static str, Config); 4] {
     ]
 }
 
+/// How a display shows the frames drawn into it, as `scroll-draw` sets
+/// it in the console.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Way {
+    /// Each changed cell drawn again at its place on the screen.
+    Redraw,
+    /// A window over buffers taller than the screen, moved by a scroll.
+    Pan,
+    /// A window copied from a ring of drawn rows in memory.
+    Copy,
+}
+
 /// What draws a screen's frames for one configuration: the CPU path
 /// ([`Cpu`]), or the GPU path (`crate::gpu`).
 pub trait Paint {
@@ -763,6 +817,19 @@ pub trait Paint {
         make_font: &M,
         config: Config,
     ) -> Result<Image, String>;
+
+    /// Draws `screen` as [`Paint::paint`] does, each frame shown `way`'s
+    /// way. `None` from a painter that shows frames only the redraw way,
+    /// as the GPU path does.
+    fn paint_way<F: Face, M: Fn() -> Font<F>>(
+        &mut self,
+        _: &Screen,
+        _: &M,
+        _: Config,
+        _: Way,
+    ) -> Option<Result<Image, String>> {
+        None
+    }
 }
 
 /// The CPU path, as the console draws on it: each frame into a buffer in
@@ -776,7 +843,17 @@ impl Paint for Cpu {
         make_font: &M,
         config: Config,
     ) -> Result<Image, String> {
-        draw_config(screen, make_font, config)
+        draw_config(screen, make_font, config, Way::Redraw)
+    }
+
+    fn paint_way<F: Face, M: Fn() -> Font<F>>(
+        &mut self,
+        screen: &Screen,
+        make_font: &M,
+        config: Config,
+        way: Way,
+    ) -> Option<Result<Image, String>> {
+        Some(draw_config(screen, make_font, config, way))
     }
 }
 
@@ -902,6 +979,19 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                     };
                     (name, text, fetched.as_path())
                 }
+                InkFonts::BlocksFromFont { scripts } => {
+                    let (name, mut text) = if scripts {
+                        crate::fonts::check_scripts(&fetched)?;
+                        let text = crate::fonts::scripts_frit_text(&fetched);
+                        ("tier2-scripts-blocks-from-font", text)
+                    } else {
+                        crate::fonts::check(&fetched)?;
+                        let text = crate::fonts::frit_text(&fetched, false, percent);
+                        ("tier2-outline-mono-blocks-from-font", text)
+                    };
+                    text.push_str(BLOCKS_FROM_FONT);
+                    (name, text, fetched.as_path())
+                }
             };
             let mut drawn = Vec::new();
             for take in takes {
@@ -919,13 +1009,17 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                         shown(&one, cell)
                     })?;
                 crate::fonts::face_at(&chosen, take.height)?;
+                // the font as the console builds a frit's font, with the
+                // sprite policy of the frit's `glyph-source=` lines over the
+                // face's own, and no configuration over that
                 let img = draw_with(
                     &one,
                     || {
-                        Font::new(
-                            crate::fonts::face_at(&chosen, take.height)
-                                .expect("a face, as it was before"),
-                        )
+                        let face = crate::fonts::face_at(&chosen, take.height)
+                            .expect("a face, as it was before");
+                        let font = Font::new(face);
+                        let own = vtium::font::frit_policy(&text, font.policy());
+                        font.with_policy(own)
                     },
                     p,
                 )
@@ -1031,6 +1125,7 @@ fn draw_with<F: Face>(
     painter: &mut impl Paint,
 ) -> Result<Image, String> {
     let mut first: Option<(&str, Image)> = None;
+    let [(_, default), ..] = configs(screen);
     for (name, config) in configs(screen) {
         let img = painter.paint(screen, &font, config)?;
         match &first {
@@ -1043,31 +1138,74 @@ fn draw_with<F: Face>(
             }
         }
     }
-    first
-        .map(|(_, img)| img)
-        .ok_or_else(|| "no configuration".to_owned())
+    let (base, want) = first.ok_or_else(|| "no configuration".to_owned())?;
+    for (name, way) in [("the pan", Way::Pan), ("the copy", Way::Copy)] {
+        if let Some(img) = painter.paint_way(screen, &font, default, way)
+            && img? != want
+        {
+            return Err(format!(
+                "shown by {name}, it differs from the {base} drawing's redraw"
+            ));
+        }
+    }
+    Ok(want)
 }
 
-/// A display of two buffers, each knowing the frame it holds.
+/// The terminal's frame since `since`, with the rows of history above the
+/// screen that the renderer `r` asks for, which it draws into the spare
+/// lines above the grid, as the console's snapshot holds them. The screen
+/// is told the reach first, as the console tells it.
+///
+/// References:
+/// - ADR-1310 D10: the spare lines show the rows of history above the screen.
+fn frame_reaching<'a, F: Face>(
+    term: &'a mut Terminal,
+    r: &Renderer<F>,
+    since: Age,
+) -> vtium_term::Frame<'a> {
+    let screen = term.screen();
+    let reach = vtium_term::Reach {
+        above: r.rows_above_asked((screen.cols(), screen.rows())),
+        ..vtium_term::Reach::default()
+    };
+    term.screen_mut().set_reach(reach);
+    term.screen().frame_reaching(term.palette(), since, reach)
+}
+
+/// A display of two buffers, each knowing the frame it holds, which shows
+/// its frames `way`'s way: over the pan, each buffer is taller than the
+/// screen and shows the window its last frame was drawn for.
 struct Display {
     buffers: [Canvas; 2],
     /// The swap after which each buffer was shown, if it has been.
     shown: [Option<u64>; 2],
     back: usize,
     swaps: u64,
+    way: Way,
+    /// The screen's size, and where the window each buffer shows starts.
+    screen: (u32, u32),
+    windows: [u32; 2],
 }
 
 impl Display {
-    fn new(width: u32, height: u32) -> Display {
+    /// A display of `width` by `height` that `renderer` draws `way`'s way.
+    fn new<F: Face>(width: u32, height: u32, way: Way, renderer: &Renderer<F>) -> Display {
+        let (w, h) = match way {
+            Way::Pan => renderer.pan_buffer_size(),
+            Way::Redraw | Way::Copy => (width, height),
+        };
         // new memory holds anything: what is drawn must not depend on it
         Display {
             buffers: [
-                Canvas::new(width, height, 0x00a5_5a3c),
-                Canvas::new(width, height, 0x003c_5aa5),
+                Canvas::new(w, h, 0x00a5_5a3c),
+                Canvas::new(w, h, 0x003c_5aa5),
             ],
             shown: [None; 2],
             back: 0,
             swaps: 0,
+            way,
+            screen: (width, height),
+            windows: [0; 2],
         }
     }
 
@@ -1080,7 +1218,9 @@ impl Display {
     /// Draws the terminal's frame into the back buffer and swaps when the
     /// frame drew anything, as a display does. The pointer, when `arrow`
     /// places it, takes the shape the terminal names, as the console
-    /// hands it to the renderer before each draw.
+    /// hands it to the renderer before each draw. The pan and the copy
+    /// are told the scroll the frame's record states, as the console tells
+    /// them.
     fn frame<F: Face>(
         &mut self,
         r: &mut Renderer<F>,
@@ -1094,10 +1234,24 @@ impl Display {
         };
         let age = self.age();
         let drew = {
-            let frame = term.screen().frame(term.palette(), *since);
-            !r.draw(&frame, &mut self.buffers[self.back], age, &state)
-                .damage
-                .is_empty()
+            let frame = frame_reaching(term, r, *since);
+            let scrolled = frame.scrolled();
+            let whole = scrolled.is_none();
+            let n = scrolled.and_then(|n| i64::try_from(n).ok()).unwrap_or(0);
+            let buffer = &mut self.buffers[self.back];
+            match self.way {
+                Way::Redraw => !r.draw(&frame, buffer, age, &state).damage.is_empty(),
+                Way::Copy => !r
+                    .draw_copy(&frame, buffer, age, &state, n, whole)
+                    .damage
+                    .is_empty(),
+                Way::Pan => {
+                    let (drawn, src) = r.draw_pan(&frame, buffer, age, &state, n, whole);
+                    let drew = !drawn.damage.is_empty();
+                    self.windows[self.back] = src;
+                    drew
+                }
+            }
         };
         *since = term.screen_mut().checkpoint();
         if drew {
@@ -1107,9 +1261,68 @@ impl Display {
         }
     }
 
-    /// The buffer shown last.
-    fn front(&self) -> &Canvas {
-        &self.buffers[self.back ^ 1]
+    /// Draws `overlay` over the buffer shown last, as the console draws its
+    /// notices over a frame: through the pan's window on a pan, and
+    /// straight into the buffer the redraw and the copy draw. Returns the
+    /// display areas the overlay covered.
+    fn draw_over<F: Face>(
+        &mut self,
+        r: &mut Renderer<F>,
+        overlay: &vtium::term::Overlay,
+        (grid, orientation): ((usize, usize), Orientation),
+    ) -> Vec<vtium_render::Rect> {
+        let front = self.back ^ 1;
+        let size = self.screen;
+        let buffer = &mut self.buffers[front];
+        let drawn = match self.way {
+            Way::Pan => {
+                let mut over = r.pan_overlay(buffer);
+                overlay.draw_into(r, grid, orientation, size, &mut over)
+            }
+            Way::Redraw | Way::Copy => overlay.draw_into(r, grid, orientation, size, buffer),
+        };
+        let areas: Vec<vtium_render::Rect> = drawn
+            .iter()
+            .map(|a| vtium_render::Rect {
+                x: a.x,
+                y: a.y,
+                width: a.width,
+                height: a.height,
+            })
+            .collect();
+        if self.way == Way::Pan {
+            for &a in &areas {
+                r.pan_damage(a);
+            }
+        }
+        areas
+    }
+
+    /// What buffer `b` shows: its window of the screen's size.
+    fn showing(&self, b: usize) -> Canvas {
+        let buffer = &self.buffers[b];
+        if self.way != Way::Pan {
+            return buffer.clone();
+        }
+        let (w, h) = self.screen;
+        let turned = buffer.width() > w;
+        let (x0, y0) = if turned {
+            (self.windows[b], 0)
+        } else {
+            (0, self.windows[b])
+        };
+        let (bw, at) = (buffer.width() as usize, |v: u32| v as usize);
+        let mut shown = Canvas::new(w, h, 0);
+        for y in 0..h {
+            let start = at(y0 + y) * bw + at(x0);
+            vtium_render::Target::write(&mut shown, 0, y, &buffer.pixels()[start..start + at(w)]);
+        }
+        shown
+    }
+
+    /// What the screen shows: the buffer shown last.
+    fn front(&self) -> Canvas {
+        self.showing(self.back ^ 1)
     }
 }
 
@@ -1149,12 +1362,13 @@ fn check_sprites<F: Face>(font: &Font<F>, term: &Terminal) -> Result<(), String>
     Ok(())
 }
 
-/// The configuration `config` for `screen`: its decoration colors and its
-/// display's depth.
+/// The configuration `config` for `screen`: its decoration colors, its
+/// display's depth and where its grid sits.
 pub(crate) fn screen_config(screen: &Screen, config: Config) -> Config {
     Config {
         decorations: screen.decorations.colors(),
         depth: screen.depth,
+        placement: screen.placement,
         ..config
     }
 }
@@ -1167,7 +1381,14 @@ pub(crate) fn picture_cell(screen: &Screen, cell: Cell) -> (u32, u32) {
 /// `screen`'s terminal with its bytes fed and, for a picture screen, its
 /// pictures, made in cells of `made`, before the first frame.
 fn terminal(screen: &Screen, made: (u32, u32)) -> Result<Terminal, String> {
-    let mut term = Terminal::new(screen.cols, screen.rows, 0);
+    let mut term = match screen.scrollback {
+        0 => Terminal::new(screen.cols, screen.rows, 0),
+        lines => {
+            let mut term = Terminal::new(screen.cols, screen.rows, 1000);
+            term.screen_mut().set_scrollback_max(lines);
+            term
+        }
+    };
     if let Some(bytes) = screen.palette {
         let (palette, _, _) = vtium_settings::palette::parse(bytes)
             .map_err(|(faults, _)| format!("the screen's palette file: {faults:?}"))?;
@@ -1349,15 +1570,34 @@ fn draw_config<F: Face>(
     screen: &Screen,
     make_font: &impl Fn() -> Font<F>,
     config: Config,
+    way: Way,
 ) -> Result<Image, String> {
     let font = make_font();
     let config = screen_config(screen, config);
     let made = picture_cell(screen, font.cell());
     let (mut term, w, h) = prepare(screen, &font)?;
-    let mut display = Display::new(w, h);
     let mut r = renderer(screen, font, (w, h), config)?;
+    let mut display = Display::new(w, h, way, &r);
     let mut since = Age::NEVER;
     display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
+    if screen.overlay_ends {
+        // the overlay lies over the first frame, then goes: the renderer
+        // draws its areas again into each buffer
+        let overlay = console_overlay(screen)?.ok_or("an overlay that ends, and none")?;
+        let grid = (screen.cols, screen.rows);
+        let drawn = display.draw_over(&mut r, &overlay, (grid, screen.orientation));
+        if drawn.is_empty() {
+            return Err("the overlay drew nothing".to_owned());
+        }
+        for area in drawn {
+            r.redraw_area(area);
+        }
+        display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
+        display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
+        if display.showing(0).pixels() != display.showing(1).pixels() {
+            return Err("the two buffers differ once the overlay ended".to_owned());
+        }
+    }
     if let Some(next) = screen.next {
         later(screen, &mut term, 1, made)?;
         display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
@@ -1366,26 +1606,25 @@ fn draw_config<F: Face>(
         display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
         later(screen, &mut term, 3, made)?;
         display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
-        if display.buffers[0].pixels() != display.buffers[1].pixels() {
+        if display.showing(0).pixels() != display.showing(1).pixels() {
             return Err("the two buffers differ after the last frame".to_owned());
         }
-        let mut fresh = Display::new(w, h);
         let mut r2 = renderer(screen, make_font(), (w, h), config)?;
+        let mut fresh = Display::new(w, h, Way::Redraw, &r2);
         let mut never = Age::NEVER;
         fresh.frame(&mut r2, (&mut term, screen.phase, screen.arrow), &mut never);
         if fresh.front().pixels() != display.front().pixels() {
             return Err("the frames drawn in turn differ from a fresh draw".to_owned());
         }
     }
-    if let Some(overlay) = console_overlay(screen)? {
-        let front = &mut display.buffers[display.back ^ 1];
+    let mut front = display.front();
+    if let Some(overlay) = console_overlay(screen)?.filter(|_| !screen.overlay_ends) {
         let grid = (screen.cols, screen.rows);
-        let drawn = overlay.draw(&r, grid, screen.orientation, front);
+        let drawn = overlay.draw(&r, grid, screen.orientation, &mut front);
         if drawn.is_empty() {
             return Err("the overlay drew nothing".to_owned());
         }
     }
-    let front = display.front();
     Image::from_xrgb(front.width(), front.height(), front.pixels())
         .ok_or_else(|| format!("a display of {w}x{h} pixels"))
 }
@@ -1587,9 +1826,9 @@ mod tests {
             crate::notices::panic().as_deref(),
             Ok(concat!(
                 "vtium.conf has errors and counts as closed: all input is off.\n",
-                "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
-                "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
-                "/etc/vtium/vtium.conf:5: A head's section cannot set `font-size`: a head gets it from its look. Set it in the head's `[look NAME]` section, or at the top of vtium.conf for every head.\n",
+                "No display head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
+                "/etc/vtium/vtium.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
+                "/etc/vtium/vtium.conf:5: `isolated` cannot be \"maybe\". Change it to one of `yes`, `no`.\n",
                 "/etc/vtium/vtium.conf:7: This rule sends devices to head \"kisok\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.\n",
                 "More errors: 1\n",
                 "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",
@@ -1607,8 +1846,8 @@ mod tests {
         fn shown() -> Result<vtium_render::Notice, String> {
             Ok(vtium_render::Notice::new(concat!(
                 "vtium.conf has errors and counts as closed: all input is off.\n",
-                "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
-                "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
+                "No display head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
+                "/etc/vtium/vtium.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
                 "More errors: 3\n",
                 "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",
             )))

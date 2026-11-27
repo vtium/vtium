@@ -101,9 +101,29 @@ pub fn item(shared: &Shared, at: usize) -> Item {
     };
     let mut note = match (&f.state, shared.sources.get(&f.name)) {
         (FontState::Reads, Some(Sources::LeftOut(left))) if !left.is_empty() => {
-            format!("{}, {}", words::READS, words::sources_missing(left.len()))
+            // a file the batch does not list is on this machine, so the
+            // note calls it not active rather than missing
+            let inactive = left.iter().filter(|l| is_inactive(l)).count();
+            format!(
+                "{}, {}",
+                words::READS,
+                words::sources_left_out(left.len().saturating_sub(inactive), inactive)
+            )
         }
-        (FontState::Reads, Some(Sources::DrawsNothing(_))) => words::DRAWS_NOTHING.to_owned(),
+        (FontState::Reads, Some(Sources::DrawsNothing(_, left))) => {
+            // a set that draws nothing because its files are not active
+            // says so, since activating them is what makes it draw
+            let inactive = left.iter().filter(|l| is_inactive(l)).count();
+            if inactive == 0 {
+                words::DRAWS_NOTHING.to_owned()
+            } else {
+                format!(
+                    "{}, {}",
+                    words::DRAWS_NOTHING,
+                    words::sources_left_out(left.len().saturating_sub(inactive), inactive)
+                )
+            }
+        }
         (FontState::Reads, Some(Sources::Unknown(_))) => {
             format!("{}, {}", words::READS, words::SOURCES_UNKNOWN)
         }
@@ -375,10 +395,138 @@ pub fn missing(shared: &Shared, name: &str) -> Vec<String> {
                 }
             })
             .collect(),
-        Some(Sources::DrawsNothing(why)) => vec![words::misses_all(why)],
+        Some(Sources::DrawsNothing(why, _)) => vec![words::misses_all(why)],
         Some(Sources::Unknown(why)) => vec![words::misses_unknown(why)],
         None => vec![words::MISSES_NOT_ASKED.to_owned()],
     }
+}
+
+/// Why the font helper left a font set's text font out, with the font in
+/// a person's words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TextFont {
+    /// This machine does not have it.
+    Missing(String),
+    /// The batch does not list its file.
+    Inactive(String),
+    /// This machine has it, and the font helper cannot use it: the font
+    /// and why.
+    Refused(String, String),
+}
+
+/// Why the font helper left out the text font of the font set `name`, the
+/// first font outside a layer. The helper calls a file missing both when
+/// the batch does not list it and when it fails the trust rule, so the
+/// reason after [`MISSING_BECAUSE`] tells the two apart, and only a font
+/// it cannot find at all is missing from this machine. `None` when the
+/// text font is there, or nothing is known yet.
+///
+/// [`MISSING_BECAUSE`]: vtium_settings::batch::MISSING_BECAUSE
+pub fn text_font_left_out(shared: &Shared, name: &str) -> Option<TextFont> {
+    use vtium_settings::batch::{MISSING_BECAUSE, NOT_ACTIVE};
+    let frit = parsed(shared, name)?;
+    let text = frit.sources.iter().find(|s| s.layer.is_none())?;
+    let Some(Sources::LeftOut(left)) = shared.sources.get(name) else {
+        return None;
+    };
+    let l = left.iter().find(|l| l.spelling == text.spelling)?;
+    let font = words::font_named(&text.origin);
+    Some(match l.why.split_once(MISSING_BECAUSE) {
+        Some((_, NOT_ACTIVE)) => TextFont::Inactive(font),
+        Some((_, reason)) => TextFont::Refused(font, reason.to_owned()),
+        _ if l.missing => TextFont::Missing(font),
+        _ => TextFont::Refused(font, l.why.clone()),
+    })
+}
+
+/// What the console draws in place of the text font of the font set
+/// `name`, where the font helper left the text font out: the font, why,
+/// and what to do, as a sentence for the trial's countdown.
+///
+/// References:
+/// - ADR-1204 D7: vtium-config names each font a set needs and lacks.
+pub fn text_fallback(shared: &Shared, name: &str) -> Option<String> {
+    Some(match text_font_left_out(shared, name)? {
+        TextFont::Missing(font) => words::text_font_missing(font),
+        TextFont::Inactive(font) => words::text_font_inactive(font),
+        TextFont::Refused(font, why) => words::text_font_refused(font, &why),
+    })
+}
+
+/// The font files of the font set `name` that the console leaves out
+/// because they are not active, as the font helper found them through the
+/// installed batch, in the font set's order. A font set that draws nothing
+/// because none of its files is active counts its files too.
+///
+/// References:
+/// - ADR-1205 D4: a font file that the batch does not list counts as
+///   missing.
+pub fn inactive(shared: &Shared, name: &str) -> Vec<std::path::PathBuf> {
+    use vtium_settings::batch::MISSING_BECAUSE;
+    let left = match shared.sources.get(name) {
+        Some(Sources::LeftOut(left) | Sources::DrawsNothing(_, left)) => left,
+        _ => return Vec::new(),
+    };
+    let mut out: Vec<std::path::PathBuf> = Vec::new();
+    for l in left.iter().filter(|l| is_inactive(l)) {
+        if let Some((path, _)) = l.why.split_once(MISSING_BECAUSE) {
+            let path = std::path::PathBuf::from(path);
+            if !out.contains(&path) {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// Whether the font helper left `l` out because the batch does not list
+/// its file, as `vtium check-config` reads the helper's reason.
+fn is_inactive(l: &LeftOut) -> bool {
+    use vtium_settings::batch::{MISSING_BECAUSE, NOT_ACTIVE};
+    l.missing && matches!(l.why.split_once(MISSING_BECAUSE), Some((_, NOT_ACTIVE)))
+}
+
+/// `t` on the font set `name`, whose font files `paths` are not active:
+/// the console would draw the font set without them, so the tab tries
+/// nothing. It offers to activate them in the draft, or, where the draft
+/// activates them already, says that the trial works once the draft is
+/// installed and the person logs in again. vtium reads the batch again at
+/// each new login, so a font activated in the draft reaches the console
+/// only then. The tab activates nothing without asking.
+///
+/// References:
+/// - ADR-1205 D3: trying a font live on the console needs an active
+///   system font.
+/// - ADR-1205 D4: activating a font is an act of trust, and its note of
+///   2026-11-19: a change to the batch takes effect at the next login.
+pub fn offer_activation(shared: &Shared, name: &str, paths: &[std::path::PathBuf]) -> Vec<Command> {
+    use super::super::super::model::Then;
+    use super::super::Request;
+    use crate::batch::{Change as BatchChange, State};
+    let shown: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+    let to_activate: Vec<Op> = paths
+        .iter()
+        .filter(|p| {
+            shared
+                .inputs
+                .font_files
+                .file(p)
+                .is_none_or(|f| f.resource.state != State::Activates)
+        })
+        .map(|p| Op::Resource {
+            path: p.clone(),
+            change: BatchChange::Activate,
+        })
+        .collect();
+    if to_activate.is_empty() {
+        return vec![Command::Change(Change::Say(words::inactive_drafted(
+            name, &shown,
+        )))];
+    }
+    vec![Command::Request(Request::Ask {
+        question: words::inactive_question(name, &shown),
+        then: Then::Desks(to_activate),
+    })]
 }
 
 /// The looks of the draft that draw the font set `name`, the top level

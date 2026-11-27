@@ -12,6 +12,7 @@ mod snapshots;
 mod state;
 mod tables;
 mod tabs;
+mod usecase;
 mod walk;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -81,82 +82,81 @@ fn unreachable_exits(map: &Map) -> Vec<String> {
 /// else on each kind of line.
 const CARD_KEYS: [&str; 3] = ["Enter", "Left", "Right"];
 
-/// The lines of each terminal card the walk opens, which its abstract
-/// state does not tell apart: from the TUI that stands for each card, and
+/// The lines of the terminal card in the state `abs`, which its abstract
+/// state does not tell apart: from the TUI that stands for the card, or
 /// from NEW PATH's terminal box opened with Enter, Down to each line in
-/// turn, then each of [`CARD_KEYS`] on it, each
-/// transition checked as the walk's are. The map records none of them, so
-/// it stays one line for each abstract state and key.
-fn card_lines(map: &Map, checks: &mut Checks) {
-    for (abs, (sim, path, start)) in &map.reps {
-        let mut at = sim.clone();
-        let mut keys = path.clone();
-        // NEW PATH's card, which has lines of its own, opens from its box
-        if abs.node() == "flow" && abs.focus == "new terminal" {
-            at.press(press_of("Enter"));
-            keys.push("Enter");
-        } else if !matches!(abs.node().as_str(), "flow.card" | "flow.new-card") {
-            continue;
-        }
-        let lines = Checks::card_line_count(&at);
-        for line in 0..lines {
-            if line > 0 {
-                at.press(press_of("Down"));
-                keys.push("Down");
-            }
-            for key in CARD_KEYS {
-                let mut after = at.clone();
-                let did = after.press(press_of(key));
-                let step = explore::Step {
-                    from: state::of(&at),
-                    key,
-                    to: state::of(&after),
-                    did,
-                    path: keys.clone(),
-                    start: *start,
-                };
-                checks.see(&step, &at, &after);
-            }
-        }
+/// turn, then each of [`CARD_KEYS`] on it, each transition checked as the
+/// walk's are. The map records none of them, so it stays one line for each
+/// abstract state and key. A state that is no card checks nothing.
+fn card_lines(abs: &state::Abs, reached: &explore::Reached, checks: &mut Checks) {
+    let (sim, path, start) = reached;
+    let mut at = sim.clone();
+    let mut keys = path.clone();
+    // NEW PATH's card, which has lines of its own, opens from its box
+    if abs.node() == "flow" && abs.focus == "new terminal" {
+        at.press(press_of("Enter"));
+        keys.push("Enter");
+    } else if !matches!(abs.node().as_str(), "flow.card" | "flow.new-card") {
+        return;
     }
-}
-
-/// Every key from the second page of a paged key line, each transition
-/// checked as the walk's are. The walk itself never presses `.` before a
-/// key that leaves a node, so this is where the rule that a key line shows
-/// its first page after a key that moves to another node is checked. The
-/// map records none of these transitions.
-fn from_a_second_page(map: &Map, checks: &mut Checks) {
-    for (abs, (sim, path, start)) in &map.reps {
-        let line = vtium_config::tui::layout::key_line(&sim.app);
-        if !line
-            .rsplit("  ")
-            .next()
-            .is_some_and(|i| i.starts_with(". more "))
-        {
-            continue;
+    let lines = Checks::card_line_count(&at);
+    for line in 0..lines {
+        if line > 0 {
+            at.press(press_of("Down"));
+            keys.push("Down");
         }
-        let mut paged = sim.clone();
-        paged.press(press_of("."));
-        let mut keys = path.clone();
-        keys.push(".");
-        let from = state::of(&paged);
-        if from != *abs {
-            continue;
-        }
-        for (name, press) in explore::ALPHABET {
-            let mut after = paged.clone();
-            let did = after.press(*press);
+        for key in CARD_KEYS {
+            let mut after = at.clone();
+            let did = after.press(press_of(key));
             let step = explore::Step {
-                from: from.clone(),
-                key: name,
+                from: state::of(&at),
+                key,
                 to: state::of(&after),
                 did,
                 path: keys.clone(),
                 start: *start,
             };
-            checks.see(&step, &paged, &after);
+            checks.see(&step, &at, &after);
         }
+    }
+}
+
+/// Every key from the second page of the state's key line, when the key
+/// line has pages, each transition checked as the walk's are. The walk
+/// itself never presses `.` before a key that leaves a node, so this is
+/// where the rule that a key line shows its first page after a key that
+/// moves to another node is checked. The map records none of these
+/// transitions.
+fn from_a_second_page(abs: &state::Abs, reached: &explore::Reached, checks: &mut Checks) {
+    let (sim, path, start) = reached;
+    let line = vtium_config::tui::layout::key_line(&sim.app);
+    if !line
+        .rsplit("  ")
+        .next()
+        .is_some_and(|i| i.starts_with(". more "))
+    {
+        return;
+    }
+    let mut paged = sim.clone();
+    paged.press(press_of("."));
+    let mut keys = path.clone();
+    keys.push(".");
+    let from = state::of(&paged);
+    if from != *abs {
+        return;
+    }
+    for (name, press) in explore::ALPHABET {
+        let mut after = paged.clone();
+        let did = after.press(*press);
+        let step = explore::Step {
+            from: from.clone(),
+            key: name,
+            to: state::of(&after),
+            did,
+            path: keys.clone(),
+            start: *start,
+        };
+        checks.see(&step, &paged, &after);
     }
 }
 
@@ -197,58 +197,61 @@ const MOVING: [&str; 8] = ["Up", "Down", "Left", "Right", "Home", "End", "PgUp",
 /// acted at least once.
 fn named_keys_that_act(map: &Map) -> BTreeSet<(String, String, &'static str)> {
     let rows = tables::keys();
-    let mut acted_once = BTreeSet::new();
-    for node in tables::tree().iter().filter(|n| n.status == "supported") {
-        let named: Vec<&tables::KeyRow> = rows
-            .iter()
-            .filter(|r| {
-                node.keys.contains(&r.id)
-                    && r.status == "supported"
-                    && r.label != "-"
-                    && !r.key_line
-                    && r.keys != ["."]
-            })
-            .collect();
+    let tree = tables::tree();
+    // each node, row and key to ask about, with the TUIs that stand for
+    // the node's states
+    let mut asks = Vec::new();
+    for node in tree.iter().filter(|n| n.status == "supported") {
         let reps: Vec<&Sim> = map
             .reps
             .iter()
             .filter(|(abs, _)| abs.node() == node.id)
             .map(|(_, (sim, _, _))| sim)
             .collect();
-        for row in named {
+        for row in rows.iter().filter(|r| {
+            node.keys.contains(&r.id)
+                && r.status == "supported"
+                && r.label != "-"
+                && !r.key_line
+                && r.keys != ["."]
+        }) {
             for key in pressed_for(row) {
-                // the key acts after `first`, where `first` keeps the TUI
-                // in the node
-                let acts_after = |rep: &Sim, first: &[sim::Press]| {
-                    let mut moved = rep.clone();
-                    for p in first {
-                        moved.press(*p);
-                    }
-                    if moved.exited.is_some() || state::of(&moved).node() != node.id {
-                        return false;
-                    }
-                    let mut after = moved.clone();
-                    let did = after.press(press_of(key));
-                    acted(&moved, &after, &did)
-                };
-                let singles = || explore::ALPHABET.iter().map(|(_, p)| vec![*p]);
-                let pairs = || {
-                    MOVING
-                        .iter()
-                        .flat_map(|a| MOVING.iter().map(move |b| vec![press_of(a), press_of(b)]))
-                };
-                let acts = reps.iter().any(|rep| acts_after(rep, &[]))
-                    || reps
-                        .iter()
-                        .any(|rep| singles().any(|f| acts_after(rep, &f)))
-                    || reps.iter().any(|rep| pairs().any(|f| acts_after(rep, &f)));
-                if acts {
-                    acted_once.insert((node.id.clone(), row.id.clone(), key));
-                }
+                asks.push((node, row, key, reps.clone()));
             }
         }
     }
-    acted_once
+    let acts = par_map(&asks, |(node, _, key, reps)| {
+        // the key acts after `first`, where `first` keeps the TUI in the
+        // node
+        let acts_after = |rep: &Sim, first: &[sim::Press]| {
+            let mut moved = rep.clone();
+            for p in first {
+                moved.press(*p);
+            }
+            if moved.exited.is_some() || state::of(&moved).node() != node.id {
+                return false;
+            }
+            let mut after = moved.clone();
+            let did = after.press(press_of(key));
+            acted(&moved, &after, &did)
+        };
+        let singles = || explore::ALPHABET.iter().map(|(_, p)| vec![*p]);
+        let pairs = || {
+            MOVING
+                .iter()
+                .flat_map(|a| MOVING.iter().map(move |b| vec![press_of(a), press_of(b)]))
+        };
+        reps.iter().any(|rep| acts_after(rep, &[]))
+            || reps
+                .iter()
+                .any(|rep| singles().any(|f| acts_after(rep, &f)))
+            || reps.iter().any(|rep| pairs().any(|f| acts_after(rep, &f)))
+    });
+    asks.iter()
+        .zip(acts)
+        .filter(|(_, acts)| *acts)
+        .map(|((node, row, key, _), _)| (node.id.clone(), row.id.clone(), *key))
+        .collect()
 }
 
 /// Every key a key line names does something in the node whose key line
@@ -286,8 +289,8 @@ fn every_named_key_acts(acted_once: &BTreeSet<(String, String, &'static str)>) -
 }
 
 /// Every label the key line shows acts on what the highlight is on: in
-/// each state of a supported node that the walk reached, which names the
-/// node and its focus, at least one key of each labelled item changes
+/// the state `abs`, which names a node and its focus, when the node is a
+/// supported one, at least one key of each labelled item changes
 /// something. Where none does at once, each key is pressed again after
 /// each of [`MOVING`] that keeps the TUI in the same state, which moves
 /// the highlight off the edge of a list to another item of the same kind.
@@ -301,64 +304,66 @@ fn every_named_key_acts(acted_once: &BTreeSet<(String, String, &'static str)>) -
 /// References:
 /// - ADR-1403 D7, its note of 2026-11-18: each key line names only keys
 ///   that act where it is shown.
-fn labelled_keys_act_in_each_focus(map: &Map) -> Vec<String> {
-    let rows = tables::keys();
-    let tree = tables::tree();
+fn labelled_keys_act_in_each_focus(
+    abs: &state::Abs,
+    reached: &explore::Reached,
+    rows: &[tables::KeyRow],
+    tree: &[tables::TreeNode],
+) -> Vec<String> {
+    let (rep, path, start) = reached;
     let mut out = Vec::new();
-    for (abs, (rep, path, start)) in &map.reps {
-        if matches!(abs.kind, StateKind::Left | StateKind::TooSmall) || rep.exited.is_some() {
-            continue;
-        }
-        let Some(node) = tree
-            .iter()
-            .find(|n| n.id == abs.node() && n.status == "supported")
-        else {
-            continue;
-        };
-        // the labels the node's key line shows, each with the keys that
-        // share it
-        let mut labels: BTreeMap<&str, Vec<&'static str>> = BTreeMap::new();
-        for row in rows.iter().filter(|r| {
-            node.keys.contains(&r.id)
-                && r.status == "supported"
-                && r.label != "-"
-                && !r.key_line
-                && r.keys != ["."]
-                && !r
-                    .keys
-                    .iter()
-                    .all(|k| MOVING.contains(k) || *k == "Backspace")
-        }) {
-            labels
-                .entry(row.label.as_str())
-                .or_default()
-                .extend(pressed_for(row));
-        }
-        let acts_after = |first: Option<&str>, key: &str| {
-            let mut moved = rep.clone();
-            if let Some(f) = first {
-                moved.press(press_of(f));
-                if moved.exited.is_some() || state::of(&moved) != *abs {
-                    return false;
-                }
+    if matches!(abs.kind, StateKind::Left | StateKind::TooSmall) || rep.exited.is_some() {
+        return out;
+    }
+    let Some(node) = tree
+        .iter()
+        .find(|n| n.id == abs.node() && n.status == "supported")
+    else {
+        return out;
+    };
+    // the labels the node's key line shows, each with the keys that
+    // share it
+    let mut labels: BTreeMap<&str, Vec<&'static str>> = BTreeMap::new();
+    for row in rows.iter().filter(|r| {
+        node.keys.contains(&r.id)
+            && r.status == "supported"
+            && r.label != "-"
+            && !r.key_line
+            && r.keys != ["."]
+            && !r
+                .keys
+                .iter()
+                .all(|k| MOVING.contains(k) || *k == "Backspace")
+    }) {
+        labels
+            .entry(row.label.as_str())
+            .or_default()
+            .extend(pressed_for(row));
+    }
+    let acts_after = |first: Option<&str>, key: &str| {
+        let mut moved = rep.clone();
+        if let Some(f) = first {
+            moved.press(press_of(f));
+            if moved.exited.is_some() || state::of(&moved) != *abs {
+                return false;
             }
-            let mut after = moved.clone();
-            let did = after.press(press_of(key));
-            acted(&moved, &after, &did)
-        };
-        for (label, keys) in labels {
-            let acts = keys.iter().any(|k| acts_after(None, k))
-                || MOVING
-                    .iter()
-                    .any(|m| keys.iter().any(|k| acts_after(Some(m), k)));
-            if !acts {
-                let (term, cols, rows) = start;
-                out.push(format!(
+        }
+        let mut after = moved.clone();
+        let did = after.press(press_of(key));
+        acted(&moved, &after, &did)
+    };
+    for (label, keys) in labels {
+        let acts = keys.iter().any(|k| acts_after(None, k))
+            || MOVING
+                .iter()
+                .any(|m| keys.iter().any(|k| acts_after(Some(m), k)));
+        if !acts {
+            let (term, cols, rows) = start;
+            out.push(format!(
                     "in {abs}, the key line shows \"{label}\", and none of its keys {keys:?} changes anything there ({} {cols}×{rows}: {})",
                     term.name(),
                     path.join(" ")
                 ));
-            }
         }
     }
     out
@@ -398,34 +403,140 @@ fn as_the_tables_say(step: &explore::Step) -> Option<String> {
         .map(|e| format!("{}: from {}: {e}", step.scenario(), step.from.node()))
 }
 
-/// The 0-switch run: every key in every state of every kind of terminal,
-/// each terminal on a thread of its own, with every check after every
-/// key, the map compared with the committed one, and the tables met.
-#[test]
-fn every_key_in_every_state_keeps_the_rules() {
-    type Run = (Term, Map, Checks, BTreeSet<(String, String, &'static str)>);
-    let runs: Vec<Run> = std::thread::scope(|scope| {
-        let handles: Vec<_> = Term::ALL
-            .into_iter()
-            .map(|term| {
-                scope.spawn(move || {
-                    let mut checks = Checks::new();
-                    let mut moved = Vec::new();
-                    let map = explore::explore(term, |step, before, after| {
-                        checks.see(step, before, after);
-                        moved.extend(as_the_tables_say(step));
-                    });
-                    card_lines(&map, &mut checks);
-                    from_a_second_page(&map, &mut checks);
-                    let acts = named_keys_that_act(&map);
-                    checks.found.failures.extend(moved);
-                    checks
-                        .found
-                        .failures
-                        .extend(labelled_keys_act_in_each_focus(&map));
-                    (term, map, checks, acts)
+/// Runs `work` on each of `items` on as many threads as the machine has
+/// cores, and returns the results in the order of the items, so what a
+/// test reports does not depend on which thread finished first. Each
+/// thread takes the next item that no thread has taken yet, so a few slow
+/// items do not hold up the rest. Each thread makes its own `S` with
+/// `init` once and lends it to `work` for each item it takes. A panic in
+/// `work` reaches the caller with its own message.
+fn par_map_with<T: Sync, S, R: Send>(
+    items: &[T],
+    init: impl Fn() -> S + Sync,
+    work: impl Fn(&mut S, &T) -> R + Sync,
+) -> Vec<R> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let threads = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .clamp(1, items.len().max(1));
+    let next = AtomicUsize::new(0);
+    let mut done: Vec<(usize, R)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut state = init();
+                    let mut out = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(item) = items.get(i) else {
+                            return out;
+                        };
+                        out.push((i, work(&mut state, item)));
+                    }
                 })
             })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    });
+    done.sort_unstable_by_key(|(i, _)| *i);
+    done.into_iter().map(|(_, r)| r).collect()
+}
+
+/// [`par_map_with`] for work that needs no state of its own.
+fn par_map<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    par_map_with(items, || (), |(), item| work(item))
+}
+
+/// Adds what one share of the checks found to `all`, as if the checks had
+/// run one after another: the failures in order, and for each node the
+/// keys that reach it first.
+fn absorb(all: &mut checks::Findings, found: checks::Findings) {
+    all.failures.extend(found.failures);
+    all.reached.extend(found.reached);
+    for (node, keys) in found.nodes {
+        all.nodes.entry(node).or_insert(keys);
+    }
+    for (view, parts) in found.writes {
+        all.writes.entry(view).or_default().extend(parts);
+    }
+    for (view, shown) in found.actions {
+        all.actions.entry(view).or_default().extend(shown);
+    }
+}
+
+/// Every check of the 0-switch run on the map of one kind of terminal,
+/// with its work spread over the machine's cores: each transition of the
+/// walk, the card lines and the second pages of each state, and the keys
+/// the key lines name. The transitions of one state make one share of the
+/// work. Each share presses its keys again on a clone of the TUI that
+/// stands for the state, which is the TUI the explorer pressed them on, so
+/// each check sees the TUI before and after the key that the walk saw.
+/// What the checks find comes back in the order a run on one thread finds
+/// it.
+fn check_map(map: &Map) -> (checks::Findings, BTreeSet<(String, String, &'static str)>) {
+    // the walk's transitions, one share for each state they start from;
+    // the explorer takes every key of the alphabet in one state before the
+    // next state, so the transitions of one state lie together
+    let shares: Vec<&[explore::Step]> = map.steps.chunk_by(|a, b| a.from == b.from).collect();
+    let walked = par_map_with(&shares, Checks::new, |checks, steps| {
+        let (rep, _, _) = &map.reps[&steps[0].from];
+        let mut moved = Vec::new();
+        for step in *steps {
+            let mut after = rep.clone();
+            let did = after.press(press_of(step.key));
+            assert!(
+                did == step.did && state::of(&after) == step.to,
+                "{}: pressed again, the key does not do what it did in the walk",
+                step.scenario()
+            );
+            checks.see(step, rep, &after);
+            moved.extend(as_the_tables_say(step));
+        }
+        (std::mem::take(&mut checks.found), moved)
+    });
+    let reps: Vec<(&state::Abs, &explore::Reached)> = map.reps.iter().collect();
+    let more = par_map_with(&reps, Checks::new, |checks, (abs, reached)| {
+        card_lines(abs, reached, checks);
+        let cards = std::mem::take(&mut checks.found);
+        from_a_second_page(abs, reached, checks);
+        (cards, std::mem::take(&mut checks.found))
+    });
+    let (rows, tree) = (tables::keys(), tables::tree());
+    let labelled = par_map(&reps, |(abs, reached)| {
+        labelled_keys_act_in_each_focus(abs, reached, &rows, &tree)
+    });
+    let acts = named_keys_that_act(map);
+    // the order a run on one thread finds it in: every transition of the
+    // walk, the card lines, the second pages, then the failures of the
+    // tables' reading and of the labelled keys
+    let mut found = checks::Findings::default();
+    let mut moved = Vec::new();
+    for (share, m) in walked {
+        absorb(&mut found, share);
+        moved.extend(m);
+    }
+    let (cards, pages): (Vec<_>, Vec<_>) = more.into_iter().unzip();
+    for share in cards.into_iter().chain(pages) {
+        absorb(&mut found, share);
+    }
+    found.failures.extend(moved);
+    found.failures.extend(labelled.into_iter().flatten());
+    (found, acts)
+}
+
+/// The 0-switch run: every key in every state of every kind of terminal,
+/// with every check after every key, the map compared with the committed
+/// one, and the tables met. The explorer walks each kind of terminal on a
+/// thread of its own, and [`check_map`] spreads the checks over the cores.
+#[test]
+fn every_key_in_every_state_keeps_the_rules() {
+    let maps: Vec<(Term, Map)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = Term::ALL
+            .into_iter()
+            .map(|term| scope.spawn(move || (term, explore::explore(term, |_, _, _| {}))))
             .collect();
         handles
             .into_iter()
@@ -436,21 +547,12 @@ fn every_key_in_every_state_keeps_the_rules() {
     let mut failures = Vec::new();
     let bless = std::env::var_os("VTIUM_CONFIG_BLESS").is_some();
     let mut acted_once = BTreeSet::new();
-    for (term, map, checks, acts) in runs {
+    for (term, map) in maps {
+        let (mut found, acts) = check_map(&map);
         acted_once.extend(acts);
         failures.extend(unreachable_exits(&map));
-        let found = checks.found;
-        failures.extend(found.failures);
-        all.found.reached.extend(found.reached);
-        for (node, keys) in found.nodes {
-            all.found.nodes.entry(node).or_insert(keys);
-        }
-        for (view, parts) in found.writes {
-            all.found.writes.entry(view).or_default().extend(parts);
-        }
-        for (view, shown) in found.actions {
-            all.found.actions.entry(view).or_default().extend(shown);
-        }
+        failures.append(&mut found.failures);
+        absorb(&mut all.found, found);
         let path = map_path(term);
         let text = map_text(&map);
         if bless {

@@ -45,7 +45,7 @@ const ID: DisplayId = DisplayId(1);
 /// as a frame the render thread draws or a line a session prints, may run
 /// before the test fails: long enough for a loaded machine, and only a
 /// bound, since each wait ends at the state it waits for.
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(60);
 
 /// A device with one display, its frame buffer in memory, named for the
 /// rules by its connector and its card.
@@ -1716,9 +1716,10 @@ display card:mem-small -> a
 /// `flooded`. A background `cat` reads the replies, with echo off. vtium
 /// reads the flood until the held replies reach vtium-term's bound, and
 /// then stops reading the program until the release. While the hold is
-/// full, the loop waits for what it waits on and never wakes at once, so it
-/// does not spin. Once the test lets the helper answer, the hold ends, and
-/// vtium reads and draws the rest of the program's output.
+/// full, each turn leaves the loop nothing to do at once, so the loop waits
+/// for what it waits on and does not spin. Once the test lets the helper
+/// answer, the hold ends, and vtium reads and draws the rest of the
+/// program's output.
 ///
 /// References:
 /// - ADR-1200 D17: the cell that comes after the wait.
@@ -1759,14 +1760,28 @@ display card:mem-small -> a
     };
     assert!(s.until(BOUND, full), "the held replies reach the bound");
     assert!(head_shows(&s.app, "a", "drawn"), "drawn during the wait");
-    let mut at_once = 0;
-    s.until(Duration::from_millis(300), |a| {
-        if a.next_wake(now()) == Some(Duration::ZERO) {
-            at_once += 1;
-        }
-        false
-    });
-    assert_eq!(at_once, 0, "the loop does not spin while the hold is full");
+    // A turn handles everything that is due at the instant it is given, so
+    // right after the turn the loop owes nothing at once at that same
+    // instant. A wake of zero there would turn the loop again with nothing
+    // changed, which is a spin. The test reads the wake at the turn's own
+    // instant instead of counting zero wakes over a stretch of wall time.
+    // A timer that falls due between turns, such as the cursor's blink, is
+    // then the next turn's work and never counts against the loop.
+    for turn in 0..15 {
+        let wait = s
+            .app
+            .next_wake(now())
+            .unwrap_or(Duration::from_millis(20))
+            .min(Duration::from_millis(20));
+        s.lp.dispatch(Some(wait), &mut s.app).expect("dispatch");
+        let at = now();
+        s.app.turn(at);
+        assert_ne!(
+            s.app.next_wake(at),
+            Some(Duration::ZERO),
+            "the loop does not spin while the hold is full: turn {turn}"
+        );
+    }
     assert!(full(&s.app), "the hold stays full");
     assert!(!head_shows(&s.app, "a", "flooded"), "the rest waits");
     // The helper waits on the FIFO with its answer, so an open to write
@@ -2125,6 +2140,111 @@ fn a_display_whose_refresh_rate_changes_in_place_paces_at_its_new_rate() {
         s.memory("/dev/mem0").ages.get(lent),
         Some(&0),
         "the first frame after is drawn whole"
+    );
+}
+
+/// The display lines among `lines`, each as the display's name and the
+/// character cell its line names, such as `("MEM-1", "8x16")`.
+fn display_cells(lines: &[String]) -> Vec<(String, String)> {
+    lines
+        .iter()
+        .filter_map(|l| {
+            let (name, _) = l.strip_prefix("Display ")?.split_once(' ')?;
+            let (_, cell) = l.rsplit_once("cell size ")?;
+            Some((name.to_owned(), cell.to_owned()))
+        })
+        .collect()
+}
+
+/// A display line for the display `name` that names `cell`, as
+/// [`display_cells`] reads it.
+fn cell_line(name: &str, (w, h): (u32, u32)) -> (String, String) {
+    (name.to_owned(), format!("{w}x{h}"))
+}
+
+/// A display whose mode changes in place, as after a VT switch whose
+/// set-up falls back to another mode, logs its display line again once its
+/// head is laid out at the new size, so the log says how the display draws
+/// after the change.
+#[test]
+fn a_display_whose_mode_changes_in_place_logs_its_display_line_again() {
+    logged();
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(BOUND, |a| shows(a, "ready")), "the session runs");
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0),
+        "the display draws"
+    );
+    assert_eq!(display_cells(&logged()), [cell_line("MEM-1", (8, 16))]);
+    let frames = s.memory("/dev/mem0").frames;
+    s.memory("/dev/mem0").set_mode(640, 320);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the display draws again after its mode changed"
+    );
+    assert_eq!(s.app.grid(), (80, 20), "the grid fills the new size");
+    assert_eq!(display_cells(&logged()), [cell_line("MEM-1", (8, 16))]);
+}
+
+/// A turn of the display lays its head out on a new grid, and vtium logs
+/// the display line again in the same turn.
+#[test]
+fn a_turn_of_the_display_logs_its_display_line_again() {
+    logged();
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(BOUND, |a| shows(a, "ready")), "the session runs");
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0),
+        "the display draws"
+    );
+    assert_eq!(display_cells(&logged()).len(), 1, "the start's line");
+    // Logo+= turns the display a quarter: 160 across, 320 down
+    let turn = InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        unshifted: 0,
+        shifted: 0,
+        base: None,
+        mods: Mods::LOGO,
+        keysyms: vec![0x3d],
+        codepoints: vec![None],
+        repeat: false,
+    });
+    s.app.input_event(turn, now());
+    assert_eq!(s.app.grid(), (20, 20), "the turned grid");
+    assert_eq!(display_cells(&logged()), [cell_line("MEM-1", (8, 16))]);
+}
+
+/// When one of a head's two displays goes, the head is laid out again on
+/// the display that stays, and vtium logs that display's line again with
+/// the cell it draws in now. When the display comes back, both displays
+/// log their lines: the one that joins and the one whose layout it moves.
+#[test]
+fn a_display_that_goes_or_comes_logs_the_line_of_the_display_it_moves() {
+    logged();
+    let mut s = Seat::boot(&[], two_displays(), MODE_SCRIPT);
+    assert!(s.until(BOUND, |a| shows(a, "ready")), "the session runs");
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0));
+    assert!(s.until_memory("/dev/mem1", BOUND, |m| m.frames > 0));
+    assert_eq!(display_cells(&logged()).len(), 2, "the start's lines");
+    let grid = s.app.grid();
+    s.unplug("/dev/mem0", now());
+    assert_ne!(s.app.grid(), grid, "the layout of the display that stays");
+    let cells = s.app.cells();
+    assert_eq!(cells.len(), 1, "{cells:?}");
+    assert_eq!(display_cells(&logged()), [cell_line("MEM-2", cells[0])]);
+    s.plug("/dev/mem0", now());
+    assert_eq!(s.app.grid(), grid, "the layout of both displays");
+    let mut lines = display_cells(&logged());
+    lines.sort();
+    let mut cells = s.app.cells();
+    assert_eq!(cells.len(), 2, "{cells:?}");
+    cells.sort_by_key(|&(w, _)| w);
+    assert_eq!(
+        lines,
+        [cell_line("MEM-1", cells[0]), cell_line("MEM-2", cells[1])]
     );
 }
 
@@ -5461,13 +5581,13 @@ const PARTLY: &str = "vtium.conf has errors: running the parts without errors.\n
 const CLOSED_OFF: &str = "vtium.conf has errors and counts as closed: all input is off.\nThis console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.";
 
 /// The panic screen of a broken closed file whose one error, on line 4,
-/// is the key `focs`, read as `heads.conf` (D7): the console line, that
+/// is `consoles = 0`, read as `heads.conf` (D7): the console line, that
 /// no head is left, the error with its file and line, and the next step,
 /// each naming the file the start read.
 const PANIC: &str = concat!(
     "vtium.conf has errors and counts as closed: all input is off.\n",
-    "No head can run because of the errors in heads.conf, listed below.\n",
-    "heads.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
+    "No display head can run because of the errors in heads.conf, listed below.\n",
+    "heads.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
     "This console takes no input. For the full report, run vtium check-config heads.conf over ssh or from other boot media.",
 );
 
@@ -5567,10 +5687,7 @@ fn d7_row(row: &Row) {
                 let path = file.path.display();
                 let at = |line: &str, error: &str| format!("{path}{line}: {error}");
                 let error = match test {
-                    "broken-closed" => at(
-                        ":4",
-                        "This section has no key named \"focs\". Check the spelling, or remove the line.",
-                    ),
+                    "broken-closed" => at(":4", "`consoles` cannot be \"0\": it takes 1 or more."),
                     // the policy line vtium cannot read, at its line
                     "unreadable-policy" | "unreadable-policy-no-head" => at(
                         ":2",
@@ -5583,7 +5700,9 @@ fn d7_row(row: &Row) {
                 };
                 let want = [
                     "vtium.conf has errors and counts as closed: all input is off.".to_owned(),
-                    format!("No head can run because of the errors in {path}, listed below."),
+                    format!(
+                        "No display head can run because of the errors in {path}, listed below."
+                    ),
                     error,
                     format!(
                         "This console takes no input. For the full report, run vtium check-config {path} over ssh or from other boot media."
@@ -5706,14 +5825,14 @@ fn each_row_of_d7s_outcomes_runs_what_it_says_and_shows_its_line() {
         },
         Row {
             test: "partly-closed",
-            text: format!("version = 1\npolicy = closed\n{DESK}[head bad]\ncolour = red\n"),
+            text: format!("version = 1\npolicy = closed\n{DESK}[head bad]\nconsoles = 0\n"),
             kind: Kind::File,
             heads: &["desk"], lit: 2,
             line: Some(PARTLY),
         },
         Row {
             test: "broken-open",
-            text: "version = 1\n[head desk]\ncolour = red\n[rules]\ndisplay * -> desk\n".into(),
+            text: "version = 1\n[head desk]\nconsoles = 0\n[rules]\ndisplay * -> desk\n".into(),
             kind: Kind::File,
             heads: &["console"], lit: 2,
             line: Some(SKIPPED),
@@ -5728,7 +5847,7 @@ fn each_row_of_d7s_outcomes_runs_what_it_says_and_shows_its_line() {
         },
         Row {
             test: "broken-closed",
-            text: "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\n".into(),
+            text: "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\n[rules]\ndisplay * -> kiosk\n".into(),
             kind: Kind::File,
             heads: &[], lit: 1,
             line: Some(CLOSED_OFF),
@@ -5753,7 +5872,7 @@ fn each_row_of_d7s_outcomes_runs_what_it_says_and_shows_its_line() {
 // covers: platform.heads.policy
 #[test]
 fn a_partly_broken_open_file_runs_its_survivors_then_the_shipped_tail_with_no_head_isolated() {
-    let text = "version = 1\n[head desk]\nisolated = yes\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ninput path:kbd-bad -> bad\n";
+    let text = "version = 1\n[head desk]\nisolated = yes\n[head bad]\nconsoles = 0\n[rules]\ndisplay * -> desk\ninput path:kbd-bad -> bad\n";
     let displays = [(
         "/dev/mem0",
         Memory::new(320, 160, "MEM-1", "mem-small").lit(),
@@ -5761,6 +5880,8 @@ fn a_partly_broken_open_file_runs_its_survivors_then_the_shipped_tail_with_no_he
     let mut s = Seat::with_rules(&[], Some(start(text)), displays, ECHO, no_fonts());
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-bad"));
     assert!(s.until(BOUND, |a| head_shows(a, "desk", "ready")));
+    let names: Vec<&str> = s.app.heads().iter().map(Head::name).collect();
+    assert_eq!(names, ["desk"], "head bad is dropped with its rule");
     assert_eq!(s.app.focus_head(), Some("desk"), "not isolated");
     s.type_on(KBD_A, "t\r");
     assert!(
@@ -5775,7 +5896,7 @@ fn a_partly_broken_open_file_runs_its_survivors_then_the_shipped_tail_with_no_he
 // covers: platform.heads.policy
 #[test]
 fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() {
-    let text = "version = 1\npolicy = closed\n[head desk]\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ninput path:kbd-bad -> bad\ninput path:kbd-desk -> desk\n";
+    let text = "version = 1\npolicy = closed\n[head desk]\n[head bad]\nconsoles = 0\n[rules]\ndisplay * -> desk\ninput path:kbd-bad -> bad\ninput path:kbd-desk -> desk\n";
     let displays = [(
         "/dev/mem0",
         Memory::new(320, 160, "MEM-1", "mem-small").lit(),
@@ -5784,6 +5905,8 @@ fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() 
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-bad"));
     s.app.add_input(Path::new(KBD_B), keyboard("kbd-desk"));
     assert!(s.until(BOUND, |a| head_shows(a, "desk", "ready")));
+    let names: Vec<&str> = s.app.heads().iter().map(Head::name).collect();
+    assert_eq!(names, ["desk"], "head bad is dropped with its rule");
     assert_eq!(notice(&s.app, "desk").as_deref(), Some(PARTLY));
     s.type_on(KBD_A, "x\r");
     s.type_on(KBD_B, "d\r");
@@ -5805,13 +5928,43 @@ fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() 
     );
 }
 
+/// A key vtium ignores inside a head's section drops nothing, so the file
+/// runs as written under either policy: the head keeps `isolated = yes`,
+/// so the VT key pressed on its keyboard switches no VT, and the head
+/// shows no notice that the file has errors.
+///
+/// References:
+/// - ADR-1510 D2: an ignored key in a section counts toward the outcome as an unknown top-level key does.
+/// - ADR-1401 D7: only errors that drop something make a file partly broken.
+// covers: platform.heads.policy
+#[test]
+fn a_key_vtium_ignores_in_a_head_leaves_the_file_running_as_written() {
+    for policy in ["", "policy = closed\n"] {
+        let text = format!(
+            "version = 1\n{policy}[head desk]\nisolated = yes\nfrob = 1\n[rules]\ndisplay * -> desk\ninput path:kbd-desk -> desk\n"
+        );
+        let displays = [(
+            "/dev/mem0",
+            Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+        )];
+        let mut s = Seat::with_rules(&[], Some(start(&text)), displays, ECHO, no_fonts());
+        s.app.add_input(Path::new(KBD_A), keyboard("kbd-desk"));
+        assert!(s.until(BOUND, |a| head_shows(a, "desk", "ready")), "{text}");
+        let names: Vec<&str> = s.app.heads().iter().map(Head::name).collect();
+        assert_eq!(names, ["desk"], "{text}: what runs");
+        assert_eq!(notice(&s.app, "desk"), None, "{text}: no errors notice");
+        s.app.device_input(Path::new(KBD_A), vt_key(), now());
+        assert!(s.app.vt.is_active(), "{text}: desk stays isolated");
+    }
+}
+
 /// D7 and D9: a broken closed file runs nothing. The boot display shows
 /// the panic screen alone, on the notice screen, with no session behind
 /// it, still up past 30 s, and no keyboard delivers anything.
 // covers: platform.heads.policy
 #[test]
 fn a_broken_closed_file_runs_nothing_and_shows_the_panic_screen_on_the_boot_display_for_good() {
-    let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
+    let text = "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
     let displays = [
         ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
         (
@@ -5973,7 +6126,7 @@ fn under_closed_with_no_display_vtium_waits_past_display_wait() {
 fn noticed() -> (Seat, HeadFile) {
     let file = HeadFile::new(
         "noticed",
-        "version = 1\n[head desk]\ncolour = red\n[rules]\ndisplay * -> desk\n",
+        "version = 1\n[head desk]\nconsoles = 0\n[rules]\ndisplay * -> desk\n",
     );
     let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
     let mut s = Seat::with_rules(
@@ -7212,27 +7365,30 @@ fn end_shown_session(s: &mut Seat) -> String {
         .unwrap_or_default()
 }
 
-/// vtium/vtium#384, ADR-1200 D5: OSC 50's query reports a name OSC 50
-/// takes for the font on screen, or none, never a font that is not shown.
-/// The first session switches to frit b; when it ends, vtium returns the
-/// head to the font file vtium.conf's `font-name` gives, which has no
-/// font set's name, so the next session's query names no font, not b.
 /// Whether head `name` shows the whole reply to an OSC 50 query. The tty
 /// echoes the reply as it arrives, and a busy machine can draw the echo in
-/// two pieces, so the reply counts only once its line ends with the BEL
-/// that ends it, shown as `^G`. The line ends that way whether or not the
-/// reply names a font, so a test that waits on this can still check the
-/// name.
+/// two pieces, so the reply counts only once the BEL that ends it, shown
+/// as `^G`, follows it. A long reply wraps onto the next row, so the rows
+/// are read as one text. The reply ends that way whether or not it names
+/// a font, so a test that waits on this can still check the name.
 fn shows_whole_font_reply(app: &App, name: &str) -> bool {
     app.head(name).is_some_and(|h| {
-        h.screen_text()
-            .iter()
-            .any(|l| l.contains("]50;") && l.ends_with("^G"))
+        let text = h.screen_text().concat();
+        text.rsplit_once("]50;")
+            .is_some_and(|(_, reply)| reply.contains("^G"))
     })
 }
 
+// vtium/vtium#384: OSC 50's query reports a name OSC 50 takes for the
+// font on screen, never a font that is not shown. The first session
+// switches to frit b. When it ends, vtium returns the head to the font
+// file vtium.conf's `font-name` gives, so the next session's query names
+// that file's path, not b.
+//
+// References:
+// - ADR-1200 D5: the query reports a frit made from a path by that path.
 #[test]
-fn after_a_return_to_a_font_file_the_query_names_no_font() {
+fn after_a_return_to_a_font_file_the_query_names_its_path() {
     let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
     let conf = format!("font-engine=psf\nfont-name={path}\nfont-size=16\n");
     let (dir, fonts) = reset_fixture("reset-path", &conf);
@@ -7259,9 +7415,12 @@ fn after_a_return_to_a_font_file_the_query_names_no_font() {
         .head("small")
         .map(Head::screen_text)
         .unwrap_or_default();
-    let replies: Vec<&String> = text.iter().filter(|l| l.contains("]50;")).collect();
-    assert_eq!(replies.len(), 1, "{text:?}");
-    assert!(replies[0].ends_with("]50;^G"), "no font named: {replies:?}");
+    let replies = text.concat();
+    assert_eq!(replies.matches("]50;").count(), 1, "{text:?}");
+    assert!(
+        replies.contains(&format!("]50;{path}^G")),
+        "the font file's path: {text:?}"
+    );
 }
 
 /// ADR-1401 D10, ADR-1403 D5: a look naming a frit its group can write
@@ -8190,7 +8349,10 @@ mod gpu_path {
         let before = gpu.set_ups.lock().unwrap().len();
         *gpu.widest.lock().unwrap() = Some(400);
         s.memory("/dev/mem1").set_mode(640, 320);
-        let lines = lines_until(&mut s, |l| renderers(l).len() == 2);
+        // the new mode moves the display to a cell twice the size, and its
+        // line names the GPU path, which draws the head until the set-up at
+        // the new size fails; the head's lines on the CPU path follow
+        let lines = lines_until(&mut s, |l| renderers(l).len() == 3);
         let refused: Vec<&String> = lines
             .iter()
             .filter(|l| l.contains("the GPU path cannot set it up"))
@@ -8200,7 +8362,7 @@ mod gpu_path {
             refused[0].starts_with("display MEM-2: the GPU path cannot set it up at 640x320"),
             "{lines:#?}"
         );
-        assert_eq!(renderers(&lines), ["cpu", "cpu"], "{lines:#?}");
+        assert_eq!(renderers(&lines), ["gpu", "cpu", "cpu"], "{lines:#?}");
         // the head's frames are the CPU path's, and the set-up is not tried
         // again at that size
         let (drawn, tries) = (gpu.drawn.load(SeqCst), gpu.set_ups.lock().unwrap().len());
@@ -8211,8 +8373,11 @@ mod gpu_path {
         assert_eq!(renderers(&logged()), Vec::<&str>::new());
         // a size the GPU path sets up puts the head back on it
         s.memory("/dev/mem1").set_mode(320, 160);
-        let lines = lines_until(&mut s, |l| renderers(l).len() == 2);
-        assert_eq!(renderers(&lines), ["gpu", "gpu"], "{lines:#?}");
+        // the display's line at its old cell names the CPU path, which
+        // draws the head until the set-up succeeds; the head's lines on the
+        // GPU path follow
+        let lines = lines_until(&mut s, |l| renderers(l).len() == 3);
+        assert_eq!(renderers(&lines), ["cpu", "gpu", "gpu"], "{lines:#?}");
         assert!(
             lines.iter().any(|l| l.contains("it draws on the GPU path")),
             "{lines:#?}"
@@ -8236,9 +8401,9 @@ mod gpu_path {
             .unwrap()
             .extend([SetUpFault::Limit, SetUpFault::OutOfMemory]);
         s.memory("/dev/mem1").set_mode(640, 320);
-        let _ = lines_until(&mut s, |l| renderers(l).len() == 2);
+        let _ = lines_until(&mut s, |l| renderers(l).len() == 3);
         s.memory("/dev/mem1").set_mode(400, 200);
-        let mut lines = lines_until(&mut s, |l| renderers(l).len() == 2);
+        let mut lines = lines_until(&mut s, |l| renderers(l).len() == 3);
         draw_both(&mut s, "a");
         lines.extend(logged());
         assert_eq!(count_of(&lines, "the GPU path failed"), 1, "{lines:#?}");
@@ -8247,7 +8412,9 @@ mod gpu_path {
             0,
             "{lines:#?}"
         );
-        assert_eq!(renderers(&lines), ["cpu", "cpu"], "{lines:#?}");
+        // the display's line at its new cell, then the head's lines after
+        // the GPU path failed
+        assert_eq!(renderers(&lines), ["cpu", "cpu", "cpu"], "{lines:#?}");
     }
 
     // A display refused at one size and again at its next keeps its head on
@@ -8261,7 +8428,7 @@ mod gpu_path {
             .unwrap()
             .extend([SetUpFault::Limit, SetUpFault::Compile]);
         s.memory("/dev/mem1").set_mode(640, 320);
-        let _ = lines_until(&mut s, |l| renderers(l).len() == 2);
+        let _ = lines_until(&mut s, |l| renderers(l).len() == 3);
         let drawn = gpu.drawn.load(SeqCst);
         s.memory("/dev/mem1").set_mode(400, 200);
         let mut lines = lines_until(&mut s, |l| count_of(l, "cannot set it up") == 1);
@@ -8289,9 +8456,9 @@ mod gpu_path {
         let mut lines = Vec::new();
         for _ in 0..3 {
             s.memory("/dev/mem1").set_mode(640, 320);
-            lines.extend(lines_until(&mut s, |l| renderers(l).len() == 2));
+            lines.extend(lines_until(&mut s, |l| renderers(l).len() == 3));
             s.memory("/dev/mem1").set_mode(320, 160);
-            lines.extend(lines_until(&mut s, |l| renderers(l).len() == 2));
+            lines.extend(lines_until(&mut s, |l| renderers(l).len() == 3));
         }
         assert_eq!(count_of(&lines, "cannot set it up"), 3, "{lines:#?}");
         assert_eq!(
@@ -8319,7 +8486,16 @@ mod gpu_path {
             0,
             "{lines:#?}"
         );
-        assert!(!renderers(&lines).contains(&"gpu"), "{lines:#?}");
+        // the display's line at its new cell names the GPU path, which
+        // draws the head until the set-up fails, and no line after the
+        // failure names it
+        let after: Vec<String> = lines
+            .iter()
+            .skip_while(|l| !l.contains("the GPU path failed"))
+            .cloned()
+            .collect();
+        assert_eq!(renderers(&lines[..1]), ["gpu"], "{lines:#?}");
+        assert!(!renderers(&after).contains(&"gpu"), "{lines:#?}");
         assert_eq!(gpu.drawn.load(SeqCst), drawn, "a frame on the GPU path");
     }
 
@@ -8331,8 +8507,8 @@ mod gpu_path {
             .unwrap()
             .push_back(SetUpFault::Compile);
         s.memory("/dev/mem1").set_mode(640, 320);
-        let lines = lines_until(&mut s, |l| renderers(l).len() == 2);
-        assert_eq!(renderers(&lines), ["cpu", "cpu"], "{lines:#?}");
+        let lines = lines_until(&mut s, |l| renderers(l).len() == 3);
+        assert_eq!(renderers(&lines), ["gpu", "cpu", "cpu"], "{lines:#?}");
         let drawn = gpu.drawn.load(SeqCst);
         s.unplug("/dev/mem1", now());
         let frames = s.memory("/dev/mem0").frames;
@@ -9047,7 +9223,7 @@ fn under_closed_osd_silent_lights_no_display_for_a_console_line() {
 // covers: platform.heads.policy
 #[test]
 fn the_panic_screen_looks_the_same_under_osd_silent_as_under_minimal() {
-    let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
+    let text = "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
     let drawn: Vec<(Option<String>, Vec<u8>)> = ["--osd=minimal", "--osd=silent"]
         .into_iter()
         .map(|osd| {

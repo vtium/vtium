@@ -112,6 +112,8 @@ fn stand_in(role: &str, tmpdir: Option<&str>) -> ! {
             },
             landlock: 0,
             seccomp: false,
+            no_seccomp: Some(wire::NoSeccomp::NoTable),
+            no_landlock: Some(wire::NoLandlock::NotBuilt),
         };
         send(&socket, &wire::encode_hello(&hello), None);
     }
@@ -1029,6 +1031,16 @@ fn a_reply_is_copied_once_into_a_buffer_the_budget_granted_first() {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // `--list --format terse` lists this binary as one test named main,
+    // the way libtest lists a test, so that cargo-nextest finds the binary
+    // and runs it whole. No test is ignored, so the list of ignored tests
+    // is empty.
+    if args.iter().any(|a| a == "--list") {
+        if !args.iter().any(|a| a == "--ignored") {
+            println!("main: test");
+        }
+        return;
+    }
     if args.first().map(String::as_str) == Some("--fd-three") {
         with_three_free();
     }

@@ -11,16 +11,21 @@
     reason = "test arithmetic on bounded values; a test fails by panicking"
 )]
 
-use drm_ffi::drm_mode_modeinfo;
+use drm_ffi::{
+    DRM_MODE_ATOMIC_ALLOW_MODESET, DRM_MODE_ATOMIC_NONBLOCK, DRM_MODE_PAGE_FLIP_EVENT,
+    drm_mode_modeinfo,
+};
 use log::Level;
 use rustix::io::Errno;
+use std::sync::Arc;
 
-use super::output::signed;
+use super::output::{Moved, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY, mode_bytes, signed};
 use super::*;
 use crate::display::blank::Due;
 use crate::display::fake::{BufferCall, Color, Commit, FakeCard, ListRead, Plane, RemoveFb, logs};
+use crate::display::kms::{CrtcEvent, Object, Request};
 use crate::display::mode::mode;
-use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
+use crate::display::{Blank, DPMS_TIMEOUT, Rect, SwapError, Swapped, Wanted, lock};
 use crate::scratch::Scratch;
 use std::rc::Rc;
 
@@ -39,6 +44,18 @@ fn rect(x: u32, y: u32, width: u32, height: u32) -> Rect {
 /// A card with one display at 640x480, preferred, and 320x240.
 fn one() -> Drm2d<FakeCard> {
     let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
+    Drm2d::with(card, ModePolicy::default()).unwrap()
+}
+
+/// [`one`], opened while another process holds the card's DRM master, so
+/// the open does not make this file the master.
+fn one_elsewhere() -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
+    {
+        let mut s = card.state();
+        s.master = false;
+        s.master_elsewhere = true;
+    }
     Drm2d::with(card, ModePolicy::default()).unwrap()
 }
 
@@ -2678,18 +2695,82 @@ fn a_card_opened_while_the_vt_is_shown_keeps_master() {
 }
 
 // A card opened while another process holds master, as after the shown
-// VT's vtium took it, sleeps with nothing to let go.
+// VT's vtium took it, sleeps with nothing to let go: it never asks the
+// kernel to drop a master its file does not hold, which the kernel would
+// refuse with EINVAL. The second vtium of the demonstrator's prototype
+// logged that refusal while it waited for its VT to be shown.
 #[test]
 fn a_card_opened_without_master_sleeps_quietly() {
-    let mut v = one();
-    {
-        let mut s = v.card().state();
-        s.master = false;
-        s.master_elsewhere = true;
-    }
+    let mut v = one_elsewhere();
     v.sleep();
     assert_eq!(events(&mut v), [Event::Asleep]);
-    assert!(!v.card().state().master);
+    let s = v.card().state();
+    assert!(!s.master);
+    assert_eq!(s.master_drops_refused, 0, "no drop of a master not held");
+}
+
+// A seat manager shares the card's open file with vtium and drops master
+// on it before it tells vtium to let the card go, as seatd does at a VT
+// switch. The sleep then hides no plane and drops no master, both of
+// which the kernel would refuse.
+#[test]
+fn a_card_whose_seat_manager_dropped_master_sleeps_quietly() {
+    let mut v = awake(one());
+    v.card().state().master = false;
+    v.sleep();
+    flip(&mut v);
+    assert!(events(&mut v).contains(&Event::Asleep));
+    let s = v.card().state();
+    assert!(!s.master);
+    assert_eq!(s.master_drops_refused, 0, "no drop of a master not held");
+}
+
+// The open made the card master, and the seat manager dropped that master
+// on the shared file before vtium ever woke the card. The sleep asks the
+// kernel again before it lets master go, so it drops no master the file
+// no longer holds.
+#[test]
+fn a_card_whose_seat_manager_dropped_master_before_the_wake_up_sleeps_quietly() {
+    let mut v = one();
+    v.card().state().master = false;
+    v.sleep();
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    let s = v.card().state();
+    assert!(!s.master);
+    assert_eq!(s.master_drops_refused, 0, "no drop of a master not held");
+}
+
+// The kernel gives no answer at the open to whether the file is the
+// card's master, and the file is not. The first wake-up still takes
+// master, so it sets the display up at once instead of failing until a
+// retry.
+#[test]
+fn a_card_whose_master_is_unknown_at_the_open_takes_master_at_the_wake_up() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
+    {
+        let mut s = card.state();
+        s.master = false;
+        s.master_unanswered = true;
+    }
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    assert!(v.card().state().master);
+}
+
+// The kernel gives no answer to whether the file is the card's master, and
+// the file is. The sleep still lets master go, so the vtium of the VT
+// shown next can take it.
+#[test]
+fn a_card_whose_master_is_unknown_lets_master_go_at_the_sleep() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
+    card.state().master_unanswered = true;
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.sleep();
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    let s = v.card().state();
+    assert!(!s.master);
+    assert_eq!(s.master_drops, 1);
 }
 
 // A monitor's power cycle: the connector goes, and another comes, as an
@@ -2830,8 +2911,7 @@ fn use_original_keeps_the_crtcs_mode() {
 
 #[test]
 fn the_wake_up_retries_while_master_is_held_elsewhere() {
-    let mut v = one();
-    v.card().state().master_elsewhere = true;
+    let mut v = one_elsewhere();
     assert!(v.wake_up().is_err());
     assert_eq!(v.waits(), (false, true));
     for _ in 0..3 {
@@ -2846,8 +2926,7 @@ fn the_wake_up_retries_while_master_is_held_elsewhere() {
 
 #[test]
 fn the_wake_up_retries_run_out() {
-    let mut v = one();
-    v.card().state().master_elsewhere = true;
+    let mut v = one_elsewhere();
     assert!(v.wake_up().is_err());
     let mut tries = 0;
     while v.waits().1 {
@@ -3034,7 +3113,7 @@ fn the_loop_delivers_flips_and_bounds_the_wait() {
 
 #[test]
 fn the_loop_retries_the_wake_up() {
-    let (mut lp, mut app) = in_loop(one());
+    let (mut lp, mut app) = in_loop(one_elsewhere());
     app.0.card().state().master_elsewhere = true;
     assert!(app.0.wake_up().is_err());
     turn_until(&mut lp, &mut app, |app| {
@@ -3044,6 +3123,184 @@ fn the_loop_retries_the_wake_up() {
         app.0.events().any(|e| e == Event::Awake)
     });
     assert_eq!(app.0.waits(), (false, false));
+}
+
+/// The warning calloop logs when a batch of events holds one for a source
+/// that left the loop while the batch was dispatched.
+const STALE: &str = "non-existent source";
+
+fn stale_warnings() -> Vec<String> {
+    logs::at_least(Level::Warn)
+        .into_iter()
+        .filter(|line| line.contains(STALE))
+        .collect()
+}
+
+// A flip whose completion event and expired bound arrive in one turn, as
+// when a modeset's commit blocks the loop past the bound. The card's event
+// comes first in the batch, ends the flip and takes its bound out of the
+// loop, so the bound's own event, later in the same batch, finds a source
+// that left. The bound does nothing then: the flip is not taken as lost,
+// and calloop finds the source still there.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test holds the loop past the flip bound, as a blocking commit does"
+)]
+fn a_flip_done_in_the_turn_its_bound_expires_leaves_no_stale_event() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    logs::capture();
+    frame(&mut app.0, &[DOT]).unwrap();
+    assert!(app.0.is_flipping(DisplayId(A)));
+    std::thread::sleep(std::time::Duration::from_millis(
+        u64::try_from(crate::FLIP_WAIT_MS).unwrap() + 50,
+    ));
+    app.0.card().complete_flips();
+    lp.dispatch(Some(std::time::Duration::ZERO), &mut app)
+        .unwrap();
+    assert_eq!(events(&mut app.0), vec![Event::Flipped(DisplayId(A))]);
+    assert!(!app.0.is_flipping(DisplayId(A)));
+    assert_eq!(stale_warnings(), Vec::<String>::new());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        Vec::<String>::new(),
+        "no lost flip"
+    );
+}
+
+// The case the removed check in `Removals` exists for. A sleep leaves a
+// modeset's flip to the kernel, so CRTC 100 owes an event that no display
+// waits for, under a stale bound. The loop is held past that bound, and in
+// the next batch a callback reads the owed event, which ends the wait and
+// disarms the bound, and then wakes and sleeps the card again, which leaves
+// a new modeset flip on CRTC 100 under a new bound. The first bound's
+// expiry waits later in the same batch. It reaches nothing, so the new wait
+// stays until its own event or bound, and calloop finds the source still
+// there. Were the first bound's callback to run, it would end the new wait,
+// and the new flip's event would be taken for a later display's own.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test holds the loop past the stale bound, as a blocking commit does"
+)]
+fn a_stale_bound_disarmed_and_armed_again_in_one_batch_keeps_the_new_wait() {
+    use calloop::ping::make_ping;
+    let (mut lp, mut app) = in_loop(one());
+    app.0.wake_up().unwrap();
+    app.0.sleep();
+    assert_eq!(app.0.stale.len(), 1, "the sleep left the modeset's flip");
+    let (crtc, first) = app.0.stale[0];
+    assert!(first.is_some(), "under a bound");
+    let (ping, source) = make_ping().unwrap();
+    lp.handle()
+        .insert_source(source, |(), (), app: &mut App| {
+            app.0.card().complete_flips();
+            app.0.dispatch().unwrap();
+            assert!(app.0.stale.is_empty(), "the owed event ended the wait");
+            app.0.wake_up().unwrap();
+            app.0.sleep();
+        })
+        .unwrap();
+    logs::capture();
+    std::thread::sleep(std::time::Duration::from_millis(
+        u64::try_from(crate::FLIP_WAIT_MS).unwrap() + 50,
+    ));
+    ping.ping();
+    lp.dispatch(Some(std::time::Duration::ZERO), &mut app)
+        .unwrap();
+    let waits: Vec<_> = app.0.stale.iter().map(|&(c, t)| (c, t.is_some())).collect();
+    assert_eq!(
+        waits,
+        vec![(crtc, true)],
+        "the new wait stays, under its bound"
+    );
+    assert_ne!(app.0.stale[0].1, first, "a new bound");
+    assert_eq!(stale_warnings(), Vec::<String>::new());
+}
+
+/// Cards by the node they are at, as vtium keeps them.
+struct Cards(std::collections::BTreeMap<u32, Drm2d<FakeCard>>);
+
+fn card_at(node: u32) -> impl Fn(&mut Cards) -> Option<&mut Drm2d<FakeCard>> + Clone + 'static {
+    move |cards: &mut Cards| cards.0.get_mut(&node)
+}
+
+// A test of `Removals` through a whole card: a card dropped inside a
+// dispatch while its own event waits later in the same batch, and a new
+// card inserted at the same node in the same callback. vtium itself drops a
+// card between dispatches, where it leaves the loop at once, so the ping's
+// callback here stands for any callback that drops a card. The old card's
+// event is delivered to nothing, the new card reads nothing that was the
+// old card's, and calloop finds no event for a source that left. The stale
+// bound test above is the case that vtium meets.
+#[test]
+fn a_card_removed_with_its_event_waiting_leaves_no_stale_event() {
+    use calloop::ping::make_ping;
+    let mut lp = crate::event_loop::Loop::<Cards>::new().unwrap();
+    let handle = lp.handle();
+    let mut cards = Cards(std::collections::BTreeMap::new());
+    let mut old = awake(one());
+    old.insert(&handle, card_at(0)).unwrap();
+    cards.0.insert(0, old);
+    let (udev, source) = make_ping().unwrap();
+    handle
+        .insert_source(source, {
+            let handle = handle.clone();
+            move |(), (), cards: &mut Cards| {
+                cards.0.remove(&0);
+                // The new card has display B, so the test can tell it apart.
+                let card = FakeCard::new(&[(B, vec![mode(640, 480, 60, true)])]);
+                let mut new = Drm2d::with(card, ModePolicy::default()).unwrap();
+                new.insert(&handle, card_at(0)).unwrap();
+                // The new card's wake-up flips, and the flip's event waits
+                // with no wake of its descriptor: only a read that the old
+                // card's event set off would find it.
+                new.wake_up().unwrap();
+                new.events().for_each(drop);
+                let mut s = new.card().state();
+                let pending = std::mem::take(&mut s.pending);
+                s.completed
+                    .extend(pending.into_iter().map(CrtcEvent::Flipped));
+                drop(s);
+                cards.0.insert(0, new);
+            }
+        })
+        .unwrap();
+    logs::capture();
+    let old = cards.0.get_mut(&0).unwrap();
+    frame(old, &[DOT]).unwrap();
+    // udev's event comes first in the batch, the old card's flip after it.
+    udev.ping();
+    old.card().complete_flips();
+    lp.dispatch(Some(std::time::Duration::ZERO), &mut cards)
+        .unwrap();
+    let new = cards.0.get_mut(&0).unwrap();
+    assert!(
+        new.card().state().connectors.contains_key(&B),
+        "the new card is in"
+    );
+    let seen = events(new);
+    assert!(seen.is_empty(), "the new card read {seen:?}");
+    assert!(new.is_flipping(DisplayId(B)));
+    assert_eq!(stale_warnings(), Vec::<String>::new());
+    // The new card's own events reach it once its descriptor wakes: the
+    // flip's event goes back to pending, and completes with a wake.
+    let mut s = new.card().state();
+    let waiting = std::mem::take(&mut s.completed);
+    s.pending
+        .extend(waiting.into_iter().filter_map(|e| match e {
+            CrtcEvent::Flipped(crtc) => Some(crtc),
+            CrtcEvent::Vblank(_) => None,
+        }));
+    assert!(!s.pending.is_empty(), "the flip's event waited");
+    drop(s);
+    new.card().complete_flips();
+    lp.dispatch(Some(std::time::Duration::ZERO), &mut cards)
+        .unwrap();
+    let new = cards.0.get_mut(&0).unwrap();
+    assert_eq!(events(new), vec![Event::Flipped(DisplayId(B))]);
+    assert!(!new.is_flipping(DisplayId(B)));
+    assert_eq!(stale_warnings(), Vec::<String>::new());
 }
 
 // The frame contract, rule 3: a swap with nothing to send commits nothing.
@@ -3453,8 +3710,7 @@ fn a_new_display_that_cannot_be_set_is_left_off() {
 // wake-up again.
 #[test]
 fn a_hotplug_after_the_retries_ran_out_wakes_the_card() {
-    let mut v = one();
-    v.card().state().master_elsewhere = true;
+    let mut v = one_elsewhere();
     assert!(v.wake_up().is_err());
     while v.waits().1 {
         v.retry_wake();
@@ -3566,7 +3822,7 @@ fn slow_after_wake_failed(v: &mut Drm2d<FakeCard>) {
 // covers: platform.hand-back
 #[test]
 fn a_slow_retry_wakes_the_card_once_master_is_let_go() {
-    let mut v = one();
+    let mut v = one_elsewhere();
     slow_after_wake_failed(&mut v);
     for _ in 0..3 {
         v.retry_slowly();
@@ -3587,7 +3843,7 @@ fn a_slow_retry_wakes_the_card_once_master_is_let_go() {
 // of master. The test counts the loop's turns until the card wakes.
 #[test]
 fn the_loop_wakes_the_card_at_a_slow_retry() {
-    let (mut lp, mut app) = in_loop(one());
+    let (mut lp, mut app) = in_loop(one_elsewhere());
     slow_after_wake_failed(&mut app.0);
     assert!(app.0.slow_armed());
     app.0.card().state().master_elsewhere = false;
@@ -3606,7 +3862,7 @@ fn the_loop_wakes_the_card_at_a_slow_retry() {
 // the fast ones again.
 #[test]
 fn a_vt_release_stops_the_slow_retries() {
-    let (_lp, mut app) = in_loop(one());
+    let (_lp, mut app) = in_loop(one_elsewhere());
     let v = &mut app.0;
     slow_after_wake_failed(v);
     assert!(v.slow_armed());
@@ -3627,7 +3883,7 @@ fn a_vt_release_stops_the_slow_retries() {
 // wake-up at once, without waiting for the next slow try.
 #[test]
 fn input_tries_at_once_while_the_slow_retries_run() {
-    let mut v = one();
+    let mut v = one_elsewhere();
     slow_after_wake_failed(&mut v);
     v.card().state().master_elsewhere = false;
     v.input().unwrap();
@@ -5257,6 +5513,26 @@ fn a_display_plugged_back_in_on_a_crtc_left_on_shows_its_first_frame() {
     assert_eq!(off.get(A, "CRTC_ID"), Some(0));
     let fb = drawn(&mut v, A, 0x22);
     assert!(v.card().shows(100, fb), "{:?}", v.card().state());
+}
+
+// On a legacy card whose driver keeps a CRTC lit when its framebuffer
+// goes, as i915 does, the unplug turns the gone display's CRTC off, which
+// takes the unplugged connector off it.
+#[test]
+fn a_display_gone_from_a_legacy_card_has_its_crtc_turned_off() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().remove_fb = RemoveFb::PlaneOff;
+    card.state().atomic = false;
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x11);
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    let s = v.card().state();
+    assert_eq!(s.disabled_crtcs, [100]);
+    assert_eq!(s.active.get(&100), Some(&false), "the CRTC is off");
+    assert_eq!(s.bound.get(&A), None, "the connector is off the CRTC");
+    assert_eq!(s.crtc_modes.get(&100), None);
 }
 
 /// The debug lines since [`logs::capture`] that say a display's modeset

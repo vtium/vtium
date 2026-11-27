@@ -388,7 +388,7 @@ impl Terminal {
     /// queued for the host are dropped, since the program that asked for
     /// them is being reset, and so are the replies the host holds, which
     /// it goes on holding. A request out to the image helper is
-    /// abandoned, as [`abandon_image_request`](Self::abandon_image_request)
+    /// abandoned, as `abandon_image_request`
     /// abandons it, so the terminal takes the program's output again at
     /// once; the host drops the helper's answer. The parser returns to its
     /// ground state, so a sequence the program had half written is
@@ -498,19 +498,24 @@ impl Terminal {
         }
     }
 
-    /// Names the font set in use, which OSC 50's query reports: false,
-    /// keeping the name before, for a `name` that cannot name a set.
+    /// Names the font set in use, which OSC 50's query reports: a set's
+    /// name, the name of the outline family the host made a set of, or
+    /// the absolute path of the font file the host made a set of, in its
+    /// plain form (`terminal/font.rs` gives each rule). It returns false,
+    /// keeping the name before, for any other `name`.
     pub fn set_font_name(&mut self, name: &str) -> bool {
-        let ok = font::is_set_name(name.as_bytes());
+        let ok = font::is_set_name(name.as_bytes())
+            || font::is_family(name)
+            || font::is_reported_path(name);
         if ok {
             self.state.host.font_name = Some(name.to_owned());
         }
         ok
     }
 
-    /// Says that the font in use has no name a set can take, as a font
-    /// file's path or a family has: OSC 50's query then reports no name,
-    /// so it never names a set that is no longer shown.
+    /// Says that the font in use has no name OSC 50's query can report:
+    /// the query then reports no name, so it never names a set that is no
+    /// longer shown.
     pub fn clear_font_name(&mut self) {
         self.state.host.font_name = None;
     }

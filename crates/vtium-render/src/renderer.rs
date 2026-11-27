@@ -1,52 +1,98 @@
 //! [`Renderer`]: draws frames into a [`Target`], redrawing only what
 //! changed for the buffer being drawn.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use vtium_font::{Decorations, Face, Font, Script, Style, Variant, Width as FontWidth};
-use vtium_term::{
-    Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, LineSize, Palette, Rgb, Width, dim,
-};
+use vtium_font::{Decorations, Face, Font, Style, Width as FontWidth};
+use vtium_term::{LineSize, Palette, Rgb};
 
 use std::sync::Arc;
 
-use crate::arrow::{Arrow, Over};
-use crate::blend::pixel;
-use crate::bounds::{MISSING_CHARS, ROW_SCRATCH_MAX};
+use crate::arrow::Arrow;
+use crate::bounds::MISSING_CHARS;
 use crate::cache::{Budgets, GlyphCache, Profile, Storage};
-use crate::compose::{Area, Bar, Composer, Job, Source, int};
+use crate::compose::{Composer, int};
 use crate::damage::Cells;
-use crate::deco::{Kind, Line, SCRIPTS, Sprites};
-use crate::link_row::LinkRow;
-use crate::mono::{self, Depth, Fallback, Ink, Threshold};
+use crate::deco::{SCRIPTS, Sprites};
+use crate::mono::{self, Depth, Fallback};
 #[cfg(feature = "images")]
-use crate::picture::{Mark, PictureCounts, Under};
+use crate::picture::PictureCounts;
 use crate::pointer_file::PointerPictures;
-use crate::reach::{Bound, Reach};
+use crate::reach::Bound;
 #[cfg(feature = "bidi")]
-use crate::syllable::{Runs, Syllable};
-use crate::target::{Orientation, Rect, Target};
-use sized::RunPiece;
-#[cfg(feature = "bidi")]
-use vtium_font::syllable::Piece;
+use crate::syllable::Runs;
+#[cfg(feature = "filters")]
+use crate::target::Target;
+use crate::target::{Orientation, Rect};
 
 pub(crate) mod double;
 #[cfg(feature = "gpu")]
 mod gpu;
+// the ring lives beside the renderer, whose record of drawn cells it moves
+#[cfg(feature = "scroll-pan")]
+#[path = "ring.rs"]
+pub(crate) mod ring;
 pub(crate) mod sized;
+#[cfg(feature = "scroll-pan")]
+#[path = "strip.rs"]
+mod strip;
 mod testing;
 #[cfg(test)]
 mod wider;
 
 pub use testing::TestInk;
 
-/// How many pixels wide a bar cursor is in a cell `cw` pixels wide: one
-/// eighth of the cell, rounded to the nearest pixel, and at least one. It
-/// is the width vtium-font gives its sprite for U+258F, LEFT ONE EIGHTH
-/// BLOCK, so the bar stands where that block would.
-fn bar_width(cw: i64) -> i64 {
-    cw.saturating_mul(2).saturating_add(8).div_euclid(16).max(1)
+/// What the change reads of a cell take: the row's pass, which counts the
+/// rows of history above the screen, in a build with `scroll-pan`, and the
+/// frame in a build without it.
+#[cfg(feature = "scroll-pan")]
+macro_rules! changed_arg {
+    ($p:expr) => {
+        $p
+    };
 }
+
+/// What the change reads of a cell take: the frame.
+#[cfg(not(feature = "scroll-pan"))]
+macro_rules! changed_arg {
+    ($p:expr) => {
+        $p.frame
+    };
+}
+
+/// The cell of the frame without its selection that the ink of a glyph is
+/// drawn as, through the pass's rows in a build with `scroll-pan`.
+#[cfg(feature = "scroll-pan")]
+macro_rules! plain_cell {
+    ($p:expr, $r:expr, $k:expr) => {
+        $p.plain_cell($r, $k)
+    };
+}
+
+/// The cell of the frame without its selection.
+#[cfg(not(feature = "scroll-pan"))]
+macro_rules! plain_cell {
+    ($p:expr, $r:expr, $k:expr) => {
+        $p.plain().cell($r, $k)
+    };
+}
+
+mod changes;
+mod cpu;
+mod frame;
+mod jobs;
+mod layout;
+mod pass;
+mod pointer;
+mod rows;
+
+#[cfg(feature = "gpu")]
+pub(crate) use cpu::Back;
+pub use layout::grid_origin;
+use layout::{Grid, Layout};
+#[cfg(doc)]
+use pass::Pass;
+use pointer::Pointer;
 
 /// The color a decoration draws in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -131,8 +177,56 @@ pub struct Config {
     /// white (`src/mono.rs`).
     pub depth: Depth,
     /// `font-ligatures`: whether a run of ASCII symbols draws as the font's
-    /// ligature across its cells ([`crate::syllable`]).
+    /// ligature across its cells, which the renderer finds in a build with
+    /// `bidi`.
     pub ligatures: bool,
+    /// Where the grid sits on the display, and what its spare pixel lines
+    /// show at rest.
+    pub placement: Placement,
+}
+
+/// Where the grid sits on the display, which the console's configured
+/// `smooth-scroll` chooses: centred on both axes while smooth scrolling is
+/// off, the default, or with its last row against the text's bottom edge
+/// while smooth scrolling is on.
+///
+/// References:
+/// - ADR-1310 D10: the grid flush to the text's bottom edge while smooth scrolling is on.
+/// - ADR-1310 D12, "With smooth scrolling off": the grid centred on both axes, with blank bars.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Placement {
+    /// The grid is centred on both axes in the display's own pixels. Of
+    /// the spare lines, the top gets half, rounded down, and the bottom the
+    /// rest, and the spare columns split the same way between the left and
+    /// the right. Every spare line and column shows the border's color,
+    /// and the screen's top row takes no ink from the history row above.
+    #[default]
+    Centred,
+    /// The grid's last row touches the text's bottom edge, so the spare
+    /// lines lie above its first row and show what `PartialRow` says.
+    /// Across the rows the grid stays centred.
+    Bottom(PartialRow),
+}
+
+/// What the spare lines above a grid placed at the bottom show at rest, as
+/// vtium.conf's `partial-row` asks. In a build without `scroll-pan` the
+/// renderer keeps no row of history above the screen, so every value shows
+/// the border's color there.
+///
+/// References:
+/// - ADR-1310 D12, "The key `partial-row`": the three values.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PartialRow {
+    /// The bottom of the row of history above the grid, drawn partly off
+    /// the screen.
+    #[default]
+    History,
+    /// The border's color.
+    Blank,
+    /// The row above, mixed in linear light more toward the border's color
+    /// the farther each line lies from the grid's first row, so the line at
+    /// the screen's edge is the border's color.
+    Fade,
 }
 
 impl Default for Config {
@@ -148,6 +242,7 @@ impl Default for Config {
             pointer: PointerShape::default(),
             depth: Depth::default(),
             ligatures: false,
+            placement: Placement::default(),
         }
     }
 }
@@ -197,491 +292,6 @@ pub struct Stats {
 pub struct Drawn<'a> {
     pub damage: &'a [Rect],
     pub stats: Stats,
-}
-
-/// Where the grid sits on the display.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Grid {
-    cols: usize,
-    rows: usize,
-    off_x: i64,
-    off_y: i64,
-    max_x: i64,
-    max_y: i64,
-}
-
-/// The display's size, the cell's and the orientation: where the grid's
-/// pixels land on the display.
-#[derive(Clone, Copy, Debug)]
-struct Layout {
-    orientation: Orientation,
-    width: u32,
-    height: u32,
-    cw: i64,
-    ch: i64,
-    max_cols: usize,
-    max_rows: usize,
-}
-
-impl Layout {
-    /// The row scratch's line length and lines.
-    fn strip(&self) -> (usize, usize) {
-        let (line, lines) = if self.orientation.turned() {
-            (self.ch, int(self.height))
-        } else {
-            (int(self.width), self.ch)
-        };
-        let line = usize::try_from(line).unwrap_or(0).max(1);
-        let lines = usize::try_from(lines).unwrap_or(0);
-        let fit = (ROW_SCRATCH_MAX / 4).checked_div(line).unwrap_or(0).max(1);
-        (line, lines.min(fit))
-    }
-
-    fn grid_for(&self, frame: &Frame<'_>) -> Grid {
-        let cols = frame.cols().min(self.max_cols);
-        let rows = frame.rows().min(self.max_rows);
-        let gw = int(cols).saturating_mul(self.cw);
-        let gh = int(rows).saturating_mul(self.ch);
-        let (sw, sh) = (int(self.width), int(self.height));
-        let (across, down) = if self.orientation.turned() {
-            (gh, gw)
-        } else {
-            (gw, gh)
-        };
-        let off_x = sw.saturating_sub(across) / 2;
-        let off_y = sh.saturating_sub(down) / 2;
-        Grid {
-            cols,
-            rows,
-            off_x,
-            off_y,
-            max_x: off_x.saturating_add(across),
-            max_y: off_y.saturating_add(down),
-        }
-    }
-
-    /// The display area of the grid's pixels `lx`, `ly`, `lw` by `lh`.
-    fn area(&self, g: &Grid, lx: i64, ly: i64, lw: i64, lh: i64) -> Area {
-        let (x, y, w, h) = match self.orientation {
-            Orientation::Normal => (
-                g.off_x.saturating_add(lx),
-                g.off_y.saturating_add(ly),
-                lw,
-                lh,
-            ),
-            Orientation::UpsideDown => (
-                g.max_x.saturating_sub(lx.saturating_add(lw)),
-                g.max_y.saturating_sub(ly.saturating_add(lh)),
-                lw,
-                lh,
-            ),
-            Orientation::Right => (
-                g.max_x.saturating_sub(ly.saturating_add(lh)),
-                g.off_y.saturating_add(lx),
-                lh,
-                lw,
-            ),
-            Orientation::Left => (
-                g.off_x.saturating_add(ly),
-                g.max_y.saturating_sub(lx.saturating_add(lw)),
-                lh,
-                lw,
-            ),
-        };
-        Area { x, y, w, h }
-    }
-
-    /// The grid's pixels under the display area `a`: [`Layout::area`]
-    /// undone.
-    fn grid_area(&self, g: &Grid, a: Area) -> Area {
-        let (lx, ly, lw, lh) = match self.orientation {
-            Orientation::Normal => (
-                a.x.saturating_sub(g.off_x),
-                a.y.saturating_sub(g.off_y),
-                a.w,
-                a.h,
-            ),
-            Orientation::UpsideDown => (
-                g.max_x.saturating_sub(a.x.saturating_add(a.w)),
-                g.max_y.saturating_sub(a.bottom()),
-                a.w,
-                a.h,
-            ),
-            Orientation::Right => (
-                a.y.saturating_sub(g.off_y),
-                g.max_x.saturating_sub(a.x.saturating_add(a.w)),
-                a.h,
-                a.w,
-            ),
-            Orientation::Left => (
-                g.max_y.saturating_sub(a.bottom()),
-                a.x.saturating_sub(g.off_x),
-                a.h,
-                a.w,
-            ),
-        };
-        Area {
-            x: lx,
-            y: ly,
-            w: lw,
-            h: lh,
-        }
-    }
-
-    /// The display area of a bar cursor's bar `w` pixels wide in the
-    /// grid's own pixels, down the whole height of the `n` cells from `col`
-    /// in `row`, along their left edge, or along their right edge when
-    /// `right`.
-    fn bar_area(
-        &self,
-        g: &Grid,
-        (col, row, n): (usize, usize, usize),
-        w: i64,
-        right: bool,
-    ) -> Area {
-        let span = int(n).saturating_mul(self.cw);
-        let w = w.min(span);
-        let left = int(col).saturating_mul(self.cw);
-        let x = if right {
-            left.saturating_add(span).saturating_sub(w)
-        } else {
-            left
-        };
-        self.area(g, x, int(row).saturating_mul(self.ch), w, self.ch)
-    }
-
-    /// The display area of `n` cells from `col` in `row`.
-    fn cells_area(&self, g: &Grid, col: usize, row: usize, n: usize) -> Area {
-        self.area(
-            g,
-            int(col).saturating_mul(self.cw),
-            int(row).saturating_mul(self.ch),
-            int(n).saturating_mul(self.cw),
-            self.ch,
-        )
-    }
-
-    /// The display rectangle of the cell at `col`, `row`.
-    fn cell_rect(&self, g: &Grid, col: usize, row: usize) -> Rect {
-        let a = self.cells_area(g, col, row, 1);
-        Rect {
-            x: u32::try_from(a.x).unwrap_or(0),
-            y: u32::try_from(a.y).unwrap_or(0),
-            width: u32::try_from(a.w).unwrap_or(0),
-            height: u32::try_from(a.h).unwrap_or(0),
-        }
-    }
-}
-
-/// One frame's inputs, as each row reads them.
-struct Pass<'p, 'f> {
-    g: Grid,
-    frame: &'p Frame<'f>,
-    state: &'p DrawState,
-    cursor: Cursor,
-    /// Where the cursor draws, when it shows.
-    at: Option<(usize, usize)>,
-    /// The other row that draws the cursor, and the columns it covers
-    /// there, when the cursor shows on a pair of double-height lines
-    /// ([`Pass::pair_cells`]).
-    at_pair: Option<(usize, core::ops::Range<usize>)>,
-    /// The rows and columns of the sized run the cursor stands on, when it
-    /// shows on one: the cursor covers the whole block ([`Pass::run_block`]).
-    at_run: Option<(core::ops::Range<usize>, core::ops::Range<usize>)>,
-    /// Where the visible cursor stands, in either phase of its blink: the
-    /// letter there keeps its ink beside it inside its cells (ADR-1302 D8).
-    held: Option<(usize, usize)>,
-    /// The frame without its selection, whose cells say what a selected
-    /// cell draws unselected: read at 1 bit, and for a selected glyph whose
-    /// ink lands outside the selection (ADR-1306 D6). Made the first time
-    /// it is read.
-    plain: core::cell::OnceCell<Frame<'f>>,
-    /// The overlay row showing the hovered link's address (ADR-1002,
-    /// "Drawing"), whose cells take the place of the screen's.
-    link_row: Option<LinkRow<'f>>,
-    /// [`Config::ligatures`]. Only a build with the bidi feature joins
-    /// cells into syllables and ligatures, so only that build reads it.
-    #[cfg(feature = "bidi")]
-    ligatures: bool,
-    /// The syllables and ligature runs found on the row read last, so that
-    /// the scan and the drawing of a row walk each run once and decide once
-    /// whether it draws joined.
-    #[cfg(feature = "bidi")]
-    runs: core::cell::RefCell<Runs>,
-}
-
-impl<'f> Pass<'_, 'f> {
-    /// The share of the sized run that the cell at `col`, `row` belongs
-    /// to, if any: the block of cells that one OSC 66 sequence writes.
-    fn run_at(&self, row: usize, col: usize) -> Option<vtium_term::SizedRun> {
-        self.frame
-            .sized_runs(row)
-            .iter()
-            .copied()
-            .find(|r| r.span().contains(&col))
-    }
-
-    /// The piece of its sized run that the cell at `col`, `row` draws,
-    /// and the run's first cell on that row, which holds the run's text;
-    /// `None` for a cell of no run.
-    fn run_piece(&self, row: usize, col: usize) -> Option<(RunPiece, FrameCell<'f>)> {
-        let run = self.run_at(row, col)?;
-        let first = self.frame.cell(row, run.col())?;
-        Some((RunPiece::at(run, col)?, first))
-    }
-
-    /// Whether the cell at `col`, `row` draws the cursor: the cursor's own
-    /// cell, and on a pair of double-height lines the cells of the pair's
-    /// other line under the columns the cursor covers.
-    fn shows_cursor(&self, col: usize, row: usize) -> bool {
-        self.at == Some((col, row))
-            || self
-                .at_pair
-                .as_ref()
-                .is_some_and(|(r, cols)| *r == row && cols.contains(&col))
-            || self
-                .at_run
-                .as_ref()
-                .is_some_and(|(rows, cols)| rows.contains(&row) && cols.contains(&col))
-    }
-
-    /// The rows and columns of the sized run whose cell `at` is, as the
-    /// screen shows them: the cursor that stands on any cell of a run
-    /// covers the whole block. Rows of the run that have scrolled above
-    /// the screen are left out. `None` off a run.
-    ///
-    /// References:
-    /// - ADR-1308 D6, "The cursor's drawing": the cursor covers every cell
-    ///   of the run.
-    fn run_block(
-        &self,
-        at: Option<(usize, usize)>,
-    ) -> Option<(core::ops::Range<usize>, core::ops::Range<usize>)> {
-        let (col, row) = at?;
-        let run = self.run_at(row, col)?;
-        // the run's rows below this one; its top may lie above the screen
-        let below = run.rows().saturating_sub(run.row());
-        let top = row.saturating_sub(run.row());
-        let bottom = row.saturating_add(below).min(self.g.rows);
-        Some((top..bottom, run.span()))
-    }
-
-    /// The other row of a pair of double-height lines that draws the
-    /// cursor standing at `at`, and the columns it covers there: the
-    /// columns of the character the cursor stands on, from its left cell.
-    /// So the cursor covers the whole doubled character, whichever line of
-    /// the pair it stands on. Each line draws its half of the cursor, cut
-    /// from the cursor doubled as its glyph is: a block covers both halves,
-    /// a bar runs down both lines, and an underline lies under the bottom
-    /// half. `None` on a line that belongs to no pair, where the cursor
-    /// covers its own line alone. The terminal's cursor stays on its own
-    /// line. vtium-term's [`Frame::cursor_extent`] decides which rows the
-    /// cursor covers.
-    fn pair_cells(&self, at: Option<(usize, usize)>) -> Option<(usize, core::ops::Range<usize>)> {
-        let (col, row) = at?;
-        let cells = match self.frame.cell(row, col).map(|c| c.width) {
-            Some(Width::Wide) => 2,
-            _ => 1,
-        };
-        let other = self
-            .frame
-            .cursor_extent(row, cells)
-            .rows
-            .find(|&r| r != row)?;
-        Some((other, col..col.saturating_add(cells)))
-    }
-
-    /// The frame without its selection.
-    fn plain(&self) -> &Frame<'f> {
-        self.plain
-            .get_or_init(|| self.frame.clone().with_selection(Vec::new()))
-    }
-
-    /// The cell drawn at `row`, column `col`, the overlay row's where it
-    /// covers the cell ([`Frame::cell`]).
-    fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'f>> {
-        let fc = self.frame.cell(row, col)?;
-        Some(self.link_row.map_or(fc, |o| o.cell(col, row, fc)))
-    }
-
-    /// The size `row` draws at: its line's, or the normal size under the
-    /// overlay row, which draws over the row at the normal size.
-    fn size(&self, row: usize) -> LineSize {
-        if self.link_row.is_some_and(|o| o.row() == row) {
-            return LineSize::Single;
-        }
-        self.frame.size(row)
-    }
-
-    /// The cells of `row` as drawn, left to right, the overlay row's where
-    /// it covers them ([`Frame::cells`]).
-    fn cells(&self, row: usize) -> impl Iterator<Item = FrameCell<'f>> + '_ {
-        let link_row = self.link_row;
-        self.frame
-            .cells(row)
-            .enumerate()
-            .map(move |(col, fc)| link_row.map_or(fc, |o| o.cell(col, row, fc)))
-    }
-}
-
-/// A cell's place: its column, row and the cells it draws over.
-#[derive(Clone, Copy, Debug)]
-struct Place {
-    col: usize,
-    row: usize,
-    ncells: usize,
-}
-
-/// What a job paints: its colors, decorations and text.
-#[derive(Clone, Copy, Debug)]
-struct Paint {
-    fg: Rgb,
-    bg: Rgb,
-    underline: Option<(Line, Rgb)>,
-    /// The strike-through and the overline, drawn over the glyph.
-    over: Option<(Line, Rgb)>,
-    text: Option<(usize, usize, FontWidth, Variant)>,
-    /// At 1 bit, whether the background is lit, where vtium marks the cell
-    /// (`mono::marked`).
-    lit: Option<bool>,
-    /// A bar cursor's bar, in the color it draws before the display's
-    /// depth changes it.
-    bar: Option<Bar>,
-}
-
-/// Where the pointer's arrow draws and the cells it changes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Pointer {
-    at: Area,
-    /// The first column and row of the cells it changes, and the column
-    /// and row past the last.
-    cells: (usize, usize, usize, usize),
-    /// It reaches past the grid into the border.
-    outside: bool,
-    /// The shape its image shows, so that a new shape in the same place
-    /// draws the cells again.
-    shape: vtium_term::PointerShape,
-}
-
-/// What a frame draws, decided before anything is drawn.
-#[derive(Debug)]
-struct Plan {
-    grid: Grid,
-    pointer: Option<Pointer>,
-    /// The buffer lacks the whole border.
-    full: bool,
-    /// The areas of the border it lacks, when not the whole.
-    border: Vec<Rect>,
-}
-
-/// How a frame's pixels are made: the border and each row's cell jobs.
-/// The CPU path writes them into the display's buffer ([`Cpu`]); the GPU
-/// path turns them into clears and quads for the upright frame.
-pub(crate) trait Back {
-    /// Fills the border inside the display area `r` with `bg`. `display`
-    /// is the whole display and `grid` the grid's area on it, `None` for
-    /// an empty grid: the border is what the grid leaves.
-    fn border(&mut self, compose: &mut Composer, display: (Rect, Option<Area>), bg: Rgb, r: Rect);
-
-    /// Draws the jobs of grid row `row`, which `compose` holds with their
-    /// text and the ink each receives.
-    fn row<F: Face>(
-        &mut self,
-        compose: &mut Composer,
-        font: &Font<F>,
-        strip: (usize, usize),
-        row: usize,
-    );
-
-    /// Whether the glyphs it draws from hold one whose ink passes its
-    /// cells: until they do, no cell's ink reaches another.
-    fn reaching(&self, compose: &Composer) -> bool;
-
-    /// How far piece `piece` of the glyph for `text` in `style`, `width`
-    /// cells wide, reaches past its cells, from the glyphs it draws from.
-    /// A doubled piece is one cell of a glyph on a line of double size.
-    fn reach<F: Face>(
-        &mut self,
-        compose: &mut Composer,
-        font: &Font<F>,
-        key: (&[char], FontWidth, Variant),
-        piece: double::Piece,
-    ) -> Reach;
-
-    /// Whether it draws the ink a cell receives from its neighbours' glyphs,
-    /// which the renderer then gathers for each job.
-    const RECEIVES: bool;
-}
-
-/// The CPU path's [`Back`]: the row scratch, written into a target.
-struct Cpu<'a, T: Target>(&'a mut T);
-
-impl<T: Target> Back for Cpu<'_, T> {
-    fn border(
-        &mut self,
-        compose: &mut Composer,
-        (display, grid): (Rect, Option<Area>),
-        bg: Rgb,
-        r: Rect,
-    ) {
-        let (width, height) = (display.width, display.height);
-        let (x0, x1) = (r.x.min(width), r.x.saturating_add(r.width).min(width));
-        let y1 = r.y.saturating_add(r.height).min(height);
-        let line = compose.solid(
-            usize::try_from(x1.saturating_sub(x0)).unwrap_or(0),
-            pixel(bg),
-        );
-        // the grid's columns, as a part of the run from x0
-        let at = |v: i64| usize::try_from(v.clamp(int(x0), int(x1)).saturating_sub(int(x0)));
-        let g = grid.unwrap_or_default();
-        let (gl, gr) = (at(g.x).unwrap_or(0), at(g.right()).unwrap_or(0));
-        for y in r.y..y1 {
-            let yi = int(y);
-            if grid.is_none() || yi < g.y || yi >= g.bottom() {
-                self.0.write(x0, y, line);
-                continue;
-            }
-            if let Some(left) = line.get(..gl).filter(|l| !l.is_empty()) {
-                self.0.write(x0, y, left);
-            }
-            if let Some(right) = line.get(gr..).filter(|l| !l.is_empty()) {
-                let x = x0.saturating_add(u32::try_from(gr).unwrap_or(u32::MAX));
-                self.0.write(x, y, right);
-            }
-        }
-    }
-
-    fn row<F: Face>(
-        &mut self,
-        compose: &mut Composer,
-        font: &Font<F>,
-        strip: (usize, usize),
-        _: usize,
-    ) {
-        compose.draw(font, strip, &mut *self.0);
-    }
-
-    fn reaching(&self, compose: &Composer) -> bool {
-        compose.cache.reaching()
-    }
-
-    fn reach<F: Face>(
-        &mut self,
-        compose: &mut Composer,
-        font: &Font<F>,
-        (text, width, style): (&[char], FontWidth, Variant),
-        piece: double::Piece,
-    ) -> Reach {
-        match piece.is_whole() {
-            true => compose.cache.reach(font, text, width, style),
-            false => compose
-                .cache
-                .get_piece(font, (text, width, style), piece)
-                .map_or(Reach::NONE, crate::stored::Stored::reach),
-        }
-    }
-
-    const RECEIVES: bool = true;
 }
 
 /// Draws terminal frames with a font into a display buffer.
@@ -777,6 +387,14 @@ pub struct Renderer<F> {
     /// What the GPU path keeps of this renderer's.
     #[cfg(feature = "gpu")]
     gpu: gpu::State,
+    /// The ring of drawn rows that the pan and the copy show a scroll
+    /// with.
+    #[cfg(feature = "scroll-pan")]
+    ring: ring::Ring,
+    /// The scratch a run written into the spare lines is covered in,
+    /// under `partial-row = blank` or `fade`.
+    #[cfg(feature = "scroll-pan")]
+    strip_line: Vec<u32>,
 }
 
 /// The pointer's image for cells `cell_height` tall, upright. A shape a
@@ -843,127 +461,12 @@ fn sprites(
     )
 }
 
-/// How many cells a cell `width` wide, after a cell `before` wide, draws
-/// over: 0 for the trailing half of a wide character, which the leading
-/// half draws; 2 for a leading half with its trailing half next on the
-/// screen, whose width `next` reads; else 1. A half whose partner is
-/// missing draws as one cell, so no frame leaves a cell undrawn.
-fn span(width: Width, before: Option<Width>, next: impl FnOnce() -> Option<Width>) -> usize {
-    match width {
-        Width::WideTail if before == Some(Width::Wide) => 0,
-        Width::Wide if next() == Some(Width::WideTail) => 2,
-        _ => 1,
-    }
-}
-
-/// The cells `fc` at `col`, `row` draws over when it takes part in a
-/// lam-alef ligature (ADR-1004 D6): 2 for the alef, which draws the
-/// ligature, and 0 for the lam beside it; `None` for any other cell.
-#[cfg(feature = "bidi")]
-fn paired(p: &Pass<'_, '_>, at: (usize, usize), fc: &FrameCell<'_>) -> Option<usize> {
-    // the overlay's characters join nothing, and the letter beside them
-    // joins none of them
-    let (col, row) = at;
-    if p.link_row
-        .is_some_and(|o| o.covers(col.saturating_sub(1), row))
-    {
-        return None;
-    }
-    match crate::joined::span(p.frame, at, fc, p.held) {
-        crate::joined::Span::Pair => Some(2),
-        crate::joined::Span::Tail => Some(0),
-        crate::joined::Span::One => None,
-    }
-}
-
-/// The syllable `fc` at `col`, `row` belongs to when it draws joined, and
-/// the piece the cell draws. A syllable draws joined only while the rules
-/// of [`Syllable::joined`] allow it and `font` holds every piece. The
-/// pass's [`Runs`] finds the syllable and remembers whether it draws
-/// joined, so each run is walked and judged once for its row. `out` is
-/// scratch.
-///
-/// References:
-/// - ADR-1203 D4: when a syllable draws split.
-#[cfg(feature = "bidi")]
-fn joined_syllable<F: Face>(
-    font: &Font<F>,
-    p: &Pass<'_, '_>,
-    (col, row): (usize, usize),
-    fc: &FrameCell<'_>,
-    out: &mut Vec<char>,
-) -> Option<(Syllable, Piece)> {
-    // a cell under the link overlay draws the overlay's text, so it joins
-    // nothing, and its text stays out of the row's runs
-    let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
-    if covered(col) {
-        return None;
-    }
-    let mut runs = p.runs.borrow_mut();
-    let (run, index) = runs.find(p.frame, (col, row), fc, p.ligatures)?;
-    let joined = runs.verdict(run, |s| {
-        s.joined(row, p.held, covered)
-            && (0..s.len()).all(|i| {
-                out.clear();
-                s.key(i, out).is_some() && font.holds(out, s.variant())
-            })
-    });
-    if !joined {
-        return None;
-    }
-    let s = runs.get(run)?;
-    Some((s.clone(), s.piece(index)?))
-}
-
-/// Appends to `out` the text the cell `fc` at `col`, `row` draws: its
-/// piece's key where its syllable draws joined (ADR-1203 D3), else its
-/// text as [`crate::joined::drawn`] gives it, its joining sides and
-/// mirroring, a lam-alef ligature's two letters, or nothing for the lam
-/// (ADR-1004 D6, D7).
-#[cfg(feature = "bidi")]
-fn drawn_text<F: Face>(
-    font: &Font<F>,
-    p: &Pass<'_, '_>,
-    at: (usize, usize),
-    fc: &FrameCell<'_>,
-    out: &mut Vec<char>,
-) {
-    let mut scratch = Vec::new();
-    match joined_syllable(font, p, at, fc, &mut scratch) {
-        Some((s, piece)) => piece.key(s.text(), out),
-        None => {
-            crate::joined::drawn(p.frame, at, fc, p.held, out);
-        }
-    }
-}
-
 /// `chars` sorted, each once.
 fn sorted(chars: &[char]) -> Vec<char> {
     let mut out = chars.to_vec();
     out.sort_unstable();
     out.dedup();
     out
-}
-
-/// The width of the cell after `col` in `row`, among the grid's `cols`.
-fn next_width(p: &Pass<'_, '_>, row: usize, col: usize, cols: usize) -> Option<Width> {
-    let next = col.saturating_add(1);
-    (next < cols)
-        .then(|| p.cell(row, next))
-        .flatten()
-        .map(|fc| fc.width)
-}
-
-/// Whether `fc` draws in the text blink's off phase: blinking, not under
-/// the cursor, in the off phase of its own blink, with `blink` not off. A
-/// cell with SGR 6 blinks at the rapid blink's phase, SGR 5 or not.
-fn blink_off(fc: &FrameCell<'_>, is_cursor: bool, state: &DrawState, blink: TextBlink) -> bool {
-    let hidden = if fc.attrs.contains(Attrs::RAPID_BLINK) {
-        state.rapid_hidden
-    } else {
-        fc.attrs.contains(Attrs::BLINK) && state.blink_hidden
-    };
-    !is_cursor && hidden && blink.style != BlinkStyle::Off
 }
 
 impl<F: Face> Renderer<F> {
@@ -1013,6 +516,7 @@ impl<F: Face> Renderer<F> {
                 ch: int(ch),
                 max_cols,
                 max_rows,
+                placement: config.placement,
             },
             grid: None,
             cells: Cells::default(),
@@ -1050,6 +554,10 @@ impl<F: Face> Renderer<F> {
             touched: Vec::new(),
             #[cfg(feature = "gpu")]
             gpu,
+            #[cfg(feature = "scroll-pan")]
+            ring: ring::Ring::default(),
+            #[cfg(feature = "scroll-pan")]
+            strip_line: Vec::new(),
         }
     }
 
@@ -1352,12 +860,24 @@ impl<F: Face> Renderer<F> {
     /// before the first frame, or with no grid.
     pub fn pointer_at(&self, (x, y): (u32, u32)) -> Option<(i32, i32)> {
         let g = self.grid?;
+        #[cfg(feature = "scroll-pan")]
+        let g = self.layout.screen_of(&g);
         let (px, py) = self.pointer_pixel(&g, (x, y))?;
         let a = self.layout.area(&g, px, py, 1, 1);
         Some((
             i32::try_from(a.x).unwrap_or(i32::MAX),
             i32::try_from(a.y).unwrap_or(i32::MAX),
         ))
+    }
+
+    /// The display rectangle of the cell at `col`, `row` in a grid of
+    /// `grid` columns and rows, placed and turned where a frame of that
+    /// size draws it. vtium draws its focus mark over the grid's top-right
+    /// cell through it. `None` for a cell outside the grid, whose size the
+    /// display's columns and rows bound.
+    pub fn cell_rect(&self, grid: (usize, usize), col: usize, row: usize) -> Option<Rect> {
+        let g = self.layout.grid_of(grid.0, grid.1);
+        (col < g.cols && row < g.rows).then(|| self.layout.cell_rect(&g, col, row))
     }
 
     /// The columns and rows the display holds.
@@ -1384,1655 +904,13 @@ impl<F: Face> Renderer<F> {
         let (line, lines) = self.layout.strip();
         line.saturating_mul(lines).saturating_mul(4)
     }
-
-    /// Draws `frame` into `target`, a buffer `age` frames old: 1 when it
-    /// holds the last frame this renderer drew damage for, n when it holds
-    /// the frame n back, 0 when its contents are unknown. The cells that
-    /// changed in the last `age` frames are drawn, or at age 0, or at an age
-    /// past this renderer's history, the whole picture with its border;
-    /// another buffer's history is never disturbed.
-    ///
-    /// `frame` is read since the checkpoint taken after this renderer's
-    /// previous `draw` (`Age::NEVER` before the first), whatever buffer that
-    /// drew into and whether or not it was swapped: the renderer keeps each
-    /// buffer's history itself. An older checkpoint draws more than needed;
-    /// a newer one loses changes.
-    ///
-    /// A frame whose damage is empty changed nothing: it is not swapped,
-    /// and does not count as a frame for the ages that follow.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the render timer's CPU time per frame"
-    )]
-    pub fn draw(
-        &mut self,
-        frame: &Frame<'_>,
-        target: &mut impl Target,
-        age: u32,
-        state: &DrawState,
-    ) -> Drawn<'_> {
-        let start = Instant::now();
-        #[cfg(feature = "gpu")]
-        self.gpu.drew_on_cpu();
-        let plan = self.plan(frame, age, state);
-        let arrow = core::mem::take(&mut self.arrow);
-        let mut line = core::mem::take(&mut self.pointer_line);
-        let mut mono_line = core::mem::take(&mut self.mono_line);
-        let mut target = Threshold::new(target, self.config.depth, &mut mono_line);
-        // the color slot, between the pointer's blend and a 1-bit cut
-        #[cfg(feature = "filters")]
-        let (mut color, mut color_line) =
-            (self.color.take(), core::mem::take(&mut self.color_line));
-        #[cfg(feature = "filters")]
-        let mut target = crate::filter::Colored::new(&mut target, color.as_mut(), &mut color_line);
-        let mut out = Over::new(&mut target, plan.pointer.map(|p| (&arrow, p.at)), &mut line);
-        let reaching = self.compose.cache.reaching();
-        if reaching && !self.reaches_kept {
-            self.relearn_reaches();
-        }
-        let mut drawn = self.paint(&plan, frame, state, &mut Cpu(&mut out));
-        if !reaching && self.compose.cache.reaching() {
-            // the font drew its first glyph whose ink passes its cells, and
-            // the cells scanned before it read no reach: the frame is drawn
-            // again, whole, with every reach read
-            self.relearn_reaches();
-            drawn = self.paint(&plan, frame, state, &mut Cpu(&mut out));
-        }
-        let (cells, rows) = drawn;
-        #[cfg(feature = "filters")]
-        {
-            self.color = color;
-            self.color_line = color_line;
-        }
-        self.arrow = arrow;
-        self.pointer_line = line;
-        self.mono_line = mono_line;
-        let missing = self.compose.cache.take_missing();
-        self.finish(&plan, (cells, rows), missing, start)
-    }
-
-    /// The first half of a frame: where the grid sits, what the pointer
-    /// changed, and which parts of the border the buffer lacks.
-    fn plan(&mut self, frame: &Frame<'_>, age: u32, state: &DrawState) -> Plan {
-        self.compose.cache.begin_frame();
-        self.cells.begin(age);
-        let d = self.config.decorations;
-        let palette = frame.palette();
-        self.deco = (d.underline.resolve(palette), d.strike.resolve(palette));
-        let grid = self.layout.grid_for(frame);
-        if self.grid != Some(grid) || self.background != Some(state.background) {
-            self.cells.reset(grid.cols, grid.rows);
-            self.sizes.clear();
-            self.grid = Some(grid);
-            self.background = Some(state.background);
-            self.cursor_at = None;
-            self.held_at = None;
-            self.pointer = None;
-        }
-        let pointer = state.pointer.and_then(|p| self.place_pointer(&grid, p));
-        if pointer != self.pointer {
-            // it appeared, moved or hid: the cells it left
-            // and the cells it covers change, and the border where it
-            // reaches past the grid
-            for p in [self.pointer, pointer].into_iter().flatten() {
-                self.stamp_pointer(&p);
-            }
-            self.pointer = pointer;
-        }
-        for area in core::mem::take(&mut self.touched) {
-            self.stamp_area(&grid, area);
-        }
-        #[cfg(feature = "images")]
-        self.plan_pictures(frame, &grid);
-        let full = self.cells.border_stale();
-        let border: Vec<Rect> = if full {
-            Vec::new()
-        } else {
-            self.cells.stale_border_areas().collect()
-        };
-        Plan {
-            grid,
-            pointer,
-            full,
-            border,
-        }
-    }
-
-    /// The second half: the border and the cells the buffer lacks, through
-    /// `back`. Returns how many cells it drew and how many rows it scanned.
-    fn paint(
-        &mut self,
-        plan: &Plan,
-        frame: &Frame<'_>,
-        state: &DrawState,
-        back: &mut impl Back,
-    ) -> (u32, u32) {
-        let all = Rect {
-            x: 0,
-            y: 0,
-            width: self.layout.width,
-            height: self.layout.height,
-        };
-        let whole_border = [all];
-        let bg = mono::border(self.config.depth, state.background);
-        let g = &plan.grid;
-        let grid = (g.cols > 0 && g.rows > 0).then_some(Area {
-            x: g.off_x,
-            y: g.off_y,
-            w: g.max_x.saturating_sub(g.off_x),
-            h: g.max_y.saturating_sub(g.off_y),
-        });
-        for &r in if plan.full {
-            &whole_border[..]
-        } else {
-            &plan.border[..]
-        } {
-            back.border(&mut self.compose, (all, grid), bg, r);
-        }
-        self.draw_cells(g, frame, back, state)
-    }
-
-    /// The frame's damage and figures, once it is drawn; `missing` holds
-    /// the characters of each text it drew as the font's missing glyph.
-    fn finish(
-        &mut self,
-        plan: &Plan,
-        (cells, rows): (u32, u32),
-        missing: Vec<char>,
-        start: Instant,
-    ) -> Drawn<'_> {
-        #[cfg(feature = "images")]
-        self.compose.pictures.end_frame();
-        self.changed.clear();
-        self.owes_missing = false;
-        self.shown_missing_drew(missing);
-        let layout = self.layout;
-        let grid = plan.grid;
-        let whole = plan.full.then_some(Rect {
-            x: 0,
-            y: 0,
-            width: layout.width,
-            height: layout.height,
-        });
-        let counts = self.compose.cache.take_counts();
-        let damage = self.cells.collect(whole, &plan.border, |col, row| {
-            layout.cell_rect(&grid, col, row)
-        });
-        let damage_px = damage.iter().fold(0u64, |n, r| n.saturating_add(r.area()));
-        Drawn {
-            damage,
-            stats: Stats {
-                cells,
-                rows,
-                misses: counts.misses,
-                uncached: counts.uncached,
-                damage_px,
-                cpu: start.elapsed(),
-            },
-        }
-    }
-
-    /// The frame's pictures: the cells of each one that moved or changed
-    /// since the last frame are stamped, and each one's place on the
-    /// display is planned for the rows to draw.
-    #[cfg(feature = "images")]
-    fn plan_pictures(&mut self, frame: &Frame<'_>, g: &Grid) {
-        let placements = frame.placements();
-        let cells = &mut self.cells;
-        self.compose
-            .pictures
-            .damage(placements, (g.cols, g.rows), |c, r| cells.stamp(c, r));
-        let l = self.layout;
-        let grid_px = (
-            int(g.cols).saturating_mul(l.cw),
-            int(g.rows).saturating_mul(l.ch),
-        );
-        let cell = (
-            u32::try_from(l.cw).unwrap_or(1),
-            u32::try_from(l.ch).unwrap_or(1),
-        );
-        let g = *g;
-        let pictures = &mut self.compose.pictures;
-        pictures.display(l.width, l.height, l.orientation);
-        pictures.plan(placements, cell, grid_px, g.rows, |a| {
-            l.area(&g, a.x, a.y, a.w, a.h)
-        });
-    }
-
-    /// Where the cursor draws: the leading cell of a wide character whose
-    /// trailing half it sits on. The overlay row's cells are narrow.
-    fn cursor_cell(frame: &Frame<'_>, link_row: Option<LinkRow<'_>>, c: &Cursor) -> (usize, usize) {
-        let width_at = |col: usize| {
-            let covered = link_row.is_some_and(|o| o.covers(col, c.row));
-            frame
-                .cell(c.row, col)
-                .map(|fc| if covered { Width::Narrow } else { fc.width })
-        };
-        let before = c.col.checked_sub(1).and_then(width_at);
-        let tail = width_at(c.col).is_some_and(|w| span(w, before, || None) == 0);
-        match c.col.checked_sub(1) {
-            Some(prev) if tail => (prev, c.row),
-            _ => (c.col, c.row),
-        }
-    }
-
-    /// Draws the cells this buffer lacks; returns how many, and how many
-    /// rows it scanned for them.
-    fn draw_cells(
-        &mut self,
-        g: &Grid,
-        frame: &Frame<'_>,
-        back: &mut impl Back,
-        state: &DrawState,
-    ) -> (u32, u32) {
-        let cursor = frame.cursor();
-        let link_row = LinkRow::new(frame, g.cols, g.rows);
-        // the cursor is not drawn under the overlay row
-        let held = cursor
-            .visible
-            .then(|| Self::cursor_cell(frame, link_row, &cursor))
-            .filter(|&(c, r)| !link_row.is_some_and(|o| o.covers(c, r)));
-        let at = held.filter(|_| state.cursor_on);
-        let phases = (state.blink_hidden, state.rapid_hidden);
-        let blink_toggled = phases != self.blink_hidden;
-        self.blink_hidden = phases;
-        let last_cursor = core::mem::replace(&mut self.cursor_at, at);
-        let last_held = core::mem::replace(&mut self.held_at, held);
-        let mut pass = Pass {
-            g: *g,
-            frame,
-            state,
-            cursor,
-            at,
-            at_pair: None,
-            at_run: None,
-            held,
-            plain: core::cell::OnceCell::new(),
-            link_row,
-            #[cfg(feature = "bidi")]
-            ligatures: self.config.ligatures,
-            #[cfg(feature = "bidi")]
-            runs: core::cell::RefCell::new(core::mem::take(&mut self.runs)),
-        };
-        pass.at_pair = pass.pair_cells(at);
-        pass.at_run = pass.run_block(at);
-        // the rows that draw the cursor, or drew it last frame, as the
-        // other line of a pair of double-height lines
-        let pairs = [at, last_cursor, held, last_held]
-            .map(|c| pass.pair_cells(c).map(|(row, cols)| (cols.start, row)));
-        // and as the other rows of a sized run
-        let run_rows =
-            [at, last_cursor, held, last_held].map(|c| pass.run_block(c).map(|(rows, _)| rows));
-        self.resize_rows(&pass);
-        let on = |c: Option<(usize, usize)>, row: usize| c.is_some_and(|(_, r)| r == row);
-        let (mut drawn, mut scanned) = (0u32, 0u32);
-        for row in 0..g.rows {
-            let scan = self.cells.row_stale(row)
-                || self.row_shows_changed(frame, row, g.cols)
-                || link_row.is_some_and(|o| {
-                    o.row() == row && o.chars().any(|c| self.shows_changed(&Glyph::Char(c)))
-                })
-                || blink_toggled
-                || frame.row_changed(row)
-                || [at, last_cursor, held, last_held]
-                    .into_iter()
-                    .chain(pairs)
-                    .any(|c| on(c, row))
-                || run_rows.iter().flatten().any(|rows| rows.contains(&row));
-            if scan {
-                scanned = scanned.saturating_add(1);
-                drawn = drawn.saturating_add(self.draw_row(&pass, row, back));
-            }
-        }
-        #[cfg(feature = "bidi")]
-        {
-            self.runs = pass.runs.into_inner();
-            self.runs.clear();
-        }
-        (drawn, scanned)
-    }
-
-    /// Stamps every cell of each row whose size changed since the last
-    /// frame, so each buffer draws the row again whole, and forgets the
-    /// reach of its cells, which stamps the neighbours their ink reached.
-    /// A row of double size keeps the reach of its display cells, which
-    /// the scan reads again once the size has changed. A frame whose rows
-    /// keep their sizes does one comparison for each row.
-    fn resize_rows(&mut self, p: &Pass<'_, '_>) {
-        let (cols, rows) = (p.g.cols, p.g.rows);
-        self.sizes.resize(rows, LineSize::Single);
-        for row in 0..rows {
-            let size = p.size(row);
-            let Some(last) = self.sizes.get_mut(row) else {
-                break;
-            };
-            if core::mem::replace(last, size) == size {
-                continue;
-            }
-            for col in 0..cols {
-                self.cells.stamp(col, row);
-                self.reach_to(col, row, 1, (true, Reach::NONE));
-            }
-        }
-        // every row is scanned after this, so the stamps alone draw the
-        // cells the forgotten reaches covered
-        self.reached.clear();
-    }
-
-    /// Whether `row` shows a glyph that changed since the last frame
-    /// ([`Renderer::shows_changed`]), read from its line's glyphs alone.
-    fn row_shows_changed(&self, frame: &Frame<'_>, row: usize, cols: usize) -> bool {
-        !self.changed.is_empty()
-            && frame.line(row).is_some_and(|line| {
-                line.cells()
-                    .iter()
-                    .take(cols)
-                    .any(|&c| self.shows_changed(&line.glyph(c)))
-            })
-    }
-
-    /// Whether `glyph` shows a character [`Renderer::glyphs_changed`] named,
-    /// or, after an arrival, a character of a text drawn as the font's
-    /// missing glyph.
-    fn shows_changed(&self, glyph: &Glyph<'_>) -> bool {
-        let changed = |c: char| self.changed.binary_search(&c).is_ok();
-        match *glyph {
-            _ if self.changed.is_empty() => false,
-            Glyph::Empty => false,
-            Glyph::Char(c) => changed(c),
-            Glyph::Cluster(text) => text.chars().any(changed),
-        }
-    }
-
-    /// Updates what the cell `fc` at `col`, `row`, drawing over `ncells`
-    /// cells, last drew: a cell that changed is stamped, and a cell whose
-    /// ink changed stamps the neighbours its old or new reach covers
-    /// (ADR-1306 D5). Returns whether the cell draws: not the trailing half
-    /// of a wide character, which the leading half draws.
-    fn scan_cell<B: Back>(
-        &mut self,
-        p: &Pass<'_, '_>,
-        (col, row): (usize, usize),
-        fc: &FrameCell<'_>,
-        (ncells, reads): (usize, bool),
-        back: &mut B,
-    ) -> bool {
-        // a cell that joins or leaves a wide pair draws differently
-        let role = u8::try_from(ncells).unwrap_or(1);
-        // each cell of a sized run draws a piece of the run's text, which
-        // the run's first cell holds, and its ink stays in its cell
-        let run = match self.row_runs {
-            true => p.run_piece(row, col).map(|(_, first)| first),
-            false => None,
-        };
-        let mut changed = fc.changed
-            || self.shows_changed(&fc.glyph)
-            || run.is_some_and(|first| self.shows_changed(&first.glyph));
-        if let Some(s) = self.cells.get_mut(col, row) {
-            changed |= s.replace_span(role) != role;
-        }
-        // a row of double size keeps the reach of each display cell, by
-        // its display column, rather than of each of its cells
-        let doubled = match self.sizes.get(row) {
-            Some(&size) if size != LineSize::Single => Some(size),
-            _ => None,
-        };
-        if ncells == 0 {
-            // a trailing half sends no ink of its own
-            if reads && doubled.is_none() {
-                self.reach_to(col, row, role, (changed, Reach::NONE));
-            }
-            return false;
-        }
-        let is_cursor = p.shows_cursor(col, row);
-        let off = blink_off(fc, is_cursor, p.state, self.config.blink);
-        if ncells == 2 {
-            let tail = col.saturating_add(1);
-            changed |= p.cell(row, tail).is_some_and(|t| t.changed);
-            if let Some(t) = self.cells.get_mut(tail, row) {
-                changed |= t.replace_span(0) != 0;
-            }
-        }
-        // a syllable drawn joined draws again whole when any of its cells
-        // changes, and a cell draws again when it joins a syllable, leaves
-        // one, or takes another piece (ADR-1203 D4)
-        #[cfg(feature = "bidi")]
-        {
-            let mut scratch = core::mem::take(&mut self.chars);
-            let joined = joined_syllable(&self.font, p, (col, row), fc, &mut scratch);
-            self.chars = scratch;
-            let piece = joined.as_ref().map(|(_, piece)| *piece);
-            changed |= self.cells.replace_piece(col, row, piece) != piece;
-            if let Some((s, _)) = joined {
-                changed |= s
-                    .cols()
-                    .any(|c| c != col && p.cell(row, c).is_some_and(|m| m.changed));
-            }
-        }
-        // the cursor's look and the blink phase change this cell alone
-        let ink_changed = changed;
-        let Some(s) = self.cells.get_mut(col, row) else {
-            return false;
-        };
-        let look = is_cursor.then_some((p.cursor.shape, p.cursor.color));
-        changed |= s.cursor != look;
-        changed |= s.replace_blink_off(off) != off;
-        s.cursor = look;
-        let held = p.held == Some((col, row));
-        if let Some(size) = doubled {
-            if changed {
-                self.cells.stamp(col, row);
-            }
-            if reads {
-                let piece = run.map_or(double::Piece::of(size, 0), |_| double::Piece::WHOLE);
-                self.reach_pieces(
-                    p,
-                    (col, row),
-                    fc,
-                    (ncells, piece),
-                    (held, ink_changed),
-                    back,
-                );
-            }
-            return true;
-        }
-        let reread = reads && (s.reach_stale(held) || ink_changed);
-        if changed {
-            self.cells.stamp(col, row);
-        }
-        if reread {
-            #[cfg(not(feature = "bidi"))]
-            let reach = match run {
-                Some(_) => Reach::NONE,
-                None => self.cell_reach(fc, (held, double::Piece::WHOLE), back),
-            };
-            #[cfg(feature = "bidi")]
-            let reach = match run {
-                Some(_) => Reach::NONE,
-                None => self.cell_reach(
-                    fc,
-                    (p, (col, row), ncells),
-                    (held, double::Piece::WHOLE),
-                    back,
-                ),
-            };
-            self.reach_to(col, row, role, (ink_changed, reach));
-        }
-        true
-    }
-
-    /// Records the reach of each display cell that the cell `fc` at `col`,
-    /// `row`, drawing over `ncells` cells, draws on a row of double size.
-    /// Each display cell draws one piece of the doubled glyph and keeps
-    /// that piece's reach by its display column, as a one-cell glyph
-    /// ([`double::piece_ink`] says which ink each piece keeps). A display
-    /// cell's reach is read again when the cell's ink changed, as
-    /// `ink_changed` says, or when the cursor came or went. `first` is the
-    /// cell's first piece, or the whole glyph for a cell of a sized run,
-    /// whose ink stays in its cell.
-    fn reach_pieces<B: Back>(
-        &mut self,
-        p: &Pass<'_, '_>,
-        (col, row): (usize, usize),
-        fc: &FrameCell<'_>,
-        (ncells, first): (usize, double::Piece),
-        (held, ink_changed): (bool, bool),
-        back: &mut B,
-    ) {
-        let Some(size) = self.sizes.get(row).copied() else {
-            return;
-        };
-        let cols = p.g.cols;
-        for column in 0..ncells.saturating_mul(2) {
-            let d = col.saturating_mul(2).saturating_add(column);
-            if d >= cols {
-                break;
-            }
-            let stale = self
-                .cells
-                .get_mut(d, row)
-                .is_some_and(|s| s.reach_stale(held));
-            if !stale && !ink_changed {
-                continue;
-            }
-            let reach = match first.is_whole() {
-                true => Reach::NONE,
-                false => {
-                    let piece = double::Piece::of(size, column);
-                    #[cfg(not(feature = "bidi"))]
-                    let reach = self.cell_reach(fc, (held, piece), back);
-                    #[cfg(feature = "bidi")]
-                    let reach = self.cell_reach(fc, (p, (col, row), ncells), (held, piece), back);
-                    reach
-                }
-            };
-            self.reach_to(d, row, 1, (ink_changed, reach));
-        }
-    }
-
-    /// Forgets every cell's reach and marks every cell changed, so the
-    /// frame drawn next reads each cell's reach and draws the whole grid
-    /// with it.
-    fn relearn_reaches(&mut self) {
-        self.cells.forget_reaches();
-        self.reaches_kept = true;
-    }
-
-    /// The cell at `col`, `row`, whose glyph spans `span` cells, now sends
-    /// ink as far as `reach`: when its ink changed, as `changed` says, or
-    /// its reach did, the neighbours the old reach covered and the ones the
-    /// new reach covers are stamped. Damage never chains: a neighbour
-    /// stamped here has not changed its own ink.
-    fn reach_to(&mut self, col: usize, row: usize, span: u8, (changed, reach): (bool, Reach)) {
-        let (old, old_span) = self.cells.set_reach(col, row, (reach, span));
-        if (old.is_none() && reach.is_none()) || (!changed && (old, old_span) == (reach, span)) {
-            return;
-        }
-        for (r, n) in [(old, old_span), (reach, span)] {
-            if !r.is_none() {
-                let b = r.block(col, row, usize::from(n));
-                self.cells.stamp_block((b.c0, b.r0), (b.c1, b.r1));
-                self.reached.push(b);
-            }
-        }
-    }
-
-    /// How far the ink of piece `piece` of `fc`'s glyph reaches past its
-    /// cells as drawn (ADR-1302 D8, ADR-1306 D6): cut to the bound; nowhere
-    /// for a letter that blinks, one whose ink its own background hides, a
-    /// concealed one, or a cell that draws no text; and only up and down
-    /// for the letter the visible cursor stands on, `held`, whatever the
-    /// cursor's blink phase. The piece is the whole glyph on a line of the
-    /// normal size, and one display cell of it on a line of double size.
-    fn cell_reach<B: Back>(
-        &mut self,
-        fc: &FrameCell<'_>,
-        #[cfg(feature = "bidi")] (p, at, ncells): (&Pass<'_, '_>, (usize, usize), usize),
-        (held, piece): (bool, double::Piece),
-        back: &mut B,
-    ) -> Reach {
-        let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
-        let steady = !blinks || self.config.blink.style == BlinkStyle::Off;
-        let concealed = fc.attrs.contains(Attrs::CONCEAL);
-        if !steady || fc.fg == fc.bg || concealed || draws_no_text(fc.glyph) {
-            return Reach::NONE;
-        }
-        let style = crate::variant::of(fc.attrs);
-        let width = if fc.width == Width::Wide {
-            FontWidth::Wide
-        } else {
-            FontWidth::Narrow
-        };
-        let compose = &mut self.compose;
-        // the text the cell draws, its joining sides and mirroring, and a
-        // lam-alef ligature's two cells (ADR-1004 D6, D7)
-        #[cfg(feature = "bidi")]
-        let reach = {
-            self.chars.clear();
-            drawn_text(&self.font, p, at, fc, &mut self.chars);
-            if self.chars.is_empty() {
-                return Reach::NONE;
-            }
-            let width = if ncells == 2 { FontWidth::Wide } else { width };
-            back.reach(compose, &self.font, (&self.chars, width, style), piece)
-                .within(self.bound)
-        };
-        #[cfg(not(feature = "bidi"))]
-        let reach = match fc.glyph {
-            Glyph::Empty => return Reach::NONE,
-            Glyph::Char(c) => back.reach(compose, &self.font, (&[c], width, style), piece),
-            Glyph::Cluster(t) => {
-                self.chars.clear();
-                self.chars.extend(t.chars());
-                back.reach(compose, &self.font, (&self.chars, width, style), piece)
-            }
-        }
-        .within(self.bound);
-        if held { reach.upright() } else { reach }
-    }
-
-    /// Scans one row, updates what each cell last drew, and draws the cells
-    /// some buffer lacks; returns how many.
-    ///
-    /// A cell's ink can damage cells the scan has passed: the cells before
-    /// it in its row, and the cells of the rows above, which are already
-    /// drawn (ADR-1306 D5). Those cells are drawn once the row's scan is
-    /// done: the ones in this row with the row, and the ones above in a
-    /// second pass over each of those rows, so a screen whose ink stays in
-    /// its cells is scanned and drawn in one pass, as before.
-    fn draw_row<B: Back>(&mut self, p: &Pass<'_, '_>, row: usize, back: &mut B) -> u32 {
-        match self.sizes.get(row) {
-            Some(&size) if size != LineSize::Single => {
-                return self.draw_doubled_row(p, (row, size), back);
-            }
-            _ => {}
-        }
-        let g = &p.g;
-        self.compose.jobs.clear();
-        self.compose.text.clear();
-        self.compose.sources.clear();
-        self.compose.received.clear();
-        self.reached.clear();
-        // the reaches are read only where received ink is drawn, and once
-        // the font has drawn a glyph whose ink passes its cells
-        let reads = B::RECEIVES && back.reaching(&self.compose);
-        self.reaches_kept &= reads;
-        let mut count = 0u32;
-        let mut before = None;
-        let runs = !p.frame.sized_runs(row).is_empty();
-        self.row_runs = runs;
-        for (here, fc) in p.cells(row).take(g.cols).enumerate() {
-            let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
-            #[cfg(feature = "bidi")]
-            let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
-            // each cell of a sized run draws its own piece of the run
-            let ncells = match runs && p.run_at(row, here).is_some() {
-                true => 1,
-                false => ncells,
-            };
-            before = Some(fc.width);
-            if !self.scan_cell(p, (here, row), &fc, (ncells, reads), back) {
-                continue;
-            }
-            count = count.saturating_add(self.push_cell(p, (here, row), &fc, ncells));
-        }
-        // the cells this row's ink reached once the scan had passed them
-        let reached = core::mem::take(&mut self.reached);
-        let meets = |b: &crate::reach::Block, r: usize| b.r0 <= int(r) && b.r1 >= int(r);
-        for b in reached.iter().filter(|b| meets(b, row)) {
-            count = count.saturating_add(self.push_block(p, row, (b.c0, b.c1)));
-        }
-        self.finish_row(p, row, back);
-        count = count.saturating_add(self.draw_reached_above(p, row, &reached, back));
-        self.reached = reached;
-        count
-    }
-
-    /// Draws again the cells of the rows above `row`, already drawn, that
-    /// the blocks `reached` cover: the cells that ink from `row` reached
-    /// once the scan had passed them. The rows are drawn top to bottom. A
-    /// row of double size receives no ink, so it is not drawn again.
-    /// Returns how many cells it drew that were not drawn before on this
-    /// frame.
-    fn draw_reached_above<B: Back>(
-        &mut self,
-        p: &Pass<'_, '_>,
-        row: usize,
-        reached: &[crate::reach::Block],
-        back: &mut B,
-    ) -> u32 {
-        let meets = |b: &crate::reach::Block, r: usize| b.r0 <= int(r) && b.r1 >= int(r);
-        let mut count = 0u32;
-        for above in row.saturating_sub(usize::from(self.bound.rows))..row {
-            if self
-                .sizes
-                .get(above)
-                .is_some_and(|&s| s != LineSize::Single)
-            {
-                continue;
-            }
-            let mut first = true;
-            self.row_runs = !p.frame.sized_runs(above).is_empty();
-            for b in reached.iter().filter(|b| meets(b, above)) {
-                if core::mem::take(&mut first) {
-                    self.compose.jobs.clear();
-                    self.compose.text.clear();
-                    self.compose.sources.clear();
-                    self.compose.received.clear();
-                }
-                count = count.saturating_add(self.push_block(p, above, (b.c0, b.c1)));
-            }
-            if !first {
-                self.finish_row(p, above, back);
-            }
-        }
-        count
-    }
-
-    /// Pushes the jobs of the cell `fc` at `col`, `row`, drawing over
-    /// `ncells` cells, when this buffer lacks it; returns whether it pushed
-    /// a cell not drawn before on this frame.
-    #[inline]
-    fn push_cell(
-        &mut self,
-        p: &Pass<'_, '_>,
-        (col, row): (usize, usize),
-        fc: &FrameCell<'_>,
-        ncells: usize,
-    ) -> u32 {
-        if !self.cells.stale_cells(col, row, ncells) {
-            return 0;
-        }
-        let new = self.cells.mark_drawn(col, row, ncells);
-        self.push_cell_jobs(p, (col, row), fc, ncells);
-        u32::from(new)
-    }
-
-    /// Pushes the jobs of the cell `fc` at `col`, `row`, drawing over
-    /// `ncells` cells.
-    fn push_cell_jobs(
-        &mut self,
-        p: &Pass<'_, '_>,
-        (col, row): (usize, usize),
-        fc: &FrameCell<'_>,
-        ncells: usize,
-    ) {
-        let is_cursor = p.shows_cursor(col, row);
-        let off = blink_off(fc, is_cursor, p.state, self.config.blink);
-        // a cell of a sized run draws as a narrow cell that holds the
-        // run's text, and its job draws its piece of the run's block
-        let run = match self.row_runs {
-            true => p.run_piece(row, col),
-            false => None,
-        };
-        let own = fc;
-        let in_run;
-        let fc = match run {
-            Some((_, first)) => {
-                in_run = FrameCell {
-                    glyph: first.glyph,
-                    width: Width::Narrow,
-                    ..*fc
-                };
-                &in_run
-            }
-            None => fc,
-        };
-        #[cfg(feature = "bidi")]
-        let mut drawn = core::mem::take(&mut self.drawn);
-        #[cfg(feature = "bidi")]
-        {
-            drawn.clear();
-            match (run, fc.glyph) {
-                (None, _) => drawn_text(&self.font, p, (col, row), fc, &mut drawn),
-                (Some(_), Glyph::Char(c)) => drawn.push(c),
-                (Some(_), Glyph::Cluster(t)) => drawn.extend(t.chars()),
-                (Some(_), Glyph::Empty) => {}
-            }
-        }
-        let lit = self.one_bit_lit(p, own, row, col);
-        let jobs = self.compose.jobs.len();
-        // on a run, a block cursor covers every cell and a bar stands along
-        // the block's left edge. An underline cursor is the cell's
-        // underline, which scales with the run, so every cell of the run
-        // draws its piece of it, and the scaled line lies under the block's
-        // bottom row whichever of the block's rows its pixels fall in.
-        let draws_cursor = is_cursor
-            && run.is_none_or(|(piece, _)| match p.cursor.shape {
-                CursorShape::Block | CursorShape::Underline => true,
-                CursorShape::Bar => piece.column == 0,
-            });
-        self.push_jobs(
-            &p.g,
-            fc,
-            Place { col, row, ncells },
-            draws_cursor.then_some(&p.cursor),
-            off,
-            lit,
-            #[cfg(feature = "bidi")]
-            &drawn,
-        );
-        if let Some((piece, _)) = run {
-            let scale = i64::from(piece.size.scale);
-            for job in self.compose.jobs.get_mut(jobs..).unwrap_or_default() {
-                job.piece = double::Piece::of_run(piece);
-                // the decorations scale with the run's text
-                for (line, _) in job.underline.into_iter().chain(job.over) {
-                    self.compose.sprites.prepare(line, job.piece);
-                }
-                // the bar scales with the run's glyph
-                job.bar = job.bar.map(|b| {
-                    let w = b.w.saturating_mul(scale);
-                    Bar {
-                        area: self.layout.bar_area(&p.g, (col, row, 1), w, b.right),
-                        w,
-                        ..b
-                    }
-                });
-            }
-        }
-        #[cfg(feature = "bidi")]
-        {
-            self.drawn = drawn;
-        }
-    }
-
-    /// Pushes the jobs of the cells of `row` from column `c0` to `c1` that
-    /// this buffer lacks and that no job holds yet; returns how many it
-    /// pushed that were not drawn before on this frame.
-    fn push_block(&mut self, p: &Pass<'_, '_>, row: usize, (c0, c1): (i64, i64)) -> u32 {
-        let cols = p.g.cols;
-        let first = usize::try_from(c0.max(0)).unwrap_or(0);
-        let last = usize::try_from(c1.max(0))
-            .unwrap_or(0)
-            .min(cols.saturating_sub(1));
-        let line = p.frame.line(row);
-        let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
-        let width = |c: usize| {
-            line.filter(|_| c < cols).map(|l| {
-                if covered(c) {
-                    Width::Narrow
-                } else {
-                    l.cell(c).width()
-                }
-            })
-        };
-        let mut count = 0u32;
-        let mut col = first;
-        while col <= last && col < cols {
-            let before = col.checked_sub(1).and_then(width);
-            let Some(w) = width(col) else { break };
-            let (lead, n) = match span(w, before, || width(col.saturating_add(1))) {
-                0 => (col.saturating_sub(1), 2),
-                n => (col, n),
-            };
-            // a lam-alef ligature is drawn whole by its alef, on the left
-            #[cfg(feature = "bidi")]
-            let (lead, n) = match p.cell(row, col).and_then(|fc| paired(p, (col, row), &fc)) {
-                Some(0) => (col.saturating_sub(1), 2),
-                Some(n) => (col, n),
-                None => (lead, n),
-            };
-            let end = lead.saturating_add(n);
-            let held = self
-                .compose
-                .jobs
-                .iter()
-                .any(|j| lead < j.posx.saturating_add(j.ncells) && j.posx < end);
-            if let Some(fc) = p.cell(row, lead).filter(|_| !held) {
-                count = count.saturating_add(self.push_cell(p, (lead, row), &fc, n));
-            }
-            col = lead.saturating_add(n);
-        }
-        count
-    }
-
-    /// Scans and draws `row`, a row of double size `size`: each of its
-    /// cells draws across two cells of the display, and a wide character
-    /// across four. Returns how many cells it drew.
-    ///
-    /// The row is drawn whole whenever the buffer lacks any of its cells.
-    /// The cells' own stamps, the pointer's and the pictures' count in the
-    /// grid's columns, which on this row are not the display's, so drawing
-    /// the whole row gives every buffer what it lacks without mapping one
-    /// onto the other. Only the cells whose left half lies in the grid
-    /// draw; the rest of the line lies past the grid's right edge.
-    ///
-    /// The row sends its glyphs' ink past the line into the rows above and
-    /// below, and receives none. Each display cell keeps the reach of the
-    /// piece it draws, by its display column ([`Renderer::reach_pieces`]),
-    /// so a row that receives the ink finds each piece as a one-cell glyph
-    /// ([`Renderer::sent_reach`]). A piece whose ink changed stamps the
-    /// cells its old and new reach cover, and the cells of the rows above,
-    /// already drawn, are drawn again once the row is drawn.
-    fn draw_doubled_row<B: Back>(
-        &mut self,
-        p: &Pass<'_, '_>,
-        (row, size): (usize, LineSize),
-        back: &mut B,
-    ) -> u32 {
-        let g = &p.g;
-        let mut doubled = core::mem::take(&mut self.doubled);
-        doubled.clear();
-        self.reached.clear();
-        // the reaches are read only where received ink is drawn, and once
-        // the font has drawn a glyph whose ink passes its cells
-        let reads = B::RECEIVES && back.reaching(&self.compose);
-        self.reaches_kept &= reads;
-        let mut before = None;
-        let runs = !p.frame.sized_runs(row).is_empty();
-        self.row_runs = runs;
-        for (here, fc) in p.cells(row).take(g.cols).enumerate() {
-            let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
-            #[cfg(feature = "bidi")]
-            let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
-            // each cell of a sized run draws its own piece of the run
-            let ncells = match runs && p.run_at(row, here).is_some() {
-                true => 1,
-                false => ncells,
-            };
-            before = Some(fc.width);
-            if self.scan_cell(p, (here, row), &fc, (ncells, reads), back)
-                && here.saturating_mul(2) < g.cols
-            {
-                doubled.push((here, ncells));
-            }
-        }
-        let mut count = 0u32;
-        if self.cells.stale_cells(0, row, g.cols) {
-            self.compose.jobs.clear();
-            self.compose.text.clear();
-            self.compose.sources.clear();
-            self.compose.received.clear();
-            for &(col, ncells) in &doubled {
-                let Some(fc) = p.cell(row, col) else { continue };
-                let new = self.cells.mark_drawn(col, row, ncells);
-                count = count.saturating_add(u32::from(new));
-                self.push_cell_jobs(p, (col, row), &fc, ncells);
-            }
-            // the display cells of the cells past the middle of the line
-            // are drawn by the cells before it
-            self.cells.mark_drawn(0, row, g.cols);
-            self.double_jobs(g, row, size);
-            #[cfg(feature = "images")]
-            {
-                self.compose.pictures.row = row;
-            }
-            back.row(&mut self.compose, &self.font, self.layout.strip(), row);
-        }
-        self.doubled = doubled;
-        let reached = core::mem::take(&mut self.reached);
-        count = count.saturating_add(self.draw_reached_above(p, row, &reached, back));
-        self.reached = reached;
-        count
-    }
-
-    /// Turns the jobs of `row`, pushed in the grid's columns, into the jobs
-    /// of its doubled cells: one job for each display cell, each drawing
-    /// its column's piece of the doubled glyph and decorations
-    /// ([`double`]). A job's colors, text and lines carry over, so the
-    /// cursor, the selection, colors and decorations follow the line's
-    /// size. Display cells past the grid's right edge are cut.
-    fn double_jobs(&mut self, g: &Grid, row: usize, size: LineSize) {
-        let jobs = core::mem::take(&mut self.compose.jobs);
-        let l = &self.layout;
-        for job in &jobs {
-            let first = job.posx.saturating_mul(2);
-            // the bar doubles with its character: twice as thick, at the
-            // same edge of the doubled character, so only the display cell
-            // at that edge draws it
-            let bar = job.bar.map(|b| {
-                let w = b.w.saturating_mul(2);
-                let cells = (first, row, job.ncells.saturating_mul(2));
-                Bar {
-                    area: l.bar_area(g, cells, w, b.right),
-                    w,
-                    ..b
-                }
-            });
-            for column in 0..job.ncells.saturating_mul(2) {
-                let col = first.saturating_add(column);
-                if col >= g.cols {
-                    break;
-                }
-                let r = l.cells_area(g, col, row, 1);
-                self.compose.jobs.push(Job {
-                    posx: col,
-                    ncells: 1,
-                    r,
-                    g: r,
-                    tiles: [r, l.cells_area(g, col.saturating_add(1), row, 1)],
-                    piece: job.piece.on_line(size, column),
-                    bar,
-                    ..*job
-                });
-            }
-        }
-        self.compose.jobs.sort_unstable_by_key(|j| j.posx);
-    }
-
-    /// Draws the row's jobs: the cells between its layered jobs join them,
-    /// each job gathers the ink its neighbours send it, and `back` draws
-    /// them.
-    fn finish_row<B: Back>(&mut self, p: &Pass<'_, '_>, row: usize, back: &mut B) {
-        self.widen_to_span(p, row);
-        // the ranges of received ink follow the jobs' places, so the jobs
-        // take their order before they are gathered
-        let jobs = &mut self.compose.jobs;
-        if !jobs.is_sorted_by_key(|j| j.posx) {
-            jobs.sort_unstable_by_key(|j| j.posx);
-        }
-        if B::RECEIVES {
-            self.gather(p, row);
-        }
-        #[cfg(feature = "images")]
-        {
-            self.compose.pictures.row = row;
-        }
-        back.row(&mut self.compose, &self.font, self.layout.strip(), row);
-    }
-
-    /// Finds, for each of the row's jobs, the neighbours whose glyphs send
-    /// ink into its cells, from their reach, and lists them in the order
-    /// ADR-1306 D4 draws them: the row above, the row below, then the cells
-    /// beside it, farthest first.
-    fn gather(&mut self, p: &Pass<'_, '_>, row: usize) {
-        let rows = usize::from(self.bound.rows);
-        let side = usize::from(self.bound.side);
-        let (first, last) = (row.saturating_sub(rows), row.saturating_add(rows));
-        if !self.cells.rows_reach(first, last) {
-            return;
-        }
-        let (cols, grid_rows) = self.cells.size();
-        let last = last.min(grid_rows.saturating_sub(1));
-        let mut found: Vec<(u8, i64, usize, usize, usize)> = Vec::new();
-        for j in 0..self.compose.jobs.len() {
-            let Some(job) = self.compose.jobs.get(j).copied() else {
-                continue;
-            };
-            let (a, n) = (job.posx, job.ncells.max(1));
-            let end = a.saturating_add(n);
-            found.clear();
-            for r in first..=last {
-                // a wide glyph's first cell may lie one further left
-                let k0 = a.saturating_sub(side.saturating_add(1));
-                let k1 = end.saturating_add(side).min(cols);
-                for k in k0..k1 {
-                    let (reach, span) = self.sent_reach(k, r);
-                    let span = usize::from(span);
-                    if reach.is_none() || span == 0 {
-                        continue;
-                    }
-                    // a glyph's own cells take its ink as its own glyph
-                    if r == row && k < end && k.saturating_add(span) > a {
-                        continue;
-                    }
-                    if !reach.block(k, r, span).meets(a, row, n) {
-                        continue;
-                    }
-                    // ADR-1306 D4: the row above, the row below, then beside
-                    // the cell, farthest first and the cell before it first
-                    let key = match r.cmp(&row) {
-                        core::cmp::Ordering::Less => (0, int(k)),
-                        core::cmp::Ordering::Greater => (1, int(k)),
-                        core::cmp::Ordering::Equal => {
-                            let before = k < a;
-                            let gap = if before {
-                                a.saturating_sub(k.saturating_add(span))
-                            } else {
-                                k.saturating_sub(end)
-                            };
-                            (
-                                2,
-                                int(gap)
-                                    .saturating_neg()
-                                    .saturating_mul(2)
-                                    .saturating_add(i64::from(!before)),
-                            )
-                        }
-                    };
-                    found.push((key.0, key.1, k, r, span));
-                }
-            }
-            if found.is_empty() {
-                continue;
-            }
-            found.sort_unstable();
-            // a block cursor or the selection marks the job's cell
-            let block = matches!(p.cursor.shape, CursorShape::Block);
-            let marked =
-                (block && p.shows_cursor(a, row)) || p.cell(row, a).is_some_and(|c| c.selected);
-            let from = self.compose.sources.len();
-            for &(_, _, k, r, span) in &found {
-                if let Some(src) = self.source(p, (&job, marked), (k, r, span)) {
-                    self.compose.sources.push(src);
-                }
-            }
-            let to = self.compose.sources.len();
-            let jobs = self.compose.jobs.len();
-            let received = &mut self.compose.received;
-            if received.len() < jobs {
-                received.resize(jobs, (0, 0));
-            }
-            if let Some(range) = received.get_mut(j) {
-                *range = (from, to);
-            }
-        }
-    }
-
-    /// The reach of the cell at `k`, `r` and how many cells the glyph it
-    /// counts from spans. On a row of double size, the cell is a display
-    /// cell that sends the ink of the one-cell piece it draws.
-    pub(crate) fn sent_reach(&self, k: usize, r: usize) -> (Reach, u8) {
-        let Some(s) = self.cells.get(k, r) else {
-            return (Reach::NONE, 0);
-        };
-        match self.sizes.get(r) {
-            Some(&size) if size != LineSize::Single => (s.reach(), 1),
-            _ => (s.reach(), s.span()),
-        }
-    }
-
-    /// The cell of row `r` that draws display cell `k` of a row of double
-    /// size `size`, and the piece of its glyph that the display cell
-    /// draws: the cell at column `k / 2`, or the wide character it is the
-    /// trailing half of.
-    fn doubled_source(&self, (k, r): (usize, usize), size: LineSize) -> (usize, double::Piece) {
-        let half = k / 2;
-        let lead = match self.cells.get(half, r).map(|s| s.span()) {
-            Some(0) => half.saturating_sub(1),
-            _ => half,
-        };
-        let column = k.saturating_sub(lead.saturating_mul(2));
-        (lead, double::Piece::of(size, column))
-    }
-
-    /// The glyph of the cell at `k`, `r`, spanning `span` cells, as a source
-    /// of ink for `job` (ADR-1306 D6): in `job`'s mark color when a block
-    /// cursor or the selection marks `job`'s cell, as `marked` says; else, at 1 bit, the
-    /// opposite of `job`'s background; else in its own foreground, as it
-    /// draws unselected. On a row of double size, `k` is a display cell,
-    /// and the source is the one-cell piece of the doubled glyph it draws.
-    fn source(
-        &mut self,
-        p: &Pass<'_, '_>,
-        (job, marked): (&Job, bool),
-        (k, r, span): (usize, usize, usize),
-    ) -> Option<Source> {
-        let (lead, piece) = match self.sizes.get(r) {
-            Some(&size) if size != LineSize::Single => self.doubled_source((k, r), size),
-            _ => (k, double::Piece::WHOLE),
-        };
-        let fc = p.cell(r, lead)?;
-        let own = if self.config.depth == Depth::One {
-            mono::opposite(job.bg)
-        } else if fc.selected {
-            p.plain().cell(r, k).map_or(fc.fg, |c| c.fg)
-        } else {
-            fc.fg
-        };
-        let color = if marked { job.fg } else { own };
-        let text = &mut self.compose.text;
-        let start = text.len();
-        match fc.glyph {
-            Glyph::Empty => return None,
-            Glyph::Char(c) => text.push(c),
-            Glyph::Cluster(t) => text.extend(t.chars()),
-        }
-        let style = crate::variant::of(fc.attrs);
-        let (width, cells) = match (fc.width, piece.is_whole()) {
-            (Width::Wide, true) => (FontWidth::Wide, 2),
-            (Width::Wide, false) => (FontWidth::Wide, 1),
-            _ => (FontWidth::Narrow, 1),
-        };
-        let reach = self.cells.get(k, r)?.reach();
-        let b = reach.block(k, r, span);
-        let l = &self.layout;
-        let (cw, ch) = (l.cw, l.ch);
-        let g = &p.g;
-        Some(Source {
-            text: (start, text.len().saturating_sub(start), width, style),
-            g: l.cells_area(g, k, r, cells),
-            clip: l.area(
-                g,
-                b.c0.saturating_mul(cw),
-                b.r0.saturating_mul(ch),
-                b.c1.saturating_add(1)
-                    .saturating_sub(b.c0)
-                    .saturating_mul(cw),
-                b.r1.saturating_add(1)
-                    .saturating_sub(b.r0)
-                    .saturating_mul(ch),
-            ),
-            color,
-            cell: (k, r),
-            own,
-            marked,
-            piece,
-        })
-    }
-
-    /// At 1 bit, whether `fc`, at `col` in `row`, draws its background lit
-    /// (`mono::marked`): the selection inverts what the cell draws
-    /// unselected. `None` at any other depth.
-    fn one_bit_lit(
-        &self,
-        p: &Pass<'_, '_>,
-        fc: &FrameCell<'_>,
-        row: usize,
-        col: usize,
-    ) -> Option<bool> {
-        if self.config.depth != Depth::One {
-            return None;
-        }
-        let plain = p.plain();
-        let natural =
-            |c: &FrameCell<'_>| mono::marked(c.bg, c.fg, c.attrs.contains(Attrs::INVERSE));
-        Some(if fc.selected {
-            !plain
-                .cell(row, col)
-                .map_or_else(|| natural(fc), |c| natural(&c))
-        } else {
-            natural(fc)
-        })
-    }
-
-    /// The job for one cell. `off` draws it in the text blink's off phase.
-    /// A bar cursor keeps the cell's letter: the letter draws as it does
-    /// with no cursor, and the bar draws over it along the left edge of the
-    /// character's cells. In a build with the bidi feature, `drawn` is the
-    /// text the cell draws ([`crate::joined::drawn`]), and the bar stands
-    /// along the right edge of a character that resolves right to left.
-    ///
-    /// References:
-    /// - ADR-1004 D9: the bar's side on a right-to-left character.
-    #[cfg_attr(
-        feature = "bidi",
-        expect(
-            clippy::too_many_arguments,
-            reason = "the drawn text joins the cell's own in a build with the bidi feature"
-        )
-    )]
-    fn push_jobs(
-        &mut self,
-        g: &Grid,
-        fc: &FrameCell<'_>,
-        at: Place,
-        cursor: Option<&Cursor>,
-        off: bool,
-        lit: Option<bool>,
-        #[cfg(feature = "bidi")] drawn: &[char],
-    ) {
-        let force = self.config.decorations.force;
-        let (deco_ul, deco_strike) = self.deco;
-        // the frame has dimmed the foreground; the cursor draws over it
-        let (mut fg, mut bg) = (fc.fg, fc.bg);
-        // a placeholder cell and a concealed one (SGR 8) draw their
-        // background alone: no glyph and no line, the cursor aside
-        let placeholder = draws_no_text(fc.glyph) || fc.attrs.contains(Attrs::CONCEAL);
-        // A cell of the link under the pointer draws a dashed underline in
-        // place of its own style, in its own underline color (ADR-1002,
-        // "Drawing").
-        let mut underline = if placeholder {
-            vtium_term::UnderlineStyle::None
-        } else if fc.hovered {
-            vtium_term::UnderlineStyle::Dashed
-        } else {
-            fc.attrs.underline()
-        };
-        let mut ul_cursor = false;
-        let mut bar = false;
-        // a superscript or subscript cell's own lines follow its small
-        // glyph (ADR-1202 D8)
-        let script = crate::variant::of(fc.attrs).script;
-        let mut cell_lit = lit;
-        // at 1 bit a mark's text always shows: the selection's and a block
-        // cursor's ink is never their background
-        if lit.is_some() && fc.selected {
-            fg = mono::ink_on(bg);
-        }
-        match cursor.map(|c| (c.shape, c.color)) {
-            Some((CursorShape::Block, color)) => {
-                core::mem::swap(&mut fg, &mut bg);
-                if let Some(c) = color {
-                    bg = c;
-                }
-                cell_lit = lit.map(|l| !l);
-                if lit.is_some() {
-                    fg = mono::ink_on(bg);
-                }
-            }
-            Some((CursorShape::Underline, _)) => {
-                underline = match underline {
-                    vtium_term::UnderlineStyle::None => vtium_term::UnderlineStyle::Single,
-                    _ => vtium_term::UnderlineStyle::None,
-                };
-                ul_cursor = true;
-            }
-            Some((CursorShape::Bar, _)) => bar = true,
-            None => {}
-        }
-        // at 1 bit a line cursor is the cell's ink, whatever its color
-        let cursor_color = match lit {
-            Some(_) if !matches!(cursor.map(|c| c.shape), Some(CursorShape::Block)) => {
-                cursor.map(|_| mono::ink_on(bg))
-            }
-            _ => cursor.and_then(|c| c.color),
-        };
-        let ul_color = if ul_cursor {
-            cursor_color.unwrap_or(fg)
-        } else {
-            match (fc.underline_color, force, deco_ul) {
-                (Some(c), false, _) => c,
-                (_, _, Some(c)) => c,
-                (_, _, None) => fg,
-            }
-        };
-        // the strike and the overline draw over the glyph as one sprite, in
-        // the strike's color
-        let over = Kind::over(
-            fc.attrs.contains(Attrs::STRIKE),
-            fc.attrs.contains(Attrs::OVERLINE),
-        )
-        .filter(|_| !placeholder)
-        .map(|kind| {
-            let line = Line {
-                kind,
-                script,
-                skips_ink: false,
-            };
-            (line, deco_strike.unwrap_or(fg))
-        });
-        // the underline cursor keeps a normal cell's rows, so it has one
-        // height along a line
-        let ul_script = if ul_cursor { Script::Baseline } else { script };
-        let mut underline = Kind::underline(underline).map(|kind| {
-            let line = Line {
-                kind,
-                script: ul_script,
-                skips_ink: !ul_cursor,
-            };
-            (line, ul_color)
-        });
-        let mut over = over;
-        let blink = self.config.blink;
-        let (hidden, dimmed) = match blink.style {
-            BlinkStyle::Full => (off, false),
-            BlinkStyle::Partial => (false, off),
-            BlinkStyle::Off => (false, false),
-        };
-        if off && blink.decorations {
-            if hidden {
-                (underline, over) = (None, None);
-            } else if dimmed {
-                underline = underline.map(|(k, c)| (k, dim(c, bg)));
-                over = over.map(|(k, c)| (k, dim(c, bg)));
-            }
-        }
-        if dimmed {
-            fg = dim(fg, bg);
-        }
-        let style = crate::variant::of(fc.attrs);
-        let text = &mut self.compose.text;
-        let start = text.len();
-        #[cfg(feature = "bidi")]
-        if !hidden && !placeholder {
-            text.extend_from_slice(drawn);
-        }
-        #[cfg(not(feature = "bidi"))]
-        if !hidden && !placeholder {
-            match fc.glyph {
-                Glyph::Empty => {}
-                Glyph::Char(c) => text.push(c),
-                Glyph::Cluster(s) => text.extend(s.chars()),
-            }
-        }
-        // a lam-alef ligature spans its two narrow cells
-        #[cfg(feature = "bidi")]
-        let wide = fc.width == Width::Wide || at.ncells == 2;
-        #[cfg(not(feature = "bidi"))]
-        let wide = fc.width == Width::Wide;
-        let width = if wide {
-            FontWidth::Wide
-        } else {
-            FontWidth::Narrow
-        };
-        let len = text.len().saturating_sub(start);
-        let text = (len > 0).then_some((start, len, width, style));
-        // vtium's mark, which draws above every picture (ADR-1100 D4)
-        #[cfg(feature = "images")]
-        let under = |mark: Mark| Under {
-            default_bg: fc.default_bg,
-            selected: fc.selected,
-            mark,
-        };
-        // the bar stands along the left edge of the character's cells, or
-        // along their right edge where the character resolves right to left
-        let bar = bar.then(|| {
-            #[cfg(feature = "bidi")]
-            let right = cursor.is_some_and(|c| c.rtl);
-            #[cfg(not(feature = "bidi"))]
-            let right = false;
-            let w = bar_width(self.layout.cw);
-            Bar {
-                area: self
-                    .layout
-                    .bar_area(g, (at.col, at.row, at.ncells), w, right),
-                color: cursor_color.unwrap_or(fg),
-                w,
-                right,
-            }
-        });
-        let glyph_cells = if width == FontWidth::Wide { 2 } else { 1 };
-        let paint = Paint {
-            fg,
-            bg,
-            underline,
-            over,
-            text,
-            lit: cell_lit,
-            bar,
-        };
-        let job = self.job(g, at, glyph_cells, paint);
-        #[cfg(feature = "images")]
-        let job = Job {
-            under: under(match cursor.map(|c| c.shape) {
-                Some(CursorShape::Block) => Mark::Opaque,
-                Some(CursorShape::Bar) => Mark::Bar,
-                Some(CursorShape::Underline) => Mark::Underline,
-                None => Mark::None,
-            }),
-            ..job
-        };
-        self.compose.jobs.push(job);
-    }
-
-    fn job(&self, g: &Grid, at: Place, glyph_cells: usize, paint: Paint) -> Job {
-        let l = &self.layout;
-        let depth = self.config.depth;
-        let ink = match paint.lit {
-            Some(lit) => Ink::with_state(depth, paint.bg, lit),
-            None => Ink::new(depth, paint.bg),
-        };
-        Job {
-            posx: at.col,
-            ncells: at.ncells,
-            r: l.cells_area(g, at.col, at.row, at.ncells),
-            g: l.cells_area(g, at.col, at.row, glyph_cells),
-            tiles: [
-                l.cells_area(g, at.col, at.row, 1),
-                l.cells_area(g, at.col.saturating_add(1), at.row, 1),
-            ],
-            fg: ink.fg(paint.fg),
-            bg: ink.bg(),
-            underline: paint.underline.map(|(k, c)| (k, ink.fg(c))),
-            over: paint.over.map(|(k, c)| (k, ink.fg(c))),
-            text: paint.text,
-            silhouette: depth == Depth::One,
-            piece: double::Piece::WHOLE,
-            #[cfg(feature = "images")]
-            under: Under::default(),
-            bar: paint.bar.map(|b| Bar {
-                color: ink.fg(b.color),
-                ..b
-            }),
-        }
-    }
-
-    /// When the row draws a cell of several layers, every cell between the
-    /// first and the last of them is composed with them in the row scratch,
-    /// so those not yet drawn join the jobs.
-    fn widen_to_span(&mut self, p: &Pass<'_, '_>, row: usize) {
-        let Some((first, end)) = self.compose.layered_span() else {
-            return;
-        };
-        let g = &p.g;
-        let mut before = first
-            .checked_sub(1)
-            .and_then(|c| p.cell(row, c))
-            .map(|fc| fc.width);
-        let run = p.cells(row).take(end.min(g.cols)).enumerate();
-        for (here, fc) in run.skip(first) {
-            let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
-            #[cfg(feature = "bidi")]
-            let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
-            before = Some(fc.width);
-            // each cell of a sized run draws its own piece of the run, as
-            // the row's scan draws it
-            let in_run = self.row_runs && p.run_at(row, here).is_some();
-            let ncells = if in_run { 1 } else { ncells };
-            if ncells == 0 {
-                continue;
-            }
-            let covered = self
-                .compose
-                .jobs
-                .iter()
-                .any(|j| here >= j.posx && here < j.posx.saturating_add(j.ncells));
-            if covered {
-                continue;
-            }
-            if in_run {
-                self.cells.mark_drawn(here, row, 1);
-                self.push_cell_jobs(p, (here, row), &fc, 1);
-                continue;
-            }
-            let is_cursor = p.shows_cursor(here, row);
-            let off = blink_off(&fc, is_cursor, p.state, self.config.blink);
-            self.cells.mark_drawn(here, row, ncells);
-            #[cfg(feature = "bidi")]
-            let mut drawn = core::mem::take(&mut self.drawn);
-            #[cfg(feature = "bidi")]
-            {
-                drawn.clear();
-                drawn_text(&self.font, p, (here, row), &fc, &mut drawn);
-            }
-            self.push_jobs(
-                g,
-                &fc,
-                Place {
-                    col: here,
-                    row,
-                    ncells,
-                },
-                is_cursor.then_some(&p.cursor),
-                off,
-                self.one_bit_lit(p, &fc, row, here),
-                #[cfg(feature = "bidi")]
-                &drawn,
-            );
-            #[cfg(feature = "bidi")]
-            {
-                self.drawn = drawn;
-            }
-        }
-        self.compose.jobs.sort_by_key(|j| j.posx);
-    }
-
-    /// The grid's pixel the pointer's tip at `x`, `y` names, kept inside
-    /// the grid; for a glyph pointer, the corner of the cell it is in.
-    fn pointer_pixel(&self, g: &Grid, (x, y): (u32, u32)) -> Option<(i64, i64)> {
-        if g.cols == 0 || g.rows == 0 {
-            return None;
-        }
-        let l = self.layout;
-        let last = |n: usize, side: i64| int(n).saturating_mul(side).saturating_sub(1).max(0);
-        let (px, py) = (
-            int(x).min(last(g.cols, l.cw)),
-            int(y).min(last(g.rows, l.ch)),
-        );
-        let corner = |p: i64, side: i64| p.saturating_sub(p.checked_rem(side).unwrap_or(0));
-        let glyph = matches!(self.config.pointer, PointerShape::Glyph(_));
-        Some(
-            if glyph && self.shape == vtium_term::PointerShape::Default {
-                (corner(px, l.cw), corner(py, l.ch))
-            } else {
-                (px, py)
-            },
-        )
-    }
-
-    /// Where the arrow draws for the pointer's tip at `x`, `y` in the
-    /// grid's pixels, and the cells it covers. Its hotspot lands on the
-    /// grid's pixel, kept inside the grid; the rest may reach into the
-    /// border and past the display, where nothing is drawn.
-    fn place_pointer(&self, g: &Grid, at: (u32, u32)) -> Option<Pointer> {
-        let (px, py) = self.pointer_pixel(g, at)?;
-        let l = self.layout;
-        let tip = l.area(g, px, py, 1, 1);
-        let (hx, hy) = self.arrow.hot();
-        let at = Area {
-            x: tip.x.saturating_sub(int(hx)),
-            y: tip.y.saturating_sub(int(hy)),
-            w: int(self.arrow.width()),
-            h: int(self.arrow.height()),
-        };
-        let (gw, gh) = (
-            int(g.cols).saturating_mul(l.cw),
-            int(g.rows).saturating_mul(l.ch),
-        );
-        let b = l.grid_area(g, at);
-        let first = |v: i64, side: i64, n: usize| {
-            usize::try_from(v.max(0).checked_div(side).unwrap_or(0))
-                .unwrap_or(0)
-                .min(n)
-        };
-        let past = |v: i64, side: i64, n: usize| {
-            let end = v.saturating_add(side).saturating_sub(1).max(0);
-            usize::try_from(end.checked_div(side).unwrap_or(0))
-                .unwrap_or(0)
-                .min(n)
-        };
-        let cells = (
-            first(b.x, l.cw, g.cols),
-            first(b.y, l.ch, g.rows),
-            past(b.x.saturating_add(b.w), l.cw, g.cols),
-            past(b.bottom(), l.ch, g.rows),
-        );
-        let outside = b.x < 0 || b.y < 0 || b.x.saturating_add(b.w) > gw || b.bottom() > gh;
-        Some(Pointer {
-            at,
-            cells,
-            outside,
-            shape: self.shape,
-        })
-    }
-
-    /// The cells `area` touches changed on this frame, and the border
-    /// inside it.
-    fn stamp_area(&mut self, g: &Grid, area: Rect) {
-        let meets = |r: Rect| {
-            r.x < area.x.saturating_add(area.width)
-                && area.x < r.x.saturating_add(r.width)
-                && r.y < area.y.saturating_add(area.height)
-                && area.y < r.y.saturating_add(r.height)
-        };
-        for row in 0..g.rows {
-            for col in 0..g.cols {
-                if meets(self.layout.cell_rect(g, col, row)) {
-                    self.cells.stamp(col, row);
-                }
-            }
-        }
-        self.cells.stamp_border_area(area);
-    }
-
-    /// The cells under `p` changed on this frame, and the border inside
-    /// its area, clipped to the display, when it reaches into it.
-    fn stamp_pointer(&mut self, p: &Pointer) {
-        let (c0, r0, c1, r1) = p.cells;
-        for r in r0..r1 {
-            for c in c0..c1 {
-                self.cells.stamp(c, r);
-            }
-        }
-        if p.outside {
-            let (w, h) = (int(self.layout.width), int(self.layout.height));
-            let (x0, y0) = (p.at.x.clamp(0, w), p.at.y.clamp(0, h));
-            let x1 = p.at.x.saturating_add(p.at.w).clamp(0, w);
-            let side = |v: i64| u32::try_from(v).unwrap_or(0);
-            self.cells.stamp_border_area(Rect {
-                x: side(x0),
-                y: side(y0),
-                width: side(x1.saturating_sub(x0)),
-                height: side(p.at.bottom().clamp(0, h).saturating_sub(y0)),
-            });
-        }
-    }
 }
 
-/// Whether a cell holding `glyph` draws no text and no decoration of its own:
-/// a kitty Unicode placeholder, a cluster whose first scalar value is
-/// U+10EEEE, marks where a virtual placement's picture draws (ADR-1100 D13).
-/// Its background, the cursor and the selection draw as on any cell. In a
-/// build without `images`, U+10EEEE is a private-use character like any
-/// other.
-fn draws_no_text(glyph: Glyph<'_>) -> bool {
-    const PLACEHOLDER: char = '\u{10EEEE}';
-    cfg!(feature = "images")
-        && match glyph {
-            Glyph::Empty => false,
-            Glyph::Char(c) => c == PLACEHOLDER,
-            Glyph::Cluster(s) => s.starts_with(PLACEHOLDER),
-        }
-}
+#[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::expect_used,
+    reason = "a test fails by panicking, on small numbers it picks"
+)]
+mod tests;

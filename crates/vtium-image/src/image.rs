@@ -30,7 +30,11 @@ impl LineKey {
 pub struct PlaceholderRun {
     /// The line that holds the run.
     pub line: LineKey,
-    /// The screen column of the run's first cell.
+    /// The place of the run's first cell in its line: the cell's column
+    /// as vtium-term reads the run from the line, and in a frame, the place
+    /// in the line where that cell is drawn. A line of single size draws
+    /// place n at screen column n, and a double-size line at screen columns
+    /// 2n and 2n + 1.
     pub col: u32,
     /// The cells in the run.
     pub cells: u32,
@@ -42,6 +46,11 @@ pub struct PlaceholderRun {
     /// cell, in the virtual placement's grid of cells.
     pub row: u32,
     pub column: u32,
+    /// The run lies on a double-width or double-height line. Such a line
+    /// draws each cell two screen columns wide, so the run's entry in a
+    /// frame covers twice as many screen columns as the run has cells, and
+    /// its picture is stretched to twice its width.
+    pub double: bool,
 }
 
 /// An image's key: counted up by its store and never reused, so a frame

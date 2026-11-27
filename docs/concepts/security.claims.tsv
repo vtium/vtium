@@ -1,21 +1,30 @@
 # Claims of docs/concepts/security.md, converted from its author's claim list.
 element	file	symbol
-the console runs as root for its whole life, and its unit sets no sandboxing	crates/vtium/install/vtium@.service	ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
+the unit starts vtium as root, and sets no sandboxing	crates/vtium/install/vtium@.service	ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
+a packaged vtium runs its drawing process as the account vtium	crates/vtium/src/broker/start.rs	ACCOUNT
+the account vtium, which the package creates	crates/vtium/install/vtium-split.conf	u vtium
+without root or without the account, vtium runs as one process and names the missing account	crates/vtium/src/broker/mod.rs	plan
+the drawing process holds no capabilities and gains none by starting a program	crates/vtium/src/broker/start.rs	clear_capabilities
+the drawing process's bounding set is empty	crates/vtium/src/broker/start.rs	drop_bounding_set
+no other process of its account can trace the drawing process, which is not dumpable	crates/vtium/src/broker/start.rs	begin
+the root process puts the VT back in text mode after any end of the drawing process	crates/vtium-platform/src/vt/kernel.rs	give_back
+the root process takes the command each console runs and the power keys from its own reading of vtium.conf	crates/vtium/src/broker/mod.rs	Begun
+check-config warns when the account vtium cannot read vtium.conf	crates/vtium/src/check/drawer.rs	finding
 the parser's bounds, with no input-reachable panic	crates/vtium-parse/src/bounds.rs	PARAMS
 the parser is fuzzed	crates/vtium-parse/fuzz/Cargo.toml	name = "parse"
 the screen is fuzzed	crates/vtium-term/fuzz/Cargo.toml	name = "screen"
-the font helper runs as nobody	crates/vtium/src/helper.rs	nobody
-the font helper starts with an empty environment in /, in its own process group, holding only its pipes	crates/vtium/src/helper.rs	Launcher::process
-the console reads the helper's ids back before it trusts it	crates/vtium/src/helper.rs	Launcher::dropped
-the console refuses a helper holding another account or group	crates/vtium/src/helper.rs	holds_account
-the font helper refuses to run as root	crates/vtium-config/src/serve.rs	refuse_root
-the font helper's limits: memory, CPU, file size, no children, no core	crates/vtium-config/src/serve.rs	limits
-the font helper's landlock: no writes, no network, no signals	crates/vtium-config/src/serve.rs	lock_out
-the font helper's seccomp filter refuses sockets	crates/vtium-config/src/serve.rs	refuse_sockets
-without landlock, the font helper installs a second seccomp filter in its place	crates/vtium-config/src/serve.rs	fall_back
-vtium's log says that the font helper runs without landlock	crates/vtium/src/helper.rs	sandbox_notice
-the helper program checks: absolute, regular, owner, mode	crates/vtium/src/helper.rs	open_program
-the helper program's refusals	crates/vtium/src/helper.rs	refusal
+the font helper runs as nobody	crates/vtium/src/helper/launcher.rs	nobody
+the font helper starts with an empty environment in /, in its own process group, holding only its pipes	crates/vtium/src/helper/launcher.rs	Launcher::process
+the console reads the helper's ids back before it trusts it	crates/vtium/src/helper/launcher.rs	Launcher::dropped
+the console refuses a helper holding another account or group	crates/vtium/src/helper/launcher.rs	holds_account
+the font helper refuses to run as root	crates/vtium-config/src/serve/sandbox.rs	refuse_root
+the font helper's limits: memory, CPU, file size, no children, no core	crates/vtium-config/src/serve/sandbox.rs	limits
+the font helper's landlock: no writes, no network, no signals	crates/vtium-config/src/serve/sandbox.rs	lock_out
+the font helper's seccomp filter refuses sockets	crates/vtium-config/src/serve/sandbox.rs	refuse_sockets
+without landlock, the font helper installs a second seccomp filter in its place	crates/vtium-config/src/serve/sandbox.rs	fall_back
+vtium's log says that the font helper runs without landlock	crates/vtium/src/helper/sandbox.rs	sandbox_notice
+the helper program checks: absolute, regular, owner, mode	crates/vtium/src/helper/launcher.rs	open_program
+the helper program's refusals	crates/vtium/src/helper/launcher.rs	refusal
 the image helper runs as the session's user, or vtium-image before login	crates/vtium-platform/src/image_helper/identity.rs	PRELOGIN_ACCOUNTS
 the login classes that count as a logged-in user	crates/vtium-platform/src/image_helper/identity.rs	LOGIN_CLASSES
 the pre-login account the package creates	crates/vtium/install/vtium-image.conf	u vtium-image
@@ -33,8 +42,8 @@ the file rules: the temporary file rule	crates/vtium-image-helper/src/files.rs	t
 replies never echo what a program sent; a fixed empty title	crates/vtium-term/src/terminal/reply.rs	reply_window
 OSC 52 sets the selection and is never read back	crates/vtium-term/src/terminal/clipboard.rs	set_clipboard
 allow-font-ops, on by default	crates/vtium-settings/src/keys.rs	key allow-font-ops
-OSC 50 names only installed frits or built-in fonts	crates/vtium/src/font.rs	by_name
-a frit name is a name, never a path	crates/vtium/src/font.rs	frit_name
+OSC 50 names only installed frits or built-in fonts	crates/vtium/src/font/named.rs	by_name
+a frit name is a name, never a path	crates/vtium/src/font/frits.rs	frit_name
 allow-window-ops, off by default	crates/vtium-settings/src/keys.rs	key allow-window-ops
 a link is copied, never opened	crates/vtium/src/head.rs	copy_link
 clipboard-write, on by default, with no system clipboard	crates/vtium-settings/src/keys.rs	key clipboard-write

@@ -56,18 +56,31 @@ pub const TRIAL_AFTER_INSTALL: &str = "t: after install";
 
 pub const TRIAL_NONE: &str = "no live trial";
 
-/// The status line's trial words on a tab other than the Looks tab, which
-/// is where `t` tries a font set.
-pub const TRIAL_IN_LOOKS: &str = "live trial in Looks";
+/// The status line's trial words on a tab other than the Fonts and the
+/// Looks tab, the two tabs where `t` tries a font: a font file in Fonts
+/// and a font set in Looks. The words are as short as the words they
+/// replaced, so a status line that fitted 80 columns before still fits.
+pub const TRIAL_ELSEWHERE: &str = "trial: Fonts, Looks";
 
 /// The status line's trial words in the Looks tab where `t` does nothing:
 /// among the color schemes and the pointer themes, and in a detail.
 pub const TRIAL_ON_FONT_SETS: &str = "live trial on font sets";
 
+/// The status line's trial words in the Fonts tab where `t` does nothing:
+/// in the list of filters and in a font's detail.
+pub const TRIAL_ON_FONTS: &str = "live trial on fonts";
+
 /// Why the live trial does not work, on the message line.
-pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, change allow-font-ops in the Settings tab, then install.";
+/// The running console reads allow-font-ops when vtium makes its head, and
+/// the TUI asks the console once, at its start, so turning the trial on
+/// takes an install, a restart of vtium and a new start of vtium-config.
+pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, change allow-font-ops in the Settings tab, install, and restart vtium and vtium-config.";
 
 pub const NOT_VTIUM: &str = "Live trial is off: this terminal is not a vtium console, so t cannot try a font on it. You can still install fonts.";
+
+/// Why `t` cannot try a font yet, on the message line: the TUI has asked
+/// this terminal what it is, and the answers have not all come.
+pub const TRIAL_ASKING: &str = "Live trial is not ready: vtium-config is still finding out what this terminal is, so t cannot try a font yet. Press t again in a moment.";
 
 /// The live trial (ADR-1201 D4).
 pub const TRIAL_OFF: &str = "The live trial works only in a vtium console with allow-font-ops on.";
@@ -75,6 +88,40 @@ pub const TRIAL_OFF: &str = "The live trial works only in a vtium console with a
 pub fn trial_countdown(font: impl Display, left: u32) -> String {
     format!(
         "Trying {font} on the console for {left} s. Press k to keep it, or any other key to put the font back."
+    )
+}
+
+/// [`trial_countdown`], with `note`, what the console draws in place of
+/// the font set's text font, after its keys. The keys come first, so that
+/// a note too long for the message line's three rows cuts only the note.
+pub fn trial_countdown_noted(font: impl Display, left: u32, note: &str) -> String {
+    format!("{} {note}", trial_countdown(font, left))
+}
+
+/// What the console draws in place of a font set's text font `font`,
+/// which this machine lacks.
+pub fn text_font_missing(font: impl Display) -> String {
+    format!(
+        "Its text font, {font}, is not installed, so vtium's built-in font draws the text until you install it."
+    )
+}
+
+/// What the console draws in place of a font set's text font `font`,
+/// which is not active, and what makes it active: Space activates it in
+/// the draft, and the console reads it after an install and a new login.
+pub fn text_font_inactive(font: impl Display) -> String {
+    format!(
+        "Its text font, {font}, is not active, so vtium's built-in font draws the text. To use it, press Space on its file in the Fonts tab, i to install the draft, and log in again."
+    )
+}
+
+/// What the console draws in place of a font set's text font `font`,
+/// which this machine has and the font helper cannot use, and `why`, a
+/// sentence that may end in its own full stop.
+pub fn text_font_refused(font: impl Display, why: &str) -> String {
+    format!(
+        "The font helper cannot use its text font, {font}, so vtium's built-in font draws the text: {}.",
+        why.trim_end().trim_end_matches('.')
     )
 }
 
@@ -264,10 +311,15 @@ pub fn too_small(cols: usize, rows: usize) -> String {
 pub const TOO_SMALL_COMMANDS: &str =
     "Make this terminal larger, or use these commands, which work at any size:";
 
-/// What `u` does below the minimum size, under the generated key line,
-/// while the key table's row for `u` is still planned and the key line
-/// leaves `u` out.
-pub const TOO_SMALL_UNDO: &str = "Press u to put back the font the console started with.";
+/// What `u` says below the minimum size when no trial changed the font or
+/// the grid.
+pub const NOTHING_TO_UNDO: &str =
+    "u has nothing to put back: vtium-config has not changed this terminal's font or size.";
+
+/// The first clause of [`NOTHING_TO_UNDO`], which the screen below the
+/// minimum size shows where the whole sentence does not fit above the key
+/// line.
+pub const NOTHING_TO_UNDO_SHORT: &str = "u has nothing to put back.";
 
 /// The status line (ADR-1403 D7).
 pub const NO_DRAFT: &str = "no draft";
@@ -299,16 +351,29 @@ pub fn saved_draft(n: usize, name: &str) -> String {
 
 pub const NOTHING_TO_SAVE: &str = "Nothing to save: the draft already holds every change.";
 
-/// The question `q` asks while changes are not saved (ADR-1403 D7).
+/// The question `q` asks while changes are not saved. Saving writes the
+/// changes into the draft, and only an install puts the draft in use, so
+/// the question says that the console shows what is installed after the
+/// TUI leaves, and what installs the draft: `i` before leaving, or the
+/// command `vtium-config install` after it.
+///
+/// References:
+/// - ADR-1403 D7: `q` asks before it drops changes that are not saved.
+/// - ADR-1201 D4, "Giving the console back": leaving gives the console
+///   back the font it had, unless Install made a font the configured one.
 pub fn quit_question(n: usize) -> String {
     let changes = match n {
         1 => "1 change is".to_owned(),
         n => format!("{n} changes are"),
     };
     format!(
-        "{changes} not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back."
+        "{changes} not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back. {QUIT_NOT_INSTALLED}"
     )
 }
+
+/// What the quit question says of the draft: it is not in use until it is
+/// installed, and what installs it.
+pub const QUIT_NOT_INSTALLED: &str = "The console then shows what is installed until you install the draft, with i or vtium-config install.";
 
 /// A question that throws the draft away, with the unsaved changes it
 /// also throws away.
@@ -354,18 +419,29 @@ pub const INSTALLING: &str = "Installing. sudo may ask for your password.";
 pub const NOTHING_TO_INSTALL: &str =
     "Nothing to install: the draft is the same as the installed vtium.conf.";
 
-pub fn install_question(added: usize, removed: usize, frits: usize) -> String {
-    match frits {
-        0 => format!("Install the draft? {}.", lines(added, removed)),
-        1 => format!(
-            "Install the draft? {}, and 1 font set.",
-            lines(added, removed)
-        ),
-        n => format!(
-            "Install the draft? {}, and {n} font sets.",
-            lines(added, removed)
-        ),
+/// Install's question: what the install changes, the lines of vtium.conf
+/// added and removed, then the `batch` changes to the active resources and
+/// the `frits` font sets it writes or removes. A draft that changes no line
+/// of vtium.conf names only what else it installs.
+pub fn install_question(added: usize, removed: usize, batch: usize, frits: usize) -> String {
+    let mut parts = Vec::new();
+    if (added, removed) != (0, 0) || (batch, frits) == (0, 0) {
+        parts.push(lines(added, removed));
     }
+    if batch > 0 {
+        parts.push(crate::batch::resource_changes(batch));
+    }
+    match frits {
+        0 => {}
+        1 => parts.push("1 font set".to_owned()),
+        n => parts.push(format!("{n} font sets")),
+    }
+    let counted = match parts.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{}, and {last}", rest.join(", ")),
+        None => String::new(),
+    };
+    format!("Install the draft? {counted}.")
 }
 
 /// The first half of Install's question for a draft that wires no
@@ -385,8 +461,8 @@ pub const NO_ROUTE_NOT_INSTALLED: &str =
 
 /// Install's question for a draft whose only problem is that it wires no
 /// complete route (ADR-1403 D7).
-pub fn no_route_question(added: usize, removed: usize, frits: usize) -> String {
-    let install = install_question(added, removed, frits);
+pub fn no_route_question(added: usize, removed: usize, batch: usize, frits: usize) -> String {
+    let install = install_question(added, removed, batch, frits);
     let counted = install
         .strip_prefix("Install the draft? ")
         .unwrap_or(&install);
@@ -568,8 +644,16 @@ mod tests {
     #[test]
     fn install_revert_and_new_name_the_draft() {
         assert_eq!(
-            super::install_question(3, 1, 0),
+            super::install_question(3, 1, 0, 0),
             "Install the draft? 3 lines added, 1 removed."
+        );
+        assert_eq!(
+            super::install_question(0, 0, 2, 0),
+            "Install the draft? 2 changes to the active resources."
+        );
+        assert_eq!(
+            super::install_question(1, 0, 1, 2),
+            "Install the draft? 1 line added, 1 change to the active resources, and 2 font sets."
         );
         assert_eq!(
             super::revert_question(3, 1),
@@ -586,7 +670,7 @@ mod tests {
     #[test]
     fn install_asks_before_it_installs_a_draft_with_no_complete_path() {
         assert_eq!(
-            super::no_route_question(3, 1, 0),
+            super::no_route_question(3, 1, 0, 0),
             "This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. After the install, nobody at this machine may be able to type into vtium. Install it anyway? 3 lines added, 1 removed."
         );
         assert_eq!(

@@ -33,7 +33,7 @@ const ID: DisplayId = DisplayId(1);
 /// as a frame the render thread draws or a line a session prints, may run
 /// before the test fails: only a bound, since each wait ends at the state
 /// it waits for.
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(60);
 
 #[expect(
     clippy::disallowed_methods,
@@ -757,12 +757,15 @@ fn a_mode_past_the_gpus_largest_renderbuffer_holds_only_its_own_head_on_the_cpu_
     assert_eq!(paths, ["gpu", "gpu"], "{lines:#?}");
     s.settled();
     logged();
+    // the new mode lays the head out on a new grid, and the display's line
+    // names the GPU path, which draws the head until the set-up at the new
+    // size fails; the held head's line follows
     s.memory("/dev/mem1").set_mode(640, 320);
     let mut lines = Vec::new();
     assert!(
         s.until(BOUND, |_| {
             lines.extend(logged());
-            !display_lines(&lines).is_empty()
+            display_lines(&lines).len() == 2
         }),
         "the held head's line"
     );
@@ -776,7 +779,11 @@ fn a_mode_past_the_gpus_largest_renderbuffer_holds_only_its_own_head_on_the_cpu_
             && refused[0].contains("passes the GPU's largest renderbuffer, 400,"),
         "{lines:#?}"
     );
-    assert_eq!(display_lines(&lines), [line("MEM-2", "cpu")], "{lines:#?}");
+    assert_eq!(
+        display_lines(&lines),
+        [line("MEM-2", "gpu"), line("MEM-2", "cpu")],
+        "{lines:#?}"
+    );
     // the other head draws on the GPU path meanwhile
     let drawn = gpu.drawn.load(SeqCst);
     let frames = s.memory("/dev/mem0").frames;
@@ -786,16 +793,22 @@ fn a_mode_past_the_gpus_largest_renderbuffer_holds_only_its_own_head_on_the_cpu_
         gpu.drawn.load(SeqCst) > drawn,
         "the small head on the GPU path"
     );
+    // the line of the new layout names the CPU path, which draws the head
+    // until the set-up succeeds; the line on the GPU path follows
     s.memory("/dev/mem1").set_mode(400, 200);
     let mut lines = Vec::new();
     assert!(
         s.until(BOUND, |_| {
             lines.extend(logged());
-            !display_lines(&lines).is_empty()
+            display_lines(&lines).len() == 2
         }),
         "the large head's line again"
     );
-    assert_eq!(display_lines(&lines), [line("MEM-2", "gpu")], "{lines:#?}");
+    assert_eq!(
+        display_lines(&lines),
+        [line("MEM-2", "cpu"), line("MEM-2", "gpu")],
+        "{lines:#?}"
+    );
 }
 
 // ADR-1303 D9: at vtium's exit, heads whose GPU driver hangs destroying

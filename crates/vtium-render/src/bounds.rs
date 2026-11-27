@@ -144,9 +144,33 @@ const COLOR_TABLE: Bound = Bound {
     cite: "ADR-1304 D2: 33 is the size `.cube` files most often hold, it keeps the table under half a megabyte, and a gamma of 1.2 stays within one level of the exact curve",
 };
 
+const TWINS: Bound = Bound {
+    name: "TWIN_BUFFERS",
+    value: 4,
+    what: "Display buffers the pan remembers the stale copies of rows for, in a build with `scroll-pan`; a display flips between two or three buffers",
+    past: "The buffer drawn longest ago is forgotten, and a buffer the pan does not remember has both copies of every row stale, so each row is drawn again before a window shows it",
+    cite: "ADR-1310 D6: the pan draws a row's second copy only where a window reaches it; `display-buffers` allows at most 3 buffers a display (ADR-1401 D2)",
+};
+
+const COPY_LOG: Bound = Bound {
+    name: "COPY_FRAMES",
+    value: 4,
+    what: "Frames whose changed areas the copy keeps, so that it copies into a display buffer that many frames old only those areas, in a build with `scroll-pan`",
+    past: "A buffer older than that gets the whole screen copied into it",
+    cite: "ADR-1310 D6 and ADR-1401 D2: the copy keeps its ring in system memory; `display-buffers` allows at most 3 buffers a display",
+};
+
+const OVERSCAN: Bound = Bound {
+    name: "OVERSCAN_ROWS",
+    value: 4,
+    what: "Rows of the scrollback above the screen that a frame asks vtium-term to hand it at least, in a build with `scroll-pan`; spare pixel lines above the grid that show more rows ask for as many as they show",
+    past: "A row further up is drawn only when the spare lines show it, or once it scrolls into view",
+    cite: "ADR-1310 D2: K is 4 rows on each side, fixed, and the snapshot captures one row more for the ink of the rows next to it",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 16] = [
+pub(crate) const BOUNDS: [Bound; 19] = [
     POOL_BYTES,
     ROW_SCRATCH,
     TIMER_SAMPLES,
@@ -163,7 +187,18 @@ pub(crate) const BOUNDS: [Bound; 16] = [
     GLYPH_CEILING,
     IDLE,
     COLOR_TABLE,
+    TWINS,
+    COPY_LOG,
+    OVERSCAN,
 ];
+
+/// Rows of the scrollback above the screen that a frame asks for at
+/// least.
+///
+/// References:
+/// - ADR-1310 D2: this bound is K, 4 rows on each side, fixed.
+#[cfg(feature = "scroll-pan")]
+pub(crate) const OVERSCAN_ROWS: usize = OVERSCAN.value;
 
 /// Nodes on each side of a look's color table.
 #[cfg(feature = "filters")]
@@ -208,6 +243,14 @@ pub(crate) const GLYPH_TEXTURE_CEILING: u64 = GLYPH_CEILING.value as u64;
 /// Frames an unused GPU texture is kept before it is given back.
 #[cfg(feature = "gpu")]
 pub const GPU_IDLE_FRAMES: u64 = IDLE.value as u64;
+
+/// Display buffers the pan remembers stale second copies of rows for.
+#[cfg(feature = "scroll-pan")]
+pub(crate) const TWIN_BUFFERS: usize = TWINS.value;
+
+/// Frames of changed areas the copy keeps.
+#[cfg(feature = "scroll-pan")]
+pub(crate) const COPY_FRAMES: usize = COPY_LOG.value;
 
 /// The pointer's longest side in pixels.
 #[expect(clippy::cast_possible_truncation, reason = "the bound is 64")]

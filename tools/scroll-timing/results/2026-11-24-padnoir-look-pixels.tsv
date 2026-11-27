@@ -1,0 +1,14 @@
+# scroll-look-pixels 2026-11-24T22:05:56-06:00
+1	redraw	1	8x16	-	the text itself was 'crunchy' looking and not as shar p a as the text I'm viewing here in this terminal. the slow scroll speed was smooth. as it scrolled faster it got a little blurry. there were some scanline issues at highest speed
+2	copy	1	8x16	-	this one looked bette.r tetesxxt is still a bit rought looking. the s'scanline' issue is just tearing band I think. this one dhad a bit of a band towards th etop
+3	pan	1	8x16	screen	this one had a band at the bottom that wasn't drawing it dod was different than the other pand that looked like tearing, and instead looked like it wasnt drawing in tall the way.
+4	pan-ahead	1	8x16	screen	this one looked perfect with no bands, tearing or artifacts other than the text itself looked not well rendered (crunchy?)
+5	pan	1	16x32	screen	Ican tell that the 'crunchy' is due to pixels not scaling evenly - the text is bigger in this one. there are 'movie bands' (bars?)on the top and bottom t so this text doesn't go all the way to the bezel on this display on the top and bottom
+6	pan-ahead	1	16x32	screen	looks dfine - again the band on the bottom where it's not rendering. ( think the previous test wasw the asame). no scrolling artifacts banding stutter anything. just the text scaling was not high quality
+7	redraw	2	8x16	-	this one had no dead band on the bottom and scrolled smoothly. text was scaled inconsistenty as well. the scroll effect had no defect and felt strangely like glass sliding - an unusual effect
+8	copy	2	8x16	-	Ithink this one had some half row s rendering on the bottom in the fastest scroll. it was smooth and text was crunchy
+9	pan	2	8x16	screen	Itake back the 'ahf half rows' i think it's just visual artifact of my eyes trying to track the row and the refresh of the display.
+10	pan-ahead	2	8x16	screen	looked ok, again, Ithink it's my eyes playing tricks on me due to the somoothness of scrolling and a lot of detail. no bands
+11	pan-ahead	2	16x32	screen	smooth scrolling but a dead band on the bottom 0 in the others with dead band on bottom they're all about one cell heigh t tall
+12	pan-ahead	1	8x16	0	this one looked fine, aside from the porrpoorly scaled pixels on the text again
+done

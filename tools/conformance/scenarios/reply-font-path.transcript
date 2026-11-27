@@ -1,0 +1,14 @@
+> size 8 1
+> needs font-ops
+> cmd font-ops;on=1
+> cmd font-name;name=unifont
+> send "\e]50;/usr/share/fonts/TTF/a.ttf\a"
+> cmd font-request
+< test font-request /usr/share/fonts/TTF/a.ttf
+> cmd font-name;name=/usr/share/fonts/TTF/a.ttf
+> send "\e]50;?\e\\"
+< reply "\e]50;/usr/share/fonts/TTF/a.ttf\e\\"
+> send "\e]50;/usr/share/fonts/TTF/b.ttf\a\e]50;?\a"
+< reply "\e]50;/usr/share/fonts/TTF/a.ttf\a"
+> cmd font-request
+< test font-request /usr/share/fonts/TTF/b.ttf

@@ -1,0 +1,10 @@
+# One row per fuzz run that tools/fuzz/run (make fuzz) appended: DATE, when the run started, in UTC; COMMIT, the checkout's HEAD, with -dirty when a file other than a runs.tsv differed from it or was new and not ignored; TARGET, the fuzz target; SECONDS, how long libFuzzer ran, as libFuzzer counts it when the run ends on time and as the wall clock measures it when the run stops early; RUNS, how many inputs libFuzzer ran; CORPUS, how many inputs its corpus held at the end; COV, the code coverage libFuzzer reports as cov, the number of edges the inputs reached; RESULT, ok, or the kind of failure (crash, timeout, oom or leak) and the path of the input that caused it, or failed with libFuzzer's exit status when it left no input; HOST, the machine's architecture (uname -m) and its CPU count (nproc). A - marks a figure the run did not record.
+2026-11-24T14:50:14Z	5ac8de878d58f1c9f5ad7d2d819a4b7c327d983b	protocol	61	35337732	192	382	ok	x86_64 32 CPUs
+2026-11-24T15:12:30Z	27f275f757a6dbddc812c22a428e703711139560-dirty	protocol	61	32084793	205	384	ok	x86_64 32 CPUs
+2026-11-24T16:01:52Z	5f71767f823c2d5f74c8fd47427e3316203c9a1e	protocol	61	33631869	197	382	ok	x86_64 32 CPUs
+2026-11-24T16:03:29Z	9ab90e6293c0c04ec6dd34649fb0c22c943b46bc	protocol	61	19013209	243	450	ok	x86_64 32 CPUs
+2026-11-25T15:52:41Z	55d6b35a36eba65b611cad9feca55c8eddd73be9	protocol	61	20373918	234	522	ok	x86_64 32 CPUs
+2026-11-25T17:12:11Z	575be9ccd05e69ae2bc2d42d0fc49f4dd47e1c4b	protocol	61	19915482	251	573	ok	x86_64 32 CPUs
+2026-11-25T20:30:20Z	780f90d1df2d7a86fef3e8b245aad8a2be4271b1	protocol	61	19417817	259	583	ok	x86_64 32 CPUs
+2026-11-26T06:11:08Z	4896c340a7151deba26ca647596629bb4c8141f1	protocol	61	22109939	266	583	ok	x86_64 32 CPUs
+2026-11-27T06:02:12Z	d8989b34cdb3fcc2ed70533a8d21a0885f1bb4f1	protocol	61	21905194	267	588	ok	x86_64 32 CPUs

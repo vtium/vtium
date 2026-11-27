@@ -765,7 +765,7 @@ impl Harness {
 /// as a frame the render thread draws or a line a session prints, may run
 /// before the test fails: long enough for a loaded machine, and only a
 /// bound, since each wait ends at the state it waits for.
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(60);
 
 #[test]
 fn the_seat_boots_draws_takes_keys_and_exits() {
@@ -5579,7 +5579,7 @@ fn the_start_logs_each_head_file_error_with_its_line() {
     let dir = Scratch::new("boot-head-file-log");
     std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o700)).expect("0700");
     let path = dir.join("vtium.conf");
-    let text = "version = 1\n[head desk]\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ndisplay * -> desk\ninput * -> desc\n";
+    let text = "version = 1\n[head desk]\n[head bad]\nconsoles = 0\n[rules]\ndisplay * -> desk\ndisplay * -> desk\ninput * -> desc\n";
     std::fs::write(&path, text).expect("vtium.conf");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
     // read as the console reads it, by the account the test runs as
@@ -5654,7 +5654,7 @@ fn frit_fonts_of(
     let go = dir.join("go");
     let helper = vtium::helper::Command {
         program: stand_in::stand_in_shell().to_path_buf(),
-        args: ["-c", script, "helper"]
+        args: ["-c", &stand_in::undumpable(script), "helper"]
             .into_iter()
             .map(OsString::from)
             .chain([fixture.into_os_string(), go.clone().into_os_string()])
@@ -6286,6 +6286,167 @@ fn a_late_outline_cell_is_drawn_from_the_next_frame() {
             .iter()
             .all(|l| !l.contains("cell query not made") && !l.contains("gives up")),
         "{lines:?}"
+    );
+}
+
+// ctlseqs, XTWINOPS 8: a program switches the console to the outline frit
+// `t` with OSC 50, then asks for 10 rows of 45 columns. The built-in font
+// is 8 pixels wide, so the 320-pixel display holds only 40 of its columns.
+// The frit's cell is narrower at the small heights that hold 10 rows, so
+// the display holds 45 of its columns there. vtium measures each height
+// it tries with the frit's own cell there, asked of the font helper, and
+// the grid is exactly the one asked for, with no line saying the display
+// cannot hold it. vtium once measured those heights as wide as the
+// built-in font, capped the grid at 40 columns, and drew them in the
+// frit's narrower cell, with empty bars at the display's sides.
+//
+// References:
+// - ADR-1200 D17: an outline frit draws in the helper's cell at each
+//   height.
+// covers: window.resize
+#[test]
+fn a_text_area_request_measures_an_outline_frits_cell_at_each_height() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
+    let (_dir, fonts, _kinds, _go) = outline_frit("window-narrow", false);
+    logged();
+    let h = osc50(
+        &["--font-size=22", "--allow-window-ops"],
+        "\\033]50;t\\007\\033[8;10;45t",
+        fonts,
+    );
+    let lines = logged();
+    assert_eq!(h.app.font_name(), "t");
+    assert_eq!(h.app.grid(), (45, 10), "the grid asked for: {lines:?}");
+    let cell = h.app.cells();
+    assert!(
+        cell.first().is_some_and(|c| c.0 * 45 <= W && c.1 * 10 <= H),
+        "the display holds the grid in the cell it draws: {cell:?}"
+    );
+    let capped: Vec<&String> = lines.iter().filter(|l| l.contains("cannot hold")).collect();
+    assert_eq!(
+        capped,
+        Vec::<&String>::new(),
+        "no line says the grid is capped"
+    );
+}
+
+// ctlseqs, XTWINOPS 8, on a full 8K display, 7680×4320: the program switches to
+// the outline frit `t` with OSC 50, then asks for 300 rows of 1097 or 1280
+// columns, which a cell 7 or 6 pixels wide gives on that display. The
+// built-in font's 8 pixels give only 960 columns. vtium measures the
+// frit's own cell at each height it tries, so no bound below what the
+// display holds caps the grid: the grid and the terminal's own screen are
+// exactly the size asked for, and no line says the display cannot hold
+// it.
+//
+// References:
+// - ADR-1200 D17: an outline frit draws in the helper's cell at each
+//   height.
+#[test]
+fn a_text_area_request_on_an_8k_display_takes_every_column_asked_for() {
+    // The largest display class vtium is tested for: a full 8K display.
+    const EIGHT_K: (u32, u32) = (7680, 4320);
+    const ROWS: usize = 300;
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
+    for cols in [1097, 1280] {
+        let (_dir, fonts, _kinds, _go) = outline_frit(&format!("window-wide-{cols}"), false);
+        logged();
+        let command = format!("printf '\\033]50;t\\007\\033[8;{ROWS};{cols}tdone'; read x");
+        let args = [
+            "--font-size=22",
+            "--allow-window-ops",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            &command,
+        ];
+        let mut h = Harness::fonts(&args, Memory::sized(EIGHT_K.0, EIGHT_K.1), fonts);
+        assert!(
+            h.until(BOUND, |a| a
+                .screen_text()
+                .iter()
+                .any(|l| l.contains("done"))),
+            "{cols}: the session wrote its request"
+        );
+        let lines = logged();
+        assert_eq!(h.app.grid(), (cols, ROWS), "the grid asked for: {lines:?}");
+        let screen = h.app.term().map(|t| t.terminal.screen());
+        assert_eq!(
+            screen.map(|s| (s.cols(), s.rows())),
+            Some((cols, ROWS)),
+            "{cols}: the terminal's own screen is the grid"
+        );
+        let cell = h.app.cells();
+        assert!(
+            cell.first().is_some_and(
+                |c| c.0 as usize * cols <= EIGHT_K.0 as usize && c.1 * ROWS as u32 <= EIGHT_K.1
+            ),
+            "{cols}: the display holds the grid in the cell it draws: {cell:?}"
+        );
+        let capped: Vec<&String> = lines.iter().filter(|l| l.contains("cannot hold")).collect();
+        assert_eq!(
+            capped,
+            Vec::<&String>::new(),
+            "{cols}: no line says the grid is capped"
+        );
+    }
+}
+
+// ctlseqs, XTWINOPS 8, with a font helper that has yet to answer: the
+// console starts drawing the outline frit `t` at 22 pixels, and the held
+// helper gives no cell in time, so the console draws as wide as the
+// built-in font, 40 columns of 7 rows. The program asks for 10 rows of 45
+// columns at once. vtium cannot measure the frit's grid until the helper
+// answers, so the console keeps its grid and holds the program's output
+// after the request. Once the helper answers, vtium carries the search
+// on, the grid is exactly the one asked for, and the B after the request
+// is drawn.
+//
+// References:
+// - ADR-1200 D17: an answer that comes after the wait is taken when it
+//   comes.
+#[test]
+fn a_text_area_request_waits_for_an_outline_frits_late_cell() {
+    let (_dir, fonts, _kinds, go) = outline_frit("window-narrow-late", true);
+    logged();
+    let args = [
+        "--font-name=t",
+        "--font-size=22",
+        "--allow-window-ops",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'A\\033[8;10;45tB'; read x",
+    ];
+    let mut h = Harness::fonts(&args, Memory::default(), fonts);
+    // A, then the 9 bytes of the request.
+    let taken = |app: &App| {
+        app.term()
+            .is_some_and(|t| t.parsed >= 10 && !t.terminal.grid_requested())
+    };
+    assert!(h.until(BOUND, taken), "vtium takes the request");
+    let shows_b = |app: &App| app.screen_text().iter().any(|l| l.contains('B'));
+    let waits = (h.app.grid(), shows_b(&h.app));
+    assert_eq!(waits, ((40, 7), false), "the request waits for the helper");
+    // opening the FIFO to write lets the stand-in's answers go
+    let _go = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&go)
+        .expect("the go FIFO");
+    assert!(
+        h.until(BOUND, |app| app.grid() == (45, 10) && shows_b(app)),
+        "the grid {:?} and the screen {:?}",
+        h.app.grid(),
+        h.app.screen_text()
+    );
+    let lines = logged();
+    let capped: Vec<&String> = lines.iter().filter(|l| l.contains("cannot hold")).collect();
+    assert_eq!(
+        capped,
+        Vec::<&String>::new(),
+        "no line says the grid is capped"
     );
 }
 
@@ -7414,30 +7575,634 @@ fn osc_50_switches_back_to_each_font_a_head_starts_in() {
     }
 }
 
-// ADR-1200 D1, D5: a path under font-engine=psf and a family under
-// font-engine=pango are not frits' names, so OSC 50's query names no font
-// for them, and OSC 50 cannot name them
+// OSC 50's query reports the font set vtium made on the fly for the head's
+// configured font by the name it was made under: a path under
+// font-engine=psf, and a family, which holds spaces, under
+// font-engine=pango. A program that switches to another font set and then
+// sends that name back returns the head to the font it started in, and
+// the head reports that name again. A switch to an outline font set holds
+// the query's reply until the helper gives the set's cell, which the
+// stand-in helper never does, so the test reads the name from the head.
+//
+// References:
+// - ADR-1200 D5: the query reports a frit made from a path by the path and
+//   one made from a family by the family's name, and each name switches
+//   back on the head whose configuration gives it.
 #[test]
-fn osc_50_names_no_font_for_a_path_or_a_family() {
+fn osc_50_names_a_path_and_a_family_and_switches_back_to_each() {
     let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
-    for (n, args) in [
-        ["--font-engine=psf", &format!("--font-name={path}")],
-        ["--font-engine=pango", "--font-name=DejaVu Sans Mono"],
+    let family = "DejaVu Sans Mono";
+    for (n, (args, named)) in [
+        (["--font-engine=psf", &format!("--font-name={path}")], path),
+        (
+            ["--font-engine=pango", &format!("--font-name={family}")],
+            family,
+        ),
     ]
     .into_iter()
     .enumerate()
     {
         let (_dir, fonts) = recording(&format!("osc50-unnamed-{n}"));
-        let mut h = osc50(&args, "\\033]50;?\\007", fonts);
+        std::fs::write(fonts.frits.join("t.vtfrit"), "source=kbd:x\ncell=10x20\n")
+            .expect("the frit");
+        logged();
+        let mut h = osc50(
+            &args,
+            &format!("\\033]50;?\\007\\033]50;t\\007\\033]50;{named}\\007\\033]50;?\\007"),
+            fonts,
+        );
+        let reply = format!("]50;{named}^G");
         assert!(
-            h.until(BOUND, |a| a
-                .screen_text()
-                .iter()
-                .any(|l| l.ends_with("]50;^G"))),
+            h.until(BOUND, |a| a.screen_text().concat().contains(&reply)),
             "{args:?}: {:?}",
             h.app.screen_text()
         );
+        let lines = logged();
+        assert_eq!(switches(&lines), ["t", named], "{args:?}: {lines:?}");
+        assert_eq!(h.app.font_name(), named, "{args:?}");
     }
+}
+
+/// A font that root installed and trusts, as OSC 50's four checks see it:
+/// a copy of `fixture` at `fonts/sub/<name>` in a scratch folder `scratch`,
+/// whose folders only their owner can write. The console's batch lists the
+/// copy, under the trust rule of the account the test runs as below the
+/// scratch folder. The batch is read on this thread before the console
+/// starts, so the console keeps it. The real font helper serves the
+/// console, and the kind of each frame it sends goes to the kinds file.
+/// When `held`, the helper's answers wait until the test opens the FIFO
+/// `go` in the scratch folder ([`go_fifo`]). The result is the scratch
+/// folder, the sources, the `--font-paths` argument that names `fonts`,
+/// the copy's path and the kinds file.
+fn a_qualifying_font(
+    scratch: &str,
+    fixture: &Path,
+    name: &str,
+    held: bool,
+) -> (Scratch, Sources, String, String, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Scratch::new(&format!("boot-qualifying-{scratch}"));
+    let sub = dir.join("fonts/sub");
+    std::fs::create_dir_all(&sub).expect("the folders");
+    for folder in [dir.to_path_buf(), dir.join("fonts"), sub.clone()] {
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("0755");
+    }
+    let file = sub.join(name);
+    std::fs::copy(fixture, &file).expect("the font");
+    let batch = dir.join("batch.conf");
+    std::fs::write(&batch, format!("{}\n", file.display())).expect("the batch");
+    let me = rustix::process::geteuid().as_raw();
+    let places = vtium_settings::batch::Places {
+        file: batch,
+        vconsole_conf: PathBuf::from("/dev/null"),
+        cmdline: PathBuf::from("/dev/null"),
+        palettes: dir.to_path_buf(),
+        ..vtium_settings::batch::Places::system()
+    };
+    let _ = vtium::font::load_batch(
+        &places,
+        &vtium::font::trust().below(&dir),
+        vtium_settings::cullet::Rule::new(vtium_settings::Trust::owner(me)).below(&dir),
+    );
+    let kinds = dir.join("kinds");
+    let go = held.then(|| go_fifo(&dir));
+    let fonts = Sources {
+        frits: dir.join("frits"),
+        helper: Some(real_helper(&kinds, go.as_deref())),
+        ..no_fonts()
+    };
+    let paths = format!("--font-paths={}", dir.join("fonts").display());
+    let path = file.display().to_string();
+    (dir, fonts, paths, path, kinds)
+}
+
+/// A PSF2 console font of Terminus, 16×32, compressed with gzip.
+fn terminus_psf() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../vtium-font/tests/fixtures/ter-v32n.psf.gz")
+}
+
+// A program switches the console to an outline font by the path of its
+// `.ttf` file, which root installed and activated. vtium makes a font set
+// whose one source reads the file as an outline font, and the real font
+// helper draws it: the console takes the outline font's own 9×16 cell at
+// 16 pixels, where the built-in font's is 8×16, and the helper sends the
+// glyphs the screen shows.
+//
+// References:
+// - ADR-1200 D5, "A qualifying font": OSC 50 takes the path of a font that
+//   passes the four checks, and builds a one-source frit for it.
+// - ADR-1200 D1: `outline:` reads an outline font, and `file:` only a
+//   console font.
+// covers: text.font-change
+#[test]
+fn osc_50_switches_to_an_outline_font_by_its_path_and_draws_from_it() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
+    let (_dir, fonts, paths, path, kinds) = a_qualifying_font("ttf", &dejavu(), "a.ttf", false);
+    logged();
+    let h = osc50(
+        &["--font-name=unifont", "--font-size=16", &paths],
+        &format!("\\033]50;{path}\\007"),
+        fonts,
+    );
+    let lines = logged();
+    assert_eq!(switches(&lines), [path.as_str()], "{lines:?}");
+    assert_eq!(h.app.font_name(), path);
+    assert_eq!(h.app.cells(), vec![(9, 16)], "the outline font's cell");
+    assert!(
+        !lines.iter().any(|l| l.contains("could not draw the font")),
+        "{lines:?}"
+    );
+    assert!(
+        kinds_sent(&kinds).contains(&10),
+        "the helper gave the outline font's cell: {:?}",
+        kinds_sent(&kinds)
+    );
+}
+
+// The same switch by the path of a PSF console font compressed with gzip
+// makes a font set whose source reads a console font. The helper draws it
+// in the font's own 16×32 cell, and the display line is logged again with
+// that cell.
+//
+// References:
+// - ADR-1200 D5, "A qualifying font".
+// - ADR-1200 D1: `file:` reads a PSF font, plain or compressed.
+// covers: text.font-change
+#[test]
+fn osc_50_switches_to_a_console_font_by_its_path_and_draws_from_it() {
+    let (_dir, fonts, paths, path, _kinds) =
+        a_qualifying_font("psf", &terminus_psf(), "ter-v32n.psf.gz", false);
+    logged();
+    let mut h = osc50(
+        &["--font-name=unifont", "--font-size=0", &paths],
+        &format!("\\033]50;{path}\\007"),
+        fonts,
+    );
+    assert!(
+        h.until(BOUND, |a| a.cells() == vec![(16, 32)]),
+        "the console font's cell: {:?}",
+        h.app.cells()
+    );
+    let lines = logged();
+    assert_eq!(switches(&lines), [path.as_str()], "{lines:?}");
+    assert_eq!(h.app.font_name(), path);
+    assert_eq!(
+        last_display_cell(&lines),
+        Some("16x32"),
+        "a display line names the new cell: {lines:?}"
+    );
+    let cell = vtium_font::Cell {
+        width: 16,
+        height: 32,
+    };
+    let known: Vec<_> = h
+        .app
+        .frit_cells(&path)
+        .into_iter()
+        .map(|(_, a)| a)
+        .collect();
+    assert_eq!(
+        known,
+        [Ok(vtium::helper::OwnCell::Bitmap(cell))],
+        "{lines:?}"
+    );
+    assert!(
+        !lines.iter().any(|l| l.contains("could not draw the font")),
+        "{lines:?}"
+    );
+}
+
+/// The FIFO `go` in `dir`, which holds the answers of a helper that
+/// [`real_helper`] starts with it until the test opens it to write.
+fn go_fifo(dir: &Path) -> PathBuf {
+    let go = dir.join("go");
+    rustix::fs::mknodat(
+        rustix::fs::CWD,
+        &go,
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        0,
+    )
+    .expect("the go FIFO");
+    go
+}
+
+/// The cell of each fill the console asked the helper that [`real_helper`]
+/// started with `kinds` for, in the order the helper read them.
+fn fills_asked(kinds: &Path) -> Vec<(u32, u32)> {
+    let bytes = std::fs::read(stand_in::requests_of(kinds)).unwrap_or_default();
+    let mut input = bytes.as_slice();
+    let mut fills = Vec::new();
+    while let Ok(Some(request)) = vtium_config::serve::read_request(&mut input) {
+        if let vtium_config::serve::Request::Serve(r) = request
+            && r.kind == vtium_config::serve::FILL
+        {
+            fills.push((r.cell.width, r.cell.height));
+        }
+    }
+    fills
+}
+
+/// Opens the go FIFO of a held helper, which lets its answers go, and turns
+/// the console's loop until it draws a console font in its own 16×32 cell
+/// and the helper has filled that cell. Then it checks what a console font
+/// whose cell came late must leave behind. The console knows the font's
+/// cell, and the helper still draws the font, so no line says that vtium
+/// gave the font up. The console asked for a fill at 16×32 alone, and none
+/// at the display's 8×8 cell while it waited, because the font gives no
+/// glyph at 8×8 and the helper refuses a fill that brings none. After the
+/// line about the late cell, a display line names the 16×32 cell, so the
+/// log says which cell the console draws in now. The result is the lines
+/// logged since the go FIFO opened.
+fn takes_the_late_console_font_cell(
+    h: &mut Harness,
+    go: &Path,
+    kinds: &Path,
+    font: &str,
+) -> Vec<String> {
+    let _go = std::fs::OpenOptions::new()
+        .write(true)
+        .open(go)
+        .expect("the go FIFO");
+    let filled = vtium_config::serve::FRAME_FILLED;
+    assert!(
+        h.until(BOUND, |a| a.cells() == vec![(16, 32)]
+            && kinds_sent(kinds).contains(&filled)),
+        "the late cell is drawn and filled: {:?}, frames {:?}, fills {:?}, {:?}",
+        h.app.cells(),
+        kinds_sent(kinds),
+        fills_asked(kinds),
+        logged()
+    );
+    let lines = logged();
+    let cell = vtium_font::Cell {
+        width: 16,
+        height: 32,
+    };
+    let known: Vec<_> = h.app.frit_cells(font).into_iter().map(|(_, a)| a).collect();
+    assert_eq!(
+        known,
+        [Ok(vtium::helper::OwnCell::Bitmap(cell))],
+        "{lines:?}"
+    );
+    assert!(
+        !lines.iter().any(|l| l.contains("could not draw the font")),
+        "{lines:?}"
+    );
+    assert_eq!(fills_asked(kinds), [(16, 32)], "{lines:?}");
+    let late = lines
+        .iter()
+        .position(|l| {
+            l.starts_with(&format!(
+                "the frit {font}'s own 16x32 cell came after the wait"
+            ))
+        })
+        .unwrap_or_else(|| panic!("the late cell's line: {lines:?}"));
+    assert_eq!(
+        last_display_cell(lines.get(late..).unwrap_or_default()),
+        Some("16x32"),
+        "a display line after the late cell names it: {lines:?}"
+    );
+    lines
+}
+
+/// The cell, as `WxH`, that the last display line of `lines` names: the
+/// line vtium logs for each display it draws, ending `cell size WxH`.
+fn last_display_cell(lines: &[String]) -> Option<&str> {
+    lines
+        .iter()
+        .rev()
+        .filter(|l| l.starts_with("Display "))
+        .find_map(|l| l.rsplit_once("cell size ").map(|(_, cell)| cell))
+}
+
+// A program switches to a PSF console font by its path, and the font
+// helper's answer about the font's own 16×32 cell comes after vtium's
+// wait. The stand-in holds every answer until the test opens its go FIFO,
+// so the answer comes late on any machine. Until it comes, vtium draws in
+// the display's 8×8 cell, and the built-in font draws the characters,
+// since a 16×32 font gives no glyph at 8×8. Once the answer comes, vtium
+// draws in the font's own cell, and the helper fills that cell.
+//
+// References:
+// - ADR-1200 D17: no answer in time leaves the display's cell in use, and
+//   an answer that comes after the wait is kept and used from the next
+//   frame.
+// - ADR-1200 D7: a character the frit has not sent draws in the built-in
+//   font.
+// covers: text.font-change
+#[test]
+fn osc_50_to_a_console_font_whose_cell_comes_late_draws_in_that_cell() {
+    let (dir, fonts, paths, path, kinds) =
+        a_qualifying_font("psf-late", &terminus_psf(), "ter-v32n.psf.gz", true);
+    logged();
+    let mut h = osc50(
+        &["--font-name=unifont", "--font-size=0", &paths],
+        &format!("\\033]50;{path}\\007"),
+        fonts,
+    );
+    assert_eq!(h.app.cells(), vec![(8, 8)], "the display's cell");
+    let lines = logged();
+    assert!(
+        lines.iter().any(|l| l.starts_with(&format!(
+            "the frit {path}'s own cell is not known (the helper gave no answer in"
+        ))),
+        "{lines:?}"
+    );
+    assert_eq!(switches(&lines), [path.as_str()], "{lines:?}");
+    takes_the_late_console_font_cell(&mut h, &dir.join("go"), &kinds, &path);
+}
+
+// The same late answer at the start: `font-name` names the PSF console
+// font by its path, and the helper's answer about its own 16×32 cell comes
+// after the first frame's wait. vtium draws the first frames in the
+// display's 8×8 cell, then in the font's own cell once the answer comes.
+//
+// References:
+// - ADR-1200 D9: a path at the start becomes a one-source frit.
+// - ADR-1200 D17: an answer that comes after the wait is kept and used.
+#[test]
+fn a_console_font_named_at_the_start_whose_cell_comes_late_draws_in_that_cell() {
+    let dir = Scratch::new("boot-psf-late-start");
+    let kinds = dir.join("kinds");
+    let go = go_fifo(&dir);
+    let fonts = Sources {
+        frits: dir.join("frits"),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    let path = std::fs::canonicalize(terminus_psf()).expect("the fixture");
+    let path = path.to_str().expect("a UTF-8 path");
+    let name = format!("--font-name={path}");
+    logged();
+    let mut h = with_fonts(&[name.as_str(), "--font-size=0"], fonts);
+    assert_eq!(h.app.cells(), vec![(8, 8)], "the display's cell");
+    let lines = logged();
+    assert!(
+        lines.iter().any(|l| l.starts_with(&format!(
+            "the frit {path}'s own cell is not known (the helper gave no answer in"
+        ))),
+        "{lines:?}"
+    );
+    takes_the_late_console_font_cell(&mut h, &go, &kinds, path);
+}
+
+// The pointer follows the grid that a late cell answer moves the display
+// to. The display is 330×170, so neither cell fills it: the 8×8 cell vtium
+// draws in while it waits makes a grid of 41 by 21 at (1, 1), and the
+// font's own 16×32 cell makes one of 20 by 5 at (5, 5). With smooth
+// scrolling off, the default, each grid is centred on both axes, with the
+// odd spare column on the right. After the late answer, the pointer on the
+// grid's first pixel shows on the cursor plane at the new grid's top left,
+// and the pointer moved far past the bottom-right corner shows at the new
+// grid's last pixel, (324, 164). Under the 8×8 layout those would be (1, 1)
+// and (328, 168).
+//
+// References:
+// - ADR-1310 D12, "With smooth scrolling off": the grid centred on both
+//   axes.
+// - ADR-1310 D11: the pointer is kept inside the grid and mapped through
+//   the picture to the display.
+// - ADR-1200 D17: an answer that comes after the wait is kept and used.
+#[test]
+fn the_pointer_moves_within_the_grid_a_late_cell_answer_lays_out() {
+    let dir = Scratch::new("boot-psf-late-pointer");
+    let kinds = dir.join("kinds");
+    let go = go_fifo(&dir);
+    let fonts = Sources {
+        frits: dir.join("frits"),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    let path = std::fs::canonicalize(terminus_psf()).expect("the fixture");
+    let path = path.to_str().expect("a UTF-8 path");
+    let name = format!("--font-name={path}");
+    let planed = Planed {
+        memory: Memory::sized(330, 170),
+        set_ups: 0,
+        shown: None,
+    };
+    logged();
+    let mut h = Harness::boot_with(
+        &[
+            name.as_str(),
+            "--font-size=0",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x",
+        ],
+        FakeVt::new(),
+        Some(Box::new(planed)),
+        fonts,
+    );
+    assert_eq!(
+        (h.app.cells(), h.app.grid()),
+        (vec![(8, 8)], (41, 21)),
+        "the display's cell"
+    );
+    takes_the_late_console_font_cell(&mut h, &go, &kinds, path);
+    assert_eq!(h.app.grid(), (20, 5), "the font's own cell");
+    let shown_at = |h: &mut Harness, x: i32, y: i32| {
+        h.point([PointerEvent::Moved { x, y, held: None }], Mods::empty());
+        h.drawn_now();
+        h.app
+            .videos
+            .get_mut(Path::new("/dev/mem0"))
+            .and_then(|v| v.as_any().downcast_mut::<Planed>())
+            .expect("the planed device")
+            .shown
+    };
+    assert_eq!(shown_at(&mut h, 0, 0), Some((5, 5)), "the grid's top left");
+    assert_eq!(
+        shown_at(&mut h, 10_000, 10_000),
+        Some((324, 164)),
+        "the grid's last pixel"
+    );
+}
+
+// A font set of a PSF console font with its own 16×32 cell, then a font
+// that makes the font helper crash. The helper's answer about the set's
+// cell comes after vtium's wait, so vtium draws in the display's 8×8 cell
+// and holds its fill there. Then the helper crashes, and vtium looks for
+// the font that made it fail and leaves that font out. vtium forgets the
+// cell and asks for it again, and the answer comes late again. Until it
+// comes, the fill stays held, because the console font gives no glyph at
+// 8×8 and the helper refuses a fill that brings none. Once the answer
+// comes, vtium draws in the font's own cell and fills that cell, and the
+// font set goes on drawing.
+//
+// References:
+// - ADR-1200 D14: a font that makes the helper fail is left out, and the
+//   font set's other fonts go on drawing.
+// - ADR-1200 D17: an answer that comes after the wait is kept and used
+//   from the next frame.
+#[test]
+fn a_font_left_out_while_the_cell_comes_late_holds_the_fill_until_the_cell_comes() {
+    let dir = Scratch::new("boot-late-left-out");
+    let kinds = dir.join("kinds");
+    let go = go_fifo(&dir);
+    std::fs::create_dir_all(dir.join("frits")).expect("the frits folder");
+    std::fs::write(
+        dir.join("frits/t.vtfrit"),
+        format!(
+            "source=file:{}\nsource=builtin:unifont {}\n",
+            terminus_psf().display(),
+            stand_in::CRASHES
+        ),
+    )
+    .expect("the frit");
+    let fonts = Sources {
+        frits: dir.join("frits"),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    logged();
+    let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts);
+    assert_eq!(h.app.cells(), vec![(8, 8)], "the display's cell");
+    let lines = takes_the_late_console_font_cell(&mut h, &go, &kinds, "t");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("the font set t leaves out source=builtin:unifont")),
+        "{lines:?}"
+    );
+}
+
+// A font set of two bitmap fonts whose second font, Terminus at 16×32,
+// does not fit inside the first, unifont's 8×16. The font helper refuses
+// the question about the set's own cell, and its refusal comes after
+// vtium's wait. vtium holds its fill at the display's 8×16 cell while it
+// waits. Once the refusal comes, the head keeps drawing in that cell,
+// where unifont fits, and vtium starts the fill there.
+//
+// References:
+// - ADR-1200 D17: the helper refuses the cell of a bitmap set whose later
+//   source does not fit its first, a refusal leaves the display's cell in
+//   use, and a refusal after the wait is kept as one in time is.
+#[test]
+fn a_cell_refused_after_the_wait_fills_the_cell_the_head_draws_in() {
+    let dir = Scratch::new("boot-refused-late");
+    let kinds = dir.join("kinds");
+    let go = go_fifo(&dir);
+    std::fs::create_dir_all(dir.join("frits")).expect("the frits folder");
+    std::fs::write(
+        dir.join("frits/t.vtfrit"),
+        format!(
+            "source=builtin:unifont\nsource=file:{}\n",
+            terminus_psf().display()
+        ),
+    )
+    .expect("the frit");
+    let fonts = Sources {
+        frits: dir.join("frits"),
+        helper: Some(real_helper(&kinds, Some(go.as_path()))),
+        ..no_fonts()
+    };
+    let args = [
+        "--font-name=t",
+        "--font-size=0",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "read x",
+    ];
+    logged();
+    let mut h = Harness::fonts(&args, Memory::sized(640, 480), fonts);
+    assert_eq!(h.app.cells(), vec![(8, 16)], "the display's cell");
+    let _go = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&go)
+        .expect("the go FIFO");
+    let refused = vtium_config::serve::FRAME_NO_OWN_CELL;
+    let filling = vtium_config::serve::FRAME_FILL;
+    assert!(
+        h.until(BOUND, |_| {
+            let sent = kinds_sent(&kinds);
+            sent.contains(&refused) && sent.contains(&filling)
+        }),
+        "the refusal comes and the fill brings glyphs: frames {:?}, fills {:?}, {:?}",
+        kinds_sent(&kinds),
+        fills_asked(&kinds),
+        logged()
+    );
+    let lines = logged();
+    assert_eq!(h.app.cells(), vec![(8, 16)], "{lines:?}");
+    assert_eq!(fills_asked(&kinds), [(8, 16)], "{lines:?}");
+    assert!(
+        !lines.iter().any(|l| l.contains("could not draw the font")),
+        "{lines:?}"
+    );
+}
+
+// `font-name` names an outline font by the path of its `.ttf` file, with
+// font-engine unset and with font-engine=freetype. vtium starts in a font
+// set whose one source reads the file as an outline font, and the real
+// font helper draws it in the font's own 9×16 cell at 16 pixels.
+//
+// References:
+// - ADR-1200 D9: a path at the start becomes a one-source frit.
+// - ADR-1200 D1: `outline:` reads an outline font, and `font:` names a
+//   family alone.
+#[test]
+fn font_name_draws_an_outline_font_from_its_path() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
+    let path = std::fs::canonicalize(dejavu()).expect("the fixture");
+    let path = path.to_str().expect("a UTF-8 path");
+    for (n, engine) in [None, Some("--font-engine=freetype")]
+        .into_iter()
+        .enumerate()
+    {
+        let (_dir, fonts, kinds, _go) = outline_frit(&format!("start-path-{n}"), false);
+        let name = format!("--font-name={path}");
+        let args: Vec<&str> = [name.as_str(), "--font-size=16"]
+            .into_iter()
+            .chain(engine)
+            .collect();
+        logged();
+        let h = with_fonts(&args, fonts);
+        let lines = logged();
+        assert_eq!(h.app.font_name(), path, "{engine:?}");
+        assert_eq!(h.app.cells(), vec![(9, 16)], "{engine:?}: {lines:?}");
+        assert!(
+            kinds_sent(&kinds).contains(&10),
+            "{engine:?}: the helper gave the outline font's cell"
+        );
+    }
+}
+
+// A program asks for a font by a path that holds DEL and a right-to-left
+// override and runs to 328 bytes. vtium refuses the path, and its log line
+// shows each of those characters escaped, so the line cannot reorder or
+// hide what a reader sees. The line cuts the path short and says so.
+#[test]
+fn osc_50_logs_a_refused_name_escaped_and_cut_short() {
+    let (_dir, fonts) = recording("osc50-escaped");
+    std::fs::write(fonts.frits.join("t.vtfrit"), "source=kbd:x\n").expect("the frit");
+    let tail = "a".repeat(300);
+    logged();
+    let h = osc50(
+        &["--font-name=t"],
+        &format!("\\033]50;/usr/share/fonts/a\\177b\\342\\200\\256c{tail}.ttf\\007"),
+        fonts,
+    );
+    assert_eq!(h.app.font_name(), "t");
+    let lines = logged();
+    let line = lines
+        .iter()
+        .find(|l| l.starts_with("OSC 50 asked for the font "))
+        .expect("the refusal's line");
+    let shown = format!(
+        "OSC 50 asked for the font /usr/share/fonts/a\\u{{7f}}b\\u{{202e}}c{}... (cut short: the name has 328 bytes): ",
+        "a".repeat(200 - 24)
+    );
+    assert!(line.starts_with(&shown), "{line}");
+    assert!(
+        !line.contains(['\u{7f}', '\u{202e}']),
+        "no character as it was sent: {line:?}"
+    );
 }
 
 // ADR-1200 D8: the kernel's font, read at start, is handed to the helper

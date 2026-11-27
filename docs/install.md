@@ -24,7 +24,7 @@ Each of those six depends on a terminfo package. A build from the release tag de
 
 Sessions in vtium run with `TERM=xterm-vtium`, the entry that the terminfo package installs. ssh passes `TERM` on to the remote host, and most hosts have no `xterm-vtium` entry, so programs there misbehave. [ssh from vtium](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#ssh-from-vtium) gives two fixes: a wrapper that makes ssh send `xterm-256color`, or the entry installed on a host you own.
 
-A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's environment. There are six features:
+A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's environment. There are eight features:
 
 - The `images` feature renders sixel, kitty graphics and iTerm2 inline images.
 - The `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine.
@@ -32,8 +32,10 @@ A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's
 - The `bidi` feature lays out right-to-left text, such as Arabic and Hebrew.
 - The `filters` feature builds in the frame filters, the effects that a vtlook chooses, such as an amber tint. See [Looks and effects](concepts/looks.md) for details.
 - The `libseat` feature lets vtium get the screen, the keyboards and VT switching through libseat, the seat management library. In direct mode, vtium gets them from seatd where seatd runs. Seat mode, which gets them from logind, needs both `libseat` and `logind`. [Direct mode and seat mode](#direct-mode-and-seat-mode) describes both modes.
+- When vtium renders on the CPU, the `scroll-pan` feature lets it move the picture of a scrolled screen instead of redrawing every line. Each display buffer is then about two screens tall, which takes about 24 MiB more memory at 1920×1080 with three buffers, as the packages use. See [config.md](config.md) for the `scroll-draw` key.
+- The `split` feature builds the privilege split. When vtium starts as root, it runs as two processes. A small root process holds the VT, opens the devices and starts the sessions. Everything else runs as the system account `vtium`, which the package creates, and that includes reading your programs' output and rendering. Without that account, vtium runs as one process, as root, and logs a line that names the account. vtium also runs as one process where a seat manager hands out the screen and the keyboards: where seatd listens on its socket, or in seat mode's logind session. It then logs a line that says why. See [the privilege split issue](https://github.com/vtium/vtium/issues/406).
 
-When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build the features of the packages that the AUR carries, for an ordinary desktop or laptop. These are all six features. The packages build `filters`, and so draw effects, from 0.1.0-alpha.10 on, the first release that has the feature. To build another set of features, name them in `VTIUM_FEATURES`, as in `VTIUM_FEATURES='images logind gpu bidi libseat' makepkg -si` for a build without effects. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
+When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build the features of the packages that the AUR carries, for an ordinary desktop or laptop. These are all eight features. The packages build `filters`, and so draw effects, from 0.1.0-alpha.10 on, the first release that has the feature. They build `scroll-pan` and `split` from 0.1.0-alpha.12 on. To build another set of features, name them in `VTIUM_FEATURES`, as in `VTIUM_FEATURES='images logind gpu bidi libseat scroll-pan split' makepkg -si` for a build without effects. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
 
 From v0.1.0-alpha.6 on, the `vtium` and `vtium-git` recipes build with `HWACCEL=on DISPLAY_BUFFERS=3`. These settings compile in two defaults: `hwaccel` is on, and each display gets three buffers. See [config.md](config.md) for both keys. vtium therefore renders through the GPU path. vtium renders a head on the CPU when the GPU set-up for that head fails. A head is a terminal for one or more displays. A line `no-hwaccel` in `/etc/vtium/vtium.conf` turns the GPU path off.
 
@@ -69,6 +71,7 @@ The packages install these files:
 | `/usr/bin/vtium-clipboard` and `/usr/bin/vticlip` | the clipboard tool. `vtium-clipboard copy` copies text from a file or a pipe to vtium's clipboard through OSC 52, and `vticlip` is a short name for it. |
 | `/usr/bin/vtium-image` | the image helper, in a build with `images`. It reads an image that a program names by its file. |
 | `/usr/lib/sysusers.d/vtium-image.conf` | the image helper's account, in a build with `images` |
+| `/usr/lib/sysusers.d/vtium-split.conf` | the accounts `vtium` and `vtium-session`, in a build with `split`. vtium's drawing process runs as `vtium`, and nothing runs as `vtium-session` yet. |
 | `/usr/bin/vtium-gallery` | the image gallery tool, in a build with `images`. It shows PNG images as a grid of thumbnails. |
 | `/etc/vtium/vtium.conf.example` | the example configuration. It lists every key at its default, commented out. Then it lists the heads and rules that vtium runs with when there is no configuration. |
 | `/usr/share/vtium/` | vtium's own data. `fonts/` holds the font files of Terminus, Cullet Mono and GNU Unifont, `palettes/` the color schemes, and `looks/` the preset vtlooks. `pointers.svg` holds vtium's pointer pictures. vtium uses these fonts, color schemes and pointer pictures from the first start. See [Choosing what vtium may use](#choosing-what-vtium-may-use) for details. |
@@ -141,7 +144,9 @@ Each release from 0.1.0-alpha.11 on carries more files, which the same workflow 
 
 To check a download, put it beside `SHA256SUMS` and run `sha256sum --check --ignore-missing SHA256SUMS`. Each file also has a build provenance attestation, which shows that vtium's release workflow made the file from the tagged commit. With the [GitHub CLI](https://cli.github.com/), `gh attestation verify vtium-VERSION.tar.gz --repo vtium/vtium` checks a file's attestation. The "Source code" links that GitHub adds to every release page are made on the fly, so `SHA256SUMS` does not list them.
 
-When a release is published, a CI workflow makes these files. The workflow builds vtium offline from the vendor archive before it attaches the files to the release. In a checkout, `make vendor-archive` writes the same files for the commit you have checked out. `make vendor-archive-check` also checks them against `SHA256SUMS` and the commit, and builds vtium offline from the vendor archive.
+A CI workflow makes these files before the release is published. The workflow builds vtium offline from the vendor archive, then attaches the files to the release. In a checkout, `make vendor-archive` writes the same files for the commit you have checked out. `make vendor-archive-check` also checks them against `SHA256SUMS` and the commit, and builds vtium offline from the vendor archive.
+
+With `split` in `FEATURES`, `make install` also stages the sysusers file `vtium-split.conf`, from which `systemd-sysusers` creates the accounts `vtium` and `vtium-session`. A package's install runs `systemd-sysusers` for you. Without systemd, create the account `vtium` yourself, as a system account with home `/` and no login shell. See [systemd.md](systemd.md#the-privilege-splits-accounts) for details.
 
 With both `libseat` and `logind` in `FEATURES`, `make install` also stages a second unit, `vtium-seat@.service`, and the PAM file `/etc/pam.d/vtium`. These two files run vtium in seat mode, which [Direct mode and seat mode](#direct-mode-and-seat-mode) describes. See [systemd.md](systemd.md) for details.
 

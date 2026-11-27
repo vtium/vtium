@@ -45,7 +45,7 @@ const ID: DisplayId = DisplayId(3);
 /// How long a wait on a state another thread or process brings may run
 /// before the test fails: only a bound, since each wait ends at the state
 /// it waits for.
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(60);
 
 /// The real time. The probe measures in it, and it bounds every wait.
 #[expect(

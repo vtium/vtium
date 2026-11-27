@@ -32,7 +32,7 @@
 # It runs in any terminal as any user and needs nothing from vtium, so the same
 # pages can be compared in vtium and in another terminal.
 #
-#   accept.sh [--check] [PAGE...]
+#   accept.sh [--check | --frits] [PAGE...]
 #
 # PAGE names a page by its number (51), its file name without .sh
 # (51-double-size) or that name without its number (double-size). ACCEPT_ONLY
@@ -44,6 +44,10 @@
 # that matches no page refuses the pass before it starts, naming the page.
 # --check prints the pages chosen, one file name without .sh per line, and
 # exits 0, or names a page that matches none and exits 2; it draws nothing.
+# --frits prints the font sets the chosen pages use, from their "# frits:"
+# and "# font-switch:" lines, one name per line in sorted order, and nothing
+# when they use none; it draws nothing either, and vt.sh asks it which font
+# sets to check before it starts vtium.
 #
 # ACCEPT_LABEL names the terminal on the title page and in the record; run-vt.sh
 # sets it to "vtium dev build <git describe>". ACCEPT_VT, ACCEPT_BINARY and
@@ -60,12 +64,14 @@ shopt -u patsub_replacement 2>/dev/null || true
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 # shellcheck source=tools/vt/blink.inc
 . "$here/blink.inc"
+# shellcheck source=tools/vt/mode.inc
+. "$here/mode.inc"
 nopage=${ACCEPT_NOPAGE:-}
 noprompt=${ACCEPT_NOPROMPT:-$nopage}
 passes=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
 label=${ACCEPT_LABEL:-unlabelled}
 check=
-[ "${1:-}" != --check ] || { check=1; shift; }
+case ${1:-} in --check | --frits) check=$1; shift ;; esac
 # The render path the pass judges, as the record names it (ADR-1501 D3).
 case ${ACCEPT_RENDER_PATH:-} in
 gpu) render_path='gpu, vtium run with --hwaccel' ;;
@@ -407,15 +413,20 @@ restore_font() {
 
 # The machine the pass runs on, as lines for the record: its model, its
 # kernel, each GPU or display controller with its kernel driver, and each
-# connected display with its connector, its preferred mode and the make and
-# model its EDID gives, then the text area vtium reports. A pass is evidence
-# about this hardware only (ADR-1501 D3). ACCEPT_SYSFS and ACCEPT_PROC name
-# other roots for /sys and /proc, for the tests.
+# connected display with its connector, the mode it runs at and where that
+# comes from, its preferred mode and the make and model its EDID gives, then
+# the text area vtium reports. A pass is evidence about this hardware only,
+# at these modes. ACCEPT_SYSFS and ACCEPT_PROC name other roots for /sys and
+# /proc, for the tests.
+#
+# References:
+# - ADR-1501 D3: a pass is evidence about the hardware it ran on.
 hardware_lines=()
 hardware=
 hardware_scan() {
-	local sys=${ACCEPT_SYSFS:-/sys} proc=${ACCEPT_PROC:-/proc} d card c v name area slot
+	local sys=${ACCEPT_SYSFS:-/sys} proc=${ACCEPT_PROC:-/proc} d card c v name area slot gpu
 	hardware_lines=()
+	pass_modes
 	v=
 	for name in sys_vendor product_name product_version; do
 		[ ! -r "$sys/class/dmi/id/$name" ] || v+=" $(one_line "$(cat "$sys/class/dmi/id/$name")")"
@@ -433,15 +444,60 @@ hardware_scan() {
 		fi
 		v=$(readlink "$d/driver" 2>/dev/null) v=${v##*/}
 		hardware_lines+=("- gpu: ${card##*/} driver ${v:-none}, $(cat "$d/vendor" 2>/dev/null || echo ?):$(cat "$d/device" 2>/dev/null || echo ?) at ${slot:-?}${name:+, $(one_line "$name")}")
+		gpu=
+		if [ -z "${ACCEPT_SYSFS:-}" ] && command -v udevadm >/dev/null; then
+			gpu=$(udevadm info -q property -p "$(readlink -f "$card")" 2>/dev/null | sed -n 's/^ID_PATH=//p')
+		fi
+		[ -n "$gpu" ] || [ -z "$slot" ] || gpu=pci-$slot
 		for c in "$card"-*; do
 			[ "$(cat "$c/status" 2>/dev/null)" = connected ] || continue
-			hardware_lines+=("- display: ${c##*/card[0-9]-}, preferred mode $(head -n 1 "$c/modes" 2>/dev/null || echo unknown), $(edid_name "$c/edid")")
+			hardware_lines+=("- display: ${c##*/card[0-9]-}, $(display_mode "$gpu" "${c##*/card[0-9]-}" "$c/modes"), $(edid_name "$c/edid")")
 		done
 	done
 	area=$(ask_terminal $'\033[14t' t)
 	[[ $area =~ \[4\;([0-9]+)\;([0-9]+)$ ]] && area="${BASH_REMATCH[2]}x${BASH_REMATCH[1]} pixels" || area="no answer"
 	hardware_lines+=("- text-area: $area, as vtium reports it (XTWINOPS 14)")
 	hardware=$(printf '%s\n' "${hardware_lines[@]}" | grep -v '^- text-area' | sha256sum) hardware=${hardware%% *}
+}
+
+# The display-mode lines vtium is given, and where they come from: from
+# ACCEPT_MODES and ACCEPT_MODE_FROM, which run-vt.sh sets, else from the
+# vtium.conf that ACCEPT_VTIUM_CONF names, else /etc/vtium/vtium.conf, as
+# when the pass runs by hand in a login of vtium's own.
+modes=()
+modes_from=
+pass_modes() {
+	local conf=${ACCEPT_VTIUM_CONF:-/etc/vtium/vtium.conf}
+	if [ -n "${ACCEPT_MODE_FROM+set}" ]; then
+		read -ra modes <<<"${ACCEPT_MODES:-}"
+		modes_from=$(one_line "$ACCEPT_MODE_FROM")
+	elif [ -r "$conf" ]; then
+		mapfile -t modes < <(vt_mode_lines "$conf")
+		modes_from=$conf
+	fi
+}
+
+# display_mode GPU CONNECTOR MODES: the mode the display on CONNECTOR of the
+# card at GPU runs at, for the record, from the lines pass_modes read and the
+# connector's list of modes, the file MODES, whose first line is the
+# preferred mode. vtium runs a display at its preferred mode when the display
+# offers no mode of the size its line names.
+display_mode() {
+	local preferred line size
+	preferred=$(head -n 1 "$3" 2>/dev/null) || preferred=
+	preferred=${preferred:-unknown}
+	line=$(vt_mode_pick "$1" "$2" "${modes[@]}")
+	case $line in
+	'') printf 'runs at its preferred mode %s' "$preferred" ;;
+	use-original-mode) printf 'keeps the mode the console showed, from %s (use-original-mode), preferred mode %s' "$modes_from" "$preferred" ;;
+	*)
+		size=${line##*[]=]} size=${size%@*}
+		if grep -qxF -e "$size" -e "${size}i" "$3" 2>/dev/null; then
+			printf 'runs at %s from %s (%s), preferred mode %s' "${line##*[]=]}" "$modes_from" "$line" "$preferred"
+		else
+			printf 'runs at its preferred mode %s, since it offers no %s for %s (%s)' "$preferred" "$size" "$modes_from" "$line"
+		fi ;;
+	esac
 }
 
 # The make and model an EDID file holds: the manufacturer's three letters,
@@ -823,10 +879,14 @@ for f in "${all[@]}"; do
 	fi
 done
 [ ${#pages[@]} -gt 0 ] || { echo "accept: no page in ${ACCEPT_PAGES:-$here/sections}" >&2; exit 2; }
-if [ -n "$check" ]; then
+case $check in
+--check)
 	printf '%s\n' "${chosen[@]}"
-	exit 0
-fi
+	exit 0 ;;
+--frits)
+	printf '%s\n' "${frits[@]}" "${switches[@]}" | tr ' ' '\n' | sed '/^$/d' | sort -u
+	exit 0 ;;
+esac
 # A pass of only some pages says so on its title page and in its record, so
 # that it never reads as a full pass. A pass resumes only a pass of the same
 # pages (resumable).

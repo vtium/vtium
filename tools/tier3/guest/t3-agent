@@ -74,6 +74,13 @@
 #                    client, and answers the refusals, vtium's PID, whether
 #                    it opened the seat meanwhile and its restarts
 #                    (t3_seat.py's seat-busy check)
+#   seat-stop        stops seatd's service while vtium's unit on tty2
+#                    holds the seat, waits up to 10 s for systemd's line
+#                    that the unit's main process exited, then up to 10 s
+#                    for systemd to start the getty fallback on tty2 or
+#                    vtium again, and answers vtium's PID before the stop,
+#                    that line, the getty's state and the unit's restarts
+#                    (t3_seat.py's seat-stop check)
 #   chvt 1, chvt 2   logs that it switches to VT 1 or VT 2, with the
 #                    guest's monotonic clock, then switches there with chvt, which returns once the VT is shown,
 #                    and answers the VT shown and the PID and age of vtium
@@ -111,6 +118,31 @@
 #                    restored. Last it stops vtium's unit on tty2 and
 #                    starts it again, as `bare` does, and answers the
 #                    unit's state and the new vtium's PID and age
+#   drawer           under the privilege split (t3_split.py), vtium's root
+#                    process on tty2, its unit's main process, with its
+#                    ids; its drawing process, the child whose first
+#                    argument is "drawer", with its parent and the lines of
+#                    /proc/PID/status that hold its ids, its capability
+#                    sets, NoNewPrivs and Seccomp; the owner of
+#                    /proc/PID/status, which is root's for a process that
+#                    is not dumpable; and the ids of the account vtium
+#   kill-drawer KILL sends SIGKILL to vtium's drawing process on tty2
+#   hold-vt          adds a drop-in to vtium's unit on tty2 that keeps
+#                    systemd from restarting it, from starting its getty
+#                    fallback and from resetting the VT, so that the VT
+#                    stays as vtium's root process leaves it
+#   vt-after         waits up to 15 s for vtium's unit on tty2 to stop,
+#                    then answers the unit's state, its result and its main
+#                    process's exit status, and the state of tty2 that
+#                    t3-probe vt-state reads: the display mode, the
+#                    keyboard mode and the switch mode
+#   vt-now           the state of tty2 that t3-probe vt-state reads
+#   unhold-vt        removes hold-vt's drop-in, clears the unit's failed
+#                    state and starts it again
+#   take-master      runs t3-probe take-master as the split-switch check's
+#                    graphical program, which becomes the master of
+#                    /dev/dri/card0 once vtium has let the card go, and
+#                    answers its lines and the VT shown
 #   planes           prints the display's DRM atomic state, which the
 #                    kernel keeps in debugfs (/sys/kernel/debug/dri/N/state),
 #                    one line of it a line of the answer, so the showcase
@@ -169,6 +201,26 @@ vtium_age() {
         { sub(/^.*\) /, ""); printf "vtium %s %.1f\n", pid, up - $20 / hz }
     ' /proc/uptime "/proc/$pid/stat"
 }
+
+# The PID of vtium's drawing process on tty2 under the privilege split: the
+# child of the unit's main process whose first argument is "drawer"
+# (ADR-1400 D4); none when the unit runs nothing or runs vtium as one
+# process.
+drawer_pid() {
+    local main c
+    main=$(systemctl show -P MainPID "${units[0]}")
+    [ "${main:-0}" != 0 ] || return 0
+    for c in $(ps -o pid= --ppid "$main"); do
+        if [ "$(tr '\0' '\n' < "/proc/$c/cmdline" 2>/dev/null | sed -n 2p)" = drawer ]; then
+            echo "$c"
+            return 0
+        fi
+    done
+}
+
+# The drop-in that hold-vt adds: no restart, no fallback, and no reset of
+# the VT when the unit stops.
+hold_dropin=/run/systemd/system/${units[0]}.d/t3-hold.conf
 
 # The interrupts so far of the lines of /proc/interrupts that awk's test
 # `$1` selects, summed over the CPUs.
@@ -640,6 +692,42 @@ while True:
                 fi
             fi
             ;;
+        # vtium exits once libseat reports that the connection to seatd
+        # failed, and systemd logs the exit of the unit's main process with
+        # its status. The agent counts those lines before the stop and
+        # waits for one more. systemd then handles the failure: OnFailure=
+        # starts the getty fallback, whose getty stops vtium's unit under
+        # an open policy, and Restart=on-failure starts vtium again under a
+        # closed one.
+        seat-stop)
+            u=${units[0]}
+            exits() {
+                journalctl -b -q -o cat -u "$u" | grep -c "Main process exited"
+            }
+            pid=$(systemctl show -P MainPID "$u")
+            before=$(exits)
+            if [ "${pid:-0}" = 0 ]; then
+                echo "refused: $u runs no process"
+            elif ! systemctl stop seatd.service; then
+                echo "refused: seatd.service did not stop"
+            else
+                echo "vtium $pid"
+                echo "stopped seatd"
+                for _ in $(seq 100); do
+                    [ "$(exits)" -gt "$before" ] && break
+                    sleep 0.1
+                done
+                journalctl -b -q -o cat -u "$u" | grep "Main process exited" |
+                    tail -n +$((before + 1)) | head -n 1 | sed 's/^/exited /'
+                for _ in $(seq 100); do
+                    [ "$(systemctl show -P ActiveState "getty@$vt.service")" = active ] && break
+                    [ "$(systemctl show -P NRestarts "$u")" -gt 0 ] && break
+                    sleep 0.1
+                done
+                echo "getty $(systemctl show -P ActiveState "getty@$vt.service")"
+                echo "restarts $(systemctl show -P NRestarts "$u")"
+            fi
+            ;;
         # chvt asks the kernel for the switch and waits until the VT is
         # shown. A switch away from vtium's VT waits for vtium to let the VT
         # go, so a vtium that never lets go stops the switch; timeout ends
@@ -664,6 +752,56 @@ while True:
                 --card /dev/dri/card0
             touch /tmp/t3-hand-over.done
             chmod 644 /tmp/t3-hand-over.done
+            echo "shown $(fgconsole)"
+            ;;
+        drawer)
+            pid=$(systemctl show -P MainPID "${units[0]}")
+            echo "root $pid $(awk '/^Uid:/ { print $2, $3, $4, $5 }' "/proc/$pid/status" 2>/dev/null)"
+            pid=$(drawer_pid)
+            if [ -z "$pid" ]; then
+                echo "no drawer"
+            else
+                echo "drawer $pid parent $(awk '/^PPid:/ { print $2 }' "/proc/$pid/status")"
+                grep -E '^(Uid|Gid|Groups|CapInh|CapPrm|CapEff|CapBnd|CapAmb|NoNewPrivs|Seccomp):' \
+                    "/proc/$pid/status" | tr -s '\t ' '  ' | sed 's/^/status /'
+                echo "proc-owner $(stat -c %u:%g "/proc/$pid/status")"
+            fi
+            echo "account vtium $(id -u vtium 2>&1) $(id -g vtium 2>&1)"
+            ;;
+        "kill-drawer KILL")
+            pid=$(drawer_pid)
+            if [ -z "$pid" ]; then
+                echo "refused: ${units[0]} runs no drawing process"
+            else
+                kill -s KILL "$pid" && echo "sent KILL to $pid"
+            fi
+            ;;
+        hold-vt)
+            mkdir -p "${hold_dropin%/*}"
+            printf '[Unit]\nOnFailure=\n[Service]\nRestart=no\nTTYReset=no\nTTYVHangup=no\nTTYVTDisallocate=no\n' \
+                > "$hold_dropin"
+            systemctl daemon-reload && echo "held ${units[0]}"
+            ;;
+        vt-after)
+            for _ in $(seq 75); do
+                case $(systemctl show -P ActiveState "${units[0]}") in
+                    active | deactivating | activating) sleep 0.2 ;;
+                    *) break ;;
+                esac
+            done
+            echo "unit $(systemctl show -P ActiveState "${units[0]}") $(systemctl show -P Result "${units[0]}")" \
+                "status $(systemctl show -P ExecMainCode "${units[0]}") $(systemctl show -P ExecMainStatus "${units[0]}")"
+            /usr/local/sbin/t3-probe vt-state --check vt --vt 2 --label tty2
+            ;;
+        vt-now) /usr/local/sbin/t3-probe vt-state --check vt --vt 2 --label tty2 ;;
+        unhold-vt)
+            rm -f "$hold_dropin"
+            systemctl daemon-reload && systemctl reset-failed "${units[0]}" \
+                && systemctl start --no-block "${units[0]}" && echo "started ${units[0]}"
+            ;;
+        take-master)
+            timeout 20 /usr/local/sbin/t3-probe take-master --check split-switch \
+                --card /dev/dri/card0
             echo "shown $(fgconsole)"
             ;;
         planes)

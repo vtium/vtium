@@ -30,7 +30,7 @@
 //! **Requests.** A handler that needs the image helper, for a file, shared
 //! memory, PNG or zlib, leaves a request on its terminal, and the input
 //! call stops after the string that made it. Each console has one
-//! [`Helper`], vtium-platform's image host, for as long as the console
+//! `Helper`, vtium-platform's image host, for as long as the console
 //! lives, so the crashes its session counts last as long as the session
 //! (ADR-1101 D4, D8). The head hands the host each request with the
 //! console's session: the login child and the pty's owner, read again
@@ -38,7 +38,7 @@
 //! the answer goes straight back to the terminal with the pty never
 //! paused, or sends the request: then the head pauses the console's pty,
 //! watches the host's socket in the loop, so the loop wakes when the
-//! reply arrives, and starts the reply timer, [`REPLY_TIMEOUT`]. The
+//! reply arrives, and starts the reply timer, `REPLY_TIMEOUT`. The
 //! reply, its sizes checked against the request, or `FAILED` once the
 //! timer fires, goes back to the terminal, the replies it writes go to the
 //! program, and the pty resumes. The host stops its helper itself on a
@@ -63,7 +63,7 @@
 //!
 //! [`crate::app::App`] opens the program `image-helper` names once at
 //! start and makes each console's host from it
-//! ([`crate::app::App::set_image_helpers`] puts a test's stand-in in its
+//! (`App::set_image_helpers` puts a test's stand-in in its
 //! place).
 
 use crate::config::{Config, keys};
@@ -129,6 +129,8 @@ pub use built::*;
 #[cfg(feature = "images")]
 mod login;
 #[cfg(feature = "images")]
+pub use login::LOGIN_IMAGE_PIXELS_MAX;
+#[cfg(feature = "images")]
 pub(crate) use login::{DENIED as LOGIN_IMAGE_DENIED, Login, unusable as login_image_unusable};
 
 /// Logs, in a build without image support, that it ignores the login
@@ -157,8 +159,9 @@ pub(crate) fn login_unsupported(config: &Config) {
 
 #[cfg(feature = "images")]
 mod built {
+    use std::ffi::OsString;
     use std::os::fd::OwnedFd;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::rc::Rc;
     use std::time::{Duration, Instant};
 
@@ -227,17 +230,62 @@ mod built {
         }
     }
 
-    /// What makes a console's host, once for each console.
-    pub type Helpers = Rc<dyn Fn() -> Box<dyn Helper>>;
+    /// What a host is made for: the pictures of the console with this id,
+    /// or the head's login picture, which is decoded before any of the
+    /// head's sessions opens.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Host {
+        Console(u64),
+        LoginPicture,
+    }
 
-    /// What makes each console's [`ImageHost`]: from the program at
-    /// `path`, opened and checked here, once, so every helper starts from
-    /// the file vtium opened at start (ADR-1101 D1), and with `tmpdir`,
-    /// vtium's own `TMPDIR`, where a temporary file may also lie (D3, D5).
+    /// What makes a host, once for each console and once for the login
+    /// picture, given the name of the head and what the host is for. Under
+    /// the privilege split vtium's root process starts the helpers, and it
+    /// needs the console to choose their account. It starts the login
+    /// picture's helper as the pre-login account, since no session of the
+    /// head has opened yet.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker starts each image
+    ///   helper for a console and chooses its user.
+    /// - ADR-1400 D4, the note of 2026-11-25 on the login picture: the
+    ///   broker starts the login picture's helper itself.
+    pub type Helpers = Rc<dyn Fn(&str, Host) -> Box<dyn Helper>>;
+
+    /// What makes the host of one console: [`Helpers`] given that console.
+    pub(crate) type Make<'a> = &'a dyn Fn() -> Box<dyn Helper>;
+
+    /// What makes the host of console `id` of head `head`, from `helpers`.
+    fn console_host<'a>(
+        helpers: Option<&'a Helpers>,
+        head: &'a str,
+        id: u64,
+    ) -> Option<impl Fn() -> Box<dyn Helper> + 'a> {
+        helpers.map(move |make| move || make(head, Host::Console(id)))
+    }
+
+    /// What makes the host of head `head`'s login picture, from `helpers`.
+    fn login_host<'a>(
+        helpers: Option<&'a Helpers>,
+        head: &'a str,
+    ) -> Option<impl Fn() -> Box<dyn Helper> + 'a> {
+        helpers.map(move |make| move || make(head, Host::LoginPicture))
+    }
+
+    /// What makes each console's [`ImageHost`]: from the program that
+    /// `config`'s `image-helper` names, opened and checked here, once, so
+    /// every helper starts from the file vtium opened at start, and with
+    /// vtium's own `TMPDIR` in `env`, where a temporary file may also lie.
     /// A program vtium refuses is logged here, once, and every host then
-    /// answers as with no helper.
-    pub fn hosts(path: &Path, tmpdir: Option<PathBuf>) -> Helpers {
-        let program = match Program::open(path) {
+    /// answers as with no helper. Each host is made alike for every
+    /// console, so the head's name and the console's id go unread.
+    ///
+    /// References:
+    /// - ADR-1101 D1: the program opened once at start.
+    /// - ADR-1101 D3 and D5: the helper's `TMPDIR`.
+    pub fn hosts(config: &crate::config::Config, env: &[(OsString, OsString)]) -> Helpers {
+        let program = match opened(config) {
             Ok(program) => Some(program),
             Err(why) => {
                 log::warn!(
@@ -246,12 +294,26 @@ mod built {
                 None
             }
         };
-        Rc::new(move || Box::new(ImageHost::new(program.clone(), tmpdir.clone())))
+        let tmpdir = tmpdir(env);
+        Rc::new(move |_, _| Box::new(ImageHost::new(program.clone(), tmpdir.clone())))
+    }
+
+    /// The program `config`'s `image-helper` names, opened, its helpers
+    /// told to install no seccomp filter and their workers to enter no
+    /// landlock domain under the setting `helper-sandbox=off`; why vtium
+    /// refuses the program otherwise.
+    ///
+    /// References:
+    /// - ADR-1101 D9, "The sandbox setting": what the helper and its
+    ///   workers leave out under the setting.
+    fn opened(config: &crate::config::Config) -> Result<Program, String> {
+        Program::open(&super::program(config))
+            .map(|program| program.sandboxed(crate::helper::sandbox_on(config)))
     }
 
     /// vtium's `TMPDIR` in `env`, when it is an absolute path: the
     /// helper's temporary-file rule compares it with resolved paths.
-    pub fn tmpdir(env: &[(std::ffi::OsString, std::ffi::OsString)]) -> Option<PathBuf> {
+    pub fn tmpdir(env: &[(OsString, OsString)]) -> Option<PathBuf> {
         env.iter()
             .rev()
             .find(|(k, _)| k == "TMPDIR")
@@ -390,8 +452,8 @@ mod built {
             }
         }
 
-        /// The image turn for one console: its host made by `helpers` at
-        /// the first turn, `term` given `limit`, `switches`, `cell` and
+        /// The image turn for one console: its host made by `make` at the
+        /// first turn, `term` given `limit`, `switches`, `cell` and
         /// whether its host can start a helper, then its request routed.
         /// Returns whether a reply was handed back.
         fn turn(
@@ -400,11 +462,11 @@ mod built {
             pty: Option<&mut Pty>,
             (limit, switches, cell): (u64, Switches, (u32, u32)),
             now: Instant,
-            helpers: Option<&Helpers>,
+            make: Option<Make<'_>>,
             handle: &LoopHandle<'static, App>,
         ) -> bool {
             if self.host.is_none() {
-                self.host = helpers.map(|make| make());
+                self.host = make.map(|make| make());
             }
             let helper = self.host.as_ref().is_some_and(|h| h.available());
             self.give(
@@ -571,24 +633,27 @@ mod built {
             let draw = self.views.values().all(crate::term::View::draws_placements);
             let sizes = self.views.values().map(|v| v.size);
             let (limit, switches) = offer(&self.image_settings, sizes, draw);
+            let name = self.name.as_str();
             let shown = &mut self.console;
+            let make = console_host(helpers, name, shown.id);
             if shown.pictures.turn(
                 &mut shown.term,
                 shown.pty.as_mut(),
                 (limit, switches, self.cell),
                 now,
-                helpers,
+                make.as_ref().map(|make| make as Make<'_>),
                 handle,
             ) {
                 self.draw_now = true;
             }
             for console in &mut self.hidden {
+                let make = console_host(helpers, name, console.id);
                 console.pictures.turn(
                     &mut console.term,
                     console.pty.as_mut(),
                     (limit, switches, console.fit.cell),
                     now,
-                    helpers,
+                    make.as_ref().map(|make| make as Make<'_>),
                     handle,
                 );
             }
@@ -598,7 +663,15 @@ mod built {
                 log_notes(&self.name, console.id, &mut console.term);
             }
             let geometry = self.login_geometry();
-            self.login_image.turn(geometry, now, helpers, handle);
+            // The login picture has a host of its own, since the picture is
+            // decoded before any of the head's sessions opens.
+            let make = login_host(helpers, &self.name);
+            self.login_image.turn(
+                geometry,
+                now,
+                make.as_ref().map(|make| make as Make<'_>),
+                handle,
+            );
         }
 
         /// When each request out of the head's consoles fails unanswered,
@@ -613,19 +686,14 @@ mod built {
         /// display, as text reads on it, the head's cell and its grid.
         /// `None` while the head has no display.
         fn login_geometry(&self) -> Option<vtium_image::login::Geometry> {
-            use vtium_render::Orientation;
             let view = self.views.values().next()?;
-            let (w, h) = view.size;
-            let display = match view.orientation {
-                Orientation::Right | Orientation::Left => (h, w),
-                Orientation::Normal | Orientation::UpsideDown => (w, h),
-            };
-            let (cols, rows) = self.grid;
-            Some(vtium_image::login::Geometry {
-                display,
-                cell: self.cell,
-                grid: (u32::try_from(cols).ok()?, u32::try_from(rows).ok()?),
-            })
+            login_geometry(
+                view.size,
+                view.orientation,
+                self.placement,
+                self.cell,
+                self.grid,
+            )
         }
 
         /// Whether the head's first login prompt waits for its login
@@ -713,6 +781,40 @@ mod built {
             .collect()
     }
 
+    /// The screen the login picture is made for on a display `size` pixels
+    /// in its own pixels, turned by `orientation`, which draws a grid of
+    /// `grid` columns and rows of `cell` pixels where `placement` puts it:
+    /// the display and the grid as the text reads, and the grid's origin
+    /// from the renderer's own rule, so the picture lines up with the grid
+    /// the renderer draws. `None` for a grid too large to count.
+    ///
+    /// References:
+    /// - ADR-1310 D10 and D12: where the grid sits with smooth scrolling on
+    ///   and off.
+    /// - ADR-1100 D17: the login picture fitted to the grid on the display.
+    fn login_geometry(
+        size: (u32, u32),
+        orientation: vtium_render::Orientation,
+        placement: vtium_render::Placement,
+        cell: (u32, u32),
+        (cols, rows): (usize, usize),
+    ) -> Option<vtium_image::login::Geometry> {
+        use vtium_render::Orientation;
+        let (w, h) = size;
+        let display = match orientation {
+            Orientation::Right | Orientation::Left => (h, w),
+            Orientation::Normal | Orientation::UpsideDown => (w, h),
+        };
+        let grid = (u32::try_from(cols).ok()?, u32::try_from(rows).ok()?);
+        let pixels = (grid.0.checked_mul(cell.0)?, grid.1.checked_mul(cell.1)?);
+        Some(vtium_image::login::Geometry {
+            display,
+            cell,
+            grid,
+            origin: vtium_render::grid_origin(placement, orientation, size, pixels),
+        })
+    }
+
     #[cfg(test)]
     thread_local! {
         /// The lines the image log wrote on this thread, with their level.
@@ -732,6 +834,64 @@ mod built {
                 private_registers: true,
                 sixel: true,
                 kitty: true,
+            }
+        }
+
+        // The login picture's screen names where the renderer draws the
+        // grid. A display 35x53 in its own pixels, turned left, holds a grid
+        // of 6x2 cells of 8x16 with 3 spare columns and 5 spare lines.
+        // Centred, the odd line goes to the display's bottom, the text's
+        // left, so the grid starts at 3,1 as the text reads. With smooth
+        // scrolling on, all 3 spare columns of the display lie above the
+        // text, so the grid starts at 3,3.
+        //
+        // References:
+        // - ADR-1310 D10 and D12: where the grid sits with smooth scrolling
+        //   on and off.
+        #[test]
+        fn the_login_picture_s_screen_starts_where_the_renderer_draws_the_grid() {
+            use vtium_render::{Orientation, PartialRow, Placement};
+            let screen = |placement| {
+                login_geometry((35, 53), Orientation::Left, placement, (8, 16), (6, 2))
+                    .map(|g| (g.display, g.grid, g.origin))
+            };
+            assert_eq!(screen(Placement::Centred), Some(((53, 35), (6, 2), (3, 1))));
+            assert_eq!(
+                screen(Placement::Bottom(PartialRow::History)),
+                Some(((53, 35), (6, 2), (3, 3)))
+            );
+        }
+
+        // The setting helper-sandbox=off reaches each image helper as
+        // `--sandbox=off`: hosts() opens the program that image-helper
+        // names and adds the option itself, so app.rs passes only the
+        // config. With the setting on or unset the helper starts with no
+        // option, and sandboxes itself in full.
+        //
+        // References:
+        // - ADR-1200 D15, "A setting turns the sandbox off": vtium tells
+        //   each helper on its command line.
+        // - ADR-1101 D9, "The sandbox setting".
+        #[test]
+        #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+        fn helper_sandbox_off_reaches_the_image_helper_on_its_command_line() {
+            let dir = crate::scratch::Scratch::new("image-helper-sandbox");
+            let helper = dir.join("vtium-image");
+            vtium_testscript::executable(&helper, "#!/bin/sh\nexit 0\n");
+            let config = |args: &[&str]| {
+                let args: Vec<OsString> = args.iter().map(Into::into).collect();
+                crate::config::load(&args, &mut |_: &std::path::Path| Ok(None)).config
+            };
+            let named = format!("--image-helper={}", helper.display());
+            let off = opened(&config(&[&named, "--helper-sandbox=off"])).unwrap();
+            assert_eq!(off.path(), helper);
+            assert_eq!(off.args(), ["--sandbox=off"]);
+            for args in [
+                vec![named.as_str(), "--helper-sandbox=on"],
+                vec![named.as_str()],
+            ] {
+                let on = opened(&config(&args)).unwrap();
+                assert!(on.args().is_empty(), "{args:?}: {:?}", on.args());
             }
         }
 

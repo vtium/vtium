@@ -93,39 +93,48 @@ pub fn nodes() -> BTreeMap<String, Vec<&'static str>> {
     first
 }
 
+/// Each node's frame at each grid, against its snapshot. The pairs of a
+/// node and a grid are spread over the machine's cores, each pair drawn
+/// from a TUI of its own that presses the node's keys from the start. A
+/// snapshot that moves and that `provisional.tsv` does not list fails the
+/// test with insta's report, which names the node, the grid and the keys.
 #[test]
 fn each_node_s_frame_matches_its_snapshot() {
     let listed = provisional();
     let nodes = nodes();
     assert!(nodes.len() > 20, "only {} nodes reached", nodes.len());
-    let mut moved = Vec::new();
-    for (node, path) in &nodes {
-        for (cols, rows) in GRIDS {
-            let mut sim = Sim::start(Term::Vtium, 80, 25);
-            for key in path {
-                sim.press(press_of(key));
-            }
-            sim.press(Press::Resize(cols, rows));
-            let text = frame(&sim);
-            let name = name(node, cols, rows);
-            let check = || {
-                insta::with_settings!({
-                    description => format!("{node} at {cols}×{rows}, keys: {}", path.join(" ")),
-                    omit_expression => true,
-                    prepend_module_to_snapshot => false,
-                }, {
-                    insta::assert_snapshot!(name.clone(), text.clone());
-                });
-            };
-            if listed.contains(&name) {
-                if std::panic::catch_unwind(check).is_err() {
-                    moved.push(name);
-                }
-            } else {
-                check();
-            }
+    let pairs: Vec<(&String, &Vec<&str>, (usize, usize))> = nodes
+        .iter()
+        .flat_map(|(node, path)| GRIDS.map(|grid| (node, path, grid)))
+        .collect();
+    let moved: Vec<String> = super::par_map(&pairs, |(node, path, (cols, rows))| {
+        let (cols, rows) = (*cols, *rows);
+        let mut sim = Sim::start(Term::Vtium, 80, 25);
+        for key in path.iter() {
+            sim.press(press_of(key));
         }
-    }
+        sim.press(Press::Resize(cols, rows));
+        let text = frame(&sim);
+        let name = name(node, cols, rows);
+        let check = || {
+            insta::with_settings!({
+                description => format!("{node} at {cols}×{rows}, keys: {}", path.join(" ")),
+                omit_expression => true,
+                prepend_module_to_snapshot => false,
+            }, {
+                insta::assert_snapshot!(name.clone(), text.clone());
+            });
+        };
+        if listed.contains(&name) {
+            std::panic::catch_unwind(check).is_err().then_some(name)
+        } else {
+            check();
+            None
+        }
+    })
+    .into_iter()
+    .flatten()
+    .collect();
     if !moved.is_empty() {
         eprintln!(
             "{} provisional snapshots moved; they judge nothing: {}",

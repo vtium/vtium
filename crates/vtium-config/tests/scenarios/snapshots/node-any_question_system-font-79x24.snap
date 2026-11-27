@@ -2,7 +2,9 @@
 source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "any.question.system-font at 79×24, keys: PgDn Enter Enter"
 ---
-y yes  Esc Ctrl-C cancel
+Install this font as the system font /usr/local/share/fonts/Mine-Regular.ttf?
+The command shown above runs and asks for your password.  y yes
+Esc Ctrl-C cancel
 This terminal is too small: vtium-config needs at least 80x25 characters, and
 this terminal is 79x24.
 
@@ -24,5 +26,3 @@ Make this terminal larger, or use these commands, which work at any size:
   vtium-config edit
   vtium-config fonts
   vtium-config check
-  vtium-config new-frit
-  vtium-config remove-frit

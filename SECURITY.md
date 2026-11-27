@@ -6,12 +6,12 @@ Report vulnerabilities privately through GitHub's private vulnerability reportin
 
 ## Scope
 
-vtium runs as root on a virtual console. Two inputs cross that privilege boundary:
+vtium starts as root on a virtual console. A build with the `split` feature, as the packages are, then runs as two processes. The root process holds the VT, the devices and the sessions. The drawing process runs as the account `vtium` and reads the terminal's input. A build without the feature, such as the minspec build, reads that input as root. Two inputs cross that privilege boundary:
 
 - **The pty byte stream.** Any program running in the terminal can write any bytes to it, including programs that print untrusted files or network data.
 - **The image decoders.** Sixel and kitty graphics data arrive through the same byte stream, and a kitty graphics command can name a file or shared memory object for vtium to read.
 
-A flaw that lets those inputs crash vtium, exhaust its memory, read or write memory out of bounds, read files the program in the terminal could not read, or run code is in scope. So is a reply that leaks information to the program in the terminal.
+A flaw that lets those inputs crash vtium, exhaust its memory, read or write memory out of bounds, read files the program in the terminal could not read, or run code is in scope. So is a reply that leaks information to the program in the terminal. Under the split, so is a flaw that lets the drawing process gain root or make the root process act beyond the requests it serves. So is a drawing process that keeps the display or the keyboards after a switch to another VT.
 
 ## What to include
 

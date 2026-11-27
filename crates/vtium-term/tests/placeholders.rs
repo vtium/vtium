@@ -41,6 +41,7 @@ fn run(t: &Terminal, y: usize, col: u32, cells: u32, image: u32, at: (u32, u32))
         placement: None,
         row: at.0,
         column: at.1,
+        double: false,
     }
 }
 

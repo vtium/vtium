@@ -12,7 +12,7 @@
 //! fetches (ADR-1503 D9).
 
 use vtium_render::filter::{Fixed, Given};
-use vtium_render::{Depth, Mark, Orientation};
+use vtium_render::{Depth, Mark, Orientation, PartialRow, Placement};
 use vtium_term::WidthMethod;
 
 use vtium::config::keys::{self, Scheme};
@@ -69,8 +69,10 @@ const EDGES_DESC: &str = "A grid of 12 by 4 cells on a display that holds 11 and
 columns and 4 rows and 3 pixel rows: text and colored cells reach the last whole column and \
 row, and two wide characters start in the last whole column, an underlined one in the first \
 row and a reversed one in the third, with a cell of the default background between them. \
-Correct: the grid centred, with the 5 spare pixel columns and 3 spare pixel rows around it in \
-the default background; each wide character's left half, with its underline or reverse, in \
+Correct: the grid's last row on the text's bottom edge, with the 3 spare pixel rows above its \
+first row, and the grid centred across, with 2 spare pixel columns on one side and 3 on the \
+other, the odd one toward the display's right or bottom; the spare pixels in the default \
+background; each wide character's left half, with its underline or reverse, in \
 the last whole column, cut at the margin";
 
 /// The `vs16` screen.
@@ -302,6 +304,20 @@ const UNDERLINE: &[u8] = concat!(
 )
 .as_bytes();
 
+/// The `underline-spaces` screen: each underline style, the strike and the
+/// overline over spaces alone, so no character the font draws is on
+/// screen.
+const UNDERLINE_SPACES: &[u8] = concat!(
+    "\x1b[4m            \x1b[0m  \x1b[4;58:5:196m            \x1b[0m\r\n",
+    "\x1b[4:2m            \x1b[0m  \x1b[4:2;58:2::0:200:255m            \x1b[0m\r\n",
+    "\x1b[4:3m            \x1b[0m  \x1b[4:3;58:5:46m            \x1b[0m\r\n",
+    "\x1b[4:4m            \x1b[0m  \x1b[4:4;58:2::255:128:0m            \x1b[0m\r\n",
+    "\x1b[4:5m            \x1b[0m  \x1b[4:5;58:5:201m            \x1b[0m\r\n",
+    "\x1b[9m            \x1b[0m  \x1b[53m            \x1b[0m\r\n",
+    "\x1b[44;4m            \x1b[0m  \x1b[7;4m            \x1b[0m",
+)
+.as_bytes();
+
 /// The `strike` screen.
 const STRIKE: &[u8] = concat!(
     "\x1b[9mstruck through gjpqy\x1b[0m plain\r\n",
@@ -419,6 +435,32 @@ const MOSAIC: &[u8] = concat!(
     "🬤🬤🬤🬤🬤🬤🬤🬤 𜶉𜶉𜶉𜶉𜶉𜶉𜶉𜶉 ⣿⣿⣿⣿⣿⣿⣿⣿\x1b[0m",
 )
 .as_bytes();
+
+/// The `legacy` screens: every block shape of Symbols for Legacy
+/// Computing and its Supplement that vtium-font draws as a sprite, in
+/// codepoint order; then shapes that join across cells and rows: chained
+/// diamonds of light diagonals, the checker board fill beside its
+/// inverse, the two diagonal fills side by side, circles of quarters and
+/// of halves, staircases of
+/// eighth blocks, and patterns of the one quarter blocks; then the
+/// diamonds, fills and circles in yellow on blue.
+const LEGACY: &[u8] = concat!(
+    "legacy  🬼🬽🬾🬿🭀🭁🭂🭃🭄🭅🭆🭇🭈🭉🭊🭋🭌🭍🭎🭏🭐🭑🭒🭓🭔🭕🭖🭗🭘🭙🭚🭛🭜🭝🭞🭟🭠🭡🭢🭣🭤🭥🭦🭧🭨🭩🭪🭫🭬🭭🭮🭯🭰🭱🭲🭳🭴🭵🭶🭷🭸🭹🭺🭻\r\n",
+    "        🭼🭽🭾🭿🮀🮁🮂🮃🮄🮅🮆🮇🮈🮉🮊🮋🮌🮍🮎🮏🮐🮑🮒🮔🮕🮖🮗🮘🮙🮚🮛🮜🮝🮞🮟🮠🮡🮢🮣🮤🮥🮦🮧🮨🮩🮪🮫🮬🮭🮮🮯\r\n",
+    "        🮽🮾🮿🯎🯏🯐🯑🯒🯓🯔🯕🯖🯗🯘🯙🯚🯛🯜🯝🯞🯟🯠🯡🯢🯣🯤🯥🯦🯧🯨🯩🯪🯫🯬🯭🯮🯯\r\n",
+    "quarters𜺠𜺡𜺢𜺣𜺤𜺥𜺦𜺧𜺨𜺩𜺪𜺫𜺬𜺭𜺮𜺯\r\n",
+    "\r\n",
+    "🮣🮢🮣🮢🮣🮢🮣🮢 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯮🯭 🯩🯫 🯪 ▔🭶🭷🭸🭹🭺🭻▁\r\n",
+    "🮡🮠🮡🮠🮡🮠🮡🮠 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯬🯯 🯩🯫 🯨 ▁🭻🭺🭹🭸🭷🭶▔\r\n",
+    "🮣🮢🮣🮢🮣🮢🮣🮢 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 ▏🭰🭱🭲🭳🭴🭵▕ 𜺨𜺬 𜺣𜺠\r\n",
+    "🮡🮠🮡🮠🮡🮠🮡🮠 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 ▕🭵🭴🭳🭲🭱🭰▏ 𜺣𜺠 𜺨𜺬\r\n",
+    "\r\n",
+    "\x1b[33;44m🮣🮢🮣🮢🮣🮢🮣🮢 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯮🯭 🯩🯫\r\n",
+    "🮡🮠🮡🮠🮡🮠🮡🮠 🮕🮕🮕🮕🮖🮖🮖🮖 🮘🮘🮘🮘🮙🮙🮙🮙 🯬🯯 🯩🯫\x1b[0m",
+)
+.as_bytes();
+
+const LEGACY_UNIFONT_DESC: &str = "Every block shape of Symbols for Legacy Computing and its Supplement that vtium draws as a sprite, in codepoint order: U+1FB3C to U+1FB92, U+1FB94 to U+1FBAF, U+1FBBD to U+1FBBF and U+1FBCE to U+1FBEF, then the one quarter blocks U+1CEA0 to U+1CEAF. Then shapes that join across cells and rows: chained diamonds of light diagonals, the checker board fill beside its inverse, the two diagonal fills side by side, a circle of four quarters and one of two halves, a circle of two halves stacked, staircases of horizontal and vertical eighth blocks, and patterns of the one quarter blocks; then the diamonds, fills and circles in yellow on blue. In unifont's 8x16 cells. Correct: each shape as the Unicode 18.0 code charts draw it, filling its part of the cell; the diagonals meet at the cells' edges, so the diamonds close; the checker boards and diagonal fills run across cells and rows with no seam; the quarters and halves close into round circles; each eighth block one step from its neighbour's.";
 
 /// The `emoji` screen.
 const EMOJI: &[u8] = concat!(
@@ -568,6 +610,76 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
         },
     }
 }
+
+/// Ten numbered lines, the cursor on the bottom row.
+const SCROLL: &[u8] =
+    b"line 0\r\nline 1\r\nline 2\r\nline 3\r\nline 4\r\nline 5\r\nline 6\r\nline 7\r\nline 8\r\nline 9";
+
+/// Three line feeds on the bottom row, then a reverse index on the top row,
+/// so the screen moves three rows up and one down between two frames.
+const SCROLL_NEXT: &[u8] = b"\r\nline 10\r\nline 11\r\nline 12\x1b[1;1H\x1bMtop again\x1b[10;1H";
+
+const SCROLL_DESC: &str = "Four frames into a double-buffered display of 389x167 pixels, a grid of 48 by 10 cells with a border around it: ten numbered lines, then three line feeds on the bottom row and a reverse index on the top row between two frames. Each frame is shown the redraw way, by the pan over buffers taller than the screen and by the copy from a ring in memory, and the three must show the same pixels. In unifont. Correct: `top again` on the top row, `line 3` to `line 11` below it, and the border plain around the grid.";
+
+/// A screen that scrolls between frames, which the pan and the copy show
+/// as the redraw does (ADR-1310 D6), on a display turned as `orientation`
+/// says.
+const fn scrolls(name: &'static str, orientation: Orientation) -> Case {
+    Case {
+        screen: Screen {
+            orientation,
+            display: Some((48 * 8 + 5, 10 * 16 + 7)),
+            next: Some(SCROLL_NEXT),
+            scrollback: 100,
+            ..Screen::new(name, SCROLL_DESC, SCROLL, 48, 10)
+        },
+    }
+}
+
+/// Thirteen numbered lines on the main screen, three in the scrollback,
+/// then the alternate screen with two lines of its own.
+const ROWS_ABOVE_ALT: &[u8] = concat!(
+    "line 0\r\nline 1\r\nline 2\r\nline 3\r\nline 4\r\nline 5\r\nline 6\r\n",
+    "line 7\r\nline 8\r\nline 9\r\nline 10\r\nline 11\r\nline 12",
+    "\x1b[?1049h\x1b[Hon the alternate screen\r\nno row lies above it",
+)
+.as_bytes();
+
+const ROWS_ABOVE_ALT_DESC: &str = "The rows above the screen on the alternate screen: a grid of 48 by 10 cells on a display of 389x167 pixels, with smooth scrolling on and 7 spare lines above the grid. Thirteen numbered lines on the main screen put three in its scrollback, then the program switches to the alternate screen (DEC mode 1049) and writes two lines there. In unifont. Correct: `on the alternate screen` on the top row and `no row lies above it` below it; the 7 spare lines above the grid in the border's color across the whole display, since the alternate screen has no scrollback; the grid's last row on the display's bottom edge.";
+
+/// Thirteen numbered lines, three in the scrollback, each line in its own
+/// background color so the row above shows in the spare lines.
+const ROWS_ABOVE_NOTICE: &[u8] = concat!(
+    "\x1b[44mline 0\x1b[K\r\n\x1b[45mline 1\x1b[K\r\n\x1b[46mline 2\x1b[K\r\n",
+    "\x1b[0mline 3\r\nline 4\r\nline 5\r\nline 6\r\nline 7\r\nline 8\r\n",
+    "line 9\r\nline 10\r\nline 11\r\nline 12",
+)
+.as_bytes();
+
+const ROWS_ABOVE_NOTICE_DESC: &str = "A notice ending over the spare lines: a grid of 48 by 10 cells on a display of 389x167 pixels, with smooth scrolling on and 7 spare lines above the grid. Thirteen numbered lines put three in the scrollback, the third, line 2, on a cyan background. A notice is drawn over the first frame at the display's top, across the spare lines and the top rows, then it goes, and two more frames are drawn, one into each buffer. In unifont. Correct: no trace of the notice; the spare lines show the bottom of line 2's cyan row across the grid's width, with the border's color beside it; `line 3` to `line 12` on the screen; the grid's last row on the display's bottom edge.";
+
+/// The grid at the bottom with the rows of history in the spare lines
+/// above it, as a console with smooth scrolling on places it, under
+/// `partial-row`'s default.
+const SMOOTH: Placement = Placement::Bottom(PartialRow::History);
+
+const ROWS_ABOVE_BLANK_DESC: &str = "The partial row blanked: a grid of 48 by 10 cells on a display of 389x167 pixels, with smooth scrolling on and `partial-row = blank`, which leaves 7 spare lines above the grid. Thirteen numbered lines put three in the scrollback, the third, line 2, on a cyan background. In unifont. Correct: the 7 spare lines above the grid in the border's color across the whole display, with no trace of line 2's cyan row; `line 3` to `line 12` on the screen; the grid's last row on the display's bottom edge.";
+
+const ROWS_ABOVE_FADE_DESC: &str = "The partial row faded: a grid of 48 by 10 cells on a display of 389x167 pixels, with smooth scrolling on and `partial-row = fade`, which leaves 7 spare lines above the grid. Thirteen numbered lines put three in the scrollback, the third, line 2, on a cyan background. In unifont. Correct: the bottom of line 2's cyan row in the spare lines across the grid's width, its own color on the line next to the grid and fading evenly into the border's color toward the display's top edge, whose line is the border's color; the border's color beside it; `line 3` to `line 12` on the screen; the grid's last row on the display's bottom edge.";
+
+const CENTRED_BARS_DESC: &str = "The grid centred with smooth scrolling off, the default: a grid of 48 by 10 cells on a display of 389x167 pixels, which leaves 5 spare pixel columns and 7 spare lines. Thirteen numbered lines put three in the scrollback, the third, line 2, on a cyan background. In unifont. Correct: bars in the border's color on all four sides, 2 pixel columns on the left and 3 on the right, 3 pixel lines above the grid and 4 below it; no trace of line 2's cyan row; `line 3` to `line 12` on the screen.";
+
+/// A line of cedillas and hooks, which goes into the scrollback, above a
+/// line of capitals with accents, which the screen's top row shows.
+const ROWS_ABOVE_INK: &[u8] = "çç ƒ çç ç\r\nÀÉÎẤỘ ÀÉ\r\nrow two\r\nrow three".as_bytes();
+
+const ROWS_ABOVE_INK_DESC: &str = "Ink across the screen's top edge: a grid of 20 by 3 cells in the ink test font at 16 pixels, on a display of 240x72 pixels, with smooth scrolling on, which leaves spare lines above the grid. The first line, cedillas and the hooked f, has scrolled into the scrollback, so it is the row above the screen; the screen's top row holds capitals whose accents rise above the row. Correct: the spare lines show the bottom of the line of cedillas, with the tips of the top row's accents reaching up into it; the cedillas reach down into the top row's cells, crossing the accented capitals there; `row two` and `row three` below; the grid's last row on the display's bottom edge.";
+
+/// A double-height pair whose top line has scrolled into the scrollback,
+/// so the screen's top row shows the pair's bottom line.
+const ROWS_ABOVE_DHL: &[u8] = b"\x1b#3Tall AaGg\r\n\x1b#4Tall AaGg\r\nline 2\r\nline 3";
+
+const ROWS_ABOVE_DHL_DESC: &str = "A double-height pair split at the screen's top edge: a grid of 24 by 3 cells on a display of 197x55 pixels, with smooth scrolling on and 7 spare lines above the grid. The pair's top line (ESC # 3) has scrolled into the scrollback, and its bottom line (ESC # 4) is the screen's top row, both reading Tall AaGg. In unifont. Correct: the spare lines show the last 7 pixel lines of the pair's top half, the middle of each doubled letter, which join without a gap or a step to the bottom half on the top row; `line 2` and `line 3` below at the normal size; the grid's last row on the display's bottom edge.";
 
 /// A light theme set by OSC 10 and 11, for a 1-bit display: default
 /// text, a red word, colored and reversed cells, decorations and sprites
@@ -782,7 +894,7 @@ const PANIC_800X480_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build 
 
 const PANIC_80X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build without image support, on an 80x25 screen of unifont's 8x16 cells, 640x400: the panic-800x480 screen's report, three errors listed and `More errors: 1`, with the maintainer's drawing of a panicked Tux in a monitor beside it. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen; in its top left, the drawing in 7-bit ASCII, 32 columns by 20 rows, in the box's dark text color: sparks `\\|/` and `-o-` at the top corners, the monitor with Tux inside it, eyes `o_O` and an open mouth, arms raised, and a keyboard below; two empty columns, then the report's text, left-aligned in the remaining 44 columns from the box's first row, every line whole, each wrapped at a space; the box as tall as the taller of the drawing and the text; below the box, the screen's background and nothing else.";
 
-const PANIC_40X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build without image support, on a 40x25 screen of unifont's 8x16 cells, 320x400, for a closed vtium.conf with one error. Correct: one pale red box with a dark red edge across the top; at its top, centered, the small drawing, 21 columns by 10 rows of 7-bit ASCII: the monitor cropped from the full drawing, Tux inside it with eyes `o_O`, no sparks and no keyboard; an empty row; then the report from the box's left: `vtium.conf has errors and counts as closed: all input is off.`, that no head can run because of the errors in /etc/vtium/vtium.conf, the file's one error on line 4, and the next step naming vtium check-config, every line whole, each wrapped at a space; below the box, the screen's background and nothing else.";
+const PANIC_40X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build without image support, on a 40x25 screen of unifont's 8x16 cells, 320x400, for a closed vtium.conf with one error. Correct: one pale red box with a dark red edge across the top; at its top, centered, the small drawing, 21 columns by 10 rows of 7-bit ASCII: the monitor cropped from the full drawing, Tux inside it with eyes `o_O`, no sparks and no keyboard; an empty row; then the report from the box's left: `vtium.conf has errors and counts as closed: all input is off.`, that no display head can run because of the errors in /etc/vtium/vtium.conf, the file's one error on line 4, and the next step naming vtium check-config, every line whole, each wrapped at a space; below the box, the screen's background and nothing else.";
 
 const PANIC_IMAGES_80X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build with image support, on the panic-640x400 screen: the maintainer's 80x80 sprite of a panicked Tux in a monitor in place of the drawing in text, each of its pixels a sharp 3x3 square, 240x240, in its six colors: black, white, gray, beak orange, mouth dark red and tongue pink. Correct: the sprite's black square at the box's top left, inside the edge and the inset; its 30 by 15 cells, then two empty columns, then the report's text, every line whole, in the remaining 46 columns; the box as tall as the taller of the text and the sprite; below the box, the screen's background and nothing else.";
 
@@ -1944,6 +2056,99 @@ const BASE: &[Case] = &[
     edges("edges-right", Orientation::Right),
     edges("edges-upside-down", Orientation::UpsideDown),
     edges("edges-left", Orientation::Left),
+    scrolls("scroll-unifont", Orientation::Normal),
+    scrolls("scroll-unifont-right", Orientation::Right),
+    // ADR-1310 D10: the rows of history above the screen in the spare lines,
+    // with smooth scrolling on
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            placement: SMOOTH,
+            display: Some((48 * 8 + 5, 10 * 16 + 7)),
+            ..Screen::new(
+                "rows-above-alt",
+                ROWS_ABOVE_ALT_DESC,
+                ROWS_ABOVE_ALT,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            placement: SMOOTH,
+            overlay: Some(shown(&[notices::no_keyboard])),
+            overlay_ends: true,
+            display: Some((48 * 8 + 5, 10 * 16 + 7)),
+            ..Screen::new(
+                "rows-above-notice",
+                ROWS_ABOVE_NOTICE_DESC,
+                ROWS_ABOVE_NOTICE,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            placement: SMOOTH,
+            display: Some((240, 72)),
+            ..ink(
+                "rows-above-ink",
+                ROWS_ABOVE_INK_DESC,
+                ROWS_ABOVE_INK,
+                (20, 3),
+                &AT_16,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            placement: SMOOTH,
+            display: Some((24 * 8 + 5, 3 * 16 + 7)),
+            ..Screen::new("rows-above-dhl", ROWS_ABOVE_DHL_DESC, ROWS_ABOVE_DHL, 24, 3)
+        },
+    },
+    // ADR-1310 D12: the partial row blanked and faded with smooth scrolling
+    // on, and the grid centred with blank bars with smooth scrolling off
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            placement: Placement::Bottom(PartialRow::Blank),
+            display: Some((48 * 8 + 5, 10 * 16 + 7)),
+            ..Screen::new(
+                "rows-above-blank",
+                ROWS_ABOVE_BLANK_DESC,
+                ROWS_ABOVE_NOTICE,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            placement: Placement::Bottom(PartialRow::Fade),
+            display: Some((48 * 8 + 5, 10 * 16 + 7)),
+            ..Screen::new(
+                "rows-above-fade",
+                ROWS_ABOVE_FADE_DESC,
+                ROWS_ABOVE_NOTICE,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            scrollback: 100,
+            display: Some((48 * 8 + 5, 10 * 16 + 7)),
+            ..Screen::new("centred-bars", CENTRED_BARS_DESC, ROWS_ABOVE_NOTICE, 48, 10)
+        },
+    },
     Case {
         screen: Screen::new(
             "erase-pen",
@@ -2356,6 +2561,18 @@ const BASE: &[Case] = &[
     },
     Case {
         screen: Screen {
+            font: FontKind::UnifontAt(2),
+            ..Screen::new(
+                "underline-unifont-2x",
+                "The underline-unifont screen in unifont drawn at twice its size, in 16x32 cells, as a high-DPI display draws it. Unifont's letters end on row 27 of each cell, and its single underline is two rows thick in rows 30 and 31. Correct: each double underline two lines one row thick, in rows 29 and 31, below the letters, so the bottom rows of the letters stay whole; the other styles as underline-unifont draws them, every pixel doubled.",
+                UNDERLINE,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
             font: FontKind::UnifontAt(3),
             ..Screen::new(
                 "script-unifont-3x",
@@ -2439,6 +2656,11 @@ const BASE: &[Case] = &[
                 72,
                 16,
             )
+        },
+    },
+    Case {
+        screen: Screen {
+            ..Screen::new("legacy-unifont", LEGACY_UNIFONT_DESC, LEGACY, 72, 12)
         },
     },
     Case {
@@ -2558,6 +2780,18 @@ const BASE: &[Case] = &[
                 UNDERLINE,
                 48,
                 10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            depth: Depth::One,
+            ..Screen::new(
+                "legacy-unifont-1bit",
+                "legacy-unifont on a 1-bit display. Correct: each shape lit where its coverage is at least half, so the diagonals and circles keep their edges as whole pixels and the fills keep their patterns; the diamonds, fills and circles in yellow on blue lit, on blue's unlit cells.",
+                LEGACY,
+                72,
+                12,
             )
         },
     },
@@ -2993,6 +3227,15 @@ const BASE: &[Case] = &[
     },
     Case {
         screen: outline(
+            "underline-spaces",
+            "Underlined spaces alone, with no character the font draws on screen: each underline style (single, double, curly, dotted, dashed) in the text color and in an SGR 58 color, the strike and the overline, and an underline on blue and in reverse. In DejaVu Sans Mono at 16 pixels, the lines placed where the font's own tables put them, as the console holds them once the helper's fill has answered. Correct: every underline in the rows the underline screen draws its lines in, the single line on row 13 of each 16-row cell and not on the cell's bottom row; the strike on the underline screen's strike row; the overline on the cell's top row.",
+            UNDERLINE_SPACES,
+            28,
+            7,
+        ),
+    },
+    Case {
+        screen: outline(
             "strike",
             "Strike-through (SGR 9) alone, in color, on a background, with straight and curly underlines, in bold, in reverse, and over spaces. In DejaVu Sans Mono at 16 pixels, the strike placed where the font's own tables put it. Correct: a line through every struck cell, the spaces included, at the same height in every cell.",
             STRIKE,
@@ -3061,6 +3304,15 @@ const BASE: &[Case] = &[
             MOSAIC,
             72,
             16,
+        ),
+    },
+    Case {
+        screen: outline(
+            "legacy",
+            "The legacy-unifont screen in the 9x16 cell DejaVu Sans Mono gives at 16 pixels, whose width is not a whole number of halves or thirds of the shapes' own grids. Correct: vtium's sprites draw every shape, as legacy-unifont describes, each diagonal still meeting its neighbour's at the cell's edge and each fill keeping its period across cells.",
+            LEGACY,
+            72,
+            12,
         ),
     },
     Case {
@@ -3308,6 +3560,20 @@ const BASE: &[Case] = &[
     },
     Case {
         screen: ligatures("ligatures-off", LIGATURES_OFF_DESC, &AT_40, false),
+    },
+    Case {
+        screen: block_fill(
+            "block-fill-dejavu",
+            BLOCK_FILL_DEJAVU_DESC,
+            InkFonts::BlocksFromFont { scripts: false },
+        ),
+    },
+    Case {
+        screen: block_fill(
+            "block-fill-iosevka",
+            BLOCK_FILL_IOSEVKA_DESC,
+            InkFonts::BlocksFromFont { scripts: true },
+        ),
     },
     Case {
         screen: shipped(0, "frit-arabic", FRIT_ARABIC_DESC, FRIT_ARABIC, 5),
@@ -3872,6 +4138,44 @@ const fn scripts(
     }
 }
 
+/// The block fill screens' text, 40 by 5 cells: full blocks stacked
+/// three rows high beside text with accents and descenders, upper and
+/// lower half blocks stacked in turn, boxes of light, heavy and double
+/// lines, then blocks, shades and lines in yellow on blue, where any gap
+/// between rows or cells shows blue, and eighths, rounded corners and
+/// diagonals.
+const BLOCK_FILL: &[u8] = concat!(
+    "Égjy ████ ▀▀▀▀ ┌──┬──┐ ┏━━┳━━┓ ╔══╦══╗\r\n",
+    "████ ████ ▄▄▄▄ │  │  │ ┃  ┃  ┃ ║  ║  ║\r\n",
+    "████ ████ ▀▀▀▀ ├──┼──┤ ┣━━╋━━┫ ╠══╬══╣\r\n",
+    "Égjy ████ ▄▄▄▄ └──┴──┘ ┗━━┻━━┛ ╚══╩══╝\r\n",
+    "\x1b[33;44m██▀▀▄▄▌▐░▒▓ │┃║ ─━═ ┼╋╬\x1b[0m ▏▕▔▁ ╭─╮╰─╯ ╱╲╳",
+)
+.as_bytes();
+
+/// The block fill screens' three drawings, stacked: at 12, 16 and 24
+/// pixels.
+const BLOCK_FILL_TAKES: [Take; 3] = [Take::at(12), Take::at(16), Take::at(24)];
+
+/// The block fill screen drawn in `fonts` at each of [`BLOCK_FILL_TAKES`],
+/// named `name`. Each font maps every box line and block element, and the
+/// font set's `glyph-source-box=font` and `glyph-source-block=font` lines
+/// have them drawn from the font, not from vtium's sprites.
+const fn block_fill(name: &'static str, desc: &'static str, fonts: InkFonts) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes: &BLOCK_FILL_TAKES,
+            spacing: None,
+            fonts,
+        },
+        ..Screen::new(name, desc, BLOCK_FILL, 40, 5)
+    }
+}
+
+const BLOCK_FILL_DEJAVU_DESC: &str = "Box lines and block elements drawn from DejaVu Sans Mono at 12, 16 and 24 pixels. The font maps all of them, and the test font set's `glyph-source-box=font` and `glyph-source-block=font` lines have the font draw them in place of vtium's sprites. The screen stacks full blocks three rows high beside `Égjy`, upper and lower half blocks, and boxes of light, heavy and double lines. Then come blocks, shades and lines in yellow on blue, eighths, rounded corners and diagonals. DejaVu Sans Mono draws its full block taller than its line, 20 units above its ascent and 29 below its descent. The helper maps the full block's ink onto the cell, and every box line and block element with it, and cuts their ink at the cell. Correct: at every size the stacked full blocks form one solid rectangle with no line between rows and no spill into the `Égjy` rows; each half block fills exactly its half; each line meets the next cell's line with no gap, across and down; the blue shows only around the yellow glyphs, never as a line between two blocks or two lines that meet.";
+
+const BLOCK_FILL_IOSEVKA_DESC: &str = "The block-fill-dejavu screen drawn from Iosevka Term, in the scripts screens' font set with the same two `glyph-source` lines, at 12, 16 and 24 pixels. Iosevka Term draws its full block exactly from its descent to its ascent, so the size rule, which spans those with the cell's height less half a pixel, left the block short of the cell. Correct: the same as block-fill-dejavu, in Iosevka Term's narrower cells: solid stacked blocks, halves that fill their halves, and lines that meet from cell to cell.";
+
 /// The ligatures screens' text: operators that Iosevka Term draws as its
 /// ligatures, runs it does not join, and an arrow in two colors, with the
 /// cursor hidden.
@@ -4415,7 +4719,10 @@ fn login_base64(bytes: &[u8]) -> String {
 /// a display of `display`, placed as the console places it: a kitty
 /// transmission with no id at the lowest z that keeps the cursor, at the
 /// top left of the placement's box, and for a banner a cursor move to the
-/// row where the login prompt starts.
+/// row where the login prompt starts. The grid's origin comes from the
+/// renderer's own rule, as the console takes it. Every login screen draws
+/// with the default placement, the grid centred, and a screen with a
+/// display of its own is unturned; a turned one's grid fills its display.
 fn login_place(
     f: &mut Feed,
     form: vtium_term::images::login::Form,
@@ -4424,10 +4731,13 @@ fn login_place(
 ) -> Result<(), String> {
     use vtium_term::images::login::{Geometry, make};
     let (cw, ch) = f.cell;
+    let pixels = (grid.0 * cw, grid.1 * ch);
+    let display = display.unwrap_or(pixels);
     let geometry = Geometry {
-        display: display.unwrap_or((grid.0 * cw, grid.1 * ch)),
+        display,
         cell: f.cell,
         grid,
+        origin: vtium_render::grid_origin(Placement::Centred, Orientation::Normal, display, pixels),
     };
     let (size, source) = login_source();
     let made = make(&form, &geometry, size, &source).ok_or("the login picture has no room")?;
@@ -4581,9 +4891,9 @@ const LOGIN_COVER_DESC: &str = concat!(
 );
 
 const LOGIN_CONTAIN_DESC: &str = concat!(
-    "A login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels: the picture scaled until it fits inside the display, keeping its shape, and centered. The renderer centers the grid on the display, with 5 spare pixel columns on each side, 2 spare pixel rows above it and 3 below. ",
+    "A login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels: the picture scaled until it fits inside the display, keeping its shape, and centered. The renderer centers the grid across the display, with 5 spare pixel columns on each side, and puts its last row on the display's bottom edge, so the 5 spare pixel rows lie above it. ",
     "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
-    "Correct: the picture 296 by 197 pixels, centered across the display, its frame at the left and right; its first 2 and last 3 pixel rows, part of its top and bottom frame, fall in the strips above and below the grid, with bands of the default background left and right; the strip outside the grid shows the default background; the disc is round; the text draws over the picture and the bands alike."
+    "Correct: the picture 296 by 197 pixels, centered on the display, its frame at the left and right, with bands of the default background beside it; the grid shows the picture's last 192 pixel rows, its bottom frame on the display's bottom row; its first 5 pixel rows, part of its top frame, fall in the strip above the grid, which shows the default background, as do the spare pixel columns beside the grid; the disc is round; the text draws over the picture and the bands alike."
 );
 
 const LOGIN_ROTATED_DESC: &str = concat!(
@@ -4607,7 +4917,7 @@ const LOGIN_CONTAIN_TOP_LEFT_DESC: &str = concat!(
 const LOGIN_CONTAIN_RIGHT_DESC: &str = concat!(
     "login-contain with login-image-position=right: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's right edge and centered down the display (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels. ",
     "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
-    "Correct: the picture ends at the grid's last pixel column, its frame along the grid's right edge, and starts 280 pixels into the grid; down the screen it is placed as in login-contain, its first 2 and last 3 pixel rows in the strips outside the grid; the default background shows to its left; the disc is round; the text draws over the picture and the background alike."
+    "Correct: the picture ends at the grid's last pixel column, its frame along the grid's right edge, and starts 280 pixels into the grid; down the screen it is placed as in login-contain, centered on the display, so its first 5 pixel rows fall in the strip above the grid, which shows the default background; the default background shows to its left; the disc is round; the text draws over the picture and the background alike."
 );
 
 const LOGIN_CONTAIN_BOTTOM_DESC: &str = concat!(

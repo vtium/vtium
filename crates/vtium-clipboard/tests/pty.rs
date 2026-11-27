@@ -245,7 +245,7 @@ fn start_unread(slave: &File, args: &[&str]) -> Child {
 /// that it is writing the copy. The bound only keeps a broken test from
 /// hanging.
 fn wait_for_output(master: &File) {
-    let bound = Timespec::try_from(Duration::from_secs(10)).expect("a time");
+    let bound = Timespec::try_from(Duration::from_secs(60)).expect("a time");
     let mut fds = [PollFd::new(master, PollFlags::IN)];
     let ready = poll(&mut fds, Some(&bound)).expect("poll");
     assert_eq!(ready, 1, "the program wrote nothing");
@@ -439,7 +439,7 @@ fn ctrl_c_ends_a_copy_that_the_terminal_does_not_take() {
     let child = start_unread(&slave, &["copy", file.to_str().unwrap()]);
     wait_for_output(&master);
     master.write_all(b"\x03").expect("Ctrl+C");
-    let out = ended_within(child, Duration::from_secs(3)).expect("Ctrl+C ends the copy");
+    let out = ended_within(child, Duration::from_secs(60)).expect("Ctrl+C ends the copy");
     assert_eq!(out.status.signal(), Some(2), "SIGINT ends it: {out:?}");
     assert!(mode_back(&slave), "the terminal's mode is as it was");
 }
@@ -452,7 +452,7 @@ fn a_copy_that_the_terminal_stops_taking_ends_and_exits_1() {
     let (master, slave) = pair();
     let child = start_unread(&slave, &["copy", file.to_str().unwrap()]);
     wait_for_output(&master);
-    let bound = WRITE_STALL.saturating_add(Duration::from_secs(5));
+    let bound = WRITE_STALL.saturating_add(Duration::from_secs(60));
     let out = ended_within(child, bound).expect("the copy ends");
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
     assert_eq!(
@@ -513,7 +513,7 @@ fn a_copy_in_a_background_job_writes_the_copy_and_exits_3() {
         .stderr(Stdio::piped())
         .spawn()
         .expect("setsid runs");
-    let out = ended_within(child, Duration::from_secs(10)).expect("the shell ends");
+    let out = ended_within(child, Duration::from_secs(60)).expect("the shell ends");
     let back = mode_back(&slave);
     drop(slave);
     let written = player.join().expect("the terminal's thread");

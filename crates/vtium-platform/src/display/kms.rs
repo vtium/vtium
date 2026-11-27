@@ -14,6 +14,14 @@ use crate::bounds::{BLOB_MAX, ENCODERS_MAX, MODES_MAX, OBJECT_PROPERTIES_MAX, PL
 pub(crate) struct Resources {
     pub(crate) crtcs: Vec<u32>,
     pub(crate) connectors: Vec<u32>,
+    /// The widest and the tallest framebuffer the card makes, which the
+    /// kernel refuses to pass with EINVAL when a framebuffer is added
+    /// (`drm_internal_framebuffer_create`). A buffer taller than the screen
+    /// must fit inside them.
+    #[cfg(feature = "scroll-pan")]
+    pub(crate) max_width: u32,
+    #[cfg(feature = "scroll-pan")]
+    pub(crate) max_height: u32,
 }
 
 /// A connector as the kernel reports it.
@@ -95,6 +103,18 @@ impl Request {
     }
 }
 
+/// One legacy SETCRTC request, as the kernel's `drm_mode_crtc` carries it.
+/// With a mode, the CRTC scans out framebuffer `fb` and drives
+/// `connectors`. With no mode, the kernel ignores `fb` and turns the CRTC
+/// off, which it does only where `connectors` is empty.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SetCrtc<'a> {
+    pub(crate) crtc: u32,
+    pub(crate) fb: u32,
+    pub(crate) connectors: &'a [u32],
+    pub(crate) mode: Option<&'a Mode>,
+}
+
 /// An event the card reported, with the CRTC it names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CrtcEvent {
@@ -122,6 +142,11 @@ pub(crate) trait Kms {
     fn cap(&self, cap: u32) -> io::Result<u64>;
     fn set_master(&self) -> io::Result<()>;
     fn drop_master(&self) -> io::Result<()>;
+    /// Whether this open file of the card is its DRM master now. The
+    /// kernel makes the first process to open a card that no process holds
+    /// master of the card's master, and a seat manager that shares the
+    /// open file can drop master on it, so only the kernel knows.
+    fn is_master(&self) -> io::Result<bool>;
 
     fn resources(&self) -> io::Result<Resources>;
 
@@ -312,13 +337,32 @@ pub(crate) trait Kms {
 
     /// An atomic commit with `DRM_MODE_*` flags.
     fn commit(&self, request: &Request, flags: u32) -> io::Result<()>;
-    /// The legacy modeset of one CRTC.
-    fn set_crtc(&self, crtc: u32, fb: u32, connector: u32, mode: &Mode) -> io::Result<()>;
-    /// The legacy modeset that turns a CRTC off: no framebuffer, no
-    /// connector and no mode. A card that cannot says so with
-    /// `Unsupported`.
-    fn disable_crtc(&self, _crtc: u32) -> io::Result<()> {
-        Err(io::ErrorKind::Unsupported.into())
+    /// One legacy SETCRTC call. [`Kms::set_crtc`] and
+    /// [`Kms::disable_crtc`] build theirs here, so the real card and the
+    /// tests' stand-in, which refuses what the kernel refuses, get the same
+    /// request.
+    fn setcrtc(&self, set: &SetCrtc<'_>) -> io::Result<()>;
+    /// The legacy modeset of one CRTC: `connector` alone on it at `mode`,
+    /// scanning out framebuffer `fb`.
+    fn set_crtc(&self, crtc: u32, fb: u32, connector: u32, mode: &Mode) -> io::Result<()> {
+        self.setcrtc(&SetCrtc {
+            crtc,
+            fb,
+            connectors: &[connector],
+            mode: Some(mode),
+        })
+    }
+    /// The legacy modeset that turns a CRTC off and takes every connector
+    /// off it: no framebuffer, no connector and no mode. The kernel turns
+    /// a CRTC off only for a request with neither a mode nor a connector,
+    /// and refuses one with either but not both (`drm_mode_setcrtc`).
+    fn disable_crtc(&self, crtc: u32) -> io::Result<()> {
+        self.setcrtc(&SetCrtc {
+            crtc,
+            fb: 0,
+            connectors: &[],
+            mode: None,
+        })
     }
     /// The legacy page flip, with a completion event.
     fn page_flip(&self, crtc: u32, fb: u32) -> io::Result<()>;

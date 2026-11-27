@@ -6,7 +6,9 @@
 mod common;
 
 use common::{Screen, arrow_over, rgb, style, unifont};
-use vtium_render::{Arrow, Canvas, Config, DrawState, Orientation, Renderer};
+use vtium_render::{
+    Arrow, Canvas, Config, DrawState, Orientation, PartialRow, Placement, Renderer,
+};
 use vtium_term::{Age, Attrs, CursorShape, UnderlineStyle};
 
 /// 21 columns, one more than the displays below hold, with a wide
@@ -211,28 +213,20 @@ fn the_pointer_turns_with_the_display() {
     assert!(lit > 10, "the arrow has pixels");
 }
 
-// An odd remainder is split rounding down in the display's own
-// coordinates in every orientation, as tier 2's `edges` goldens show it:
-// 5 pixels across and 3 down leave 2 left, 3 right, 1 above and
-// 2 below unturned and upside down; a turned display, 3 across and 5
-// down, leaves 1, 2, 2 and 3.
-#[test]
-fn an_odd_border_rounds_down_in_display_coordinates() {
+/// The border's columns left and right of a grid of 6 by 2 cells, then
+/// its lines above and below, on each display of `cases`, with the grid
+/// placed as `placement` says.
+fn border_split(placement: Placement, cases: [(Orientation, (u32, u32), [usize; 4]); 4]) {
     let (cols, rows) = (6usize, 2usize);
     let mut s = Screen::new(cols, rows, rgb("c0c0c0"), rgb("101010"));
     for row in 0..rows {
         s.text(0, row, "      ", style(rgb("ffffff"), rgb("203040")));
     }
-    let (gw, gh) = (cols as u32 * 8, rows as u32 * 16);
     let border = 0x10_10_10;
-    for (o, (w, h), want) in [
-        (Orientation::Normal, (gw + 5, gh + 3), [2, 3, 1, 2]),
-        (Orientation::UpsideDown, (gw + 5, gh + 3), [2, 3, 1, 2]),
-        (Orientation::Right, (gh + 3, gw + 5), [1, 2, 2, 3]),
-        (Orientation::Left, (gh + 3, gw + 5), [1, 2, 2, 3]),
-    ] {
+    for (o, (w, h), want) in cases {
         let config = Config {
             orientation: o,
+            placement,
             ..Config::default()
         };
         let mut r = Renderer::new(unifont(), w, h, config);
@@ -250,6 +244,52 @@ fn an_odd_border_rounds_down_in_display_coordinates() {
             (0..h).take_while(|&y| line(y)).count(),
             (0..h).rev().take_while(|&y| line(y)).count(),
         ];
-        assert_eq!(got, want, "{o:?}: left, right, top, bottom");
+        assert_eq!(got, want, "{o:?} {placement:?}: left, right, top, bottom");
     }
+}
+
+// With smooth scrolling off, the default, an odd remainder is split
+// rounding down in the display's own coordinates in every orientation, on
+// both axes, as tier 2's `edges` goldens show it: 5 pixels across and 3
+// down leave 2 left, 3 right, 1 above and 2 below unturned and upside
+// down; a turned display, 3 across and 5 down, leaves 1, 2, 2 and 3.
+//
+// References:
+// - ADR-1310 D12, "With smooth scrolling off": the grid centred on both axes in the display's own pixels.
+#[test]
+fn an_odd_border_rounds_down_in_display_coordinates() {
+    let (gw, gh) = (6 * 8, 2 * 16);
+    border_split(
+        Placement::Centred,
+        [
+            (Orientation::Normal, (gw + 5, gh + 3), [2, 3, 1, 2]),
+            (Orientation::UpsideDown, (gw + 5, gh + 3), [2, 3, 1, 2]),
+            (Orientation::Right, (gh + 3, gw + 5), [1, 2, 2, 3]),
+            (Orientation::Left, (gh + 3, gw + 5), [1, 2, 2, 3]),
+        ],
+    );
+}
+
+// With smooth scrolling on, along the rows the grid's last row touches
+// the text's bottom edge, so all the spare lines lie above its first row.
+// Across the rows, an odd remainder is split rounding down in the
+// display's own coordinates. 5 pixels across and 3 down leave 2 left, 3
+// right, and 3 above unturned or 3 below upside down. A turned display, 3
+// across and 5 down, leaves 2 above and 3 below, and 3 right turned right
+// or 3 left turned left.
+//
+// References:
+// - ADR-1310 D10: the grid flush along its rows while smooth scrolling is on, and centred across them.
+#[test]
+fn the_border_is_flush_along_the_rows_and_rounds_down_across_them() {
+    let (gw, gh) = (6 * 8, 2 * 16);
+    border_split(
+        Placement::Bottom(PartialRow::History),
+        [
+            (Orientation::Normal, (gw + 5, gh + 3), [2, 3, 3, 0]),
+            (Orientation::UpsideDown, (gw + 5, gh + 3), [2, 3, 0, 3]),
+            (Orientation::Right, (gh + 3, gw + 5), [0, 3, 2, 3]),
+            (Orientation::Left, (gh + 3, gw + 5), [3, 0, 2, 3]),
+        ],
+    );
 }

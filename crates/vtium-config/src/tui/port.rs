@@ -325,12 +325,14 @@ pub fn drive_with(
     }
 }
 
-/// The bytes that give the console its start font back, when a switch
-/// changed it, and then its start grid, when the Looks tab changed it.
+/// The bytes that give the console its colors back, when a look's trial
+/// changed them, its start font, when a switch changed it, and then its
+/// start grid, when the Looks tab changed it.
 fn give_back(app: &App) -> Vec<u8> {
-    let mut out = font_back(app);
+    let mut out = super::shot::colors_on_leaving(&app.shared);
+    out.extend(font_back(app));
     if app.shared.grid_moved {
-        out.extend(super::shot::grid_request(app.shared.start_grid));
+        out.extend(super::shot::grid_back(app.shared.start_back()));
     }
     out
 }
@@ -477,6 +479,61 @@ fn now() -> Instant {
     Instant::now()
 }
 
+/// Reads the terminal's input on `input` into the loop's wakes, each read
+/// as [`Wake::Bytes`], and the end of the input as a hangup.
+fn watch_input(events: &Loop<Woken>, input: OwnedFd) -> io::Result<()> {
+    let source = Generic::new(input, Interest::READ, Mode::Level);
+    events
+        .handle()
+        .insert_source(source, |_, fd, w: &mut Woken| {
+            let mut buf = [0u8; 4096];
+            match rustix::io::read(fd.as_fd(), &mut buf) {
+                Ok(0) => {
+                    // the terminal is gone
+                    w.wakes.push(Wake::Signal(1));
+                    Ok(PostAction::Remove)
+                }
+                Ok(n) => {
+                    w.wakes
+                        .push(Wake::Bytes(buf.get(..n).unwrap_or_default().to_vec()));
+                    Ok(PostAction::Continue)
+                }
+                Err(rustix::io::Errno::INTR | rustix::io::Errno::AGAIN) => Ok(PostAction::Continue),
+                Err(e) => Err(e.into()),
+            }
+        })
+        .map_err(|e| io::Error::other(e.to_string()))?;
+    Ok(())
+}
+
+/// Waits on `events` until a source leaves something in `woken`, or until
+/// `deadline` passes, which ends in [`Wake::Timeout`] and clears it.
+///
+/// The deadline ends the wait only after a dispatch that finds nothing
+/// waiting. The TUI can be busy past its deadline with work of its own,
+/// and input that came meanwhile, such as the terminal's answers to the
+/// start queries, is read first. A deadline that has passed stays set
+/// while input keeps coming, so the next wait reads again without waiting
+/// and ends in the timeout once nothing more waits.
+fn wait_on(
+    events: &mut Loop<Woken>,
+    deadline: &mut Option<Instant>,
+    woken: &mut Woken,
+) -> io::Result<()> {
+    loop {
+        let timeout = deadline.map(|d| d.saturating_duration_since(now()));
+        events.dispatch(timeout, woken)?;
+        if !woken.wakes.is_empty() {
+            return Ok(());
+        }
+        if timeout == Some(Duration::ZERO) {
+            *deadline = None;
+            woken.wakes.push(Wake::Timeout);
+            return Ok(());
+        }
+    }
+}
+
 impl Tty {
     /// Whether the loop watches udev's device events.
     pub fn watches_hotplug(&self) -> bool {
@@ -503,33 +560,7 @@ impl Tty {
         // held so the TUI can take the terminal's foreground back after
         // the privileged step without being stopped
         events.on_signal(Signal::SIGTTOU, |_: &mut Woken| {})?;
-        let source = Generic::new(
-            rustix::io::fcntl_dupfd_cloexec(&input, 0)?,
-            Interest::READ,
-            Mode::Level,
-        );
-        events
-            .handle()
-            .insert_source(source, |_, fd, w: &mut Woken| {
-                let mut buf = [0u8; 4096];
-                match rustix::io::read(fd.as_fd(), &mut buf) {
-                    Ok(0) => {
-                        // the terminal is gone
-                        w.wakes.push(Wake::Signal(1));
-                        Ok(PostAction::Remove)
-                    }
-                    Ok(n) => {
-                        w.wakes
-                            .push(Wake::Bytes(buf.get(..n).unwrap_or_default().to_vec()));
-                        Ok(PostAction::Continue)
-                    }
-                    Err(rustix::io::Errno::INTR | rustix::io::Errno::AGAIN) => {
-                        Ok(PostAction::Continue)
-                    }
-                    Err(e) => Err(e.into()),
-                }
-            })
-            .map_err(|e| io::Error::other(e.to_string()))?;
+        watch_input(&events, rustix::io::fcntl_dupfd_cloexec(&input, 0)?)?;
         let (sourced, answers) = channel();
         events
             .handle()
@@ -731,20 +762,7 @@ impl Port for Tty {
             wakes: Vec::new(),
             udev: self.udev.take(),
         };
-        let result = loop {
-            if !woken.wakes.is_empty() {
-                break Ok(());
-            }
-            let timeout = self.deadline.map(|d| d.saturating_duration_since(now()));
-            if timeout == Some(Duration::ZERO) {
-                self.deadline = None;
-                woken.wakes.push(Wake::Timeout);
-                break Ok(());
-            }
-            if let Err(e) = self.events.dispatch(timeout, &mut woken) {
-                break Err(e);
-            }
-        };
+        let result = wait_on(&mut self.events, &mut self.deadline, &mut woken);
         self.udev = woken.udev.take();
         result?;
         Ok(woken.wakes)
@@ -891,6 +909,7 @@ impl Drop for Tty {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
 
@@ -902,5 +921,28 @@ mod tests {
         let off = super::super::model::MOUSE_OFF;
         assert!(LEAVE.windows(off.len()).any(|w| w == off), "{LEAVE:?}");
         assert!(LEAVE.ends_with(b"\x1b[?25h\x1b[?1049l"), "{LEAVE:?}");
+    }
+
+    /// The terminal's answers that already wait to be read come before the
+    /// end of a wait whose deadline has passed. The TUI can be busy past
+    /// its deadline with work of its own, such as checking the draft, while
+    /// a vtium console's answers to its start queries wait unread. Those
+    /// answers then still decide what the terminal is, and the deadline
+    /// ends the wait only once nothing more waits.
+    #[test]
+    fn input_that_waits_comes_before_a_deadline_that_has_passed() {
+        let mut events = Loop::<Woken>::new().expect("an event loop");
+        let (read, mut write) = std::io::pipe().expect("a pipe");
+        watch_input(&events, read.into()).expect("the input is watched");
+        let answer = b"\x1bP>|vtium(test)\x1b\\\x1b[?62;4c";
+        write.write_all(answer).expect("the answer is written");
+        let mut deadline = Some(now());
+        let mut woken = Woken::default();
+        wait_on(&mut events, &mut deadline, &mut woken).expect("a wait");
+        assert_eq!(woken.wakes, [Wake::Bytes(answer.to_vec())]);
+        let mut woken = Woken::default();
+        wait_on(&mut events, &mut deadline, &mut woken).expect("a wait");
+        assert_eq!(woken.wakes, [Wake::Timeout]);
+        assert_eq!(deadline, None);
     }
 }

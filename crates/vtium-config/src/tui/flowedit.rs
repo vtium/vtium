@@ -73,6 +73,7 @@ impl App {
             Then::Quit(status) => self.save_and_leave(status),
             Then::Change(change) => self.make(vec![change], None),
             Then::Desk(op) => vec![Effect::Desk(op)],
+            Then::Desks(ops) => ops.into_iter().map(Effect::Desk).collect(),
             Then::Install(plan) => {
                 self.shared.installing = true;
                 self.shared.message = Some(words::INSTALLING.to_owned());
@@ -149,7 +150,10 @@ impl App {
     /// desk to check; all of them or, when one cannot be made, none. The
     /// changes wait for Save. The message line shows the commands that
     /// make the same changes, and `select` is the item to select once the
-    /// draft is checked.
+    /// draft is checked. Changes that leave the draft's text as it was,
+    /// such as picking the value a look already has, are no change: the
+    /// TUI counts nothing and says so, so Save and the quit question never
+    /// name a change that changed nothing.
     ///
     /// References:
     /// - ADR-1403 D7: a change waits for Save.
@@ -158,6 +162,9 @@ impl App {
             Ok(text) => text,
             Err(why) => return self.say(&why),
         };
+        if self.shared.draft.as_ref().is_some_and(|d| d.text == text) {
+            return self.say(words::NOT_DONE);
+        }
         let commands: Vec<String> = changes.iter().map(Change::command).collect();
         self.shared.message = Some(commands.join("\n"));
         self.flow.select_after(select);
@@ -274,12 +281,7 @@ impl App {
             // References:
             // - ADR-1403 D8: an install writes the frits before vtium.conf.
             Done::Plan(plan) => {
-                let n = plan
-                    .files
-                    .iter()
-                    .filter(|f| f.path.extension().is_some_and(|e| e == "vtfrit"))
-                    .count()
-                    .saturating_add(plan.removals.len());
+                let n = plan.font_sets();
                 if plan.is_empty() {
                     return self.say(words::NOTHING_TO_INSTALL);
                 }
@@ -297,10 +299,17 @@ impl App {
                 //
                 // References:
                 // - ADR-1403 D7: the question before such an install.
-                let question = if plan.no_route {
-                    words::no_route_question(added, removed, n)
+                // the changes to the active resources install with the
+                // batch file, which the plan holds when they change it
+                let batch = if plan.writes_batch() {
+                    self.shared.draft.as_ref().map_or(0, |d| d.batch)
                 } else {
-                    words::install_question(added, removed, n)
+                    0
+                };
+                let question = if plan.no_route {
+                    words::no_route_question(added, removed, batch, n)
+                } else {
+                    words::install_question(added, removed, batch, n)
                 };
                 self.ask(question, Then::Install(plan));
             }
@@ -404,6 +413,7 @@ impl App {
         let spot = self.looks.spot(&self.shared);
         self.shared.draft = Some(opened);
         self.frits_installed(done, spot);
+        self.console_installed();
         self.rebuild(None);
         self.say(&message)
     }

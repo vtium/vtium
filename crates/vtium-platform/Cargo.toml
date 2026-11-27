@@ -31,6 +31,26 @@ gpu = ["dep:glow", "dep:khronos-egl", "dep:libloading"]
 # each device retried from the loop's timers. Off in the minspec and
 # default builds, which link no libseat.
 libseat = ["dep:libseat"]
+# A display whose buffers are taller than the screen, or wider on a display
+# turned on its side, and which shows a window of each buffer as large as
+# the screen. A scroll then moves the window through the plane's source
+# rectangle instead of redrawing the rows. Off in the minspec build, which
+# makes every buffer the screen's size.
+#
+# References:
+# - ADR-1401 D2, "A buffer taller than the screen": the display's half.
+# - ADR-1310 D6, "Where the driver allows it": the feature that holds it.
+scroll-pan = []
+# The privilege split's platform half: the VT backend of the drawing
+# process, which reaches the VT, DRM master and the input devices through
+# vtium's root process; the root process's holder of the VT and the
+# devices; and the start of an image helper through the root process. Off
+# in the minspec build, which runs vtium as one process.
+#
+# References:
+# - ADR-1400 D4, "What the broker does": the split, and the note that
+#   builds it behind a feature.
+split = ["dep:vtium-broker-protocol"]
 
 [dependencies]
 calloop = { version = "0.14.4", features = ["signals"] }
@@ -42,6 +62,9 @@ log = "0.4"
 udev = "=0.9.3"
 xkbcommon = { version = "=0.9.0", default-features = false }
 rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "mm", "net", "process", "pty", "runtime", "system", "termios", "thread"] }
+# The messages between vtium's broker and its drawer, which the broker's
+# VT backend and the broker's device holder speak; only with `split`.
+vtium-broker-protocol = { workspace = true, optional = true }
 # The image helper's wire and reply types, which the helper links too
 # (ADR-1101 D7); only with `images`.
 vtium-image = { workspace = true, optional = true }

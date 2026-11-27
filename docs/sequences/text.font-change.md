@@ -9,13 +9,13 @@
 
 ## Parameters
 
-- `Pt`: The name of a font set or a built-in font: 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, not starting with `.`.
+- `Pt`: One of three names. A font set or a built-in font is named by 1 to 64 characters of `A-Z a-z 0-9 . _ + -`, not starting with `.`. A font that root has installed and trusts is named by its absolute path, at most 4095 bytes. A head's configured font family is named as the configuration gives it.
 
 ## What vtium does
 
-vtium switches to the font set that Pt names. When the new font's character cell has another size, vtium resizes the grid to fit it. The query gets `OSC 50 ; NAME`, ended as it was asked, where NAME is the set in use. While the `allow-font-ops` key is off, vtium ignores both forms.
+vtium switches to the font set that Pt names. For a font's path, vtium first checks that root has installed the font and trusts its folder, and then builds a font set of that one font. When the new font's character cell has another size, vtium resizes the grid to fit it. The query gets `OSC 50 ; NAME`, ended as it was asked, where NAME is the set in use, the font's path, or the family's name. While the `allow-font-ops` key is off, vtium ignores both forms.
 
-vtium takes only the name of one of its font sets, and ignores anything else, such as a path or an X font name. It also ignores a Pt that starts with `#`, the form that picks from a font menu. See [OSC strings and the Linux console's sequences in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#osc-strings-and-the-linux-consoles-sequences).
+vtium takes three kinds of name: one of its font sets, the path of a font that root has installed and trusts, and the family a head's configuration names. It ignores anything else, such as an X font name or the path of any other font. It also ignores a Pt that starts with `#`, the form that picks from a font menu. See [OSC strings and the Linux console's sequences in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#osc-strings-and-the-linux-consoles-sequences).
 
 ## Status
 
@@ -28,19 +28,25 @@ vtium takes only the name of one of its font sets, and ignores anything else, su
 
 These tests check what vtium does with the sequences on this page.
 
-- `a_console_hidden_during_the_wait_answers_once_shown_in_the_new_cell` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
-- `a_console_shown_during_the_wait_holds_its_replies_until_the_new_cell` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
-- `a_hidden_console_names_the_font_it_last_drew_in_until_shown` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
-- `a_hidden_console_takes_the_late_cell_and_its_name_together_once_shown` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
-- `a_switch_answers_in_the_kept_cell_once_the_helper_fails` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
-- `a_switch_answers_once_its_late_cell_is_known` in [crates/vtium/src/app.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app.rs)
+- `a_console_hidden_during_the_wait_answers_once_shown_in_the_new_cell` in [crates/vtium/src/app/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app/tests.rs)
+- `a_console_shown_during_the_wait_holds_its_replies_until_the_new_cell` in [crates/vtium/src/app/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app/tests.rs)
+- `a_hidden_console_names_the_font_it_last_drew_in_until_shown` in [crates/vtium/src/app/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app/tests.rs)
+- `a_hidden_console_takes_the_late_cell_and_its_name_together_once_shown` in [crates/vtium/src/app/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app/tests.rs)
+- `a_switch_answers_in_the_kept_cell_once_the_helper_fails` in [crates/vtium/src/app/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app/tests.rs)
+- `a_switch_answers_once_its_late_cell_is_known` in [crates/vtium/src/app/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app/tests.rs)
+- `osc_50_leaves_the_font_for_a_path_that_fails_a_check` in [crates/vtium/src/app/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app/tests.rs)
+- `osc_50_switches_to_a_qualifying_font_path_and_back` in [crates/vtium/src/app/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app/tests.rs)
 - `osc_50_switches_back_to_vconsoles_font_by_the_name_its_query_reported` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
+- `osc_50_switches_to_a_console_font_by_its_path_and_draws_from_it` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
 - `osc_50_switches_to_a_frit_and_its_helper_is_asked` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
+- `osc_50_switches_to_an_outline_font_by_its_path_and_draws_from_it` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
+- `osc_50_to_a_console_font_whose_cell_comes_late_draws_in_that_cell` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
 - `a_hidden_consoles_query_names_the_font_it_last_drew_in_until_shown` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `a_sessions_end_returns_its_switch_to_the_configured_font` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `a_sessions_end_undoes_its_zoom` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `an_osc_50_switch_holds_the_programs_replies_until_the_late_cell` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
+- [tools/conformance/scenarios/reply-font-path.scenario](https://github.com/vtium/vtium/blob/main/tools/conformance/scenarios/reply-font-path.scenario)
 
 ## Where to read more
 

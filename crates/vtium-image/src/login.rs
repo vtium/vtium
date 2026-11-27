@@ -163,14 +163,24 @@ pub struct Form {
     pub scale: u8,
 }
 
-/// The screen the picture is made for: the display's size in pixels, the
-/// character cell in pixels, and the grid in cells. The renderer centers
-/// the grid on the display, with the odd spare pixel after it.
+/// The screen the picture is made for: the display's size in pixels, as
+/// the text reads on it, the character cell in pixels, the grid in cells,
+/// and where the grid starts on the display. The console takes the origin
+/// from the renderer's own placement (`vtium_render::grid_origin`), so the
+/// picture lines up with the grid whether the renderer centres the grid or
+/// puts it flush to the bottom, and on a turned display too.
+///
+/// References:
+/// - ADR-1310 D10 and D12: where the grid sits with smooth scrolling on and
+///   off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Geometry {
     pub display: (u32, u32),
     pub cell: (u32, u32),
     pub grid: (u32, u32),
+    /// The pixel, as the text reads, of the grid's top-left corner, from
+    /// the display's top-left corner as the text reads.
+    pub origin: (u32, u32),
 }
 
 /// What the image helper is asked to make of a decoded login picture: the
@@ -269,21 +279,21 @@ pub fn fit(
         return Some((tw, th, pixels));
     }
     let display = shown_display(geometry, grid_px);
+    let origin = grid_origin(geometry, display, grid_px);
     let scaled = shrunk(fitted(form.fit, size, display)?, form.scale);
     let (across, down) = sides(form.position);
-    let shown = (scaled.0.min(grid_px.0), scaled.1.min(grid_px.1));
-    // where the scaled picture starts, relative to the first pixel of it
-    // that shows, along each side: 0, or less where the grid cuts it
-    let offset = |side, d, g, s, v| {
-        let window = centered(d, g).checked_add(i64::from(inset(side, d, g, v)?))?;
-        start(side, d, g, s).checked_sub(window)
+    // along each side, how much of the scaled picture shows, and where the
+    // picture starts relative to the first pixel of it that shows: 0, or
+    // less where the grid cuts it
+    let side = |side, d, at, g, s| {
+        let v = visible(side, d, at, g, s);
+        let window = at.checked_add(i64::from(inset(side, d, at, g, v)?))?;
+        Some((v, start(side, d, at, g, s).checked_sub(window)?))
     };
-    let offset = (
-        offset(across, display.0, grid_px.0, scaled.0, shown.0)?,
-        offset(down, display.1, grid_px.1, scaled.1, shown.1)?,
-    );
-    let pixels = resample(source, size, scaled, offset, shown)?;
-    Some((shown.0, shown.1, pixels))
+    let (vw, ox) = side(across, display.0, origin.0, grid_px.0, scaled.0)?;
+    let (vh, oy) = side(down, display.1, origin.1, grid_px.1, scaled.1)?;
+    let pixels = resample(source, size, scaled, (ox, oy), (vw, vh))?;
+    Some((vw, vh, pixels))
 }
 
 /// Whether the screen `fitting` names has room for a picture in its form:
@@ -346,10 +356,12 @@ impl Spot {
 /// console checks before it reads a pixel of the image helper's answer.
 ///
 /// A background's visible size says where it lies. Against an edge the
-/// anchor names, the picture's visible part starts or ends at that edge,
-/// and centered on the display, its visible part is centered too, or
-/// fills the grid's side when the picture passes both its edges. So the
-/// console needs nothing from the image helper but the size.
+/// anchor names, the picture's visible part starts or ends at that edge.
+/// Centered on the display, its visible part is centered too when it lies
+/// wholly on the grid, and otherwise starts at the grid's first edge, since
+/// the spare pixel rows lie before the grid and a centered picture that
+/// passes the grid's last edge fills the grid. So the console needs nothing
+/// from the image helper but the size.
 pub fn place(fitting: &Fitting, size: (u32, u32)) -> Option<Spot> {
     let (form, geometry) = (&fitting.form, &fitting.geometry);
     let grid_px = grid_pixels(geometry)?;
@@ -366,9 +378,10 @@ pub fn place(fitting: &Fitting, size: (u32, u32)) -> Option<Spot> {
         return None;
     }
     let display = shown_display(geometry, grid_px);
+    let origin = grid_origin(geometry, display, grid_px);
     let (across, down) = sides(form.position);
-    let x = inset(across, display.0, grid_px.0, w)?;
-    let y = inset(down, display.1, grid_px.1, h)?;
+    let x = inset(across, display.0, origin.0, grid_px.0, w)?;
+    let y = inset(down, display.1, origin.1, grid_px.1, h)?;
     let (col, row) = (x.checked_div(cw)?, y.checked_div(ch)?);
     let box_cols = x.checked_add(w)?.div_ceil(cw).checked_sub(col)?;
     let box_rows = y.checked_add(h)?.div_ceil(ch).checked_sub(row)?;
@@ -476,29 +489,60 @@ fn sides(position: Option<Position>) -> (Side, Side) {
     position.map_or((Side::Middle, Side::Middle), |p| (p.across(), p.down()))
 }
 
-/// Where a scaled picture `s` long starts on a display side `d` long that
-/// holds a grid side `g` long: on the grid's first edge, ending on its last
-/// edge, or centered on the display.
-fn start(side: Side, d: u32, g: u32, s: u32) -> i64 {
-    let grid = centered(d, g);
+/// Where the grid starts on the `display` that holds it, across and down:
+/// the origin `geometry` gives, kept where the whole grid fits on the
+/// display.
+fn grid_origin(geometry: &Geometry, (dw, dh): (u32, u32), (gw, gh): (u32, u32)) -> (i64, i64) {
+    let (x, y) = geometry.origin;
+    (
+        i64::from(x.min(dw.saturating_sub(gw))),
+        i64::from(y.min(dh.saturating_sub(gh))),
+    )
+}
+
+/// Where a scaled picture `s` long starts on a display side `d` long whose
+/// grid side, `g` long, starts at `at`: on the grid's first edge, ending on
+/// its last edge, or centered on the display. A centered picture that
+/// would end before the grid starts, which only spare pixels longer than
+/// the grid allow, starts on the grid's first edge instead, so some of it
+/// shows.
+fn start(side: Side, d: u32, at: i64, g: u32, s: u32) -> i64 {
     match side {
-        Side::Start => grid,
-        Side::End => grid
-            .saturating_add(i64::from(g))
-            .saturating_sub(i64::from(s)),
-        Side::Middle => centered(d, s),
+        Side::Start => at,
+        Side::End => at.saturating_add(i64::from(g)).saturating_sub(i64::from(s)),
+        Side::Middle => {
+            let c = centered(d, s);
+            if c.saturating_add(i64::from(s)) <= at {
+                at
+            } else {
+                c
+            }
+        }
     }
 }
 
+/// How much of a scaled picture `s` long, placed as [`start`] places it,
+/// lies on the grid side `g` long that starts at `at`.
+fn visible(side: Side, d: u32, at: i64, g: u32, s: u32) -> u32 {
+    let first = start(side, d, at, g, s);
+    let end = first.saturating_add(i64::from(s));
+    let shown = end
+        .min(at.saturating_add(i64::from(g)))
+        .saturating_sub(first.max(at));
+    u32::try_from(shown).unwrap_or(0)
+}
+
 /// Where the part `v` long that shows of a picture starts on a grid side
-/// `g` long, on a display side `d` long, in pixels from the grid's first
-/// edge. A centered picture longer than the grid fills it, so its part
-/// that shows starts at 0 as `centered` gives for `v` equal to `g`.
-fn inset(side: Side, d: u32, g: u32, v: u32) -> Option<u32> {
+/// `g` long that starts at `at` on a display side `d` long, in pixels from
+/// the grid's first edge. A centered picture wholly on the grid shows
+/// whole, centered on the display. One that passes the grid's first edge,
+/// or both its edges, shows from that first edge, where `centered` gives
+/// no later start for `v`.
+fn inset(side: Side, d: u32, at: i64, g: u32, v: u32) -> Option<u32> {
     match side {
         Side::Start => Some(0),
         Side::End => g.checked_sub(v),
-        Side::Middle => u32::try_from(centered(d, v).checked_sub(centered(d, g))?).ok(),
+        Side::Middle => u32::try_from(centered(d, v).checked_sub(at)?.max(0)).ok(),
     }
 }
 
@@ -834,690 +878,4 @@ fn across_row(source: Source<'_>, start: usize, across: &Taps, out_w: usize) -> 
     clippy::cast_possible_truncation,
     reason = "a test fails by panicking, and works out its pixels in small numbers"
 )]
-mod tests {
-    use super::*;
-
-    /// A picture whose every pixel is opaque and differs from its
-    /// neighbours.
-    fn picture(w: u32, h: u32) -> Vec<u32> {
-        (0..h)
-            .flat_map(|y| {
-                (0..w).map(move |x| 0xff00_0000 | (x & 0xff) << 16 | (y & 0xff) << 8 | 0x40)
-            })
-            .collect()
-    }
-
-    fn form(fit: Fit) -> Form {
-        Form {
-            fit,
-            rows: None,
-            position: None,
-            scale: SCALE_FULL,
-        }
-    }
-
-    const SCREEN: Geometry = Geometry {
-        display: (80, 48),
-        cell: (8, 16),
-        grid: (10, 3),
-    };
-
-    #[test]
-    fn a_background_made_at_the_displays_size_draws_one_to_one_under_cover() {
-        let src = picture(80, 48);
-        let made = make(&form(Fit::Cover), &SCREEN, (80, 48), &src).expect("made");
-        assert_eq!((made.width, made.height), (80, 48));
-        assert_eq!(made.pixels.as_slice(), &src[..]);
-        assert!(made.opaque);
-        assert_eq!(
-            (made.place.cols, made.place.rows, made.place.z),
-            (10, 3, i32::MIN)
-        );
-        assert_eq!(made.prompt_row, None);
-    }
-
-    #[test]
-    fn a_background_keeps_the_part_that_falls_on_the_grid() {
-        // a display of 84x50 with a grid of 80x48 centered on it, 2 pixel
-        // columns and 1 pixel row before it: the picture of 84x50 at one to
-        // one, cut to the grid
-        let src = picture(84, 50);
-        let geo = Geometry {
-            display: (84, 50),
-            ..SCREEN
-        };
-        let made = make(&form(Fit::Cover), &geo, (84, 50), &src).expect("made");
-        assert_eq!((made.width, made.height), (80, 48));
-        for y in 0..48 {
-            for x in 0..80 {
-                assert_eq!(
-                    made.pixels.as_slice()[y * 80 + x],
-                    src[(y + 1) * 84 + x + 2]
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn contain_leaves_transparent_bands_and_cover_crops() {
-        // a square picture on a display twice as wide as tall
-        let src = vec![0xffff_0000; 16 * 16];
-        let made = make(&form(Fit::Contain), &SCREEN, (16, 16), &src).expect("made");
-        // 48 tall, so 48 wide, centered: 16 transparent columns each side,
-        // outside the box of columns 2 to 7
-        let at = |x| shown(&made, SCREEN.cell, (x, 0));
-        assert_eq!((at(0), at(15)), (0, 0));
-        assert_eq!((at(16), at(63)), (0xffff_0000, 0xffff_0000));
-        assert_eq!((at(64), at(79)), (0, 0));
-        assert_eq!((made.place.col, made.place.cols), (2, 6));
-        let made = make(&form(Fit::Cover), &SCREEN, (16, 16), &src).expect("made");
-        assert!(made.opaque);
-        assert_eq!((made.place.cols, made.place.rows), (10, 3));
-    }
-
-    #[test]
-    fn stretch_fills_and_none_centres_at_its_own_size() {
-        let src = vec![0xff00_ff00; 4 * 4];
-        let made = make(&form(Fit::Stretch), &SCREEN, (4, 4), &src).expect("made");
-        assert!(made.opaque);
-        let made = make(&form(Fit::Natural), &SCREEN, (4, 4), &src).expect("made");
-        // 4x4 centered on 80x48: columns 38 to 41, rows 22 to 25
-        let at = |x, y| shown(&made, SCREEN.cell, (x, y));
-        assert_eq!(at(37, 22), 0);
-        assert_eq!(at(38, 22), 0xff00_ff00);
-        assert_eq!(at(41, 25), 0xff00_ff00);
-        assert_eq!(at(42, 25), 0);
-        assert_eq!(at(38, 26), 0);
-    }
-
-    #[test]
-    fn downscaling_averages_and_keeps_colors_within_alpha() {
-        // black and half-transparent white, alternating: each 2x2 square
-        // averages to the same pixel
-        let src: Vec<u32> = (0..16)
-            .map(|i| {
-                if (i + i / 4) % 2 == 0 {
-                    0xff00_0000
-                } else {
-                    0x8080_8080
-                }
-            })
-            .collect();
-        let out = resample(Source::Argb(&src), (4, 4), (2, 2), (0, 0), (2, 2)).expect("resampled");
-        // alpha (255 + 128) / 2 = 191.5, color 64
-        assert_eq!(out, vec![0xc040_4040; 4]);
-        for p in out {
-            let [a, r, g, b] = channels(p);
-            assert!(r <= a && g <= a && b <= a);
-        }
-    }
-
-    #[test]
-    fn a_banner_takes_its_own_size_and_the_prompt_starts_below_it() {
-        let src = picture(20, 20);
-        let geo = Geometry {
-            grid: (10, 5),
-            ..SCREEN
-        };
-        let made = make(&form(Fit::Banner), &geo, (20, 20), &src).expect("made");
-        assert_eq!((made.width, made.height), (20, 20));
-        assert_eq!(made.pixels.as_slice(), &src[..]);
-        // 20 pixels of 16-pixel rows: 2 rows
-        assert_eq!(made.prompt_row, Some(2));
-        assert_eq!(
-            (made.place.col, made.place.cols, made.place.rows),
-            (0, 0, 0)
-        );
-    }
-
-    #[test]
-    fn a_banner_of_n_rows_and_one_too_large_for_the_grid() {
-        let src = picture(40, 20);
-        let geo = Geometry {
-            grid: (80, 10),
-            ..SCREEN
-        };
-        let rows = Form {
-            rows: Some(3),
-            ..form(Fit::Banner)
-        };
-        let made = make(&rows, &geo, (40, 20), &src).expect("made");
-        assert_eq!((made.width, made.height), (96, 48));
-        assert_eq!(made.prompt_row, Some(3));
-        // 20 rows asked of a grid of 10: scaled down to 8 rows, 128 pixels
-        let tall = Form {
-            rows: Some(20),
-            ..form(Fit::Banner)
-        };
-        let made = make(&tall, &geo, (40, 20), &src).expect("made");
-        assert_eq!((made.width, made.height), (256, 128));
-        assert_eq!(made.prompt_row, Some(8));
-        // a grid of 2 rows has no room for a banner
-        let flat = Geometry {
-            grid: (80, 2),
-            ..SCREEN
-        };
-        assert_eq!(make(&form(Fit::Banner), &flat, (40, 20), &src), None);
-    }
-
-    #[test]
-    fn a_centred_banner_leaves_the_odd_column_on_its_right() {
-        // 9 columns of 8 pixels on a grid of 80: 71 spare, 35 on the left
-        let src = picture(72, 16);
-        let geo = Geometry {
-            display: (640, 160),
-            cell: (8, 16),
-            grid: (80, 10),
-        };
-        let at = |position| {
-            let f = Form {
-                position: Some(position),
-                ..form(Fit::Banner)
-            };
-            make(&f, &geo, (72, 16), &src).expect("made").place.col
-        };
-        assert_eq!(at(Position::Left), 0);
-        assert_eq!(at(Position::Center), 35);
-        assert_eq!(at(Position::Right), 71);
-    }
-
-    #[test]
-    fn a_picture_of_the_wrong_length_or_no_room_is_refused() {
-        assert_eq!(make(&form(Fit::Cover), &SCREEN, (4, 4), &[0; 15]), None);
-        let none = Geometry {
-            grid: (0, 3),
-            ..SCREEN
-        };
-        assert_eq!(make(&form(Fit::Cover), &none, (4, 4), &[0; 16]), None);
-    }
-
-    // The console checks the image helper's answer before it reads a
-    // pixel: at a scale of 100, cover and stretch fill the grid and contain
-    // fills one side of it, so a picture the helper did not fit is refused.
-    #[test]
-    fn a_size_the_fit_does_not_make_is_refused_before_a_pixel_is_read() {
-        let fitting = |fit, scale| Fitting {
-            form: Form { scale, ..form(fit) },
-            geometry: SCREEN,
-        };
-        for fit in [Fit::Cover, Fit::Stretch, Fit::Contain] {
-            assert_eq!(place(&fitting(fit, SCALE_FULL), (8, 8)), None, "{fit:?}");
-            assert!(place(&fitting(fit, SCALE_FULL), (80, 48)).is_some());
-            assert!(place(&fitting(fit, 50), (8, 8)).is_some(), "{fit:?}");
-        }
-        assert!(place(&fitting(Fit::Contain, SCALE_FULL), (40, 48)).is_some());
-        assert!(place(&fitting(Fit::Natural, SCALE_FULL), (8, 8)).is_some());
-        // nothing larger than the grid, and nothing empty
-        assert_eq!(place(&fitting(Fit::Natural, SCALE_FULL), (81, 8)), None);
-        assert_eq!(place(&fitting(Fit::Natural, SCALE_FULL), (0, 8)), None);
-    }
-
-    /// A small pseudo-random number generator, xorshift64, so a sweep is
-    /// the same on every run.
-    struct Dice(u64);
-
-    impl Dice {
-        /// A number from `lo` to `hi`, both included.
-        fn roll(&mut self, lo: u32, hi: u32) -> u32 {
-            self.0 ^= self.0 << 13;
-            self.0 ^= self.0 >> 7;
-            self.0 ^= self.0 << 17;
-            lo + (self.0 % u64::from(hi - lo + 1)) as u32
-        }
-    }
-
-    // The image helper runs `fit`, and the console checks the helper's
-    // answer with `place` and `Spot::made`. Over random screens, forms and
-    // sizes, nothing panics, `room` says exactly when `fit` makes a
-    // picture, every size `fit` makes passes the console's checks, and
-    // `place` refuses any other size or gives a box that holds it.
-    #[test]
-    fn fit_place_and_made_agree_over_random_screens_and_forms() {
-        let fits = [
-            Fit::Contain,
-            Fit::Cover,
-            Fit::Stretch,
-            Fit::Natural,
-            Fit::Banner,
-        ];
-        let mut dice = Dice(0x9e37_79b9_7f4a_7c15);
-        for case in 0..4000 {
-            let cell = (dice.roll(0, 12), dice.roll(0, 20));
-            let grid = (dice.roll(0, 24), dice.roll(0, 12));
-            let spare = (dice.roll(0, 12), dice.roll(0, 12));
-            let geometry = Geometry {
-                display: (grid.0 * cell.0 + spare.0, grid.1 * cell.1 + spare.1),
-                cell,
-                grid,
-            };
-            let position = match dice.roll(0, 9) {
-                9 => None,
-                n => Position::ALL.get(n as usize).copied(),
-            };
-            let form = Form {
-                fit: fits[dice.roll(0, 4) as usize],
-                rows: [None, Some(dice.roll(0, 6))][dice.roll(0, 1) as usize],
-                position,
-                scale: [SCALE_FULL, dice.roll(1, 100) as u8][dice.roll(0, 1) as usize],
-            };
-            let fitting = Fitting { form, geometry };
-            let size = (dice.roll(1, 64), dice.roll(1, 64));
-            let src = picture(size.0, size.1);
-            let made = fit(&fitting, size, Source::Argb(&src));
-            assert_eq!(made.is_some(), room(&fitting), "case {case}: {fitting:?}");
-            if let Some((w, h, pixels)) = made {
-                let spot = place(&fitting, (w, h));
-                assert!(spot.is_some(), "case {case}: {fitting:?} refuses {w}×{h}");
-                let made = spot.and_then(|spot| spot.made((w, h), pixels, true));
-                assert!(made.is_some(), "case {case}: {fitting:?}");
-            }
-            let other = (dice.roll(0, 300), dice.roll(0, 300));
-            if let Some(spot) = place(&fitting, other) {
-                assert!(
-                    spot.inset.0 + other.0 <= spot.frame.0
-                        && spot.inset.1 + other.1 <= spot.frame.1,
-                    "case {case}: {fitting:?} puts {other:?} outside its box"
-                );
-                let pixels = vec![0xff00_0000; (other.0 * other.1) as usize];
-                assert!(spot.made(other, pixels, true).is_some(), "case {case}");
-            }
-        }
-    }
-
-    // A screen has room for a background when its grid has a cell, and
-    // for a banner when it also has more than 2 rows.
-    #[test]
-    fn room_needs_a_cell_and_a_banner_needs_three_rows() {
-        let fitting = |fit, grid, cell| Fitting {
-            form: form(fit),
-            geometry: Geometry {
-                grid,
-                cell,
-                ..SCREEN
-            },
-        };
-        assert!(room(&fitting(Fit::Cover, (10, 3), (8, 16))));
-        assert!(room(&fitting(Fit::Banner, (10, 3), (8, 16))));
-        assert!(room(&fitting(Fit::Cover, (10, 2), (8, 16))));
-        assert!(!room(&fitting(Fit::Banner, (10, 2), (8, 16))));
-        assert!(!room(&fitting(Fit::Cover, (0, 3), (8, 16))));
-        assert!(!room(&fitting(Fit::Contain, (10, 3), (8, 0))));
-    }
-
-    #[test]
-    fn the_words_of_the_keys() {
-        assert_eq!(Fit::parse("none"), Some(Fit::Natural));
-        assert_eq!(Fit::parse("banner"), Some(Fit::Banner));
-        assert_eq!(Fit::parse("fill"), None);
-        assert_eq!(Position::parse("center"), Some(Position::Center));
-        for p in Position::ALL {
-            assert_eq!(Position::parse(p.word()), Some(p));
-        }
-        for word in ["middle", "top-center", "30%", "Top", ""] {
-            assert_eq!(Position::parse(word), None, "{word:?}");
-        }
-    }
-
-    /// The form of a background under `fit` at `position` and `scale`.
-    fn placed(fit: Fit, position: Option<Position>, scale: u8) -> Form {
-        Form {
-            fit,
-            rows: None,
-            position,
-            scale,
-        }
-    }
-
-    /// The pixel of `made` at `(x, y)` on the grid, in pixels from the
-    /// grid's top left; `None` outside its box.
-    fn on_grid(made: &Made, cell: (u32, u32), (x, y): (u32, u32)) -> Option<u32> {
-        let x0 = made.place.col * cell.0;
-        let y0 = made.place.row * cell.1;
-        let (bx, by) = (x.checked_sub(x0)?, y.checked_sub(y0)?);
-        if bx >= made.width || by >= made.height {
-            return None;
-        }
-        made.pixels
-            .as_slice()
-            .get(usize::try_from(by * made.width + bx).ok()?)
-            .copied()
-    }
-
-    /// The pixel of `made` the grid shows at `(x, y)`: transparent outside
-    /// its box.
-    fn shown(made: &Made, cell: (u32, u32), at: (u32, u32)) -> u32 {
-        on_grid(made, cell, at).unwrap_or(0)
-    }
-
-    /// The opaque pixels of `made` as a rectangle on the grid: its left,
-    /// top, width and height in pixels.
-    fn picture_on_grid(made: &Made, cell: (u32, u32)) -> (u32, u32, u32, u32) {
-        let w = made.width;
-        let opaque: Vec<(u32, u32)> = (0..made.height)
-            .flat_map(|y| (0..w).map(move |x| (x, y)))
-            .filter(|&(x, y)| made.pixels.as_slice()[(y * w + x) as usize] >> 24 != 0)
-            .collect();
-        let left = opaque.iter().map(|p| p.0).min().expect("a pixel");
-        let right = opaque.iter().map(|p| p.0).max().expect("a pixel");
-        let top = opaque.iter().map(|p| p.1).min().expect("a pixel");
-        let bottom = opaque.iter().map(|p| p.1).max().expect("a pixel");
-        // the opaque pixels fill their rectangle
-        assert_eq!(
-            opaque.len() as u32,
-            (right - left + 1) * (bottom - top + 1),
-            "a picture with a hole"
-        );
-        (
-            made.place.col * cell.0 + left,
-            made.place.row * cell.1 + top,
-            right - left + 1,
-            bottom - top + 1,
-        )
-    }
-
-    /// A picture whose pixel at `(x, y)` holds `x` in its red byte and `y`
-    /// in its green byte, opaque.
-    fn coordinates(w: u32, h: u32) -> Vec<u32> {
-        (0..h)
-            .flat_map(|y| (0..w).map(move |x| 0xff00_0000 | x << 16 | y << 8))
-            .collect()
-    }
-
-    // A display of 100×60 pixels with a grid of 12×5 cells of 7×10 pixels
-    // centered on it: the grid starts 8 pixels in and 5 pixels down.
-    const ROOMY: Geometry = Geometry {
-        display: (100, 60),
-        cell: (7, 10),
-        grid: (12, 5),
-    };
-
-    // A picture of 15×30 under contain on the display of 100×60 scales
-    // twice over to 30×60, which copies each source pixel to 2×2. It is 10
-    // pixels taller than the grid, so the anchor's row chooses which 50
-    // rows show, and it leaves 54 pixels of room across, which the
-    // anchor's column places it in.
-    //
-    // References:
-    // - ADR-1100 D17, "Where the picture sits": how each anchor places a
-    //   background.
-    #[test]
-    fn each_anchor_places_a_contained_picture_at_the_offset_worked_out_by_hand() {
-        let src = coordinates(15, 30);
-        for position in Position::ALL {
-            let made = make(
-                &placed(Fit::Contain, Some(position), SCALE_FULL),
-                &ROOMY,
-                (15, 30),
-                &src,
-            )
-            .expect("made");
-            // across: against the grid's left edge; centered on the
-            // display, (100 - 30) / 2 = 35 less the grid's 8; against the
-            // grid's right edge, 84 - 30
-            let x = match position {
-                Position::TopLeft | Position::Left | Position::BottomLeft => 0,
-                Position::Top | Position::Center | Position::Bottom => 27,
-                _ => 54,
-            };
-            // down: the first scaled row that shows, 0 at the top; centered,
-            // the picture starts at the display's top, 5 rows above the
-            // grid; at the bottom, 10 rows of it lie above the grid
-            let first_row = match position {
-                Position::TopLeft | Position::Top | Position::TopRight => 0,
-                Position::Left | Position::Center | Position::Right => 5,
-                _ => 10,
-            };
-            let at = picture_on_grid(&made, ROOMY.cell);
-            assert_eq!(at, (x, 0, 30, 50), "{position:?}");
-            let corner = on_grid(&made, ROOMY.cell, (x, 0)).expect("the corner");
-            assert_eq!(
-                corner,
-                0xff00_0000 | (first_row / 2) << 8,
-                "{position:?}: the top left shows source row {}",
-                first_row / 2
-            );
-        }
-    }
-
-    // Unset, a background is centered, which is where `center` puts it.
-    #[test]
-    fn an_unset_anchor_centers_a_background() {
-        let src = coordinates(15, 30);
-        let make_at = |position| {
-            make(
-                &placed(Fit::Contain, position, SCALE_FULL),
-                &ROOMY,
-                (15, 30),
-                &src,
-            )
-            .expect("made")
-        };
-        assert_eq!(make_at(None), make_at(Some(Position::Center)));
-    }
-
-    // Under cover at `top`, the picture's top edge lies on the grid's top
-    // edge, so the source's top row shows on the grid's first pixel row and
-    // the bottom is cut.
-    #[test]
-    fn cover_at_top_keeps_the_sources_top_row() {
-        // a square, red in its top row and blue below: cover scales it to
-        // 100×100, so its first 6 or 7 rows come from the red row alone
-        let src: Vec<u32> = (0..15 * 15)
-            .map(|i| if i < 15 { 0xffff_0000 } else { 0xff00_00ff })
-            .collect();
-        let top = make(
-            &placed(Fit::Cover, Some(Position::Top), SCALE_FULL),
-            &ROOMY,
-            (15, 15),
-            &src,
-        )
-        .expect("made");
-        for x in 0..84 {
-            assert_eq!(on_grid(&top, ROOMY.cell, (x, 0)), Some(0xffff_0000), "{x}");
-        }
-        let center = make(
-            &placed(Fit::Cover, Some(Position::Center), SCALE_FULL),
-            &ROOMY,
-            (15, 15),
-            &src,
-        )
-        .expect("made");
-        assert_eq!(on_grid(&center, ROOMY.cell, (0, 0)), Some(0xff00_00ff));
-    }
-
-    // A logo of 1000×1000 on a display of 1920×1080 with 8×16 cells,
-    // contained at 1080×1080 and scaled to 30%, at `bottom-right`.
-    //
-    // References:
-    // - ADR-1100 D17, "A background at a share of its size": this example,
-    //   with its size and its box.
-    #[test]
-    fn a_scaled_logo_in_a_corner_has_the_size_and_box_worked_out_by_hand() {
-        let hd = Geometry {
-            display: (1920, 1080),
-            cell: (8, 16),
-            grid: (240, 67),
-        };
-        let src = vec![0xff40_8020; 1000 * 1000];
-        let made = make(
-            &placed(Fit::Contain, Some(Position::BottomRight), 30),
-            &hd,
-            (1000, 1000),
-            &src,
-        )
-        .expect("made");
-        // 324×324, its right and bottom edges on the grid's, 1920 and 1072
-        assert_eq!(picture_on_grid(&made, hd.cell), (1596, 748, 324, 324));
-        // the box: columns 199 to 239 and rows 46 to 66
-        assert_eq!(
-            (
-                made.place.col,
-                made.place.row,
-                made.place.cols,
-                made.place.rows
-            ),
-            (199, 46, 41, 21)
-        );
-        assert_eq!((made.width, made.height), (328, 336));
-        assert_eq!(made.cost(), 441_344);
-        assert!(!made.opaque);
-        // under none at 50, a photo of 3840×2160 draws at 1920×1080: on the
-        // grid of 1920×1072, centered, that is the whole grid
-        let photo = vec![0xff10_2030; 3840 * 2160];
-        let made = make(&placed(Fit::Natural, None, 50), &hd, (3840, 2160), &photo).expect("made");
-        assert_eq!(picture_on_grid(&made, hd.cell), (0, 0, 1920, 1072));
-    }
-
-    // No scale makes a picture larger than its fit, and each side keeps at
-    // least one pixel.
-    #[test]
-    fn no_scale_makes_a_picture_larger_than_its_fit() {
-        for fit in [Fit::Contain, Fit::Cover, Fit::Stretch, Fit::Natural] {
-            for size in [(1, 1), (3, 7), (1000, 10), (97, 61)] {
-                let full = fitted(fit, size, ROOMY.display).expect("fitted");
-                for scale in 1..=100 {
-                    let (w, h) = shrunk(full, scale);
-                    assert!(w <= full.0 && h <= full.1, "{fit:?} {size:?} at {scale}");
-                    assert!(w >= 1 && h >= 1, "{fit:?} {size:?} at {scale}");
-                }
-                assert_eq!(shrunk(full, 100), full);
-                // a scale past 100 counts as 100
-                assert_eq!(shrunk(full, 101), full);
-                assert_eq!(shrunk(full, 255), full);
-            }
-        }
-        // 30% of 1080, rounded to the nearest pixel, and 1% of 3 pixels
-        assert_eq!(shrunk((1080, 1080), 30), (324, 324));
-        assert_eq!(shrunk((3, 150), 1), (1, 2));
-    }
-
-    // The box is the cells the picture touches: a picture of 5×3 pixels
-    // under none on cells of 4×4, at the grid's right edge, starts in the
-    // middle of a cell, so its box is the two cells it touches across and
-    // the one down, and the pixels of the box outside it are transparent.
-    #[test]
-    fn the_box_is_the_cells_the_picture_touches_and_clear_outside_it() {
-        let geo = Geometry {
-            display: (40, 20),
-            cell: (4, 4),
-            grid: (10, 5),
-        };
-        let src = vec![0xffff_ffff; 5 * 3];
-        for position in Position::ALL {
-            let made = make(
-                &placed(Fit::Natural, Some(position), SCALE_FULL),
-                &geo,
-                (5, 3),
-                &src,
-            )
-            .expect("made");
-            let (x, y, w, h) = picture_on_grid(&made, geo.cell);
-            assert_eq!((w, h), (5, 3), "{position:?}");
-            let cols = (x + w).div_ceil(4) - x / 4;
-            let rows = (y + h).div_ceil(4) - y / 4;
-            assert_eq!(
-                (
-                    made.place.col,
-                    made.place.row,
-                    made.place.cols,
-                    made.place.rows
-                ),
-                (x / 4, y / 4, cols, rows),
-                "{position:?}"
-            );
-            assert_eq!((made.width, made.height), (cols * 4, rows * 4));
-            // every pixel outside the picture is transparent
-            let clear = made.pixels.as_slice().iter().filter(|&&p| p == 0).count();
-            assert_eq!(clear as u32, cols * rows * 16 - 15, "{position:?}");
-        }
-    }
-
-    /// A banner of 20×20 pixels on a grid of 10×6 cells of 8×16 at
-    /// `position`: its placement and the row the login prompt starts on.
-    fn banner_at(position: Option<Position>, size: (u32, u32)) -> (Place, Option<u32>) {
-        let geo = Geometry {
-            display: (80, 96),
-            cell: (8, 16),
-            grid: (10, 6),
-        };
-        let f = Form {
-            position,
-            ..form(Fit::Banner)
-        };
-        let made = make(&f, &geo, size, &picture(size.0, size.1)).expect("made");
-        (made.place, made.prompt_row)
-    }
-
-    // A bottom anchor puts the banner's box in the grid's last rows, and
-    // the login prompt starts on the first row.
-    //
-    // References:
-    // - ADR-1100 D17, "A banner at the bottom": where the banner and the
-    //   prompt go.
-    #[test]
-    fn a_bottom_banner_takes_the_last_rows_and_the_prompt_starts_at_the_top() {
-        // 20 pixels of 16-pixel rows: 2 rows, rows 4 and 5 of 6; 3 columns
-        let (place, prompt) = banner_at(Some(Position::BottomRight), (20, 20));
-        assert_eq!((place.col, place.row, place.z), (7, 4, Z));
-        assert_eq!(prompt, Some(0));
-        let (place, _) = banner_at(Some(Position::BottomLeft), (20, 20));
-        assert_eq!((place.col, place.row), (0, 4));
-        let (place, _) = banner_at(Some(Position::Bottom), (20, 20));
-        assert_eq!((place.col, place.row), (3, 4));
-        // a banner taller than the grid keeps two rows free above it
-        let (place, prompt) = banner_at(Some(Position::Bottom), (40, 400));
-        assert_eq!((place.row, prompt), (2, Some(0)));
-    }
-
-    // `left`, `center` and `right` name no row, so for a banner they mean
-    // the top, as do the top anchors and no anchor at all.
-    #[test]
-    fn a_banner_without_a_bottom_anchor_sits_at_the_top() {
-        for (position, col) in [
-            (None, 0),
-            (Some(Position::Left), 0),
-            (Some(Position::Center), 3),
-            (Some(Position::Right), 7),
-            (Some(Position::TopLeft), 0),
-            (Some(Position::Top), 3),
-            (Some(Position::TopRight), 7),
-        ] {
-            let (place, prompt) = banner_at(position, (20, 20));
-            assert_eq!((place.col, place.row), (col, 0), "{position:?}");
-            assert_eq!(prompt, Some(2), "{position:?}");
-        }
-    }
-
-    // On a display turned a quarter turn, the geometry is the screen as
-    // the text reads on it, so `bottom-right` puts the box at the end of
-    // the grid's last row, wherever that falls on the panel. A panel of
-    // 96×80 turned a quarter reads as 80×96, a grid of 10×6 cells.
-    //
-    // References:
-    // - ADR-1100 D17, "Where the picture sits": the anchors on a rotated
-    //   display.
-    #[test]
-    fn on_a_turned_display_bottom_right_ends_the_last_row() {
-        let turned = Geometry {
-            display: (80, 96),
-            cell: (8, 16),
-            grid: (10, 6),
-        };
-        let src = vec![0xff00_ff00; 20 * 20];
-        let made = make(
-            &placed(Fit::Natural, Some(Position::BottomRight), SCALE_FULL),
-            &turned,
-            (20, 20),
-            &src,
-        )
-        .expect("made");
-        assert_eq!(picture_on_grid(&made, turned.cell), (60, 76, 20, 20));
-        assert_eq!(
-            (
-                made.place.col + made.place.cols,
-                made.place.row + made.place.rows
-            ),
-            (10, 6)
-        );
-    }
-}
+mod tests;

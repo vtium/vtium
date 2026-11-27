@@ -52,7 +52,7 @@
 //!   libxkbcommon with compose and a repeat timer ([`input::Input`]).
 //! - [`power`]: the reboot, power-off and suspend requests the power keys
 //!   make of PID 1, logind and the kernel; with the `logind` feature,
-//!   [`logind`] reaches logind through sd-bus.
+//!   the `logind` module reaches logind through sd-bus.
 //! - `seat`, with the `libseat` feature: the seat through a seat manager,
 //!   seatd or logind, by libseat: a VT backend whose display devices and
 //!   VT switching come from the seat manager, with the seat and each device
@@ -96,6 +96,8 @@ pub mod udev;
 pub mod vt;
 pub mod watch;
 
+#[cfg(feature = "split")]
+pub use bounds::RELEASE_BOUND_MS;
 pub use bounds::{
     DAMAGE_CLIPS_MAX, EXIT_FEED_MAX, FLIP_WAIT_MS, IMAGE_CRASHES_MAX, IMAGE_HELPER_BASE,
     INPUT_READS_PER_TURN, MOTION_COALESCE_AT, READ_BUDGET, READ_MAX, READS_PER_TURN, REPLY_HIGH,

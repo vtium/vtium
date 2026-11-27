@@ -192,6 +192,7 @@ pub fn inputs() -> Inputs {
         frits: PathBuf::from("/nonexistent/vtium/fonts"),
         view: View::Fonts,
         display: Some((640, 480)),
+        displays: Vec::new(),
         flow: flow(),
         color: true,
         desk: false,
@@ -201,7 +202,7 @@ pub fn inputs() -> Inputs {
         head: None,
         locale: String::new(),
         installed: [
-            ("broken", &b"source=builtin:unifont\ncolour=red\n"[..]),
+            ("broken", &b"source=builtin:unifont\nantialias=red\n"[..]),
             ("minspec-16", b"source=builtin:unifont\n"),
             ("proof", b"source=font:JetBrains Mono\n"),
             ("tiny5", b"source=bdf:/x/Tiny5Mono.bdf\n"),

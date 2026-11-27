@@ -26,6 +26,12 @@
 //! right-to-left row draws reversed, every character resolving right to
 //! left.
 //!
+//! A double-width or double-height row shows half as many cells as the
+//! screen is wide, each drawn twice as wide, so it is reordered over those
+//! cells only. Its trailing erased cells then go to the end side of the
+//! half it draws, and the cells past that half, which it never shows, keep
+//! their places.
+//!
 //! Arabic and the other joining scripts join by their neighbours in the
 //! order they are read, before any reordering: logical order across the
 //! whole paragraph in implicit mode, so a word joins across a wrap, and the
@@ -217,15 +223,23 @@ fn units(line: &Line, cols: usize) -> (Vec<Unit>, usize) {
     (out, end)
 }
 
-/// One row's units and where its trailing erased cells start.
+/// One row's units, where its trailing erased cells start, and how many
+/// cells it shows.
 struct RowText {
     units: Vec<Unit>,
     end: usize,
+    /// The cells the row shows: the screen's width, or half of it for a
+    /// row of double size, which draws each cell twice as wide.
+    cols: usize,
 }
 
 /// The drawing order of the rows of one paragraph that the caller draws,
 /// `wanted`, each with its index in `lines`: `lines` is the whole
-/// paragraph in reading order, each row read `cols` wide. The paragraph's
+/// paragraph in reading order on a screen `cols` wide. Each row is read
+/// over the cells it shows, all `cols` of them at single size and half of
+/// them on a double-width or double-height row, which draws each cell
+/// twice as wide. So a double-size row reorders inside the half it draws,
+/// and no cell it does not show is drawn on it. The paragraph's
 /// properties are those of its first row (ADR-1004 D2). `too_long` draws
 /// it as in explicit mode, as a paragraph of more than
 /// [`BIDI_PARAGRAPH_ROWS_MAX`](crate::bounds::BIDI_PARAGRAPH_ROWS_MAX) rows
@@ -240,8 +254,13 @@ pub(crate) fn paragraph(
 ) -> Vec<(usize, RowOrder)> {
     let flags = lines.first().map_or(LineFlags::empty(), |l| l.flags());
     let text = |l: &&Line| {
-        let (units, end) = units(l, cols);
-        RowText { units, end }
+        let shown = l.flags().size().columns(cols);
+        let (units, end) = units(l, shown);
+        RowText {
+            units,
+            end,
+            cols: shown,
+        }
     };
     let box_mirror = flags.contains(LineFlags::BOX_MIRROR);
     let explicit = flags.contains(LineFlags::EXPLICIT) || too_long;
@@ -249,17 +268,17 @@ pub(crate) fn paragraph(
         let rtl = flags.contains(LineFlags::RTL);
         return wanted
             .filter_map(|i| lines.get(i).map(|l| (i, text(l))))
-            .map(|(i, row)| (i, explicit_row(&row, cols, rtl, box_mirror)))
+            .map(|(i, row)| (i, explicit_row(&row, rtl, box_mirror)))
             .collect();
     }
     let rows: Vec<RowText> = lines.iter().map(text).collect();
-    implicit(&rows, cols, flags, box_mirror, wanted)
+    implicit(&rows, flags, box_mirror, wanted)
 }
 
 /// A row in explicit mode: drawn as written in a left-to-right paragraph
 /// and reversed in a right-to-left one, its letters joined in the order
 /// they are drawn from right to left (ADR-1004 D4, D6).
-fn explicit_row(row: &RowText, cols: usize, rtl: bool, box_mirror: bool) -> RowOrder {
+fn explicit_row(row: &RowText, rtl: bool, box_mirror: bool) -> RowOrder {
     let mut order: Vec<usize> = (0..row.units.len()).collect();
     if rtl {
         order.reverse();
@@ -270,14 +289,14 @@ fn explicit_row(row: &RowText, cols: usize, rtl: bool, box_mirror: bool) -> RowO
         .filter_map(|&u| row.units.get(u).map(|u| u.c))
         .collect();
     let joins = bidi::joins(&read);
-    let mut marks = vec![if rtl { RTL } else { 0 }; cols];
+    let mut marks = vec![if rtl { RTL } else { 0 }; row.cols];
     // the read order runs from the rightmost unit leftwards
     for (j, &u) in joins.iter().zip(order.iter().rev()) {
         if let Some(unit) = row.units.get(u) {
             mark_joins(&mut marks, unit.col, *j);
         }
     }
-    build(row, &order, cols, rtl, box_mirror, marks)
+    build(row, &order, rtl, box_mirror, marks)
 }
 
 /// The rows of a paragraph in implicit mode: the bidirectional algorithm
@@ -286,7 +305,6 @@ fn explicit_row(row: &RowText, cols: usize, rtl: bool, box_mirror: bool) -> RowO
 /// (ADR-1004 D3, D6).
 fn implicit(
     rows: &[RowText],
-    cols: usize,
     flags: LineFlags,
     box_mirror: bool,
     wanted: Range<usize>,
@@ -330,7 +348,7 @@ fn implicit(
             }
             let row_levels = levels.get(span.clone()).unwrap_or_default();
             let order = levels::visual_order(row_levels);
-            let mut marks = vec![if rtl { RTL } else { 0 }; cols];
+            let mut marks = vec![if rtl { RTL } else { 0 }; row.cols];
             for (k, unit) in row.units.iter().enumerate() {
                 let odd = row_levels.get(k).is_some_and(|l| l % 2 == 1);
                 for col in unit.col..unit.col.saturating_add(unit.cells) {
@@ -344,7 +362,7 @@ fn implicit(
                     .unwrap_or_default();
                 mark_joins(&mut marks, unit.col, j);
             }
-            Some((i, build(row, &order, cols, rtl, box_mirror, marks)))
+            Some((i, build(row, &order, rtl, box_mirror, marks)))
         })
         .collect()
 }
@@ -362,18 +380,13 @@ fn mark_joins(marks: &mut [u8], col: usize, j: bidi::Joins) {
 
 /// A row's order from `order`, the row's units from the left: each unit's
 /// cells keep their own order, so a wide character's second cell follows
-/// its first, and the trailing erased cells go to the paragraph's end side,
-/// reversed in a right-to-left paragraph.
-fn build(
-    row: &RowText,
-    order: &[usize],
-    cols: usize,
-    rtl: bool,
-    box_mirror: bool,
-    marks: Vec<u8>,
-) -> RowOrder {
+/// its first, and the trailing erased cells up to the last cell the row
+/// shows go to the paragraph's end side, reversed in a right-to-left
+/// paragraph.
+fn build(row: &RowText, order: &[usize], rtl: bool, box_mirror: bool, marks: Vec<u8>) -> RowOrder {
     #[cfg(test)]
     BUILT.with(|n| n.set(n.get().saturating_add(1)));
+    let cols = row.cols;
     let trailing = row.end..cols.max(row.end);
     let mut visual: Vec<usize> = Vec::with_capacity(cols);
     if rtl {

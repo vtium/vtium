@@ -148,9 +148,13 @@ fn status(app: &App) -> String {
             // t tries a font set on a look or a font set of the Looks tab
             // and in a look's card, and on a font set only the draft adds
             // the line says t can try it after the install; elsewhere in
-            // the Looks tab t does nothing, and the other tabs say where
-            // the trial is
+            // the Looks tab t does nothing. t tries a font in the Fonts
+            // tab's list, and does nothing in its filters or a font's
+            // detail. The other tabs say where the trial is: in the
+            // Fonts and the Looks tab
             match (*live == Live::On, app.nav.view) {
+                (true, View::Fonts) if trial_node == "fonts" => words::TRIAL_KEY,
+                (true, View::Fonts) => words::TRIAL_ON_FONTS,
                 (true, View::Looks) if matches!(trial_node, "looks" | "looks.look") => {
                     if app.looks.in_draft(&app.shared).is_some() {
                         words::TRIAL_AFTER_INSTALL
@@ -159,7 +163,7 @@ fn status(app: &App) -> String {
                     }
                 }
                 (true, View::Looks) => words::TRIAL_ON_FONT_SETS,
-                (true, _) => words::TRIAL_IN_LOOKS,
+                (true, _) => words::TRIAL_ELSEWHERE,
                 (false, _) => words::TRIAL_NONE,
             }
         ),
@@ -186,15 +190,61 @@ fn status(app: &App) -> String {
     sides(&left, &format!("{live} "), app.size.cols)
 }
 
-/// The screen below the minimum size, a line a row.
+/// The screen below the minimum size, a line a row. What the screen
+/// answers to a key comes first: the live trial's countdown, or what `u`
+/// says when it has nothing to put back. Then come what is wrong, the
+/// commands that work at any size, and the key line, which stays on the
+/// screen however few its rows.
 fn small(app: &App) -> Vec<String> {
     let cols = app.size.cols;
+    let rows = app.size.rows;
+    // a question asked here comes first, what it says and its keys
+    // wrapped to the width, so it shows whole however narrow the screen;
+    // while it is open the screen's own keys give way to the question's,
+    // since q does nothing under a question
+    let question: Vec<String> = match app.nav.confirm.as_ref() {
+        None => Vec::new(),
+        Some(c) => {
+            // the quit question keeps to one row here; any other question,
+            // asked before the terminal shrank, says in full what y does
+            let asked = match c.then {
+                Then::Quit(_) => words::small_question(app.shared.unsaved),
+                _ => c.question.clone(),
+            };
+            item_rows(&format!("{asked}  {}", key_line(app)), cols)
+        }
+    };
+    // the screen's own generated key line, at the bottom, while no
+    // question is open. Where its rows outnumber the screen's, its first
+    // items go: u comes first on the line, and q and Ctrl-C after it, so
+    // the way out stays on the screen
+    let keys: Vec<String> = if question.is_empty() {
+        let keys = item_rows(key_line(app), cols);
+        let cut = keys.len().saturating_sub(rows);
+        keys.into_iter().skip(cut).collect()
+    } else {
+        Vec::new()
+    };
+    let room = rows
+        .saturating_sub(question.len())
+        .saturating_sub(keys.len());
     let mut lines: Vec<String> = Vec::new();
-    // the live trial's countdown, and its keys, first
-    if app.nav.trial.is_some()
-        && let Some(message) = &app.shared.message
-    {
+    let trial = app.nav.trial.is_some();
+    if trial && let Some(message) = &app.shared.message {
         lines.extend(wrap(message, cols, usize::MAX));
+        lines.push(String::new());
+    }
+    // what u says when it has nothing to put back: the whole sentence
+    // where the rows above the key line hold it, else its first clause. A
+    // message that a view left stays for the view, so it does not push
+    // the commands off this screen
+    if !trial && app.shared.message.as_deref() == Some(words::NOTHING_TO_UNDO) {
+        let whole = wrap(words::NOTHING_TO_UNDO, cols, usize::MAX);
+        if whole.len() <= room {
+            lines.extend(whole);
+        } else {
+            lines.extend(wrap(words::NOTHING_TO_UNDO_SHORT, cols, usize::MAX));
+        }
         lines.push(String::new());
     }
     lines.extend(wrap(
@@ -210,41 +260,12 @@ fn small(app: &App) -> Vec<String> {
         }
         lines.push(format!("  vtium-config {}", c.name()));
     }
-    // a question asked here comes first, what it says and its keys
-    // wrapped to the width, so it shows whole however narrow the screen;
-    // while it is open the screen's own keys give way to the question's,
-    // since q does nothing under a question
-    let question: Vec<String> = match app.nav.confirm.as_ref().map(|c| &c.then) {
-        None => Vec::new(),
-        Some(Then::Quit(_)) => item_rows(
-            &format!(
-                "{}  {}",
-                words::small_question(app.shared.unsaved),
-                key_line(app)
-            ),
-            cols,
-        ),
-        Some(_) => item_rows(key_line(app), cols),
-    };
-    // the keys that stay on the screen however few its rows: the
-    // question's, at the top, or the screen's own, at the bottom
-    // the screen's own keys are its generated key line, and a sentence
-    // about u while the key line leaves u out
-    let keys = if question.is_empty() {
+    if !keys.is_empty() {
         lines.push(String::new());
-        let mut keys = item_rows(key_line(app), cols);
-        keys.extend(wrap(words::TOO_SMALL_UNDO, cols, usize::MAX));
-        lines.extend(keys.clone());
-        keys
-    } else {
-        Vec::new()
-    };
-    let mut lines: Vec<String> = question.into_iter().chain(lines).collect();
-    if lines.len() > app.size.rows {
-        let room = app.size.rows.saturating_sub(keys.len());
-        lines.truncate(room);
-        lines.extend(keys);
     }
+    let mut lines: Vec<String> = question.into_iter().chain(lines).collect();
+    lines.truncate(rows.saturating_sub(keys.len()));
+    lines.extend(keys);
     lines
 }
 

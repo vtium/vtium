@@ -6,6 +6,7 @@ The files of a release, such as its source archive and the archive of its depend
 
 | Release | Date | What it is about | Files |
 |---|---|---|---|
+| [0.1.0-alpha.12](0.1.0-alpha.12.md) | 2026-11-27 | Most of vtium running without root, scrolls that move the picture on the CPU, and fonts named by their path. | [On GitHub](https://github.com/vtium/vtium/releases/tag/v0.1.0-alpha.12) |
 | [0.1.0-alpha.11](0.1.0-alpha.11.md) | 2026-11-22 | Underlines that skip the ink of descenders, a Looks tab that assembles a look, and drafts that keep font set changes until you install them. | [On GitHub](https://github.com/vtium/vtium/releases/tag/v0.1.0-alpha.11) |
 | [0.1.0-alpha.10](0.1.0-alpha.10.md) | 2026-11-20 | Colors that fit the reader: corrections for color blindness, a brightness floor for dark text, and light color schemes such as Sunny. | [On GitHub](https://github.com/vtium/vtium/releases/tag/v0.1.0-alpha.10) |
 | [0.1.0-alpha.9](0.1.0-alpha.9.md) | 2026-11-17 | Double-size lines and kitty's sized text, programming ligatures, font sets that name the fonts they lack, and a login picture. | [On GitHub](https://github.com/vtium/vtium/releases/tag/v0.1.0-alpha.9) |

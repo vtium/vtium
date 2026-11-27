@@ -64,6 +64,7 @@ struct Seen {
     /// Every byte the TUI wrote.
     written: Vec<u8>,
     screen: String,
+    /// The font set the console draws in: the last switch it took.
     font: String,
     /// The pty closed.
     closed: bool,
@@ -125,6 +126,13 @@ impl Console {
             t.set_version("vtium(test)").expect("printable");
             t.set_font_ops(matches!(kind, Kind::Vtium { ops: true }));
             assert!(t.set_font_name("unifont"));
+            // The console keeps the name of the font set it draws in as it
+            // takes each switch, rather than asking its terminal with an OSC
+            // 50 query after each read. A read can end partway through a
+            // sequence the TUI wrote, and a query fed to the terminal then
+            // would cut that sequence short, so the rest of it would show as
+            // text on the screen.
+            let mut font = "unifont".to_owned();
             let mut buf = [0u8; 4096];
             while let Ok(n @ 1..) = reader.read(&mut buf) {
                 // a NUL is the test's mark (`drained`), which the TUI never
@@ -142,6 +150,7 @@ impl Console {
                                 && takes.contains(&name.as_str())
                             {
                                 assert!(t.set_font_name(&name));
+                                font = name;
                             }
                             rest = &rest[taken..];
                         }
@@ -169,15 +178,7 @@ impl Console {
                         s.switches_per_read.push(sets);
                     }
                     s.screen = screen_text(&t);
-                    // the font the console draws: its query's answer
-                    t.input(b"\x1b]50;?\x1b\\");
-                    let probe = t.take_replies();
-                    let text = String::from_utf8_lossy(&probe);
-                    s.font = text
-                        .strip_prefix("\x1b]50;")
-                        .and_then(|r| r.split('\x1b').next())
-                        .unwrap_or("")
-                        .to_owned();
+                    s.font.clone_from(&font);
                     cv.notify_all();
                 }
                 if !replies.is_empty() && reader.write_all(&replies).is_err() {
@@ -203,11 +204,16 @@ impl Console {
     /// frame and the bottom of the old one, with one row cut partway. A
     /// test therefore waits until every text it checks is on the screen,
     /// and checks the screen this returns rather than reading it again.
+    ///
+    /// The wait is bounded only so that a broken test fails instead of
+    /// hanging. The bound is generous because the gates run many test
+    /// binaries at once on every core, and a loaded machine can take
+    /// several seconds to show a frame.
     fn until(&self, what: &str, done: impl Fn(&Seen) -> bool) -> String {
         let (lock, cv) = &*self.seen;
         let guard = lock.lock().expect("the lock");
         let (guard, timeout) = cv
-            .wait_timeout_while(guard, Duration::from_secs(10), |s| !done(s))
+            .wait_timeout_while(guard, Duration::from_secs(60), |s| !done(s))
             .expect("the lock");
         assert!(
             !timeout.timed_out(),
@@ -255,12 +261,12 @@ impl Console {
     }
 }
 
-/// The kitty graphics query of the four requests at start.
-const GRAPHICS_QUERY: &str = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\";
+/// The kitty graphics query and XTWINOPS 14 of the requests at start.
+const GRAPHICS_QUERY: &str = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[14t";
 
 /// Checks that DA1 ends each batch of queries in `written`, and that
 /// `written` holds `batches` OSC 50 queries: each query is followed by
-/// DA1, or at start by kitty's graphics query and then DA1.
+/// DA1, or at start by kitty's graphics query, XTWINOPS 14 and then DA1.
 fn each_batch_ends_with_da1(written: &[u8], batches: usize) {
     let text = String::from_utf8_lossy(written);
     let after: Vec<&str> = text.split("\x1b]50;?\x1b\\").skip(1).collect();
@@ -427,12 +433,33 @@ fn cooked(slave: &File) -> bool {
         .contains(LocalModes::ICANON | LocalModes::ECHO)
 }
 
+/// The stand-in console reads a sequence that arrives in two reads as one
+/// sequence. A loaded machine can split a frame of the TUI anywhere, and
+/// a cursor position cut in two once showed its second half as text, so
+/// a confirmation lost two of its letters.
 #[test]
-fn the_tui_starts_on_the_alternate_screen_with_the_four_requests() {
+fn the_console_reads_a_sequence_cut_between_two_reads_as_one() {
+    let (master, slave) = pair(80, 25);
+    let c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
+    let mut out = &slave;
+    out.write_all(b"\x1b[5;1").expect("the first half");
+    c.drained(&slave);
+    out.write_all(b"0HX").expect("the second half");
+    let screen = c.until("drew X", |s| s.screen.contains('X'));
+    assert_eq!(
+        screen.lines().nth(4),
+        Some("         X"),
+        "X stands in row 5, column 10; the screen:\n{screen}"
+    );
+    assert_eq!(c.font(), "unifont");
+}
+
+#[test]
+fn the_tui_starts_on_the_alternate_screen_with_the_requests_at_start() {
     let (mut c, child, slave) = started("start", Kind::Vtium { ops: true }, 80, 25);
     let written = c.written();
-    // the four requests, then mouse reporting for the Flow view it opens on
-    let start = b"\x1b[?1049h\x1b[?25l\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c\x1b[?1000h\x1b[?1006h";
+    // the requests at start, then mouse reporting for the Flow view it opens on
+    let start = b"\x1b[?1049h\x1b[?25l\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[14t\x1b[c\x1b[?1000h\x1b[?1006h";
     assert!(
         written.starts_with(start),
         "{:?}",
@@ -706,6 +733,60 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
         written.matches("\x1b[?1049l").count() >= 2,
         "left for the command and at the end"
     );
+}
+
+/// vtium-config decides that the console is a vtium console from the
+/// console's answers, however long the TUI's own start takes. The console
+/// answers the start queries at once, while the TUI checks its draft with
+/// `vtium check-config`, which this stand-in for vtium starts only after
+/// 1.5 s, longer than the TUI waits for answers. On a loaded machine the
+/// real check took that long, and the TUI then said the console was not a
+/// vtium console, so the person lost the live trial.
+///
+/// The stand-in sleeps rather than computing, so the test leaves the
+/// machine's cores free.
+#[test]
+fn a_slow_check_of_the_draft_at_start_still_hears_the_console_s_answers() {
+    use std::os::unix::fs::PermissionsExt;
+    let (master, slave) = pair(80, 25);
+    let (root, fonts) = fixture("slow-check");
+    let vtium = console_bin::vtium();
+    let slow = root.join("slow-vtium");
+    std::fs::write(
+        &slow,
+        format!("#!/bin/sh\nsleep 1.5\nexec '{}' \"$@\"\n", vtium.display()),
+    )
+    .expect("the stand-in");
+    std::fs::set_permissions(&slow, std::fs::Permissions::from_mode(0o755))
+        .expect("the stand-in runs");
+    let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
+    let child = tui_with(
+        &slave,
+        &root,
+        &[
+            "--configdir".as_ref(),
+            root.as_os_str(),
+            "--frits".as_ref(),
+            fonts.as_os_str(),
+            "--sys".as_ref(),
+            root.join("sys").as_os_str(),
+            "--udev-data".as_ref(),
+            root.join("udev/data").as_os_str(),
+            "--vtium".as_ref(),
+            slow.as_os_str(),
+        ],
+    );
+    c.until("opened on the flow", |s| {
+        (s.screen.contains("CONFIGURATION") || s.screen.contains("NEW PATH"))
+            && !s.screen.contains("checking this terminal")
+    });
+    c.key(b"t");
+    let screen = c.until("said whether the live trial is on", |s| {
+        s.screen.contains("Live trial is")
+    });
+    assert!(screen.contains("Live trial is on"), "{screen}");
+    c.key(b"q");
+    assert_eq!(status(child), 0);
 }
 
 #[test]
@@ -1046,7 +1127,7 @@ fn a_terminal_that_closes_ends_the_tui() {
         let _ = done.send(child.wait());
     });
     let status = ended
-        .recv_timeout(Duration::from_secs(10))
+        .recv_timeout(Duration::from_secs(60))
         .expect("the TUI ends when its terminal closes")
         .expect("wait");
     let code = status
@@ -1109,7 +1190,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     c.until("decided", |s| s.screen.contains("t: try live"));
     // the stand-in lists what the TUI gave it
     let fds_file = root.join("helper.fds");
-    let deadline = now() + Duration::from_secs(10);
+    let deadline = now() + Duration::from_secs(60);
     let listed = loop {
         if let Ok(listed) = std::fs::read_to_string(&fds_file) {
             break listed;
@@ -1168,7 +1249,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     // and in no frame it drew did it say a frit draws nothing; the test
     // reads every byte the TUI wrote, so no frame is caught half drawn
     let written = String::from_utf8_lossy(&c.written()).into_owned();
-    if let Some(at) = written.find("no font file on this machine") {
+    if let Some(at) = written.find("no font file vtium can use") {
         // the frame's bytes around the words, a row or so to each side
         let before: String = written[..at].chars().rev().take(200).collect();
         let before: String = before.chars().rev().collect();

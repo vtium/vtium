@@ -32,6 +32,7 @@ mod depth;
 #[cfg(feature = "gpu")]
 mod dma_buf;
 mod drm2d;
+mod dumb;
 mod edid;
 #[cfg(test)]
 pub(crate) mod fake;
@@ -47,9 +48,12 @@ pub use density::{DPI_ASSUMED, DPI_MAX, DPI_MIN, Density};
 #[cfg(feature = "gpu")]
 pub use dma_buf::{DmaBuf, MODIFIER_INVALID, Plane};
 pub use drm2d::{CURSOR_MAX, Drm2d};
+pub use dumb::MappedDumb;
 pub use edid::{Edid, EdidId, Serial};
 pub use fbdev::{Fb, Fbdev};
 pub use mode::{Mode, ModeLookup, ModePolicy, Wanted};
+#[cfg(feature = "scroll-pan")]
+pub use token::Tall;
 pub use token::{Buffers, Memory, Token};
 pub(crate) use token::{Loan, lock, try_lock};
 
@@ -146,11 +150,18 @@ pub enum Dpms {
 }
 
 /// A token's buffer, as the render thread draws into it ([`Token::draw`]):
-/// XRGB8888, `stride` bytes a line.
+/// XRGB8888, `stride` bytes a line. `width` and `height` are the buffer's
+/// size, and `screen` is the size of the window of it that the display
+/// shows. The two are the same unless the display keeps a buffer taller
+/// than the screen.
 pub struct Canvas<'a> {
     pub pixels: &'a mut [u8],
     pub width: u32,
     pub height: u32,
+    pub screen: (u32, u32),
+    /// Where the window shown starts, as [`Token::window`] gives it.
+    #[cfg(feature = "scroll-pan")]
+    pub window: u32,
     pub stride: u32,
     /// How many frames ago the buffer was last drawn: 1 holds the frame
     /// before this one, 2 the frame before that, and 0 means its contents

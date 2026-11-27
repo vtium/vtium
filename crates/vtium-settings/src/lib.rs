@@ -49,7 +49,10 @@
 //! console's command line take, with its type, default, bound and
 //! description, which the console reads its configuration by and
 //! vtium-config shows. [`palette`] reads palette files, the color schemes
-//! a look can name beside the built-in palettes.
+//! a look can name beside the built-in palettes. [`fontpath`] holds the rules for a
+//! font file named by its path, which the console and vtium-config's
+//! Fonts tab share: the folders the console searches, the paths it
+//! takes, and the source each file's extension names.
 //!
 //! References:
 //! - ADR-1201 D1: the key table that vtium-config shows.
@@ -73,6 +76,8 @@ pub mod cullet;
 mod error;
 mod file;
 mod findings;
+pub mod fit;
+pub mod fontpath;
 mod identity;
 pub mod keys;
 mod matching;

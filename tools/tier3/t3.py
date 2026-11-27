@@ -12,7 +12,10 @@ Stdlib only. The work is split across the modules beside this one:
     t3img.py         PNG/PPM reading and writing and the image compare
 
 Variants run one at a time, or with --jobs N up to N at once, each in its own
-worker process.
+worker process. --jobs auto, make's default, runs as many at once as the
+host's cores and memory hold: one host core for each vCPU and one more for
+the VM's own threads, and each VM's memory plus 512 MB, within half the
+memory the host has available, each sized for the run's largest variant.
 
     t3.py provision                       fetch and verify the pinned image into the image
                                           cache, build the base image from it unless the
@@ -20,7 +23,8 @@ worker process.
                                           to it
     t3.py provision --guest sysvinit      the same for the guest without systemd, linked
                                           from target/tier3/vm/base-sysvinit.qcow2
-    t3.py run [--jobs N] [VARIANT ...]    install the tree, run the scenario, compare
+    t3.py run [--jobs N|auto] [VARIANT ...]
+                                          install the tree, run the scenario, compare
                                           (default: every variant)
     t3.py run --tree-target TARGET        build the tree first, with make TARGET
                                           DESTDIR=target/tier3/install, under the run lock
@@ -192,8 +196,33 @@ def preflight(log, golden=None):
                                      t3_evaluate.PROVISIONAL)
 
 
+def mem_available_mb():
+    """The memory the host has available, from /proc/meminfo, in MB."""
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    raise SystemExit("--jobs auto: /proc/meminfo has no MemAvailable")
+
+
+def auto_jobs(variants, cores, mem_mb):
+    """How many of `variants` run at once with --jobs auto, on a host with
+    `cores` cores and `mem_mb` MB available: each VM takes its vCPUs and one
+    more core, and its memory plus 512 MB, within half of `mem_mb`, sized for
+    the largest variant of the run."""
+    machines = [t3_scenario.VARIANTS[v] for v in variants]
+    cpus = max(m["cpus"] for m in machines) + 1
+    mem = max(m["memory_mb"] for m in machines) + 512
+    return max(1, min(len(variants), cores // cpus, (mem_mb // 2) // mem))
+
+
 def run(args, log):
     variants = args.variants or t3_scenario.DEFAULT_VARIANTS
+    if args.jobs == "auto":
+        args.jobs = auto_jobs(variants, os.cpu_count() or 1, mem_available_mb())
+        log("--jobs auto: %d variant(s) at once" % args.jobs)
+    else:
+        args.jobs = int(args.jobs)
     for base, target in sorted({t3_scenario.base_of(v) for v in variants}):
         if not os.path.exists(base):
             raise SystemExit("no base image at %s; run `make %s`" % (rel(base), target))
@@ -216,7 +245,7 @@ def run(args, log):
         errors = t3_scenario.check_tree_features(variants, impl)
         if errors:
             raise SystemExit("\n".join(errors))
-        impl["features"] = build_features(variants, log)
+        impl["features"] = build_features(variants, impl["tree_features"], log)
         impl["fonts"] = build_fonts(variants, log)
         impl["text_fonts"] = text_fonts(variants, log)
         log("tree: %s, binary %d B, %s installed"
@@ -301,23 +330,40 @@ def recorded_tree(tree, declared):
     return impl
 
 
-def build_features(variants, log):
+def build_features(variants, tree_features, log):
     """vtium built with each feature set a variant in `variants` names, as
-    {features: binary path}, each in a target directory of its own under
-    OUT, with the minspec profile and the revision the tree's build logs."""
+    {features: binary path}, each in a directory of its own under OUT,
+    which is both its cargo target directory and its build directory, with
+    the minspec profile and the revision the tree's build logs. An empty
+    set is the minspec console, built in OUT/features-none. A set that
+    equals `tree_features`, the features the tree's console was built
+    with, maps to None and builds nothing, because the tree's console is
+    already that build and the variant runs it as it is.
+
+    One run builds one tree, with every feature any of its variants needs,
+    so a variant whose checks rest on the console lacking a feature names
+    its features here instead of taking the tree's. The minspec console
+    suspends through /sys/power/state, and a console built with logind asks
+    logind, which reaches systemd's Sleep target. So power-suspend-off names
+    the empty set, and it still runs the minspec console when a seat variant
+    in the same run makes the tree's console a logind build."""
     out = {}
     for features in sorted({t3_scenario.VARIANTS[v]["features"] for v in variants
                             if "features" in t3_scenario.VARIANTS[v]}):
-        target = os.path.join(OUT, "features-" + features)
-        log("building vtium with %s in %s" % (features, rel(target)))
+        if feature_list(features) == sorted(tree_features):
+            out[features] = None
+            continue
+        target = os.path.join(OUT, "features-" + (features or "none"))
+        log("building vtium with %s in %s" % (features or "no features", rel(target)))
         rev = subprocess.run(["git", "describe", "--always", "--dirty"], cwd=ROOT,
                              capture_output=True, text=True).stdout.strip() or "unknown"
-        r = subprocess.run(["cargo", "build", "--profile", "minspec", "-p", "vtium",
-                            "--features", features, "--target-dir", target], cwd=ROOT,
-                           env=dict(os.environ, VTIUM_REVISION=rev))
+        r = subprocess.run(["cargo", "build", "--profile", "minspec", "-p", "vtium"]
+                           + (["--features", features] if features else [])
+                           + ["--target-dir", target], cwd=ROOT,
+                           env=dict(os.environ, VTIUM_REVISION=rev, CARGO_BUILD_BUILD_DIR=target))
         if r.returncode:
             raise SystemExit("building vtium with %s failed with exit code %d"
-                             % (features, r.returncode))
+                             % (features or "no features", r.returncode))
         out[features] = os.path.join(target, "minspec", "vtium")
     return out
 
@@ -408,8 +454,9 @@ def main(argv=None):
     p.add_argument("--images", default=IMAGES, metavar="DIR",
                    help="the image cache target/tier3/vm/images links to (default %s)" % IMAGES)
     r = sub.add_parser("run")
-    r.add_argument("--jobs", type=int, default=1, metavar="N",
-                   help="run up to N variants at once (default 1)")
+    r.add_argument("--jobs", default="1", metavar="N|auto",
+                   help="run up to N variants at once, or as many as the host's cores and "
+                        "memory hold with auto (default 1)")
     r.add_argument("--deadline", type=int, default=t3_runner.VARIANT_DEADLINE, metavar="SECONDS",
                    help="with --jobs above 1, stop a variant still running after this "
                         "(default %d)" % t3_runner.VARIANT_DEADLINE)
@@ -432,8 +479,9 @@ def main(argv=None):
     named = getattr(args, "variants", [])
     if len(set(named)) != len(named):
         ap.error("a variant is named twice; each has one work directory")
-    if getattr(args, "jobs", 1) < 1:
-        ap.error("--jobs must be at least 1")
+    jobs = getattr(args, "jobs", "1")
+    if jobs != "auto" and not (jobs.isdigit() and int(jobs) >= 1):
+        ap.error("--jobs must be at least 1, or auto")
     if args.cmd == "provision" and args.guest == "arch" and not args.key:
         ap.error("--key: the arch guest's image is checked against its signing key")
     if getattr(args, "tree", None) and args.tree_target:

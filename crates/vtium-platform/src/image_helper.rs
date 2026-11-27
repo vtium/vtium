@@ -71,23 +71,163 @@ pub use identity::{
     Account, Facts, LOGIN_CLASSES, LoginSession, Me, PRELOGIN_ACCOUNTS, Prelogin, Refusal, Session,
     System, holds_group_zero, resolve,
 };
+#[cfg(not(feature = "split"))]
+use start::Started;
 pub use start::{PROGRAM, Program, memory_cap, open_program};
+// vtium's root process starts each image helper itself under the privilege
+// split.
+#[cfg(feature = "split")]
+pub use start::{Started, start};
 
 use crate::bounds::IMAGE_CRASHES_MAX;
-use start::Started;
 
 /// The most descriptors a reply is read with, so every one a helper sends
 /// is received and closed, and one too many is seen.
 const REPLY_FDS: usize = 8;
 
-/// Each of these is logged once a boot.
-static NO_SECCOMP: AtomicBool = AtomicBool::new(false);
-static NO_LANDLOCK: AtomicBool = AtomicBool::new(false);
+/// Whether this boot has logged an image helper's sandbox line ([`note`]).
+static SANDBOX_NOTED: AtomicBool = AtomicBool::new(false);
+
+/// What starts a host's helpers: this process, which also chooses each
+/// helper's account, or under the privilege split vtium's root process,
+/// which chooses the account itself.
+///
+/// References:
+/// - ADR-1400 D4, "What the broker does": the broker starts each image
+///   helper at the drawer's request and chooses its user.
+pub trait Launch {
+    /// The account a helper for one request of file media (`file`) or
+    /// inline bytes runs as, as far as this process can tell, and whether
+    /// a disagreement between the pty's owner and logind should be
+    /// logged, as [`resolve`] gives them. A running helper whose account
+    /// differs is stopped before the request.
+    fn account(
+        &mut self,
+        session: &Session,
+        file: bool,
+    ) -> (Result<Account, Refusal>, Option<(u32, u32)>);
+    /// Whether a helper can start at all, such as when a program is open.
+    fn can_start(&self) -> bool;
+    /// Starts a helper as `account` for a request of file media (`file`)
+    /// or inline bytes, its memory cap set for `max_bytes` and its largest
+    /// file at `largest_file`.
+    fn start(
+        &mut self,
+        account: &Account,
+        file: bool,
+        max_bytes: u64,
+        largest_file: u64,
+    ) -> Result<Box<dyn Process>, String>;
+}
+
+/// A helper's process, as its host sees it.
+pub trait Process: std::fmt::Debug {
+    /// The host's end of the helper's socket.
+    fn socket(&self) -> BorrowedFd<'_>;
+    /// The helper's process id, when this process knows it.
+    fn pid(&self) -> Option<u32>;
+    /// Whether the helper has exited.
+    fn exited(&self) -> bool;
+    /// Kills the helper's process group, and reaps the helper.
+    fn kill(self: Box<Self>);
+    /// Ends a helper that closed its socket or has exited, and says how
+    /// it ended, or hands the process back while that is not known yet.
+    fn finish(self: Box<Self>) -> Finish;
+}
+
+/// How a helper that closed its socket or exited ended.
+#[derive(Debug)]
+pub enum Finish {
+    /// With status 0.
+    Clean,
+    /// With another status, or killed by a signal.
+    Failed,
+    /// Not known yet: the process that reaps the helper has not reported
+    /// its end. The host asks again before its next request.
+    Unknown(Box<dyn Process>),
+}
+
+/// This process as the starter of a host's helpers: from `program`, with
+/// vtium's own `TMPDIR`, as the account [`resolve`] finds.
+struct Here {
+    program: Option<Program>,
+    tmpdir: Option<PathBuf>,
+    facts: Box<dyn Facts>,
+    prelogin: Prelogin,
+}
+
+impl Launch for Here {
+    fn account(
+        &mut self,
+        session: &Session,
+        file: bool,
+    ) -> (Result<Account, Refusal>, Option<(u32, u32)>) {
+        resolve(&*self.facts, &mut self.prelogin, session, file)
+    }
+
+    fn can_start(&self) -> bool {
+        self.program.is_some()
+    }
+
+    fn start(
+        &mut self,
+        account: &Account,
+        _: bool,
+        max_bytes: u64,
+        largest_file: u64,
+    ) -> Result<Box<dyn Process>, String> {
+        let program = self
+            .program
+            .as_ref()
+            .ok_or_else(|| "no image helper to start".to_owned())?;
+        let started = start::start(
+            program,
+            account,
+            max_bytes,
+            largest_file,
+            self.tmpdir.as_deref(),
+        )?;
+        Ok(Box::new(started))
+    }
+}
+
+impl Process for Started {
+    fn socket(&self) -> BorrowedFd<'_> {
+        self.socket.as_fd()
+    }
+
+    fn pid(&self) -> Option<u32> {
+        u32::try_from(self.pid.as_raw_nonzero().get()).ok()
+    }
+
+    fn exited(&self) -> bool {
+        start::exited(self)
+    }
+
+    /// Nothing reaps the helper before this, so its group's id cannot
+    /// have passed to another process when the group is signalled.
+    fn kill(self: Box<Self>) {
+        start::kill_group(&self);
+        if !start::reap(&self, false) {
+            // a process killed is gone in a moment; this thread waits for
+            // it so no zombie stays behind
+            std::thread::spawn(move || start::reap(&self, true));
+        }
+    }
+
+    fn finish(self: Box<Self>) -> Finish {
+        if start::finish(&self) {
+            Finish::Clean
+        } else {
+            Finish::Failed
+        }
+    }
+}
 
 /// A running helper and what it was started for.
 #[derive(Debug)]
 struct Running {
-    started: Started,
+    process: Box<dyn Process>,
     account: Account,
     /// Its memory cap was set from this.
     max_bytes: u64,
@@ -108,11 +248,11 @@ struct Out {
 
 /// One console's image helper host.
 pub struct ImageHost {
-    program: Option<Program>,
-    tmpdir: Option<PathBuf>,
-    facts: Box<dyn Facts>,
-    prelogin: Prelogin,
+    launch: Box<dyn Launch>,
     running: Option<Running>,
+    /// The helpers that ended before their end was known, which the host
+    /// asks again before its next request.
+    ending: Vec<Box<dyn Process>>,
     out: Option<Out>,
     crashes: usize,
     next_id: u64,
@@ -123,7 +263,6 @@ pub struct ImageHost {
 impl std::fmt::Debug for ImageHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ImageHost")
-            .field("program", &self.program)
             .field("running", &self.running)
             .field("out", &self.out)
             .field("crashes", &self.crashes)
@@ -145,12 +284,31 @@ impl ImageHost {
         tmpdir: Option<PathBuf>,
         facts: Box<dyn Facts>,
     ) -> Self {
-        Self {
+        Self::starting_with(Box::new(Here {
             program,
             tmpdir,
             facts,
             prelogin: Prelogin::default(),
+        }))
+    }
+
+    /// A host whose helpers vtium's root process starts, through `launch`,
+    /// under the privilege split.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker starts each image
+    ///   helper at the drawer's request and chooses its user.
+    #[cfg(feature = "split")]
+    pub fn launched(launch: Box<dyn Launch>) -> Self {
+        Self::starting_with(launch)
+    }
+
+    /// A host whose helpers `launch` starts.
+    fn starting_with(launch: Box<dyn Launch>) -> Self {
+        Self {
+            launch,
             running: None,
+            ending: Vec::new(),
             out: None,
             crashes: 0,
             next_id: 1,
@@ -162,7 +320,7 @@ impl ImageHost {
     /// not reached the crash limit. While it cannot, the binary tells the
     /// terminal there is no helper, so the kitty handler answers itself.
     pub fn available(&self) -> bool {
-        self.program.is_some() && self.crashes < IMAGE_CRASHES_MAX
+        self.launch.can_start() && self.crashes < IMAGE_CRASHES_MAX
     }
 
     /// Crashes this console's session has counted.
@@ -177,9 +335,7 @@ impl ImageHost {
 
     /// The running helper's pid, while one runs.
     pub fn pid(&self) -> Option<u32> {
-        self.running
-            .as_ref()
-            .and_then(|r| u32::try_from(r.started.pid.as_raw_nonzero().get()).ok())
+        self.running.as_ref().and_then(|r| r.process.pid())
     }
 
     /// The running helper's hello, once it has arrived: the landlock
@@ -195,7 +351,7 @@ impl ImageHost {
     /// socket of its own, so the loop takes a new one for each request.
     pub fn wake(&self) -> Option<OwnedFd> {
         self.out.as_ref()?;
-        let socket = &self.running.as_ref()?.started.socket;
+        let socket = self.running.as_ref()?.process.socket();
         rustix::io::fcntl_dupfd_cloexec(socket, 3).ok()
     }
 
@@ -207,11 +363,8 @@ impl ImageHost {
         if self.out.is_some() {
             return Err(Reply::Failed);
         }
-        if self
-            .running
-            .as_ref()
-            .is_some_and(|r| start::exited(&r.started))
-        {
+        self.settle_ending();
+        if self.running.as_ref().is_some_and(|r| r.process.exited()) {
             self.retire();
         }
         if !self.available() {
@@ -223,7 +376,7 @@ impl ImageHost {
             return Err(Reply::OverBudget);
         }
         let file = !matches!(request.medium, Medium::Direct(_));
-        let (account, disagree) = resolve(&*self.facts, &mut self.prelogin, session, file);
+        let (account, disagree) = self.launch.account(session, file);
         if let Some(pair) = disagree.filter(|&p| self.disagreement != Some(p)) {
             self.disagreement = Some(pair);
             log::warn!(
@@ -240,6 +393,7 @@ impl ImageHost {
         let frames = request.frames.map_or(0, |l| l.max_frame_bytes);
         self.ensure(
             &account,
+            file,
             request.largest_bytes,
             request.largest_bytes.saturating_add(frames),
         )?;
@@ -259,10 +413,15 @@ impl ImageHost {
         let Some(running) = &self.running else {
             return Err(Reply::Unreadable);
         };
-        if let Err(e) = send_packet(&running.started.socket, &packet, inline.as_ref()) {
+        // A helper can end before it reads anything, as one on a kernel
+        // that refuses its seccomp filter does. Whether its socket closes
+        // before this send or after it depends only on how the kernel
+        // schedules the two processes, so a failed send fails the request,
+        // as a socket found closed while a request is out does.
+        if let Err(e) = send_packet(running.process.socket(), &packet, inline.as_ref()) {
             log::warn!("cannot send image request {id}: {e}");
             self.retire();
-            return Err(Reply::Unreadable);
+            return Err(Reply::Failed);
         }
         let mut kept = request.clone();
         if let Medium::Direct(bytes) = &mut kept.medium {
@@ -281,6 +440,7 @@ impl ImageHost {
     fn ensure(
         &mut self,
         account: &Account,
+        file: bool,
         max_bytes: u64,
         largest_file: u64,
     ) -> Result<(), Reply> {
@@ -298,25 +458,23 @@ impl ImageHost {
         if self.running.is_some() {
             return Ok(());
         }
-        let program = self.program.as_ref().ok_or(Reply::Unreadable)?;
-        let started = start::start(
-            program,
-            account,
-            max_bytes,
-            largest_file,
-            self.tmpdir.as_deref(),
-        )
-        .map_err(|why| {
-            log::warn!("{why}");
-            Reply::Unreadable
-        })?;
+        if !self.launch.can_start() {
+            return Err(Reply::Unreadable);
+        }
+        let process = self
+            .launch
+            .start(account, file, max_bytes, largest_file)
+            .map_err(|why| {
+                log::warn!("{why}");
+                Reply::Unreadable
+            })?;
         log::debug!(
-            "image helper {} started as uid {}",
-            started.pid.as_raw_nonzero(),
+            "image helper {:?} started as uid {}",
+            process.pid(),
             account.uid
         );
         self.running = Some(Running {
-            started,
+            process,
             account: account.clone(),
             max_bytes,
             largest_file,
@@ -325,17 +483,10 @@ impl ImageHost {
         Ok(())
     }
 
-    /// Kills the helper's process group and reaps the helper. Nothing
-    /// reaps the helper before this, so its group's id cannot have passed
-    /// to another process when the group is signalled.
+    /// Kills the helper's process group and reaps the helper.
     fn kill(&mut self) {
         if let Some(r) = self.running.take() {
-            start::kill_group(&r.started);
-            if !start::reap(&r.started, false) {
-                // a process killed is gone in a moment; this thread waits
-                // for it so no zombie stays behind
-                std::thread::spawn(move || start::reap(&r.started, true));
-            }
+            r.process.kill();
         }
     }
 
@@ -355,12 +506,28 @@ impl ImageHost {
         let Some(r) = self.running.take() else {
             return;
         };
-        if !start::finish(&r.started) {
-            log::warn!(
-                "image helper {} ended with another status than 0",
-                r.started.pid.as_raw_nonzero()
-            );
-            self.count_crash();
+        self.finished(r.process);
+    }
+
+    /// Counts a crash for `process`, which ended, unless it exited with
+    /// status 0. While its end is not known it waits in `ending`.
+    fn finished(&mut self, process: Box<dyn Process>) {
+        let pid = process.pid();
+        match process.finish() {
+            Finish::Clean => {}
+            Finish::Failed => {
+                log::warn!("image helper {pid:?} ended with another status than 0");
+                self.count_crash();
+            }
+            Finish::Unknown(process) => self.ending.push(process),
+        }
+    }
+
+    /// Counts a crash for each helper in `ending` whose end is now known
+    /// and was not status 0.
+    fn settle_ending(&mut self) {
+        for process in std::mem::take(&mut self.ending) {
+            self.finished(process);
         }
     }
 
@@ -401,7 +568,7 @@ impl ImageHost {
     pub fn readable(&mut self) -> Option<Reply> {
         loop {
             let running = self.running.as_ref()?;
-            let packet = match receive(&running.started.socket) {
+            let packet = match receive(running.process.socket()) {
                 Ok(Some(p)) => p,
                 Ok(None) => return None,
                 Err(Broken::Closed) => {
@@ -540,14 +707,69 @@ pub fn without_helper(request: &Request) -> Reply {
     }
 }
 
-/// Logs once a boot what the helper's hello says it lacks.
+/// Logs once a boot what the helper's hello says it lacks, as
+/// [`sandbox_line`] words it, and shows nothing on screen.
 fn note(hello: &Hello) {
-    if !hello.seccomp && !NO_SECCOMP.swap(true, Ordering::Relaxed) {
-        log::warn!("the image helper runs without its seccomp filter on this architecture");
+    if let Some(line) = sandbox_line(hello)
+        && !SANDBOX_NOTED.swap(true, Ordering::Relaxed)
+    {
+        log::warn!("{line}");
     }
-    if hello.landlock == 0 && !NO_LANDLOCK.swap(true, Ordering::Relaxed) {
-        log::warn!("the kernel offers no landlock, so the image helper's workers run without it");
+}
+
+/// The line vtium logs when the helper's hello says a part of its sandbox
+/// is not in force: each missing part and the reason the helper gives, and
+/// whether the workers' third filter stands in for their landlock domains.
+/// `None` when every part is in force.
+///
+/// References:
+/// - ADR-1200 D15, "Nothing on screen, and the log says why": one line
+///   once a boot, with the reasons it tells apart.
+/// - ADR-1101 D9: the workers' third filter on a kernel without landlock.
+fn sandbox_line(hello: &Hello) -> Option<String> {
+    use vtium_image::decode::wire::{NoLandlock, NoSeccomp};
+    if hello.no_seccomp == Some(NoSeccomp::Off) && hello.no_landlock == Some(NoLandlock::Off) {
+        return Some(
+            "The image helper runs without its seccomp filter, and its workers without their landlock domains, because the setting helper-sandbox=off turns them off. An image that took over the image helper could open network connections and change any file that the image helper's account may change.".to_owned(),
+        );
     }
+    // the decoder refuses a hello whose filter is missing without a
+    // reason, or whose landlock version is 0 without one, so each reason
+    // here is the one the helper gave
+    let seccomp = hello.no_seccomp.map(|why| {
+        let why = match why {
+            NoSeccomp::Off => "the setting helper-sandbox=off turns it off",
+            NoSeccomp::NoTable => "vtium has no seccomp filter for this machine's architecture",
+            NoSeccomp::NotBuilt => {
+                "this kernel is new enough to offer seccomp but was built without it"
+            }
+            NoSeccomp::NoFilters => {
+                "this kernel was built with seccomp but without seccomp filters"
+            }
+            NoSeccomp::TooOld => {
+                "this kernel is older than Linux 3.8, too old for vtium's seccomp filters"
+            }
+        };
+        format!("The image helper runs without its seccomp filter, because {why}.")
+    });
+    let landlock = hello.no_landlock.map(|why| {
+        let why = match why {
+            NoLandlock::Off => "the setting helper-sandbox=off turns them off",
+            NoLandlock::TooOld => "this kernel is older than Linux 5.13, which added landlock",
+            NoLandlock::NotEnabled => {
+                "this kernel did not turn landlock on at boot, as when the boot's lsm= list leaves it out"
+            }
+            NoLandlock::NotBuilt => "this kernel was built without landlock",
+        };
+        let stands_in = if hello.seccomp {
+            "A third seccomp filter in each worker refuses opening and removing files in their place."
+        } else {
+            "No filter takes their place."
+        };
+        format!("The image helper's workers run without their landlock domains, because {why}. {stands_in}")
+    });
+    let lines: Vec<String> = seccomp.into_iter().chain(landlock).collect();
+    (!lines.is_empty()).then(|| lines.join(" "))
 }
 
 /// The helper's reason, every byte outside printable ASCII as `?`, at

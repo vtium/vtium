@@ -191,6 +191,8 @@ pub struct Head {
     overlay_colors: crate::term::OverlayColors,
     /// What the head does when it loses its last display (ADR-1401 D8).
     pub(crate) when_display_lost: WhenDisplayLost,
+    /// How the head's displays draw a scroll, as `scroll-draw` asks.
+    pub(crate) scroll_draw: crate::term::ScrollDraw,
     /// When its sessions hang up, while it has no display.
     pub(crate) hangup_due: Option<Instant>,
     pub(crate) views: BTreeMap<(PathBuf, DisplayId), View>,
@@ -249,6 +251,12 @@ pub struct Head {
     /// until a zoom or its session's end; `None` while the grid fills the
     /// displays.
     pub(crate) asked: Option<(usize, usize)>,
+    /// A zoom whose step through a font set's strikes waits for a late
+    /// answer from the font helper, in the direction it was asked. vtium
+    /// takes the step at the turn that takes the answer
+    /// (`app/window_ops.rs`); `None` while no zoom waits. A text area
+    /// request that waits is the console's own ([`Term::sizing`]).
+    pub(crate) zoom_waits: Option<Zoom>,
     /// The height at which the log last said that a zoom out stops at the
     /// font's smallest height, so a key held there logs the stop once.
     pub(crate) zoom_stop_logged: Option<u32>,
@@ -268,6 +276,9 @@ pub struct Head {
     /// References:
     /// - ADR-1308 D8: the programming ligatures and their setting.
     ligatures: bool,
+    /// Where the grid sits on the head's displays, from the head's
+    /// configured `smooth-scroll` and `partial-row` ([`placement`]).
+    placement: vtium_render::Placement,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -478,6 +489,32 @@ pub(crate) fn configured_size(config: &Config) -> (Option<u32>, bool, bool) {
     (points, auto_size, !auto_size)
 }
 
+/// Where the grid sits on a display of a head whose configuration is
+/// `config`. Smooth scrolling is on for the head when its `smooth-scroll`,
+/// from its own section, its look's or the top level, is `on` in a build
+/// with the `smooth-scroll` feature. The grid then sits at the bottom, and
+/// the spare lines above it show what `partial-row` says. Otherwise vtium
+/// centres the grid on both axes. A program that switches DECSCLM changes
+/// only whether a scroll slides, so the layout never moves with it.
+///
+/// References:
+/// - ADR-1310 D7: `smooth-scroll` at three levels, the head's winning, and `partial-row`.
+/// - ADR-1310 D10, "Every build": the configured key sets the placement, and DECSCLM does not.
+/// - ADR-1310 D12, "With smooth scrolling off": the grid centred on both axes.
+pub(crate) fn placement(config: &Config) -> vtium_render::Placement {
+    use vtium_render::{PartialRow, Placement};
+    let partial = match config.text(&keys::PARTIAL_ROW) {
+        Some("blank") => PartialRow::Blank,
+        Some("fade") => PartialRow::Fade,
+        _ => PartialRow::History,
+    };
+    let on = config.text(&keys::SMOOTH_SCROLL) == Some("on");
+    match cfg!(feature = "smooth-scroll") && on {
+        true => Placement::Bottom(partial),
+        false => Placement::Centred,
+    }
+}
+
 /// The cell the head's look states, from the head's configuration
 /// `config`, the one [`Config::for_head`] gives.
 pub(crate) fn look_cell(config: &Config) -> Option<vtium_font::Cell> {
@@ -548,6 +585,7 @@ impl Head {
             brief_due: None,
             overlay_colors: crate::term::OverlayColors::configured(config),
             when_display_lost: WhenDisplayLost::Keep,
+            scroll_draw: crate::term::ScrollDraw::configured(config),
             hangup_due: None,
             views: BTreeMap::new(),
             colorterm: session::Colorterm::default(),
@@ -567,11 +605,13 @@ impl Head {
             points,
             auto_size,
             asked: None,
+            zoom_waits: None,
             zoom_stop_logged: None,
             sized,
             look_cell: look_cell(config),
             line_spacing: config.font_line_spacing().map(u32::from),
             ligatures: config.font_ligatures(),
+            placement: placement(config),
             has_font: false,
             step: 16,
             cell: CELL,
@@ -1217,6 +1257,7 @@ impl Head {
                 .char(&keys::POINTER_CHAR)
                 .map_or(PointerShape::Arrow, PointerShape::Glyph),
             ligatures: self.ligatures,
+            placement: self.placement,
             ..RenderConfig::default()
         }
     }
@@ -1318,73 +1359,20 @@ impl Head {
     }
 
     /// What the displays show, read from the view each buffer draws,
-    /// scrolled back or not (#149), in each variant a cell draws its glyph
-    /// in, bold, italic, both or neither, and normal, superscript or
-    /// subscript (ADR-1200 D21, ADR-1202 D11): the characters, every
-    /// character of a cluster among them, and the clusters whole, each
-    /// sorted and once. The regular normal variant comes first, shown or
-    /// not, and each other variant only where a cell shows it.
-    #[cfg(not(feature = "bidi"))]
+    /// scrolled back or not (#149), with the rows of history above the
+    /// screen that the displays draw in a build with `scroll-pan`
+    /// ([`crate::deferred::frame_shown`]). It is read as
+    /// [`crate::deferred::read_shown`] reads it: in each variant a cell
+    /// draws its glyph in, the characters and the clusters, each sorted and
+    /// once. The regular normal variant comes first, shown or not, and each
+    /// other variant only where a cell shows it.
     pub(crate) fn visible(&self) -> Vec<Shown> {
-        use vtium_term::{Age, Glyph};
-        let palette = self.console.term.terminal.palette();
-        let frame = self
-            .console
-            .term
-            .terminal
-            .screen()
-            .frame(palette, Age::NEVER);
+        let frame = crate::deferred::frame_shown(&self.console.term);
         let mut all = vec![Shown::default()];
-        crate::deferred::read_doubled(&frame, &mut all);
-        for row in 0..frame.rows() {
-            for cell in frame.cells(row) {
-                let variant = crate::deferred::variant_of(cell.attrs);
-                let i = crate::deferred::shown_index(&mut all, variant, None);
-                let Some(shown) = all.get_mut(i) else {
-                    continue;
-                };
-                match cell.glyph {
-                    Glyph::Char(c) => shown.chars.push(c),
-                    Glyph::Cluster(text) => {
-                        shown.chars.extend(text.chars());
-                        shown.clusters.push(text.chars().collect());
-                    }
-                    Glyph::Empty => {}
-                }
-            }
-        }
-        for shown in &mut all {
-            shown.chars.retain(|c| !c.is_whitespace());
-            shown.chars.sort_unstable();
-            shown.chars.dedup();
-            shown.clusters.sort_unstable();
-            shown.clusters.dedup();
-        }
-        let rule = self.console.term.terminal.screen().cluster_width();
-        for shown in &mut all {
-            shown.cluster_width = rule;
-        }
-        all
-    }
-
-    /// What the displays show, read from the view each buffer draws,
-    /// scrolled back or not (#149), as [`crate::deferred::read_shown`]
-    /// reads it: in each variant a cell draws its glyph in, the characters
-    /// and the clusters, each sorted and once. The regular normal variant
-    /// comes first, shown or not, and each other variant only where a cell
-    /// shows it.
-    #[cfg(feature = "bidi")]
-    pub(crate) fn visible(&self) -> Vec<Shown> {
-        use vtium_term::Age;
-        let palette = self.console.term.terminal.palette();
-        let frame = self
-            .console
-            .term
-            .terminal
-            .screen()
-            .frame(palette, Age::NEVER);
-        let mut all = vec![Shown::default()];
+        #[cfg(feature = "bidi")]
         crate::deferred::read_shown(&frame, &mut all, self.ligatures);
+        #[cfg(not(feature = "bidi"))]
+        crate::deferred::read_shown(&frame, &mut all);
         crate::deferred::settle(&mut all);
         // the helper places the clusters in the cells this terminal gives
         // them (ADR-1006 D8)
@@ -2165,9 +2153,9 @@ mod tests {
     /// The panic screen of [`a_broken_closed_files_start_shows_the_panic_screens_report`]'s file.
     const PANIC: &str = concat!(
         "vtium.conf has errors and counts as closed: all input is off.\n",
-        "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
-        "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
-        "/etc/vtium/vtium.conf:5: This section has no key named \"font-weight\". Check the spelling, or remove the line.\n",
+        "No display head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
+        "/etc/vtium/vtium.conf:4: `consoles` cannot be \"0\": it takes 1 or more.\n",
+        "/etc/vtium/vtium.conf:5: `isolated` cannot be \"maybe\". Change it to one of `yes`, `no`.\n",
         "/etc/vtium/vtium.conf:7: This rule sends devices to head \"k\\u{202e}x\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.\n",
         "More errors: 2\n",
         "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",
@@ -2261,7 +2249,7 @@ mod tests {
     // covers: platform.heads.policy
     #[test]
     fn a_broken_closed_files_start_shows_the_panic_screens_report() {
-        let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\nfont-weight = bold\n[rules]\ndisplay * -> k\u{202e}x\ninput * -> desc\ninput * -> nowhere\n";
+        let text = "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\nisolated = maybe\n[rules]\ndisplay * -> k\u{202e}x\ninput * -> desc\ninput * -> nowhere\n";
         let start = Start::trusted(
             std::path::Path::new("/etc/vtium/vtium.conf"),
             text.as_bytes(),
@@ -2276,7 +2264,7 @@ mod tests {
             "escaped: {shown:?}"
         );
         // any other start shows its console line and next step alone
-        let partly = "version = 1\npolicy = closed\n[head desk]\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> desk\n";
+        let partly = "version = 1\npolicy = closed\n[head desk]\n[head kiosk]\nconsoles = 0\n[rules]\ndisplay * -> desk\n";
         let start = Start::trusted(
             std::path::Path::new("/etc/vtium/vtium.conf"),
             partly.as_bytes(),
@@ -2374,6 +2362,81 @@ mod tests {
             !regular.chars.contains(&ZWJ),
             "U+200D is asked for in keys alone"
         );
+    }
+
+    // `smooth-scroll` sets where a head's grid sits: a head's own value wins
+    // over its look's, and both win over the top level's. Smooth scrolling
+    // on puts the grid at the bottom, with the spare lines as `partial-row`
+    // says, from the look or else the top level. Off, by default or by any
+    // level, centres the grid. A build without the `smooth-scroll` feature
+    // centres it on every head.
+    //
+    // References:
+    // - ADR-1310 D7: the three levels of `smooth-scroll`, the head's winning.
+    // - ADR-1310 D12, "With smooth scrolling off": the grid centred whatever `partial-row` says.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn smooth_scroll_from_the_head_its_look_or_the_top_level_places_the_grid() {
+        use vtium_render::{PartialRow, Placement};
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let text = "version = 1\nsmooth-scroll = off\npartial-row = fade\n\
+                    [look on]\nsmooth-scroll = on\npartial-row = blank\n\
+                    [look off]\nsmooth-scroll = off\n\
+                    [head a]\nlook = on\n[head b]\nlook = off\nsmooth-scroll = on\n\
+                    [head c]\nlook = on\nsmooth-scroll = off\n[head d]\n";
+        let top = crate::config::load(&[], &mut |p: &std::path::Path| {
+            Ok((p == path).then(|| text.as_bytes().to_vec()))
+        })
+        .config;
+        let rules = vtium_settings::sections(text.as_bytes())
+            .map(|s| s.parsed.config)
+            .unwrap_or_default();
+        let under = |name: &str| {
+            let settings: Vec<vtium_settings::Setting> = rules
+                .head(name)
+                .map(|h| {
+                    rules
+                        .settings(h)
+                        .into_iter()
+                        .map(|(_, s)| s.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            top.for_head(path, &settings).0
+        };
+        let none = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let built = |p: Placement| match cfg!(feature = "smooth-scroll") {
+            true => p,
+            false => Placement::Centred,
+        };
+        for (config, want, what) in [
+            (
+                under("a"),
+                built(Placement::Bottom(PartialRow::Blank)),
+                "on in the look, over the top level's off",
+            ),
+            (
+                under("b"),
+                built(Placement::Bottom(PartialRow::Fade)),
+                "on in the head, over its look's off",
+            ),
+            (
+                under("c"),
+                Placement::Centred,
+                "off in the head, over its look's on",
+            ),
+            (under("d"), Placement::Centred, "off at the top level"),
+            (none, Placement::Centred, "unset"),
+        ] {
+            let clock: Clock = std::rc::Rc::new(Instant::now);
+            let head = Head::new(
+                "h",
+                &config,
+                Vec::new(),
+                terminal(&config, (0, 0), 0, clock),
+            );
+            assert_eq!(head.render_config(&config).placement, want, "{what}");
+        }
     }
 
     // ADR-1308 D8: `font-ligatures` in vtium.conf reaches the console. With
@@ -2887,7 +2950,7 @@ mod tests {
     fn a_display_no_rule_claims_with_no_head_declared_is_told_to_declare_one() {
         let path = std::path::Path::new("/etc/vtium/vtium.conf");
         let off = include_str!("../../../docs/heads/off.conf");
-        let broken = "version = 1\npolicy = closed\n[head desk]\nfocs = 1\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n";
+        let broken = "version = 1\npolicy = closed\n[head desk]\nconsoles = 0\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n";
         let display = vtium_settings::Identity {
             connector: Some("HDMI-A-1".to_owned()),
             card: Some("pci-0000:03:00.0".to_owned()),
@@ -2999,6 +3062,41 @@ mod tests {
         assert_eq!(wheel(-1, true, false, false), Wheel::Scroll { up: true });
         assert_eq!(wheel(1, true, false, true), Wheel::Zoom(Zoom::In));
         assert_eq!(wheel(-1, true, false, true), Wheel::Zoom(Zoom::Out));
+    }
+
+    // Each wheel event that scrolls moves the view through the scrollback
+    // by three whole lines, whatever count of notches the event carries:
+    // one notch, 120 (the units a high-resolution wheel counts for one
+    // notch), several events before a frame, and the way back, which stops
+    // at the newest output.
+    //
+    // References:
+    // - ADR-1310 D1: the wheel moves the view through the scrollback.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_wheel_event_moves_the_view_three_whole_lines_whatever_its_notches() {
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let mut head = Head::new(
+            "h",
+            &config,
+            Vec::new(),
+            terminal(&config, (1000, 1000), 1 << 20, clock),
+        );
+        for n in 0..100 {
+            head.console
+                .term
+                .terminal
+                .input(format!("\r\nline {n}").as_bytes());
+        }
+        let mut back = Vec::new();
+        for steps in [1, 120, 1, 1, 1, -1, -7, -1, -1, -1, -1] {
+            let zoom =
+                head.pointer_event(PointerEvent::Wheel(steps), Mods::empty(), false, &mut None);
+            assert_eq!(zoom, None);
+            back.push(head.console.term.terminal.screen().scrolled_back());
+        }
+        assert_eq!(back, [3, 6, 9, 12, 15, 12, 9, 6, 3, 0, 0]);
     }
 
     // A steady cursor (DECSCUSR 2, 4 and 6, or a blinking style that mode

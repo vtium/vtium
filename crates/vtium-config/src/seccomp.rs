@@ -21,6 +21,95 @@
 //! bits of one argument, which is all the kernel reads of an `int` or
 //! `unsigned int` argument. Every call no rule refuses goes on.
 
+/// Why one of the helper's seccomp filters is not in force, as the
+/// second word of its sandbox frame numbers it; 0 there means the filter
+/// is in force.
+///
+/// References:
+/// - ADR-1200 D15, "Nothing on screen, and the log says why": the five
+///   reasons and how the helper tells them apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum Missing {
+    /// `helper-sandbox=off` turns the filters off.
+    Off = 1,
+    /// This build has no table of call numbers for the machine's
+    /// architecture ([`BUILT`]).
+    NoTable = 2,
+    /// The kernel is 3.8 or later and was built without seccomp: its
+    /// status has no `Seccomp:` line.
+    NoSeccomp = 3,
+    /// The kernel is 5.9 or later and was built with seccomp but without
+    /// seccomp filters: its status has a `Seccomp:` line and no
+    /// `Seccomp_filters:` line.
+    NoFilters = 4,
+    /// The kernel is older than 3.8 and its status has no `Seccomp:`
+    /// line, so it is too old for the filters or was built without
+    /// seccomp, and the helper cannot tell which.
+    TooOld = 5,
+}
+
+/// The major and minor version of a kernel release as `uname` gives it,
+/// such as `6.7.0-arch1-1`; `None` when the text does not start with two
+/// numbers joined by a dot.
+pub fn release(text: &str) -> Option<(u32, u32)> {
+    let mut parts = text.splitn(3, ['.', '-', '+']);
+    let major = parts.next()?.parse().ok()?;
+    let minor: String = parts
+        .next()?
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    Some((major, minor.parse().ok()?))
+}
+
+/// Why a kernel offers no seccomp filters at all, from its own status
+/// text (`/proc/self/status`) and its release; `None` when it offers the
+/// filters or the helper cannot tell that it does not. The helper asks
+/// only once a filter has failed to install, and with `None` it fails as
+/// it would on any refusal.
+///
+/// The kernel writes the `Seccomp:` line from Linux 3.8, and only when it
+/// is built with `CONFIG_SECCOMP`. It writes the `Seccomp_filters:` line
+/// from Linux 5.9, and only when it is built with `CONFIG_SECCOMP_FILTER`.
+/// So a missing line proves a missing feature only on a release that
+/// writes the line. A release before 5.9 with a `Seccomp:` line counts as
+/// offering the filters, because nothing tells its lack of filters from a
+/// refusal of the helper's.
+///
+/// References:
+/// - ADR-1200 D15, "A kernel without seccomp filters runs the helpers
+///   without them, at the default too": which kernels count as lacking
+///   the filters.
+pub fn kernel_lacks_filters(status: &str, release: Option<(u32, u32)>) -> Option<Missing> {
+    let line = |name: &str| status.lines().any(|l| l.starts_with(name));
+    let release = release?;
+    if !line("Seccomp:") {
+        Some(if release >= (3, 8) {
+            Missing::NoSeccomp
+        } else {
+            Missing::TooOld
+        })
+    } else if !line("Seccomp_filters:") && release >= (5, 9) {
+        Some(Missing::NoFilters)
+    } else {
+        None
+    }
+}
+
+/// The running kernel's release, from `uname`, as [`release`] reads it.
+pub fn kernel_release() -> Option<(u32, u32)> {
+    release(&rustix::system::uname().release().to_string_lossy())
+}
+
+/// [`kernel_lacks_filters`] for the running kernel: its status from
+/// `/proc/self/status` and its release from `uname`. `None` too when the
+/// status cannot be read, so the helper fails as before.
+pub fn running_kernel_lacks_filters() -> Option<Missing> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    kernel_lacks_filters(&status, kernel_release())
+}
+
 /// Whether this build has a table of call numbers, and so builds the
 /// helper's filters.
 pub const BUILT: bool = cfg!(all(
@@ -832,5 +921,73 @@ mod tests {
         assert!(compile(&[Rule::NoneOf(libc::SYS_ioctl, 1, values)]).is_err());
         assert!(compile(&[Rule::OneOf(libc::SYS_fcntl, 1, Vec::new())]).is_err());
         assert!(compile(&[Rule::Always(libc::SYS_kill)]).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod kernel_tests {
+    use super::*;
+
+    /// A status as a kernel writes it, cut to the lines the check reads.
+    const WITH_FILTERS: &str = "Name:\tvtium-config\nNoNewPrivs:\t1\nSeccomp:\t0\nSeccomp_filters:\t0\nSpeculation_Store_Bypass:\tthread vulnerable\n";
+    const SECCOMP_ONLY: &str = "Name:\tvtium-config\nNoNewPrivs:\t1\nSeccomp:\t0\nSpeculation_Store_Bypass:\tthread vulnerable\n";
+    const NO_SECCOMP: &str =
+        "Name:\tvtium-config\nNoNewPrivs:\t1\nSpeculation_Store_Bypass:\tthread vulnerable\n";
+
+    #[test]
+    fn a_release_reads_as_its_major_and_minor_version() {
+        assert_eq!(release("6.7.0-arch1-1"), Some((6, 7)));
+        assert_eq!(release("5.9.0"), Some((5, 9)));
+        assert_eq!(release("3.8-rc1"), Some((3, 8)));
+        assert_eq!(release("6.12+deb13-amd64"), Some((6, 12)));
+        assert_eq!(release("4.19"), Some((4, 19)));
+        assert_eq!(release("6"), None);
+        assert_eq!(release("unknown"), None);
+        assert_eq!(release(""), None);
+    }
+
+    // Each reason that a filter can be missing on the kernel's side, from
+    // a stand-in status and release: the kernel writes `Seccomp:` from
+    // 3.8 when it has seccomp, and `Seccomp_filters:` from 5.9 when it
+    // has the filters, so a missing line proves a missing feature only on
+    // a release that writes it.
+    //
+    // References:
+    // - ADR-1200 D15, "Nothing on screen, and the log says why": reasons
+    //   3, 4 and 5, and the release before 5.9 that counts as offering
+    //   the filters.
+    #[test]
+    fn the_kernel_lacks_the_filters_only_when_its_status_and_release_show_it() {
+        let lacks = kernel_lacks_filters;
+        // the third reason: new enough for the `Seccomp:` line, built without seccomp
+        assert_eq!(lacks(NO_SECCOMP, Some((6, 7))), Some(Missing::NoSeccomp));
+        assert_eq!(lacks(NO_SECCOMP, Some((3, 8))), Some(Missing::NoSeccomp));
+        // the fifth: too old to write the line, so it cannot tell
+        assert_eq!(lacks(NO_SECCOMP, Some((3, 7))), Some(Missing::TooOld));
+        assert_eq!(lacks(NO_SECCOMP, Some((2, 6))), Some(Missing::TooOld));
+        // the fourth: seccomp without filters, on a release that writes the line
+        assert_eq!(lacks(SECCOMP_ONLY, Some((5, 9))), Some(Missing::NoFilters));
+        assert_eq!(lacks(SECCOMP_ONLY, Some((6, 1))), Some(Missing::NoFilters));
+        // before 5.9 nothing tells a lack of filters from a refusal
+        assert_eq!(lacks(SECCOMP_ONLY, Some((5, 8))), None);
+        assert_eq!(lacks(SECCOMP_ONLY, Some((4, 19))), None);
+        // a kernel that offers the filters refused them: the helper fails
+        assert_eq!(lacks(WITH_FILTERS, Some((6, 7))), None);
+        assert_eq!(lacks(WITH_FILTERS, Some((5, 9))), None);
+        // a release the helper cannot read tells it nothing
+        assert_eq!(lacks(NO_SECCOMP, None), None);
+        assert_eq!(lacks(SECCOMP_ONLY, None), None);
+        // a line that only starts like the one the check reads is not it
+        assert_eq!(
+            lacks("Seccomp_filters_x:\t1\n", Some((6, 7))),
+            Some(Missing::NoSeccomp)
+        );
+    }
+
+    #[test]
+    fn the_build_machine_offers_seccomp_filters() {
+        // the machines that run the tests offer the filters, so the check
+        // finds nothing missing; qemu-user passes the host's status through
+        assert_eq!(running_kernel_lacks_filters(), None);
     }
 }

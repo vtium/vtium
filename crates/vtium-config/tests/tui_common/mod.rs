@@ -43,29 +43,66 @@ pub enum Answerer {
 /// A console standing in for the terminal the TUI runs in.
 pub struct Console {
     pub answerer: Answerer,
-    /// The fonts the console takes, each with the grid it gives.
+    /// The fonts the console takes, each with the grid it gives at the
+    /// height the console starts at, [`BASE_HEIGHT`].
     pub fonts: BTreeMap<&'static str, (usize, usize)>,
+    /// The other zoom steps of each font: the grid that fills the display
+    /// at each pixel height the font can draw at besides [`BASE_HEIGHT`].
+    /// A grid request reaches only these grids and the one in
+    /// [`Console::fonts`], as vtium reaches only its font's zoom steps.
+    pub steps: BTreeMap<&'static str, BTreeMap<u32, (usize, usize)>>,
+    /// The font set the console draws now.
+    pub shown: String,
+    /// The pixel height the console draws at now.
+    pub height: u32,
+    /// The grid that a grid request pinned, which lasts across a font
+    /// switch until a request with both sides 0 lets the grid fill the
+    /// display again, as vtium keeps it.
+    pub pinned: Option<(usize, usize)>,
+    /// The console takes grid requests, as vtium does with
+    /// `allow-window-ops` on. Off, it ignores them.
+    pub window_ops: bool,
+    /// The displays' size in pixels, where the test gives one. The
+    /// console's cell is then that size divided by the grid that fills it
+    /// at the font and height it draws, as vtium lays a font out on its
+    /// displays. The console's terminal takes the cell, so it answers
+    /// XTWINOPS 14 with the text area, the grid times the cell, as vtium
+    /// does. With no size, the terminal knows no cell and leaves
+    /// XTWINOPS 14 unanswered.
+    pub display_px: Option<(u32, u32)>,
     /// Keys still to type, one read each.
     pub script: VecDeque<Vec<u8>>,
     pub pending: VecDeque<Wake>,
     pub armed: bool,
     /// Every byte the TUI wrote.
     pub written: Vec<u8>,
+    /// What the stand-in font helper says of a font set in place of what
+    /// [`Port::sources`] says of it by default, as the console's helper
+    /// says it through the installed batch.
+    pub sources_found: BTreeMap<String, Sources>,
     /// Each OSC 50 switch the console took ("set NAME") or refused
-    /// ("refuse NAME") as the TUI wrote it, and each reply ("reply NAME")
-    /// as the TUI read it, in order.
+    /// ("refuse NAME") as the TUI wrote it, each grid request it took
+    /// whole ("grid ROWS;COLS"), held at the most its font reaches ("grid
+    /// ROWS;COLS held at ROWS;COLS"), or took to fill the display ("grid
+    /// fills"), and each reply ("reply NAME") as the TUI read it, in order.
     pub log: Vec<String>,
     /// Each command the privileged step ran, as its runner was handed it.
     pub saves: Vec<Vec<std::ffi::OsString>>,
     /// The privileged step's command fails, saying this.
     pub save_result: Result<(), String>,
     pub panic_bytes: Vec<u8>,
+    /// What a panic would have written when the script ran out, before the
+    /// SIGTERM that follows makes the TUI leave.
+    pub seen_panic: Option<Vec<u8>>,
     /// The screen when the script ran out, after which the console sends
     /// SIGTERM.
     pub seen: Option<String>,
     /// How many bytes the TUI had written when the script ran out: the
     /// bytes that drew [`Console::seen`].
     pub seen_at: usize,
+    /// What the console drew when the script ran out, before the SIGTERM
+    /// that makes the TUI leave and give the console back.
+    pub seen_console: Option<Drew>,
     /// The console answers kitty's graphics query, as vtium built with
     /// `images` does.
     pub graphics: bool,
@@ -107,7 +144,9 @@ impl Console {
         t.set_version("vtium(test)").expect("printable");
         t.set_font_ops(ops);
         assert!(t.set_font_name(start));
-        Console::with(Answerer::Vtium(Box::new(t)))
+        let mut c = Console::with(Answerer::Vtium(Box::new(t)));
+        c.shown = start.to_owned();
+        c
     }
 
     pub fn da1_only(cols: usize, rows: usize) -> Console {
@@ -118,16 +157,25 @@ impl Console {
         Console {
             answerer,
             fonts: BTreeMap::new(),
+            steps: BTreeMap::new(),
+            shown: String::new(),
+            height: BASE_HEIGHT,
+            pinned: None,
+            window_ops: false,
+            display_px: None,
             script: VecDeque::new(),
             pending: VecDeque::new(),
             armed: false,
             written: Vec::new(),
+            sources_found: BTreeMap::new(),
             log: Vec::new(),
             saves: Vec::new(),
             save_result: Ok(()),
             panic_bytes: Vec::new(),
+            seen_panic: None,
             seen: None,
             seen_at: 0,
+            seen_console: None,
             graphics: false,
             pictures: Vec::new(),
             shots: Vec::new(),
@@ -148,6 +196,56 @@ impl Console {
     pub fn takes(mut self, name: &'static str, grid: (usize, usize)) -> Console {
         self.fonts.insert(name, grid);
         self
+    }
+
+    /// The font `name` can also draw at the pixel height `height`, where
+    /// it fills the display with `grid`.
+    pub fn reaches(mut self, name: &'static str, height: u32, grid: (usize, usize)) -> Console {
+        self.steps.entry(name).or_default().insert(height, grid);
+        self
+    }
+
+    /// The console takes grid requests, as vtium does with
+    /// `allow-window-ops` on.
+    pub fn resizes(mut self) -> Console {
+        self.window_ops = true;
+        if let Answerer::Vtium(t) = &mut self.answerer {
+            t.set_window_ops(true);
+        }
+        self
+    }
+
+    /// The console's displays are `pixels` in size, so its terminal
+    /// reports the text area in pixels as vtium does.
+    pub fn fills(mut self, pixels: (u32, u32)) -> Console {
+        self.display_px = Some(pixels);
+        self.give_cell();
+        self
+    }
+
+    /// Gives the console's terminal the cell of the font and height the
+    /// console draws, where the test gives the displays' size: the size
+    /// divided by the grid that fills it there, as vtium gives its
+    /// terminal the cell of the font it lays out.
+    fn give_cell(&mut self) {
+        let cell = console_cell(
+            self.display_px,
+            &self.fonts,
+            &self.steps,
+            &self.shown,
+            self.height,
+        );
+        if let (Answerer::Vtium(t), Some((w, h))) = (&mut self.answerer, cell) {
+            t.set_cell_size(w, h);
+        }
+    }
+
+    /// The grid the console shows now, columns by rows.
+    pub fn grid(&self) -> (usize, usize) {
+        match &self.answerer {
+            Answerer::Vtium(t) => (t.screen().cols(), t.screen().rows()),
+            Answerer::Da1Only { cols, rows } => (*cols, *rows),
+        }
     }
 
     pub fn keys(mut self, chunks: &[&[u8]]) -> Console {
@@ -189,6 +287,115 @@ impl Console {
     }
 }
 
+/// What the stand-in console draws at a moment: the font set, the pixel
+/// height, the grid, columns by rows, and the grid a grid request pinned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Drew {
+    pub font: String,
+    pub height: u32,
+    pub grid: (usize, usize),
+    pub pinned: Option<(usize, usize)>,
+}
+
+/// The pixel height the stand-in console starts at, where each font
+/// fills the display with the grid that [`Console::fonts`] gives it.
+pub const BASE_HEIGHT: u32 = 16;
+
+/// The zoom steps of the font `name`: each pixel height it draws at, with
+/// the grid that fills the display there.
+fn font_steps(
+    fonts: &BTreeMap<&'static str, (usize, usize)>,
+    steps: &BTreeMap<&'static str, BTreeMap<u32, (usize, usize)>>,
+    name: &str,
+) -> BTreeMap<u32, (usize, usize)> {
+    let mut all = steps.get(name).cloned().unwrap_or_default();
+    if let Some(&grid) = fonts.get(name) {
+        all.insert(BASE_HEIGHT, grid);
+    }
+    all
+}
+
+/// The stand-in console's cell, where the test gives its displays'
+/// size `display_px`: that size divided by the grid that fills it with
+/// the font `shown` at the pixel height `height`.
+fn console_cell(
+    display_px: Option<(u32, u32)>,
+    fonts: &BTreeMap<&'static str, (usize, usize)>,
+    steps: &BTreeMap<&'static str, BTreeMap<u32, (usize, usize)>>,
+    shown: &str,
+    height: u32,
+) -> Option<(u32, u32)> {
+    let (w, h) = display_px?;
+    let &(cols, rows) = font_steps(fonts, steps, shown).get(&height)?;
+    let side = |px: u32, n: usize| px / u32::try_from(n.max(1)).expect("a grid side");
+    Some((side(w, cols), side(h, rows)))
+}
+
+/// The grid `fill`, cut to `pinned` on each side where a grid request
+/// pinned a smaller one.
+fn within(fill: (usize, usize), pinned: Option<(usize, usize)>) -> (usize, usize) {
+    pinned.map_or(fill, |p| (fill.0.min(p.0), fill.1.min(p.1)))
+}
+
+/// Resizes the terminal to `grid` where it shows another, and tells the
+/// TUI, as the console's resize does.
+fn show(t: &mut Terminal, pending: &mut VecDeque<Wake>, grid: (usize, usize)) {
+    if grid != (t.screen().cols(), t.screen().rows()) {
+        t.resize(grid.0, grid.1);
+        pending.push_back(Wake::Resize);
+    }
+}
+
+/// A grid request, as vtium meets it: the console draws at the largest
+/// zoom step of its font whose grid holds the request, and pins the grid
+/// asked for. Where no step holds it, the console takes the most the
+/// smallest step holds on each side, and says so, as vtium logs it. Both
+/// sides 0 end the pin, and the grid fills the display at the height in
+/// use. A request for the grid shown now changes nothing. Returns the line
+/// for [`Console::log`] and the grid to show.
+fn take_grid(
+    steps: &BTreeMap<u32, (usize, usize)>,
+    height: &mut u32,
+    pinned: &mut Option<(usize, usize)>,
+    now: (usize, usize),
+    request: vtium_term::GridRequest,
+) -> (String, (usize, usize)) {
+    use vtium_term::Extent;
+    let side = |e: Extent, now: usize| match e {
+        Extent::Keep => Some(now),
+        Extent::Display => None,
+        Extent::Cells(n) => Some(n),
+    };
+    let want = (side(request.cols, now.0), side(request.rows, now.1));
+    let fill = steps.get(height).copied().unwrap_or(now);
+    if want == (None, None) {
+        *pinned = None;
+        return ("grid fills".to_owned(), fill);
+    }
+    let asked = (want.0.unwrap_or(fill.0), want.1.unwrap_or(fill.1));
+    let said = format!("grid {};{}", asked.1, asked.0);
+    if asked == now {
+        return (said, now);
+    }
+    let holds = |g: &(usize, usize)| g.0 >= asked.0 && g.1 >= asked.1;
+    let (at, grid) = match steps.iter().rev().find(|(_, g)| holds(g)) {
+        Some((h, g)) => (*h, *g),
+        None => {
+            let (h, g) = steps
+                .iter()
+                .next()
+                .map_or((*height, fill), |(h, g)| (*h, *g));
+            let held = (asked.0.min(g.0), asked.1.min(g.1));
+            *height = h;
+            *pinned = Some(held);
+            return (format!("{said} held at {};{}", held.1, held.0), held);
+        }
+    };
+    *height = at;
+    *pinned = Some(asked);
+    (said, within(grid, Some(asked)))
+}
+
 impl Port for Console {
     fn size(&mut self) -> (usize, usize) {
         match &self.answerer {
@@ -202,21 +409,59 @@ impl Port for Console {
         match &mut self.answerer {
             Answerer::Vtium(t) => {
                 let mut rest = bytes;
+                let mut moved = false;
                 while !rest.is_empty() {
                     let taken = t.input(rest);
                     if let Some(name) = t.take_font_request() {
-                        if let Some(&(cols, rows)) = self.fonts.get(name.as_str()) {
-                            assert!(t.set_font_name(&name));
+                        if let Some(name) = self.fonts.keys().copied().find(|f| *f == name) {
+                            assert!(t.set_font_name(name));
                             self.log.push(format!("set {name}"));
-                            if (cols, rows) != (t.screen().cols(), t.screen().rows()) {
-                                t.resize(cols, rows);
-                                self.pending.push_back(Wake::Resize);
-                            }
+                            self.shown = name.to_owned();
+                            // vtium keeps the height it draws at, where the
+                            // new font can draw there, and the pinned grid
+                            let steps = font_steps(&self.fonts, &self.steps, name);
+                            let height = steps
+                                .range(..=self.height)
+                                .next_back()
+                                .or_else(|| steps.iter().next())
+                                .map(|(h, _)| *h)
+                                .unwrap_or(BASE_HEIGHT);
+                            self.height = height;
+                            let fill = steps.get(&height).copied().unwrap_or((1, 1));
+                            show(t, &mut self.pending, within(fill, self.pinned));
+                            moved = true;
                         } else {
                             self.log.push(format!("refuse {name}"));
                         }
                     }
+                    if let Some(request) = t.take_grid_request() {
+                        let steps = font_steps(&self.fonts, &self.steps, &self.shown);
+                        let (said, grid) = take_grid(
+                            &steps,
+                            &mut self.height,
+                            &mut self.pinned,
+                            (t.screen().cols(), t.screen().rows()),
+                            request,
+                        );
+                        self.log.push(said);
+                        show(t, &mut self.pending, grid);
+                        moved = true;
+                    }
                     rest = &rest[taken..];
+                    if std::mem::take(&mut moved) {
+                        // vtium gives its terminal the new cell with the
+                        // new grid, before it reads the bytes that follow
+                        let cell = console_cell(
+                            self.display_px,
+                            &self.fonts,
+                            &self.steps,
+                            &self.shown,
+                            self.height,
+                        );
+                        if let Some((w, h)) = cell {
+                            t.set_cell_size(w, h);
+                        }
+                    }
                 }
                 let mut replies = t.take_replies();
                 if self.graphics && bytes.windows(4).any(|w| w == b"a=q,") {
@@ -286,7 +531,14 @@ impl Port for Console {
         }
         assert!(self.seen.is_none(), "the TUI still waits after SIGTERM");
         self.seen = Some(self.screen());
+        self.seen_panic = Some(self.panic_bytes.clone());
         self.seen_at = self.written.len();
+        self.seen_console = Some(Drew {
+            font: self.shown.clone(),
+            height: self.height,
+            grid: self.grid(),
+            pinned: self.pinned,
+        });
         Ok(vec![Wake::Signal(15)])
     }
 
@@ -440,6 +692,9 @@ impl Port for Console {
         let found = fonts
             .into_iter()
             .map(|font| {
+                if let Some(found) = self.sources_found.get(&font) {
+                    return (font, found.clone());
+                }
                 let left = match font.as_str() {
                     "proof" => Sources::LeftOut(vec![LeftOut {
                         missing: true,
@@ -447,7 +702,7 @@ impl Port for Console {
                         spelling: "font:JetBrains Mono".into(),
                         why: "no such family".into(),
                     }]),
-                    "tiny5" => Sources::DrawsNothing("no source left".into()),
+                    "tiny5" => Sources::DrawsNothing("no source left".into(), Vec::new()),
                     _ => Sources::LeftOut(Vec::new()),
                 };
                 (font, left)
@@ -612,14 +867,34 @@ impl Desk {
     }
 
     /// The plan an install hands the privileged step, as the store's
-    /// prepare builds it: the font sets first, then vtium.conf where the
+    /// prepare builds it: the font sets first, then the batch file where
+    /// the draft changes the active resources, then vtium.conf where the
     /// draft differs from it.
     fn plan(&self) -> vtium_config::draft::Plan {
+        use vtium_config::batch::State;
         let (mut files, removals) = vtium_config::tui::fixture::frit_plan(
             &self.frits,
             &self.installed_frits,
             &inputs().frits,
         );
+        let listed = |states: &[State]| -> String {
+            self.resources
+                .iter()
+                .filter(|(_, s)| states.contains(s))
+                .map(|(p, _)| format!("{}\n", p.display()))
+                .collect()
+        };
+        if self
+            .resources
+            .iter()
+            .any(|(_, s)| matches!(s, State::Activates | State::Deactivates))
+        {
+            files.push(vtium_config::draft::FileEdit {
+                path: PathBuf::from("/etc/vtium/batch.conf"),
+                old: Some(listed(&[State::Active, State::Deactivates])),
+                new: listed(&[State::Active, State::Activates]),
+            });
+        }
         if self.draft != self.installed {
             files.push(vtium_config::draft::FileEdit {
                 path: PathBuf::from("/etc/vtium/vtium.conf"),

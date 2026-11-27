@@ -636,7 +636,8 @@ void main() {
         use vtium_render::{Canvas, Config as RenderConfig, DrawState, Renderer};
         use vtium_term::{Age, Terminal};
 
-        // 10 by 3 cells of 8x16, the grid at 2, 1 inside a border
+        // 10 by 3 cells of 8x16: the grid at 2, 1, centred on the display
+        // with smooth scrolling off, the default, inside a border
         let size = Size::new(84, 51);
         let mut term = Terminal::new(10, 3, 0);
         // each cell a background of its own
@@ -659,8 +660,10 @@ void main() {
         let mut pipeline = Pipeline::new(&mut gl, size, Config::default()).unwrap();
         let target = gl.create_frame(size).unwrap();
         let mut out = vec![0u8; (size.width * size.height * 4) as usize];
-        // over the cells, then reaching past the grid into the border,
-        // which draws only what the pointer left and entered
+        // over the cells, then at the grid's 74, 40 (the display's 76, 41),
+        // where the arrow reaches past the grid's last column into the right
+        // border and down into the border below; each frame draws only what
+        // the pointer left and entered
         let mut since = Age::NEVER;
         for (age, pointer) in [(0, (13, 7)), (1, (74, 40))] {
             let state = DrawState {

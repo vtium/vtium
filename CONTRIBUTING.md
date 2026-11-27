@@ -8,7 +8,7 @@ This page first says what judges a change, and then how to build one.
 
 ### The tiers
 
-vtium is judged in tiers: unit tests, tier 1's replays of byte streams compared as text, the capability probes, tier 2's pictures compared pixel for pixel, tier 3's screens captured from vtium running on a VT in a virtual machine, and last the maintainer's review by eye on a real VT. [How vtium is judged](docs/concepts/how-vtium-is-judged.md) explains each tier, and [AGENTS.md](AGENTS.md#how-vtium-is-judged) gives their commands.
+vtium is judged in tiers: unit tests, tier 1's replays of byte streams compared as text, the capability probes, tier 2's pictures compared pixel for pixel, tier 3's screens captured from vtium running on a VT in a virtual machine, and last the maintainer's review by eye on a real VT. [How vtium is judged](docs/concepts/how-vtium-is-judged.md) explains each tier, and [tools/AGENTS.md](tools/AGENTS.md#how-vtium-is-judged) gives their commands.
 
 ### The goldens
 
@@ -36,7 +36,7 @@ The gates are the checks every change passes before review. [AGENTS.md](AGENTS.m
 
 The keyboard tests read real keyboard layouts that `crates/vtium-platform/tests/keymaps/` holds as committed files, so `cargo test` needs nothing more. To compile those files again, `make keymaps` needs `xkbcli`, libxkbcommon's command line tool, and xkeyboard-config with its pkg-config file. The package libxkbcommon provides `xkbcli` on Arch, libxkbcommon-tools on Debian and libxkbcommon-utils on Fedora. The fixtures' README says when to run it.
 
-[AGENTS.md](AGENTS.md) also describes the rest of the working loop: the worktrees, the VT review, and how work reaches main.
+[AGENTS.md](AGENTS.md) also describes the rest of the working loop, from the worktrees to `integration`. [tools/AGENTS.md](tools/AGENTS.md#the-vt-review) describes the VT review, and [the steering page](docs/contributing/steering.md) says how work reaches main.
 
 ### Commands you'll use
 

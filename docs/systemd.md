@@ -246,6 +246,8 @@ A logged-in session lives in its logind scope, which systemd leaves alone. `Kill
 
 Under an open policy, a failure starts the getty fallback, whose start stops the unit. So a crash hangs the sessions up there. A restart keeps the sessions under either policy. A crash keeps them under a closed policy. None of systemd's variables reach a session.
 
+A vtium built with `split` keeps the masters in the store the same way, from its root process, so its sessions survive a restart too. When the drawing process exits, the root process keeps each session the store holds and hangs up the rest.
+
 **Without systemd:** vtium runs as root on a VT. It starts its holder, `vtium hold`, before it blocks any signal. The holder leads a session of its own. It listens on `/run/vtium/ttyN/hold`, which only root may open. It keeps a copy of each master that vtium sends it, until vtium says the session ended. The vtium that starts next on that VT takes copies of them back, as above.
 
 The holder exits once no vtium is connected and it holds no master. An init may stop a vtium and never start it again. That vtium leaves its sessions running in the holder, until someone ends `vtium hold`. A vtium run as an ordinary user keeps nothing, and its sessions end with it.
@@ -368,7 +370,7 @@ A build with `libseat` alone is for seatd. It stages neither file, and opens no 
 
 ### Whether PID 1 takes the power-off signal
 
-**Where:** `crates/vtium/src/check.rs` (`semantics`).
+**Where:** `crates/vtium/src/check/notes.rs` (`semantics`).
 
 **With systemd:** systemd blocks `SIGRTMIN+4` and reads it from a signalfd. So the `SigBlk` mask in `/proc/1/status` has its bit, and vtium gives no warning. Tier 3's `power-off` tests this.
 
@@ -401,6 +403,18 @@ A build with `libseat` alone is for seatd. It stages neither file, and opens no 
 **Under elogind:** sd-login comes from libelogind, the library that the `logind` feature links. The account file needs `systemd-sysusers`, which elogind hosts may lack. So the image helper runs as `nobody` there, unless the account was made another way.
 
 **Build feature:** `images`, with `logind` for sd-login.
+
+### The privilege split's accounts
+
+**Where:** `crates/vtium/src/broker/`, which starts vtium's drawing process as its account, and the account file `crates/vtium/install/vtium-split.conf`.
+
+**With systemd:** A vtium built with `split` starts as root and runs as two processes, unless a seat manager serves its seat. Where seatd listens on its socket, or where vtium runs in a logind session of its own, as in seat mode, vtium runs as one process, as root. It logs a line that says why. Under the split, the unit's main process stays root. It holds the VT, opens the devices, starts the sessions and the helpers, keeps the sessions' ptys in the unit's file-descriptor store, and sends `READY=1`. Everything else runs in a drawing process, as the system account `vtium`. `systemd-sysusers` creates that account, and `vtium-session` beside it, from the sysusers file `vtium-split.conf`. Both accounts have home `/`, no login shell and no files, and nothing runs as `vtium-session` yet. The package, `make install` and `make install-tree` stage that file in a build with `split`. When systemd stops the unit, it signals the main process alone (`KillMode=process`). The main process then stops the drawing process, puts the VT back and exits. When the drawing process ends on its own, the main process puts the VT back. It then exits with the drawing process's status, or with a failure when a signal killed the drawing process or the VT hung up. After a hangup, that failure makes systemd start vtium again under the closed policy, as it does for vtium in one process. So systemd sees the same failures as before, and [A failure falls back to getty](#a-failure-falls-back-to-getty) still applies.
+
+**Without systemd:** The account `vtium` exists only where a package script or the administrator created it, for example with `useradd --system --no-create-home --home-dir / --shell /usr/bin/nologin vtium`. Where the account is missing, vtium runs as one process, as root, and logs a line that names the missing account. A vtium started without root runs as one process too.
+
+**Under elogind:** As without systemd, since elogind hosts may lack `systemd-sysusers`.
+
+**Build feature:** `split`. It is off in minspec.
 
 ## Giving vtium a VT without systemd
 

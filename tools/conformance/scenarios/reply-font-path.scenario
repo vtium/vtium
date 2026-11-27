@@ -1,0 +1,27 @@
+# OSC 50 with a font file's path: while the host turns font operations
+# on, a program asks for a font file by its absolute path. The request
+# waits for the host, which checks the file, and gets no reply. Once the
+# host switches to that file and names it, the query reports the path,
+# ended as the query was, so a program that sends the reply back asks for
+# the same font. A switch the host refuses leaves the name the query
+# reports as it was.
+# spec: ADR-1200 D5, "A Pt that is the path of a qualifying font switches the console to that one font", and "The query reports a frit made on the fly from a path by that path"; INTERFACE-vtium.md, Font and window operations
+# covers: text.font-change
+size 8 1
+needs font-ops
+cmd font-ops;on=1
+cmd font-name;name=unifont
+send "\e]50;/usr/share/fonts/TTF/a.ttf\a"
+cmd font-request
+check
+want test font-request /usr/share/fonts/TTF/a.ttf
+reply ""
+cmd font-name;name=/usr/share/fonts/TTF/a.ttf
+send "\e]50;?\e\\"
+check
+reply "\e]50;/usr/share/fonts/TTF/a.ttf\e\\"
+send "\e]50;/usr/share/fonts/TTF/b.ttf\a\e]50;?\a"
+cmd font-request
+check
+want test font-request /usr/share/fonts/TTF/b.ttf
+reply "\e]50;/usr/share/fonts/TTF/a.ttf\a"

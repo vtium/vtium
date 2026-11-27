@@ -275,15 +275,69 @@ done
 
 FORBIDDEN = "#!/bin/bash\n" + RECORD + "exit 1\n"
 
+# The lines vtium check-config writes on a font file that a font set names
+# by its path and that a start would treat as missing: one the batch does
+# not list, and one the trust rule refuses. These are the format strings of
+# crates/vtium/src/check/resources.rs, word for word, which
+# test_the_stand_in_check_writes_the_real_check_lines holds them to.
+INACTIVE_LINE = ("{at}: The font {} is not active, so vtium treats it as missing and draws its characters from the "
+                 "next font in the set. A font is active while {b} lists the file's path. To activate it, press Space "
+                 "on it in vtium-config's Fonts tab, or run vtium-config activate with the file's path, then install "
+                 "the change.")
+REFUSED_LINE = ("{at}: vtium treats the font {} as missing, because {} vtium draws its characters from the next font "
+                "in the set.")
+
+# The stand-in vtium check-config, as vt.sh asks it about one font set: a
+# vtium built with its batch file at $BIN_BATCH. For each font file that the
+# font set font-name names by its path, on a source=, script-source= or
+# strike= line, it writes the real check's line on standard error when the
+# file exists under $BIN_FONT_ROOT and the batch does not list it, or when
+# $BIN_UNTRUSTED lists it, which stands for a file the trust rule refuses.
+# As in the real check, a file that does not exist gets no line. Without
+# $BIN_BATCH every file is active. Each check appends "vtium-check NAME" to
+# $CALLS, and $BIN_CHECK_STATUS makes the check fail as a broken binary would.
+CHECK_CONFIG = r"""for a; do
+	[ "$a" = check-config ] || continue
+	frits= conf=
+	for b; do
+		case $b in --font-frits=*) frits=${b#*=} ;; check-config | --no-devices) ;; *) conf=$b ;; esac
+	done
+	name=$(sed -n 's/^font-name=//p' "$conf")
+	printf 'vtium-check %s\n' "$name" >>"$CALLS"
+	[ -z "${BIN_CHECK_STATUS:-}" ] || { echo "vtium: the stand-in check fails" >&2; exit "$BIN_CHECK_STATUS"; }
+	frit=$frits/$name.vtfrit n=0 status=0
+	echo "each display uses the density it reports from its physical size for font sizes"
+	while IFS= read -r line || [ -n "$line" ]; do
+		n=$((n + 1))
+		line=${line%%#*}
+		[[ $line =~ ^(source|script-source|strike)=(file|bdf|hex|outline):(/.*)$ ]] || continue
+		path=${BASH_REMATCH[3]}
+		[ -e "${BIN_FONT_ROOT:-}$path" ] || continue
+		if [ -n "${BIN_UNTRUSTED:-}" ] && grep -qxF -- "$path" "$BIN_UNTRUSTED"; then
+			echo "REFUSED" >&2
+			status=6
+		elif [ -n "${BIN_BATCH:-}" ] && ! grep -qxF -- "$path" "$BIN_BATCH"; then
+			echo "INACTIVE" >&2
+			status=6
+		fi
+	done <"$frit"
+	exit "$status"
+done
+""".replace('"REFUSED"', '"' + REFUSED_LINE.replace("{at}", "$frit:$n").replace("{}", "$path", 1)
+            .replace("{}", "its folder is writable by others.") + '"') \
+   .replace('"INACTIVE"', '"' + INACTIVE_LINE.replace("{at}", "$frit:$n").replace("{}", "$path")
+            .replace("{b}", "$BIN_BATCH") + '"')
+
 # The stand-in vtium: records its arguments, prints $BIN_LOG, then as
 # $BIN_MODE says: exit (with $BIN_STATUS), wait (until a signal, recording
 # it), linger (exits, leaving a sleep that never ends and holds its
 # output open, as a process vtium started might), or session (runs the argv after --, with $BIN_STDIN as its input, as
 # vtium runs its first head's first console: VTIUM_HEAD=console and
 # VTIUM_CONSOLE=1 in its environment, and a word that is $VTIUM_HEAD or
-# $VTIUM_CONSOLE replaced by its value).
+# $VTIUM_CONSOLE replaced by its value). Asked check-config, it runs
+# CHECK_CONFIG instead.
 BIN = """#!/bin/bash
-# Built to start its glyph helper at /usr/local/bin/vtium-dev-config, as make
+""" + CHECK_CONFIG + """# Built to start its glyph helper at /usr/local/bin/vtium-dev-config, as make
 # vt-install builds it.
 echo $$ >"$BIN_PID"
 # The run's lock is root's; vtium, and the login and shell it starts, never
@@ -370,14 +424,14 @@ while True:
 # the source file that logs each, its format string there, word for word,
 # the values a log fills it with, and what the line says of a display.
 DISPLAY_LINES = (
-    ("crates/vtium-platform/src/display/drm2d.rs", "display {name} at {}x{}", ("HDMI-A-2", "800", "480"), "came"),
-    ("crates/vtium-platform/src/display/drm2d.rs", "display {} is gone", ("HDMI-A-2",), "went"),
-    ("crates/vtium/src/app.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
+    ("crates/vtium-platform/src/display/drm2d/scan.rs", "display {name} at {}x{}", ("HDMI-A-2", "800", "480"), "came"),
+    ("crates/vtium-platform/src/display/drm2d/scan.rs", "display {} is gone", ("HDMI-A-2",), "went"),
+    ("crates/vtium/src/app/guard.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
      (" of head panel", "100", "30"), "came"),
-    ("crates/vtium-platform/src/display/drm2d.rs", "display {}, left dark, is gone", ("DP-8",), "went"),
-    ("crates/vtium/src/app.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
+    ("crates/vtium-platform/src/display/drm2d/scan.rs", "display {}, left dark, is gone", ("DP-8",), "went"),
+    ("crates/vtium/src/app/guard.rs", "a display{of} came: the session is drawn again at {cols}x{rows}",
      ("", "100", "30"), "came"),
-    ("crates/vtium-platform/src/display/drm2d.rs", "display {}: the first flip after its modeset is done",
+    ("crates/vtium-platform/src/display/drm2d/events.rs", "display {}: the first flip after its modeset is done",
      ("HDMI-A-2",), "modeset"),
 )
 
@@ -943,6 +997,7 @@ class RunVt(Case):
                                          "/usr/bin/env", f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
                                          "ACCEPT_LABEL=vtium dev build abc", "ACCEPT_VT=8", f"ACCEPT_BINARY={self.s.bin}",
                                          "ACCEPT_FEATURES=none", f"ACCEPT_VTIUM_CONF={self.s.standins}/run-vtium-vt/config/vtium.conf",
+                                         "ACCEPT_MODES=", "ACCEPT_MODE_FROM=",
                                          "/bin/bash", os.path.join(VT, "accept.sh")])
 
     def test_the_acceptance_pass_reads_the_blink_style_vtium_is_given(self):
@@ -1201,6 +1256,101 @@ class RunVt(Case):
         os.remove(conf)
         os.symlink(review, conf)
         self.refused(self.run_vt("--login", f"--config={conf}", "--dry-run", "8"), "t.conf is a symlink")
+
+    def machine_conf(self, text, mode=0o644):
+        """The stand-in /etc/vtium/vtium.conf, the machine's own."""
+        path = os.path.join(self.s.standins, "etc-vtium.conf")
+        write(path, text, mode)
+        return path
+
+    def staged(self, *args, **env):
+        """A real run's staged vtium.conf, and the words it gave the session."""
+        seen = os.path.join(self.s.tmp, "stage-copy")
+        shutil.rmtree(seen, ignore_errors=True)
+        os.mkdir(seen)
+        p = self.run_vt(*args, BIN_STAGE_COPY=seen, **env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        words = [a for a in read(self.s.bin_args).splitlines() if a.startswith(("ACCEPT_MODES=", "ACCEPT_MODE_FROM="))]
+        return read(os.path.join(seen, "config", "vtium.conf")), words, p
+
+    def test_the_run_gives_each_display_the_mode_the_machines_vtium_conf_sets(self):
+        # The run's own vtium.conf sets no mode, so without the machine's
+        # mode lines vtium would run each display at its preferred mode: on
+        # a display with no EDID that is a size the machine never runs at.
+        # The run carries the display-mode lines of the machine's top level
+        # into the staged copy, above the review's own lines, and only those.
+        conf = self.machine_conf("# the machine's console\nfont-name=cullet-mono\nfont-size=34\n"
+                                 "mode=[DP-3]7680x2160@120\n  mode = pci-0000:03:00.0[HDMI-A-1]1920x1080  # the TV\n"
+                                 "#mode=1x1\nno-use-original-mode\nuse-original-mode\nmode=$(id)\n"
+                                 "[look big]\nmode=640x480\n")
+        review = read(os.path.join(VT, "config", "vtium.conf"))
+        carried = ["mode=[DP-3]7680x2160@120", "mode=pci-0000:03:00.0[HDMI-A-1]1920x1080",
+                   "no-use-original-mode", "use-original-mode"]
+        text, words, p = self.staged("8")
+        self.assertTrue(text.endswith(review), text)
+        top = [l for l in text[:-len(review)].splitlines() if not l.startswith("#")]
+        self.assertEqual(top, carried)
+        self.assertEqual(words, ["ACCEPT_MODES=" + " ".join(carried),
+                                 f"ACCEPT_MODE_FROM=the machine's vtium.conf, {conf}"])
+        self.assertIn(f"run-vt: vtium runs each display at the mode {conf} sets: {' '.join(carried)}", p.stdout)
+        # A line whose value is not a mode is left out, and the run says so.
+        self.assertIn("run-vt: vtium does not take the line 'mode=$(id)'", p.stdout)
+        # The dry run says the same, and changes nothing.
+        p = self.run_vt("--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"run-vt: vtium runs each display at the mode {conf} sets", p.stdout)
+        # A login, a shell or a guide run uses the same displays.
+        text, _, _ = self.staged("--shell", "8")
+        self.assertTrue(text.endswith(review), text)
+        self.assertEqual([l for l in text[:-len(review)].splitlines() if not l.startswith("#")], carried)
+
+    def test_without_the_machines_mode_lines_the_run_changes_nothing(self):
+        review = read(os.path.join(VT, "config", "vtium.conf"))
+        for conf in (None, "font-size=34\n", "# mode=7680x2160\n[look big]\nmode=7680x2160\n"):
+            with self.subTest(conf=conf):
+                if conf is not None:
+                    self.machine_conf(conf)
+                text, words, p = self.staged("8")
+                self.assertEqual(text, review)
+                self.assertEqual(words, ["ACCEPT_MODES=", "ACCEPT_MODE_FROM="])
+                self.assertNotIn("runs each display at the mode", p.stdout)
+
+    def test_a_machine_conf_vtium_would_not_read_gives_no_mode(self):
+        # vtium reads a vtium.conf only when no one but its owner can write
+        # it, so the run carries nothing from one that others can write.
+        conf = self.machine_conf("mode=[DP-3]7680x2160@120\n", 0o666)
+        os.chmod(conf, 0o666)
+        text, words, p = self.staged("8")
+        self.assertEqual(text, read(os.path.join(VT, "config", "vtium.conf")))
+        self.assertEqual(words, ["ACCEPT_MODES=", "ACCEPT_MODE_FROM="])
+        self.assertIn(f"run-vt: vtium ignores {conf}, which is writable by group or others (mode 666), "
+                      "so each display runs at its preferred mode", p.stdout)
+
+    def test_a_mode_the_run_pins_itself_wins_over_the_machines(self):
+        conf = self.machine_conf("mode=[DP-3]7680x2160@120\n")
+        review = read(os.path.join(VT, "config", "vtium.conf"))
+        # vtium's own options, DEMO_ARGS: --mode replaces every mode line
+        # of a file, and --use-original-mode would lose to a carried one.
+        for args, carried in ((["--mode=1920x1080"], "mode=1920x1080"),
+                              (["--mode=1920x1080", "--mode=[DP-3]1280x720"], "mode=1920x1080 mode=[DP-3]1280x720"),
+                              (["--use-original-mode"], "use-original-mode")):
+            with self.subTest(args=args):
+                text, words, p = self.staged("8", "--", *args)
+                self.assertEqual(text, review)
+                self.assertEqual(words, [f"ACCEPT_MODES={carried}", "ACCEPT_MODE_FROM=vtium's command line"])
+                self.assertNotIn(f"at the mode {conf} sets", p.stdout)
+        # --no-use-original-mode sets no mode, so the machine's still apply.
+        text, words, _ = self.staged("8", "--", "--no-use-original-mode")
+        self.assertTrue(text.endswith(review))
+        self.assertIn("mode=[DP-3]7680x2160@120\n", text)
+        self.assertEqual(words, ["ACCEPT_MODES=mode=[DP-3]7680x2160@120",
+                                 f"ACCEPT_MODE_FROM=the machine's vtium.conf, {conf}"])
+        # A vtium.conf --config names that sets a mode keeps its own.
+        own = os.path.join(self.s.tmp, "own.conf")
+        write(own, "mode=1024x768\n", 0o644)
+        text, _, p = self.staged("--shell", f"--config={own}", "8")
+        self.assertEqual(text, "mode=1024x768\n")
+        self.assertIn(f"run-vt: vtium runs each display at the mode {own} sets", p.stdout)
 
     def test_an_image_helper_another_user_could_have_written_is_refused(self):
         for mode in (0o775, 0o757):
@@ -1631,6 +1781,117 @@ class VtSh(Case):
         for want in ["VT 5: it is on screen", "VT 6: it is logind's reserved VT"] + \
                 [f"VT {v}: logind session c{v}_active" for v in (4, 3, 2)]:
             self.assertIn(want, p.stderr)
+
+    # The acceptance pass's font sets, as the pages' "# frits:" and "# font-switch:" lines name them.
+    PASS_FRITS = ["acceptance-bitmap", "acceptance-large", "acceptance-outline", "bitmap-outline",
+                  "bitmap-outline-smooth", "glyph-fit-default", "glyph-fit-natural", "ligatures-jetbrains",
+                  "script-terminus"]
+    DEJAVU = "/usr/share/fonts/TTF/DejaVuSansMono.ttf"
+    JETBRAINS = "/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf"
+
+    def frit_fonts(self):
+        """Each font set of tools/vt/sections/frits by name, with the font files it names by path."""
+        d = os.path.join(VT, "sections", "frits")
+        return {f[:-len(".vtfrit")]: re.findall(r"^(?:source|script-source|strike)=(?:file|bdf|hex|outline):(/\S+)",
+                                                read(os.path.join(d, f)), re.M)
+                for f in sorted(os.listdir(d)) if f.endswith(".vtfrit")}
+
+    def fonts(self, lacking=(), untrusted=(), absent=()):
+        """The stand-in check's machine: every font file the font sets name,
+        under a font root of the test's own but those in `absent`, and a
+        batch that lists each of them but those in `lacking`. The files in
+        `untrusted` fail the trust rule."""
+        root = os.path.join(self.s.tmp, "font-root")
+        paths = sorted({p for ps in self.frit_fonts().values() for p in ps})
+        for p in paths:
+            if p not in absent:
+                os.makedirs(os.path.dirname(root + p), exist_ok=True)
+                write(root + p, "", 0o644)
+        batch = os.path.join(self.s.tmp, "batch.conf")
+        write(batch, "".join(p + "\n" for p in paths if p not in lacking), 0o644)
+        env = dict(BIN_FONT_ROOT=root, BIN_BATCH=batch)
+        if untrusted:
+            env["BIN_UNTRUSTED"] = os.path.join(self.s.tmp, "untrusted")
+            write(env["BIN_UNTRUSTED"], "".join(p + "\n" for p in untrusted), 0o644)
+        return env
+
+    def test_the_stand_in_check_writes_the_real_check_lines(self):
+        # vt.sh reads vtium check-config's lines on a font file that a start
+        # treats as missing, so the stand-in writes them in the real check's
+        # words.
+        src = read(os.path.join(ROOT, "crates", "vtium", "src", "check", "resources.rs"))
+        for line in (INACTIVE_LINE, REFUSED_LINE):
+            self.assertIn(f'"{line}"', src)
+
+    def test_the_pass_refuses_font_sets_whose_fonts_are_not_active(self):
+        # Before vtium starts, vt.sh asks vtium check-config about each font
+        # set the pass uses. A font the batch does not list would make a page
+        # judge vtium's built-in font, so vt.sh refuses the run, names each
+        # font and font set, and says how to activate the fonts.
+        env = self.fonts(lacking=(self.DEJAVU, self.JETBRAINS))
+        users = [n for n, ps in self.frit_fonts().items() if self.DEJAVU in ps]
+        self.assertIn("acceptance-outline", users)
+        for dry in ("1", ""):
+            with self.subTest(dry_run=dry):
+                open(self.s.calls, "w").close()
+                p = self.vt_sh(VTIUM_VT_DRY_RUN=dry, **env)
+                self.refused(p, "vt: vtium cannot use some fonts that the acceptance pass needs.\n")
+                for n in users:
+                    self.assertIn(f"  font set {n}: {self.DEJAVU} is not active\n", p.stderr)
+                self.assertIn(f"  font set ligatures-jetbrains: {self.JETBRAINS} is not active\n", p.stderr)
+                self.assertIn(f"  vtium config activate {self.DEJAVU} {self.JETBRAINS} --install\n", p.stderr)
+                self.assertIn(f"Or add each path, one a line, to the batch file {env['BIN_BATCH']}.", p.stderr)
+                self.assertIn("The pass judges a font page only with its fonts active, so vt.sh does not start the pass.", p.stderr)
+                # The fonts the batch lists are named nowhere.
+                self.assertNotIn("NotoSansHebrew", p.stderr)
+                self.assertEqual(sorted(self.s.calls_of("vtium-check")), self.PASS_FRITS)
+                self.assertEqual(self.s.calls_of("sudo"), [])
+                self.assertFalse(os.path.exists(self.s.bin_args), "vtium started")
+
+    def test_the_pass_starts_when_every_font_is_active(self):
+        # A font file that does not exist is the pass's own to report, as a
+        # page it cannot show, so only a file that is there and not active
+        # refuses the run.
+        env = self.fonts(lacking=(self.DEJAVU,), absent=(self.DEJAVU,))
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", **env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("not active", p.stderr)
+        self.assertEqual(sorted(self.s.calls_of("vtium-check")), self.PASS_FRITS)
+
+    def test_only_the_font_sets_of_the_pages_named_are_checked(self):
+        env = self.fonts(lacking=tuple(p for ps in self.frit_fonts().values() for p in ps))
+        # A page with no font set needs no active font.
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_PAGES="10", **env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("vtium-check"), [])
+        # A page's own font sets are checked, and no other.
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_PAGES="53", **env)
+        self.refused(p, f"  font set ligatures-jetbrains: {self.JETBRAINS} is not active\n")
+        self.assertNotIn(self.DEJAVU, p.stderr)
+        self.assertEqual(self.s.calls_of("vtium-check"), ["ligatures-jetbrains"])
+        # A login and a shell run no acceptance pass.
+        open(self.s.calls, "w").close()
+        for mode in ("login", "shell"):
+            with self.subTest(mode=mode):
+                p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_SESSION=mode, **env)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("vtium-check"), [])
+
+    def test_a_font_the_trust_rule_refuses_refuses_the_pass(self):
+        env = self.fonts(untrusted=(self.JETBRAINS,))
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_PAGES="53", **env)
+        self.refused(p, f"  font set ligatures-jetbrains: {self.JETBRAINS}: its folder is writable by others.\n")
+        self.assertNotIn("vtium config activate", p.stderr)
+        self.assertIn("For each other font, its line says why vtium refuses the file.", p.stderr)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+
+    def test_a_check_that_fails_refuses_the_pass(self):
+        # A check that cannot judge a font set never lets the pass start in
+        # silence.
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_PAGES="53", BIN_CHECK_STATUS="2", **self.fonts())
+        self.refused(p, "vt: vtium check-config failed with status 2 on the font set ligatures-jetbrains")
+        self.assertIn("vtium: the stand-in check fails", p.stderr)
+        self.assertEqual(self.s.calls_of("sudo"), [])
 
     def installed(self, vt):
         """The stand-in manifest make vt-install writes for VT vt."""
@@ -2072,15 +2333,15 @@ class Make(Case):
     def test_the_default_binary_is_the_minspec_build(self):
         # VTIUM_MINSPEC points the default at the stand-in, which the stand-in
         # cargo "builds".
-        # The acceptance pass builds it with pictures and bidirectional text
+        # The acceptance pass builds it with the packaged console's features
         # unless FEATURES is named on make's command line (ADR-1501 D5).
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.s.calls_of("cargo"), [f"rustc --profile minspec {remap_paths(self.s.env())} -p vtium --bin vtium "
-                                                   f"--target x86_64-unknown-linux-gnu --features images bidi {MINSPEC_LINK}"])
+                                                   f"--target x86_64-unknown-linux-gnu --features images bidi filters scroll-pan split smooth-scroll {MINSPEC_LINK}"])
         self.assertIn(f"--bin={self.s.bin} ", p.stdout)
         self.assertIn(f"--helper={self.s.helper} ", p.stdout)
-        self.assertIn(" --features=images\\ bidi ", p.stdout)
+        self.assertIn(" --features=images\\ bidi\\ filters\\ scroll-pan\\ split\\ smooth-scroll ", p.stdout)
         open(self.s.calls, "w").close()
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}", "FEATURES=")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -2262,9 +2523,10 @@ class Make(Case):
     def test_vt_accept_chooses_the_render_path(self):
         # RENDER_PATH=gpu or cpu, cpu unless named, reaches vtium as --hwaccel
         # or --no-hwaccel and the pass as ACCEPT_RENDER_PATH (ADR-1501 D5).
-        # Unnamed, FEATURES is images and bidi, and gpu with them for the GPU
-        # path.
-        for path, opt, features in (("cpu", "--no-hwaccel", "images bidi"), ("gpu", "--hwaccel", "images bidi gpu")):
+        # Unnamed, FEATURES is images, bidi, filters, scroll-pan, and split, and gpu
+        # with them for the GPU path.
+        for path, opt, features in (("cpu", "--no-hwaccel", "images bidi filters scroll-pan split smooth-scroll"),
+                                    ("gpu", "--hwaccel", "images bidi filters scroll-pan split smooth-scroll gpu")):
             with self.subTest(path=path):
                 open(self.s.calls, "w").close()
                 named = () if path == "cpu" else ("RENDER_PATH=gpu",)
@@ -2377,7 +2639,8 @@ class Install(Case):
         src = os.path.join(ROOT, "crates", "vtium", "install")
         dst = os.path.join(self.s.standins, "install")
         os.mkdir(dst)
-        for f in ("vtium@.service", "vtium-getty@.service", "vtium-image.conf", "vtium-libseat.conf", "vtium.pam"):
+        for f in ("vtium@.service", "vtium-getty@.service", "vtium-image.conf", "vtium-libseat.conf", "vtium.pam",
+                  "vtium-split.conf"):
             text = read(os.path.join(src, f))
             if f == "vtium@.service" and unit_lines:
                 text = "\n".join(unit_lines(text.splitlines())) + "\n"
@@ -3442,6 +3705,84 @@ exec "$@"
             found += [os.path.relpath(os.path.join(d, n), ROOT) for n in names
                       if n.endswith(".rs") and marker in read(os.path.join(d, n))]
         self.assertEqual(found, [seat])
+
+    # What install writes beside the other files for a console built with
+    # split: the sysusers file of the privilege split's accounts.
+    SPLIT_SYSUSERS = "etc/sysusers.d/vtium-dev-split.conf"
+    SPLIT = "# logs: vtium runs as two processes: this root process, and drawing process {}\n"
+
+    def test_a_console_built_with_split_installs_the_accounts_sysusers_file(self):
+        write(self.s.bin, BIN + self.SPLIT)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # The shipped file under an opening comment of its own, so the
+        # accounts are the ones the package creates (ADR-1400 D4).
+        shipped = read(os.path.join(ROOT, "crates", "vtium", "install", "vtium-split.conf"))
+        sysusers = read(self.at(self.SPLIT_SYSUSERS))
+        self.assertTrue(sysusers.endswith(shipped), sysusers)
+        self.assertTrue(all(l.startswith("#") for l in sysusers[:-len(shipped)].splitlines()))
+        self.assertIn('u vtium - "vtium drawing process" / -', sysusers.splitlines())
+        self.assertEqual(stat.S_IMODE(os.stat(self.at(self.SPLIT_SYSUSERS)).st_mode), 0o644)
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (*self.FILES, self.SPLIT_SYSUSERS)))
+        # systemd-sysusers creates the accounts, as root, before vtium starts,
+        # so vtium splits.
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [self.at(self.SPLIT_SYSUSERS)])
+        sudo = self.s.calls_of("sudo")
+        run = sudo.index(f"{self.s.standins}/systemd-sysusers {self.at(self.SPLIT_SYSUSERS)}")
+        self.assertLess(run, sudo.index(f"{self.s.standins}/systemctl restart vtium-dev@tty4.service"))
+        # A console without split no longer needs the file, and every VT
+        # runs the one binary, so its install removes it, and so does
+        # uninstall.
+        write(self.s.bin, BIN)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertFalse(os.path.lexists(self.at(self.SPLIT_SYSUSERS)))
+        write(self.s.bin, BIN + self.SPLIT)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        open(self.s.calls, "w").close()
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+        self.assertFalse(os.path.lexists(self.at(self.SPLIT_SYSUSERS)))
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [])
+
+    def test_a_console_built_with_split_refuses_an_accounts_file_not_vt_installs(self):
+        # A sysusers file at the development install's path that vt-install
+        # did not write is someone else's, so a console built with split
+        # leaves it alone and installs nothing.
+        write(self.s.bin, BIN + self.SPLIT)
+        os.makedirs(os.path.dirname(self.at(self.SPLIT_SYSUSERS)), exist_ok=True)
+        write(self.at(self.SPLIT_SYSUSERS), "someone else's\n", 0o644)
+        self.refused(self.vt_install("install", "4"),
+                     f"/{self.SPLIT_SYSUSERS} is there already and vt-install did not write it")
+        self.assertEqual(read(self.at(self.SPLIT_SYSUSERS)), "someone else's\n")
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [])
+
+    def test_a_console_without_split_installs_no_accounts(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertFalse(os.path.lexists(self.at(self.SPLIT_SYSUSERS)))
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [])
+        self.assertNotIn("vtium-dev-split", read(self.at(self.STATE + "/files")))
+
+    def test_the_line_that_marks_a_build_with_split_is_in_code_built_only_with_split(self):
+        # A reworded message would install no accounts for a build with
+        # split, which would then run as one process, and the line anywhere
+        # else would install them for a build without it.
+        marker = next(l.split("=", 1)[1].strip('"') for l in read(VT_INSTALL).splitlines()
+                      if l.startswith("split_marker="))
+        self.assertEqual(self.SPLIT, "# logs: " + marker + "{}\n")
+        broker = os.path.join("crates", "vtium", "src", "broker", "mod.rs")
+        self.assertIn(f'"{marker}{{}}', read(os.path.join(ROOT, broker)))
+        main = read(os.path.join(ROOT, "crates", "vtium", "src", "main.rs"))
+        self.assertIn('#[cfg(feature = "split")]\nmod broker;', main)
+        found = []
+        for d, _, names in os.walk(os.path.join(ROOT, "crates")):
+            found += [os.path.relpath(os.path.join(d, n), ROOT) for n in names
+                      if n.endswith(".rs") and marker in read(os.path.join(d, n))]
+        self.assertEqual(found, [broker])
 
     def test_a_sysusers_file_systemd_sysusers_cannot_read_fails_the_install(self):
         # systemd-sysusers refuses a line that is no u, g, m or r line, as it

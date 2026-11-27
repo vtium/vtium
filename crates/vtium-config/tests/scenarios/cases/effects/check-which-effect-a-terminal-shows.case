@@ -1,0 +1,28 @@
+kind check-if
+title Check if a terminal shows an effect, and which one.
+intro A terminal's card in the Flow tab shows what the terminal draws: its font set, its look and the look's vtlook, the effect.
+see effects/give-a-look-a-vtlook
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [look warm]
+    vtlook = amber
+    [head console]
+    vt = 5
+    look = warm
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+file etc/looks/amber.vtlook
+    version = 1
+    [color tint]
+    color = 255,176,0
+    amount = 1.0
+    floor = 0.0
+
+1. Go to the Flow tab.
+2. Choose console.
+at the terminal's card
+check screen lacks "does not read a look's vtlook file yet"
+check screen shows "Effects: the vtlook amber. The Effects tab shows its filters."

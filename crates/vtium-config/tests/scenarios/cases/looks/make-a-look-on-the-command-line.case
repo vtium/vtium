@@ -1,0 +1,22 @@
+kind how-do-i
+title How do I make a look on the command line?
+intro `vtium-config look add` makes a look in the draft, and `vtium-config look set` sets its font set, size and color scheme. A look changes nothing on screen until a terminal uses it, and vtium-config says so.
+see looks/make-a-look-and-use-it-on-the-console
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Press q to quit.
+2. Run `vtium-config look add big`.
+3. Run `vtium-config look set big --frit mono --size 24`.
+at the look is made
+check draft look big font-name mono
+check said shows "No head uses look big"

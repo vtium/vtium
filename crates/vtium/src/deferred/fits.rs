@@ -21,13 +21,19 @@
 //!
 //! The console reads the frit's text after the helper's checks, so a line
 //! the console cannot read is a line the helper refuses or warns about,
-//! and the console leaves it out here.
+//! and the console leaves it out here. The helper also ignores a source's
+//! key that has no source above it: one before the first `source=` line,
+//! or one after a `layer=` line and before the next `source=` line. The
+//! console leaves those out too. Both ask vtium-font's `scope` module
+//! which source a key describes, so both read the same set.
 //!
 //! References:
 //! - ADR-1302 D13: `fit=` and the default fit of each kind of character.
 //! - ADR-1200 D1: the frit's `source=`, `cover=`, `style=` and `fit=` keys.
+//! - ADR-1510 D2: the helper ignores a key where it does not apply, and reads the rest of the set.
 
 use vtium_font::Style;
+use vtium_font::set::scope::{CurrentSource, Describes};
 use vtium_font::spacing::Fit;
 
 /// One range of a source's `cover=` lines and the fit its glyphs take
@@ -83,6 +89,7 @@ impl FritFits {
     pub fn of(text: &str) -> FritFits {
         let mut ranges = Vec::new();
         let mut reading: Option<Reading> = None;
+        let mut current = CurrentSource::default();
         // the set a `fit=` line is for: true after a `cover=` line, false
         // after a `source=` line
         let mut after_cover = false;
@@ -92,8 +99,16 @@ impl FritFits {
                 continue;
             };
             let (key, value) = (key.trim(), value.trim());
-            if key == "source" {
+            // A `source=` line starts a new source. A line after which a
+            // key describes no source, such as a `layer=` line, ends the
+            // source above it without starting one. The font helper
+            // ignores a key there, and the console must read the same set
+            // the helper reads.
+            let describes = current.read(key, value);
+            if key == "source" || !matches!(describes, Describes::Source(_)) {
                 ranges.extend(reading.take().into_iter().flat_map(Reading::ranges));
+            }
+            if key == "source" {
                 reading = Some(Reading::default());
                 after_cover = false;
                 continue;
@@ -280,6 +295,56 @@ mod tests {
         assert_eq!(fits.fit(0x2500, BOLD), Fit::Room);
         // the bold source does not cover U+2510, the regular one does
         assert_eq!(fits.fit(0x2510, BOLD), Fit::Natural);
+    }
+
+    // A `layer=` line ends the source above it, the opening `layer=NAME`
+    // and the closing `layer=` alike, as the font helper reads the set: a
+    // `cover=`, `style=` or `fit=` after either has no source to describe
+    // until the next `source=` line, so it reaches no glyph.
+    #[test]
+    fn a_layer_line_ends_the_source_above_it() {
+        // a layer that adds nothing, and a fit= after it
+        let fits = FritFits::of(
+            "source=font:Lines\n\
+             cover=U+2500-U+257F\n\
+             layer=sym\n\
+             layer=\n\
+             fit=natural\n",
+        );
+        assert_eq!(fits.fit(0x2500, Style::default()), Fit::Fill);
+        // a layer spliced in: the keys after its closing line describe
+        // neither the layer's last source nor the frit's
+        let fits = FritFits::of(
+            "source=font:Lines\n\
+             cover=U+2500-U+257F\n\
+             layer=sym\n\
+             source=font:Sym\n\
+             cover=U+2580-U+259F\n\
+             layer=\n\
+             fit=natural\n\
+             style=bold\n\
+             cover=U+2800-U+28FF\n\
+             fit=room\n",
+        );
+        assert_eq!(fits.fit(0x2500, Style::default()), Fit::Fill);
+        assert_eq!(fits.fit(0x2588, Style::default()), Fit::Fill);
+        assert_eq!(fits.fit(0x2588, BOLD), Fit::Fill);
+        assert_eq!(fits.fit(0x2800, BOLD), Fit::Fill);
+        // the keys between the opening line and the layer's first source
+        // describe no source either, and the layer's own keys describe
+        // the layer's source
+        let fits = FritFits::of(
+            "source=font:Lines\n\
+             layer=sym\n\
+             cover=U+2500-U+257F\n\
+             fit=natural\n\
+             source=font:Sym\n\
+             cover=U+2580-U+259F\n\
+             fit=room\n\
+             layer=\n",
+        );
+        assert_eq!(fits.fit(0x2500, Style::default()), Fit::Fill);
+        assert_eq!(fits.fit(0x2588, Style::default()), Fit::Room);
     }
 
     #[test]

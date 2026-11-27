@@ -27,8 +27,8 @@ description: "any.question.quit at 100×30, keys: 3 n Shrink q"
 
 
 
-
  1 change is not saved. Save them before you quit? y saves them and quits, n quits without them,
- and Esc goes back.
+ and Esc goes back. The console then shows what is installed until you install the draft, with i or
+ vtium-config install.
 ----------------------------------------------------------------------------------------------------
  y save and quit  n quit without saving  Esc Ctrl-C cancel

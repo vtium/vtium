@@ -14,9 +14,25 @@ check without a golden: its capture, the login prompt with the inline
 picture, is kept when it passes.
 """
 
+import os
+
 import t3_pictures
+from t3_qemu import wait_stable
 
 CASE = "prelogin"
+# The check of the setting helper-sandbox=off (check_sandbox_off).
+SANDBOX_OFF = "sandbox-off"
+# The line vtium logs once a boot for each helper that runs with the setting
+# off: the font helper's (crates/vtium/src/helper/sandbox.rs, sandbox_notice) and
+# the image helper's (crates/vtium-platform/src/image_helper.rs,
+# sandbox_line), each up to the end of its first sentence.
+SANDBOX_OFF_LINES = {
+    "the font helper": "The font helper runs without its seccomp filters and its landlock "
+                       "domain, because the setting helper-sandbox=off turns them off.",
+    "the image helper": "The image helper runs without its seccomp filter, and its workers "
+                        "without their landlock domains, because the setting "
+                        "helper-sandbox=off turns them off.",
+}
 CHECKS = {
     CASE: "Before anyone logs in, two kitty pictures written to the login prompt's pty: the "
           "quarters PNG read from a file at row 12, column 5, and the same PNG sent inline at "
@@ -24,6 +40,12 @@ CHECKS = {
           "helper running as the variant's pre-login account, vtium-image or nobody, and "
           "nothing where the file's picture would be, since vtium reads no file for a pty "
           "that root owns (ADR-1101 D2).",
+    SANDBOX_OFF: "With helper-sandbox = off in vtium.conf, the console's log once the font "
+                 "helper has drawn the login prompt's font set and the image helper has "
+                 "decoded img-png's pictures. Correct: one line for each helper, once, that "
+                 "says it runs without its seccomp filters and landlock domains because the "
+                 "setting helper-sandbox=off turns them off (ADR-1200 D15, ADR-1101 D9). The "
+                 "capture is the screen img-png left.",
 }
 # Where the agent places the two pictures, as (column, row) counted from 1.
 FILE_AT = (5, 12)
@@ -83,3 +105,40 @@ def judge(answer, img, account):
         return ("the picture read from a file shows %d pixels, so vtium read a file for a "
                 "pty that root owns" % shown)
     return None
+
+
+def sandbox_off_verdict(serial):
+    """Why the console's log `serial` fails the sandbox-off check, or None:
+    each helper's line (SANDBOX_OFF_LINES) must be there exactly once,
+    since vtium logs it once a boot."""
+    wrong = []
+    for helper, line in SANDBOX_OFF_LINES.items():
+        n = serial.count(line)
+        if n != 1:
+            wrong.append("%s's line is in the log %d times" % (helper, n))
+    return "; ".join(wrong) or None
+
+
+def check_sandbox_off(_variant, vm, work, caps, errors, log):
+    """The sandbox-off check (CHECKS), after the screens: it waits for each
+    helper's line on the console's log, then reads the whole log. As with
+    every check without a golden, the case keeps its capture only when it
+    passes."""
+    path = os.path.join(work, SANDBOX_OFF + ".ppm")
+    try:
+        for line in SANDBOX_OFF_LINES.values():
+            vm.wait_serial(line, timeout=60)
+        wait_stable(vm, path)
+    except RuntimeError as e:
+        errors[SANDBOX_OFF] = str(e)
+        return
+    with open(vm.serial, "rb") as f:
+        why = sandbox_off_verdict(f.read().decode(errors="replace"))
+    log("%s: %s" % (SANDBOX_OFF, why or "each helper's line once"))
+    if why:
+        errors[SANDBOX_OFF] = why
+        return
+    caps[SANDBOX_OFF] = path
+
+
+CHECK_RUNS = {SANDBOX_OFF: check_sandbox_off}

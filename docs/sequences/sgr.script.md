@@ -28,7 +28,7 @@ vtium draws superscript and subscript text smaller, at two thirds of the normal 
 These tests check what vtium does with the sequences on this page.
 
 - `script_source_names_smaller_sizes_of_the_source_above_it` in [crates/vtium-config/src/frit.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/frit.rs)
-- `an_ask_made_says_how_each_script_glyph_was_made` in [crates/vtium-config/src/serve.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve.rs)
+- `an_ask_made_says_how_each_script_glyph_was_made` in [crates/vtium-config/src/serve/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve/tests.rs)
 - `the_script_line_draws_the_glyphs_the_engine_made` in [crates/vtium-config/src/specimen.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/specimen.rs)
 - `the_font_views_captions_say_how_the_font_makes_superscripts` in [crates/vtium-config/src/tui/words/mod.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/tui/words/mod.rs)
 - `the_script_caption_names_each_way` in [crates/vtium-config/src/tui/words/mod.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/tui/words/mod.rs)
@@ -81,8 +81,8 @@ These tests check what vtium does with the sequences on this page.
 - `each_scale_takes_the_tables_multiple` in [crates/vtium-font/tests/script_sizes.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/tests/script_sizes.rs)
 - `unifont_at_three_times_takes_its_scripts_at_twice_in_whole_blocks` in [crates/vtium-font/tests/script_sizes.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/tests/script_sizes.rs)
 - `unifont_at_twice_its_size_takes_its_scripts_at_its_own_size` in [crates/vtium-font/tests/script_sizes.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/tests/script_sizes.rs)
-- `each_script_is_a_glyph_of_its_own` in [crates/vtium-render/src/cache.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/cache.rs)
-- `the_sprites_lie_in_a_grid_that_fits_a_largest_texture_a_row_of_them_passes` in [crates/vtium-render/src/gpu/glyphs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/gpu/glyphs.rs)
+- `each_script_is_a_glyph_of_its_own` in [crates/vtium-render/src/cache/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/cache/tests.rs)
+- `the_sprites_lie_in_a_grid_that_fits_a_largest_texture_a_row_of_them_passes` in [crates/vtium-render/src/gpu/glyphs/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/gpu/glyphs/tests.rs)
 - `each_script_attribute_picks_its_variant` in [crates/vtium-render/src/variant.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/variant.rs)
 - `a_bitmap_script_glyph_at_1_bit_is_its_small_glyph_exactly` in [crates/vtium-render/tests/mono.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/mono.rs)
 - `each_variant_draws_vtium_fonts_scaled_glyph` in [crates/vtium-render/tests/script.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/script.rs)
@@ -99,7 +99,7 @@ These tests check what vtium does with the sequences on this page.
 - `a_script_cells_lines_come_from_its_scripts_strike` in [crates/vtium/src/deferred.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/deferred.rs)
 - `a_superscript_cluster_draws_from_the_frits_superscript_parts` in [crates/vtium/src/deferred.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/deferred.rs)
 - `before_the_frits_glyphs_a_script_cells_lines_are_the_built_in_fonts` in [crates/vtium/src/deferred.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/deferred.rs)
-- `a_superscript_ask_names_its_script_and_its_glyphs_are_held_in_it` in [crates/vtium/src/helper.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/helper.rs)
+- `a_superscript_ask_names_its_script_and_its_glyphs_are_held_in_it` in [crates/vtium/src/helper/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/helper/tests.rs)
 - `italic_and_bold_text_is_asked_for_in_its_style` in [crates/vtium/tests/boot.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/boot.rs)
 - `a_built_in_font_at_twice_its_size_takes_its_scripts_at_its_own_size` in [crates/vtium/tests/script.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/script.rs)
 - `a_built_in_script_glyph_sits_against_the_text_band` in [crates/vtium/tests/script.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/script.rs)

@@ -1,0 +1,43 @@
+kind how-do-i
+title How do I let programs resize the console's grid, so that vtium-config can try a size?
+intro vtium-config tries a size on the console by asking the console for the grid that size gives. The console does that only while allow-window-ops is on. vtium reads allow-window-ops when it starts, so a console that started with it off keeps it off until vtium starts again, even after you install a draft that turns it on.
+see looks/try-a-whole-look-on-the-console
+
+# The console started with allow-window-ops off.
+file etc/vtium.conf
+    version = 1
+    font-name = mono
+    [look plain]
+    palette = legacy
+    [head console]
+    vt = 5
+    look = plain
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Go to the Looks tab.
+2. Press w to resize grid.
+note vtium-config asks whether to let programs resize the grid.
+3. Press y for yes.
+4. Press i to install.
+5. Press y for yes.
+at the install
+check installed has "allow-window-ops"
+
+6. Choose plain.
+7. Choose Size.
+8. Choose 24 pt.
+note The console still runs with allow-window-ops off, so vtium-config tries nothing and says when the size takes effect.
+at the size
+check console grid 100x30
+check console never-received "\e[8;"
+check screen shows "does not let programs resize its grid until vtium starts again"
+9. Press Esc.
+10. Press q to quit.
+
+11. Restart vtium.
+at the restart
+check console font mono

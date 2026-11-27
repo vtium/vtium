@@ -16,23 +16,29 @@ const KEYBOARD: &str = "/dev/input/event3";
 /// declare, which drops that rule alone: partly broken.
 const ONE_ERROR: &str = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n";
 
-/// A vtium.conf with two errors in its sections: the same rule, and a `[head]` key vtium
-/// does not know, which drops the head: broken, under open.
-const TWO_ERRORS: &str =
-    "version = 1\n[head desk]\nfont-weight = bold\n[rules]\ndisplay * -> desc\n";
+/// A vtium.conf with two errors in its sections: the same rule, and an `isolated` value
+/// vtium cannot read, which drops the head: broken, under open.
+const TWO_ERRORS: &str = "version = 1\n[head desk]\nisolated = maybe\n[rules]\ndisplay * -> desc\n";
 
-/// A closed kiosk's vtium.conf with four errors in its sections: a key
-/// its head section does not take, a font key that only the top level
-/// and a look may set, which drops the head, a rule naming a head the file does not declare, and a second
-/// `[rules]`. No head survives, so the start shows the panic screen
-/// (ADR-1401 D7).
-const BROKEN_CLOSED: &str = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\nfont-size = 24\n[rules]\ndisplay * -> kisok\n[rules]\ninput * -> kiosk\n";
+/// A closed kiosk's vtium.conf with four errors in its sections:
+/// `consoles = 0`, below the least value it takes, and an `isolated` value
+/// vtium cannot read, each of which drops the head, a rule naming a head
+/// the file does not declare, and a second `[rules]`. No head survives, so
+/// the start shows the panic screen.
+///
+/// References:
+/// - ADR-1401 D7: a closed file with no head left shows the panic screen.
+const BROKEN_CLOSED: &str = "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\nisolated = maybe\n[rules]\ndisplay * -> kisok\n[rules]\ninput * -> kiosk\n";
 
-/// A closed kiosk's vtium.conf with one error in its sections: a key its
-/// head section does not take, which drops the head. No head survives, so
-/// the start shows the panic screen with that one error (ADR-1401 D7).
+/// A closed kiosk's vtium.conf with one error in its sections:
+/// `consoles = 0`, below the least value it takes, which drops the head.
+/// No head survives, so the start shows the panic screen with that one
+/// error.
+///
+/// References:
+/// - ADR-1401 D7: a closed file with no head left shows the panic screen.
 const ONE_ERROR_CLOSED: &str =
-    "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\n";
+    "version = 1\npolicy = closed\n[head kiosk]\nconsoles = 0\n[rules]\ndisplay * -> kiosk\n";
 
 /// `osd = full`'s line on the active head.
 pub fn osd_active() -> Result<String, String> {

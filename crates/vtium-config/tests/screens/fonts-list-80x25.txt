@@ -20,6 +20,6 @@
  fully off, so the edges stay sharp.
  Live trial is off: this vtium console has allow-font-ops turned off, so t
  cannot try a font on it. To turn it on, change allow-font-ops in the Settings
- tab, then install.
+ tab, install, and restart vtium and vtium-config.
 --------------------------------------------------------------------------------
  ↑↓ move  Space activate  q quit  . more 1/4

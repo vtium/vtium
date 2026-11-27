@@ -48,6 +48,7 @@ pub mod kernel;
 pub mod layout;
 pub mod logger;
 pub mod notice;
+mod ordered;
 pub mod osd;
 pub mod painter;
 pub mod pointer;

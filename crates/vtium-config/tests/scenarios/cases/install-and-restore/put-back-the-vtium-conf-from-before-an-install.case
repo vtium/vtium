@@ -1,0 +1,27 @@
+kind how-do-i
+title How do I put back the vtium.conf I had before an install?
+intro Each install keeps the vtium.conf it replaces. The Flow tab's o lists those files, newest first, and copies the one you choose into the draft, ready to install again.
+see install-and-restore/save-on-quit-and-install-from-the-command-line
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Run `vtium-config set font-name mono`.
+2. Run `vtium-config install`.
+at the install
+check installed has "font-name = mono"
+3. Go to the Flow tab.
+4. Press o to restore.
+5. Press Enter to restore.
+note vtium-config asks before it replaces the draft.
+6. Press y for yes.
+at the restore
+check draft has "font-name = unifont"

@@ -283,6 +283,11 @@ pub(crate) fn rewrap_line(
                 p.col = p.col.min(held.saturating_sub(1));
             }
             cut(&mut src, width);
+            // The row keeps its cells but takes its reorder mark from them,
+            // as a row the rewrap makes does. A row kept here may have
+            // waited through a width that would have made it anew.
+            #[cfg(feature = "bidi")]
+            src.mark_reorders_from_text();
             out.push(src);
             return 1;
         }
@@ -568,6 +573,11 @@ impl Screen {
         let margin = rows.saturating_add(self.images_reach());
         #[cfg(not(feature = "images"))]
         let margin = rows;
+        // and the rows a frame can capture above the screen, which must
+        // exist at the new width for it to hold them: as many as the
+        // capture's holder asks for
+        #[cfg(feature = "rows-beyond")]
+        let margin = margin.saturating_add(self.reach_margin());
         #[cfg(feature = "images")]
         self.images_give_anchors();
         let taken = self

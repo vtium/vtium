@@ -51,11 +51,20 @@ jobs:
         run: cargo fmt --all --check
       - if: matrix.build == 'all-features'
         run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+      # cargo-nextest at the version the Makefile's NEXTEST_VERSION names,
+      # which make test-all-features and make test-default require. The
+      # action installs the prebuilt release and checks its checksum.
+      - id: nextest
+        run: echo "version=$(sed -n 's/^NEXTEST_VERSION *= *//p' Makefile)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@${{ steps.nextest.outputs.version }}
+      # The tests under nextest, then the doctests, which nextest skips.
       - if: matrix.build == 'all-features'
-        run: cargo test --workspace --all-features
+        run: make test-all-features
       - name: default build tests
         if: matrix.build == 'default'
-        run: cargo test --workspace
+        run: make test-default
       - name: minspec build
         if: matrix.build == 'default'
         run: cargo build --profile minspec
@@ -87,7 +96,15 @@ jobs:
       # key follows Cargo.lock, the toolchain and this job, so every job still
       # builds and tests everything it did.
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --all-features
+      # cargo-nextest at the version the Makefile's NEXTEST_VERSION names,
+      # which make test-all-features and make test-default require. The
+      # action installs the prebuilt release and checks its checksum.
+      - id: nextest
+        run: echo "version=$(sed -n 's/^NEXTEST_VERSION *= *//p' Makefile)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@${{ steps.nextest.outputs.version }}
+      - run: make test-all-features
       - name: minspec build
         run: cargo build --profile minspec
 

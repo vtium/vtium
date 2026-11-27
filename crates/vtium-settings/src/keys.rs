@@ -278,9 +278,12 @@ impl Levels {
     /// The top level and a look: a look's frit, its size and the other keys
     /// ADR-1200 D16 gives a look.
     pub const TOP_LOOK: Levels = Levels(1 | 2);
-    /// The top level and a head: of ADR-1401 D3's head keys, the one the
+    /// The top level and a head: those of ADR-1401 D3's head keys that the
     /// key table also has.
     pub const TOP_HEAD: Levels = Levels(1 | 4);
+    /// Every level: a key a look sets for its heads and a head sets for
+    /// itself, such as `smooth-scroll`.
+    pub const TOP_LOOK_HEAD: Levels = Levels(1 | 2 | 4);
 
     fn bit(level: Level) -> u8 {
         match level {
@@ -308,6 +311,7 @@ const TOP: Levels = Levels::TOP;
 const LOOK: Levels = Levels::LOOK;
 const TOP_LOOK: Levels = Levels::TOP_LOOK;
 const TOP_HEAD: Levels = Levels::TOP_HEAD;
+const TOP_LOOK_HEAD: Levels = Levels::TOP_LOOK_HEAD;
 
 /// One row of the key table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -855,6 +859,45 @@ pub const DISPLAY_BUFFERS: Key = Key {
            [docs] `vtium config get display-buffers` prints the draft's value followed by `draft`. When the draft sets none, it prints the build's default followed by `default`. That default is `unset` when the build sets no number, and the rule above then decides.",
 };
 
+pub const SCROLL_DRAW: Key = Key {
+    name: "scroll-draw",
+    short: None,
+    kind: Kind::Choice(&["auto", "pan", "copy", "redraw"]),
+    default: Default::Text("auto"),
+    scope: Scope::Anywhere,
+    levels: TOP_HEAD,
+    what: "How the displays of a head show text that scrolls.\n\n\
+           `auto` pans where the display's driver allows it, and copies where it does not. `pan` does the same, and logs a warning when the driver does not allow the pan. `copy` always copies, and `redraw` redraws every line a scroll moves. A head that draws with the GPU, or can move to it, always uses `redraw`, and so does a build without the `scroll-pan` feature.\n\n\
+           [docs] To pan, vtium keeps each display buffer taller than the screen. A scroll then moves the part of the buffer that the screen shows, so vtium draws only the new lines. To copy, vtium keeps the drawn lines in memory and copies the screen's part to the display.\n\n\
+           [docs] A display buffer that pans holds about two screens, and the copy keeps about one screen of memory for each display, so `redraw` takes the least memory. A build without `scroll-pan` logs once that it ignores `pan` and `copy`.",
+};
+
+pub const SMOOTH_SCROLL: Key = Key {
+    name: "smooth-scroll",
+    short: None,
+    kind: Kind::Choice(&["off", "on"]),
+    default: Default::Text("off"),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK_HEAD,
+    what: "Turn smooth scrolling on, in a build with the `smooth-scroll` feature.\n\n\
+           [docs] When off, the default, vtium centres the text on the screen. A screen whose size is not a whole number of character cells leaves pixels over, and they form bars of the border's color on both sides of the text. When on, the text's last row touches the bottom of the screen, and `partial-row` sets what the pixel lines left over above the text show. A build without the `smooth-scroll` feature always centres the text.\n\n\
+           [docs] A head's value wins over its look's, and both win over the top level's. vtium ignores DECSCLM (mode 4), the sequence a program sends to switch smooth scrolling, so no program can move the text.\n\n\
+           [docs] vtium does not slide the text by pixels yet, so it scrolls by whole rows either way.",
+};
+
+pub const PARTIAL_ROW: Key = Key {
+    name: "partial-row",
+    short: None,
+    kind: Kind::Choice(&["history", "blank", "fade"]),
+    default: Default::Text("history"),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    what: "What the pixel lines left over above the text show while smooth scrolling is on.\n\n\
+           [docs] A screen whose height is not a whole number of rows leaves pixel lines over. While `smooth-scroll` is on, they lie above the text's first row. `history` shows the bottom of the scrollback's row above the screen, cut off at the screen's edge. `blank` shows the border's color. `fade` shows the row above, fading into the border's color toward the screen's edge.\n\n\
+           [docs] While smooth scrolling is off, vtium centres the text, and the pixels left over show the border's color whatever this key says. A build without the `scroll-pan` feature shows the border's color under every value.\n\n\
+           [docs] vtium logs one line for each display whose size leaves pixels over. The line names each axis that does not divide evenly, with the cells that fit along it and the pixels left over.",
+};
+
 pub const HWACCEL: Key = Key {
     name: "hwaccel",
     short: None,
@@ -1341,7 +1384,7 @@ pub const FONT_NAME: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP_LOOK,
     what: "The console's font.\n\n\
-           The value is the name of a font set (a frit file, `NAME.vtfrit` in `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with `font-engine = psf` the path of a PSF font; vtium then uses that one font.\n\n\
+           The value is the name of a font set (a frit file, `NAME.vtfrit` in `/etc/vtium/fonts`). It can also be the name of a kbd console font, or the absolute path of a font file, such as a PSF, BDF or TrueType font; vtium then uses that one font.\n\n\
            When unset, vtium uses the font from vconsole.conf, or else the font set `terminus`. If vtium cannot find the font, it uses its built-in font and logs why.",
 };
 
@@ -1381,6 +1424,18 @@ pub const FONT_HELPER: Key = Key {
            vtium opens the program once, when it starts, and runs every helper from that open file. So a newly installed helper takes effect when vtium restarts.\n\n\
            vtium refuses a helper whose path is not absolute, or that is not a regular file. It refuses a helper that is setuid or setgid. It also refuses a helper that anyone but root or vtium's own account owns, or that its group or other users can write. It then logs why and uses its built-in font. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
            [docs] The default is the path vtium was built with.",
+};
+
+pub const HELPER_SANDBOX: Key = Key {
+    name: "helper-sandbox",
+    short: None,
+    kind: Kind::Choice(&["off", "on"]),
+    default: Default::Text("on"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    what: "Whether the font helper and the image helper lock themselves in with seccomp filters and landlock.\n\n\
+           When off, a font or an image that takes over a helper can reach the network and change the files of the helper's account.\n\n\
+           [docs] The rest of the helpers' sandbox stays: an account that is never root, no capabilities, no new privileges, an empty environment, and memory and CPU limits. vtium still checks everything a helper sends back. A helper taken over can also signal and trace its account's other processes. Turn the sandbox off only when vtium runs inside another sandbox whose kernel refuses the helpers' filters, or to find out whether the sandbox causes a failure. Only vtium.conf and vtium's command line set it, so a font set, a look or a program cannot. On a kernel built without seccomp filters, the helpers run without them even when this key is on, and vtium logs why.",
 };
 
 pub const FONT_SIZE: Key = Key {
@@ -1461,9 +1516,9 @@ pub const ALLOW_FONT_OPS: Key = Key {
            A program switches with `OSC 50 ; NAME ST` and asks with `OSC 50 ; ? ST`. vtium reads both as xterm's control sequences define OSC 50.\n\n\
            A switch lasts until that program's session ends. vtium then returns to the font and size that `font-name` and `font-size` set.\n\n\
            [docs] `vtium-config use-frit NAME` switches the font with the same sequence.\n\n\
-           [docs] The query reports the name of the font on screen. A font file's path or a font family is not a name a switch takes, so the query then reports no name.\n\n\
+           [docs] The query reports the name of the font on screen: the name of a font set or of a built-in font. A font that `font-name` gives as a file's path or as a font family is reported by that path or by the family's name. A program can send the reported name back to return to that font.\n\n\
            When off, vtium ignores OSC 50, queries included.\n\n\
-           [docs] It is on by default. A program can choose only an installed font set, a built-in font or the font its console started in, never another file.\n\n\
+           [docs] The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when `batch.conf` lists it and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See [Active fonts](fonts.md#active-fonts).\n\n\
            [docs] vtium reads a font set only when root owns it and no other user can change it or a folder above it.",
 };
 
@@ -1504,7 +1559,7 @@ pub const GLYPH_SOURCE: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     what: "Who draws box-drawing, block and similar characters (six ranges): the font, or vtium itself.\n\n\
-           `font` uses the font's characters, `sprites` uses vtium's own drawings, and `auto` uses the font's where the font has the character. When unset, vtium uses the font for each range the font covers completely and its own drawings for the rest; with the built-in unifont, vtium always draws them itself.",
+           `font` uses the font's characters, `sprites` uses vtium's own drawings, and `auto` uses the font's where the font has the character. When unset, vtium draws all six ranges itself, unless a font set's own `glyph-source` lines say otherwise. This key and the per-range keys override those lines.",
 };
 
 pub const GLYPH_SOURCE_BOX: Key = Key {
@@ -2076,7 +2131,7 @@ pub const LOGIN_IMAGE_SCALE: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 139] = [
+pub static KEYS: [Key; 143] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2112,6 +2167,9 @@ pub static KEYS: [Key; 139] = [
     PROGRAM_BLANK,
     DISPLAY_WAIT,
     DISPLAY_BUFFERS,
+    SCROLL_DRAW,
+    SMOOTH_SCROLL,
+    PARTIAL_ROW,
     HWACCEL,
     USE_ORIGINAL_MODE,
     MODE,
@@ -2181,6 +2239,7 @@ pub static KEYS: [Key; 139] = [
     FONT_FRITS,
     FONT_PATHS,
     FONT_HELPER,
+    HELPER_SANDBOX,
     FONT_SIZE,
     FONT_HINTING,
     FONT_LINE_SPACING,
@@ -2498,6 +2557,10 @@ pub const SECTIONS: [Section; 11] = [
                 keys: &[&DISPLAY_BUFFERS],
             },
             Group {
+                title: "Drawing a scroll",
+                keys: &[&SCROLL_DRAW, &SMOOTH_SCROLL, &PARTIAL_ROW],
+            },
+            Group {
                 title: "Drawing with the GPU",
                 keys: &[&HWACCEL],
             },
@@ -2560,7 +2623,7 @@ pub const SECTIONS: [Section; 11] = [
     },
     Section {
         title: "Running vtium",
-        about: "Where vtium finds its configuration, its log, the font helper that draws a font's characters, and the character cache.",
+        about: "Where vtium finds its configuration, its log, the font helper that draws a font's characters, the helpers' sandbox, and the character cache.",
         groups: &[
             Group {
                 title: "Command line",
@@ -2573,6 +2636,10 @@ pub const SECTIONS: [Section; 11] = [
             Group {
                 title: "Font helper",
                 keys: &[&FONT_HELPER],
+            },
+            Group {
+                title: "Helper sandbox",
+                keys: &[&HELPER_SANDBOX],
             },
             Group {
                 title: "Character cache",
@@ -2796,11 +2863,16 @@ mod tests {
     }
 
     // A look takes the font and display keys, its cell, the login
-    // picture's keys and its palette. A head takes `login`, every other key is the top
-    // level's alone, and a key the command line alone sets has no level.
-    // `cell` is the one key only a section sets.
+    // picture's keys, its palette, `smooth-scroll` and `partial-row`. A head
+    // takes `login`, `scroll-draw` and `smooth-scroll`, every other key is
+    // the top level's alone, and a key the command line alone sets has no
+    // level. `cell` is the one key only a section sets.
     //
     // References:
+    // - ADR-1401 D3: `scroll-draw` is a head key, since the buffer belongs
+    //   to the display.
+    // - ADR-1310 D7: `smooth-scroll` at the top level, in a look and in a
+    //   head, and D12: `partial-row` at the top level and in a look.
     // - ADR-1403 D5: the three levels of a key.
     // - ADR-1200 D16: the font and display keys a look takes.
     // - ADR-1100 D17, "The keys": the login picture's keys are look keys.
@@ -2811,6 +2883,8 @@ mod tests {
         assert_eq!(
             names(Level::Look),
             [
+                "smooth-scroll",
+                "partial-row",
                 "palette",
                 "pointer-theme",
                 "font-engine",
@@ -2829,7 +2903,10 @@ mod tests {
                 "login-image-scale",
             ]
         );
-        assert_eq!(names(Level::Head), ["login"]);
+        assert_eq!(
+            names(Level::Head),
+            ["login", "scroll-draw", "smooth-scroll"]
+        );
         for k in &KEYS {
             match k.scope {
                 Scope::CommandLine => assert_eq!(k.levels, NONE, "{}", k.name),

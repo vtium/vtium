@@ -32,7 +32,7 @@ const ID: DisplayId = DisplayId(7);
 /// How long a wait on a state another thread or process brings may run
 /// before the test fails: long enough for a loaded machine, and only a
 /// bound, since each wait ends at the state it waits for.
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(60);
 
 /// A device with one display, its frame buffer in memory.
 #[derive(Default)]

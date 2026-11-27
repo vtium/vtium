@@ -2,3 +2,4 @@
 # provisional profile that moves is reported as drift and fails nothing,
 # and may go undrawn where its set cannot be built; a row goes when the
 # operator accepts the profile, which then fails on a moved pixel.
+320x240-tiny5	moves under ADR-1310 D10 (the grid flush to the bottom), card B8c; redrawn once after the row above lands, for the maintainer's one picture sheet

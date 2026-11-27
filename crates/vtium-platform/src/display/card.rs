@@ -19,7 +19,9 @@ use rustix::fs::{Mode as FileMode, OFlags, open};
 use rustix::io::Errno;
 
 use super::Mode;
-use super::kms::{ConnectorRead, CrtcEvent, Dumb, Encoder, Kms, Object, Request, Resources};
+use super::kms::{
+    ConnectorRead, CrtcEvent, Dumb, Encoder, Kms, Object, Request, Resources, SetCrtc,
+};
 use crate::bounds::RESOURCE_READS_MAX;
 use crate::mmap::Mapping;
 
@@ -90,7 +92,14 @@ fn read_resources(
         if c <= crtcs.len() && n <= connectors.len() {
             crtcs.truncate(c);
             connectors.truncate(n);
-            return Ok(Resources { crtcs, connectors });
+            return Ok(Resources {
+                crtcs,
+                connectors,
+                #[cfg(feature = "scroll-pan")]
+                max_width: 0,
+                #[cfg(feature = "scroll-pan")]
+                max_height: 0,
+            });
         }
         crtcs.resize(c, 0);
         connectors.resize(n, 0);
@@ -146,11 +155,43 @@ impl Kms for Card {
         self.noted(|| -> io::Result<()> { drm_ffi::auth::release_master(self.raw()) })
     }
 
+    /// Asks with an AUTH_MAGIC for the magic number 0, as libdrm's
+    /// `drmIsMaster` does. The kernel lets only the master make that call
+    /// and refuses anyone else with `EACCES`. It answers the master
+    /// `EINVAL`, because no client ever gets 0 as its magic number
+    /// (`drm_authmagic` in `drivers/gpu/drm/drm_auth.c`).
+    fn is_master(&self) -> io::Result<bool> {
+        self.noted(|| match drm_ffi::auth::auth_magic_token(self.raw(), 0) {
+            Ok(_) => Ok(true),
+            Err(e) if e.raw_os_error() == Some(Errno::INVAL.raw_os_error()) => Ok(true),
+            Err(e) if e.raw_os_error() == Some(Errno::ACCESS.raw_os_error()) => Ok(false),
+            Err(e) => Err(e),
+        })
+    }
+
     fn resources(&self) -> io::Result<Resources> {
         self.noted(|| -> io::Result<Resources> {
-            read_resources(|crtcs, connectors| {
+            #[cfg_attr(
+                not(feature = "scroll-pan"),
+                expect(unused_mut, reason = "set only with scroll-pan")
+            )]
+            let mut res = read_resources(|crtcs, connectors| {
                 crate::ioctl::drm_get_resources(self.raw(), crtcs, connectors)
-            })
+            })?;
+            // The largest framebuffer comes from drm-ffi's `get_resources`
+            // asked for no lists. That call makes two GETRESOURCES ioctls
+            // of its own: one that reads the counts, and one with null list
+            // pointers and counts of 0, so the kernel writes no ids. A scan
+            // with `scroll-pan` thus makes two GETRESOURCES calls more than
+            // one without it: three or four in all, where the lists do not
+            // change between the reads.
+            #[cfg(feature = "scroll-pan")]
+            {
+                let card = drm_ffi::mode::get_resources(self.raw(), None, None, None, None)?;
+                res.max_width = card.max_width;
+                res.max_height = card.max_height;
+            }
+            Ok(res)
         })
     }
 
@@ -339,9 +380,17 @@ impl Kms for Card {
         })
     }
 
-    fn set_crtc(&self, crtc: u32, fb: u32, connector: u32, mode: &Mode) -> io::Result<()> {
+    fn setcrtc(&self, set: &SetCrtc<'_>) -> io::Result<()> {
         self.noted(|| -> io::Result<()> {
-            drm_ffi::mode::set_crtc(self.raw(), crtc, fb, 0, 0, &[connector], Some(mode.0))?;
+            drm_ffi::mode::set_crtc(
+                self.raw(),
+                set.crtc,
+                set.fb,
+                0,
+                0,
+                set.connectors,
+                set.mode.map(|m| m.0),
+            )?;
             Ok(())
         })
     }
@@ -613,9 +662,10 @@ mod tests {
 
     /// The real ioctls on a render node, which needs no DRM master and
     /// changes nothing on the screen: a capability read, an empty event
-    /// read, and the reads and the dumb buffer that the kernel keeps to
-    /// primary nodes and refuses here with EACCES. Those reads are the
-    /// resources, the other lists, a property's name and a vblank wait.
+    /// read, and the calls and the dumb buffer that the kernel keeps to
+    /// primary nodes and refuses here with EACCES. Those calls are the
+    /// resources, the other lists, a property's name, a vblank wait and
+    /// the SETCRTC that turns a CRTC off.
     /// The buffer's path runs on a primary node in tier 3. A host with no
     /// render node says so and proves nothing here. qemu-user (tools/arm)
     /// answers DRM ioctls with ENOTTY: under it, that answer says so and
@@ -668,6 +718,12 @@ mod tests {
                 "{read}: {e}"
             );
         }
+        // SETCRTC, which turns a CRTC off, is kept to the DRM master of a
+        // primary node, so the render node refuses it with EACCES too.
+        let e = card.disable_crtc(1).expect_err("SETCRTC on a render node");
+        assert_eq!(e.raw_os_error(), Some(Errno::ACCESS.raw_os_error()), "{e}");
+        // A render node is never a card's DRM master.
+        assert_eq!(card.is_master().ok(), Some(false));
         // a render node's driver is a GPU's, never a 1-bit or gray panel's
         assert_eq!(card.levels(), None);
         let mut events = Vec::new();

@@ -8,6 +8,60 @@
 # a release ships need at most glibc 2.36.
 X86_TARGET := x86_64-unknown-linux-gnu
 
+# The machine's cores, from which make gates and tier 3 choose how much to
+# run at once.
+CORES := $(shell nproc 2>/dev/null || echo 8)
+
+# This machine keeps vtium's builds on a volume of their own, BUILD_VOLUME: a
+# btrfs file system that is compressed and never snapshotted, whose own timer
+# keeps its size in check. Each checkout builds under
+# BUILD_VOLUME/vtium/CHECKOUT, where CHECKOUT is the name of the checkout's
+# directory, such as vtium-integration, so two worktrees never share a build
+# directory. make gates builds in its gates/ directory, and tools/ci-local/run,
+# which names the same volume, in its ci-local/ directory. On a machine without
+# the volume, such as CI's runner, VTIUM_BUILDS is empty and the builds stay in
+# the checkout's target/.
+BUILD_VOLUME := /data/1/cargo
+VTIUM_BUILDS := $(if $(wildcard $(BUILD_VOLUME)/.),$(BUILD_VOLUME)/vtium/$(notdir $(CURDIR)))
+
+# Cargo writes a build's final artifacts to its target directory and its
+# intermediate files to its build directory, which a build.build-dir in
+# cargo's own configuration can set for every build of the checkout. Each
+# cargo command here that names a target directory of its own, with
+# --target-dir DIR, starts with $(call build-dir,DIR), which makes DIR its
+# build directory too. No two of those builds then share intermediate files
+# or wait on one lock. Rust 1.91 and later read CARGO_BUILD_BUILD_DIR; older
+# ones, as make msrv runs, ignore it and keep both in the target directory.
+build-dir = CARGO_BUILD_BUILD_DIR=$(1)
+# The same for a sub-make that builds in DIR: both directories on its command
+# line, so its cargo commands build there.
+own-dirs = CARGO_TARGET_DIR=$(1) CARGO_BUILD_BUILD_DIR=$(1)
+
+# Every cargo build this file starts goes through sccache when it is
+# installed. sccache keeps each compiled crate in a cache that every vtium
+# checkout shares, under $XDG_CACHE_HOME/vtium/sccache, up to
+# SCCACHE_CACHE_SIZE, so a fresh worktree or
+# a gate's fresh target directory takes the crates it already compiled from
+# the cache. sccache skips the crates cargo builds incrementally, the
+# workspace's own crates in a debug build, and binaries and proc macros; it
+# caches the dependencies, and every crate of a release build. A build
+# without sccache works the same, only slower. A RUSTC_WRAPPER set by the
+# caller wins, so `make gates RUSTC_WRAPPER=` builds without sccache.
+# SCCACHE_DIR and SCCACHE_CACHE_SIZE from the environment win over the
+# defaults here.
+SCCACHE_VERSION = 0.20.1
+SCCACHE_INSTALL = cargo install --locked sccache@$(SCCACHE_VERSION)
+SCCACHE := $(if $(filter undefined,$(origin RUSTC_WRAPPER)),$(shell command -v sccache 2>/dev/null))
+ifneq ($(SCCACHE),)
+export RUSTC_WRAPPER := $(SCCACHE)
+export SCCACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/vtium/sccache
+export SCCACHE_CACHE_SIZE ?= 100G
+endif
+# make gates names the install command when sccache is missing.
+define sccache-note
+@$(if $(SCCACHE)$(filter-out undefined,$(origin RUSTC_WRAPPER)),:,echo "note: sccache is not installed, so the gates compile every crate themselves. Install it with: $(SCCACHE_INSTALL)")
+endef
+
 # The binary the VT review runs. It runs as root, so it is named in this file
 # or on make's command line (make vt-accept VTIUM_BIN=PATH), never taken from a
 # stale export in the shell. The default is the minspec build, which the vt
@@ -168,12 +222,14 @@ minspec install-tree vt-dev-console config-release image-release clipboard-relea
 # FEATURES exported in the shell builds nothing different.
 FEATURES :=
 # The acceptance pass shows every page by default (ADR-1501 D5): make
-# vt-accept builds the console with images and bidi unless make's command
-# line names FEATURES, so make vt-accept FEATURES= is a pass of the minspec
-# build. A binary named with VTIUM_BIN is run as it is, so its features are
-# the ones it was built with: images when it carries the line only a build
-# with images carries (VT_IMAGES_MARKER), else none, and the run gives it
-# the image helper only when it has pictures.
+# vt-accept builds the console with images, bidi, filters, scroll-pan, and
+# split, the features of the packaged console, and with smooth-scroll, so a
+# tour's configuration can turn smooth scrolling on, unless make's command line
+# names FEATURES, so make vt-accept FEATURES= is a pass of the minspec build. A
+# binary named with VTIUM_BIN is run as it is, so its features are the ones
+# it was built with: images when it carries the line only a build with
+# images carries (VT_IMAGES_MARKER), else none, and the run gives it the
+# image helper only when it has pictures.
 #
 # RENDER_PATH chooses the path the pass judges: cpu, the default, runs
 # vtium with --no-hwaccel, and gpu runs it with --hwaccel, so that one batch
@@ -197,7 +253,7 @@ ifneq ($(origin FEATURES),command line)
 ifeq ($(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),)
 FEATURES := $(if $(shell grep -qaF -- '$(VT_IMAGES_MARKER)' '$(VTIUM_BIN)' 2>/dev/null && echo images),images)
 else
-FEATURES := images bidi$(if $(filter gpu,$(RENDER_PATH)), gpu)
+FEATURES := images bidi filters scroll-pan split smooth-scroll$(if $(filter gpu,$(RENDER_PATH)), gpu)
 endif
 else ifeq ($(RENDER_PATH),gpu)
 ifeq ($(filter gpu,$(subst $(comma), ,$(FEATURES))),)
@@ -231,7 +287,9 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 # D4), with images in
 # FEATURES the picture gallery tool as vtium-gallery (ADR-1500 D8), and with
 # libseat and logind in FEATURES seat mode's unit vtium-seat@.service and the
-# PAM file /etc/pam.d/vtium (ADR-1400 D3), the man pages in /usr/share/man,
+# PAM file /etc/pam.d/vtium (ADR-1400 D3), with split in FEATURES the sysusers
+# file that makes the accounts of the privilege split (ADR-1400 D4), the man
+# pages in /usr/share/man,
 # and the package data install-package-data names: the color schemes, their
 # license texts and the preset vtlooks. Tier 3 installs this tree in its
 # guest.
@@ -242,6 +300,12 @@ VTIUM_INSTALL := crates/vtium/install
 # build installs none (ADR-1101 D1). FEATURES may separate its features
 # with commas or spaces, as cargo's --features does (comma, above).
 IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
+# A console built with split runs as a root process and a drawing process
+# that runs as the account vtium (ADR-1400 D4). So with split in FEATURES,
+# make install and make install-tree stage the sysusers file vtium-split.conf,
+# from which systemd-sysusers makes the accounts vtium and vtium-session, and
+# only then. A minspec build leaves the split out and needs neither account.
+SPLIT := $(filter split,$(subst $(comma), ,$(FEATURES)))
 # A console built with libseat and logind runs in direct mode through
 # vtium@.service, or in seat mode through vtium-seat@.service, which opens a
 # PAM session of vtium's own that libseat's logind backend takes the seat
@@ -408,6 +472,9 @@ endif
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
 endif
+ifneq ($(SPLIT),)
+	install -Dm644 $(VTIUM_INSTALL)/vtium-split.conf $(DESTDIR)/usr/lib/sysusers.d/vtium-split.conf
+endif
 
 # vtium as a package ships it, staged under DESTDIR with PREFIX, so that a
 # package's build can be one call: make install DESTDIR="$pkgdir"
@@ -433,7 +500,9 @@ endif
 # color schemes and preset vtlooks in PREFIX/share/vtium with the schemes'
 # license texts in PKGNAME's license folder, and with libseat and logind in
 # FEATURES seat mode's unit vtium-seat@.service and the PAM file
-# /etc/pam.d/vtium (ADR-1400 D3).
+# /etc/pam.d/vtium (ADR-1400 D3), and with split in FEATURES the sysusers
+# file vtium-split.conf in PREFIX/lib/sysusers.d, which makes the accounts of
+# the privilege split (ADR-1400 D4).
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's terminfo entry, compiled under its
@@ -534,7 +603,7 @@ endif
 
 .PHONY: install-build
 install-build: ## Build what make install stages, for PREFIX (default /usr/local), with FEATURES='...', HWACCEL=on|off, DISPLAY_BUFFERS=1|2|3 and CARGO_BUILD_FLAGS='...' when named
-	$(build_settings)$(package_folders) VTIUM_FONT_HELPER=$(PREFIX)/bin/vtium-config $(if $(IMAGES),VTIUM_IMAGE=$(PREFIX)/bin/vtium-image) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc $(CARGO_BUILD_FLAGS) --profile minspec -p vtium --bin vtium --target-dir $(INSTALL_TARGET_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)$(package_folders) VTIUM_FONT_HELPER=$(PREFIX)/bin/vtium-config $(if $(IMAGES),VTIUM_IMAGE=$(PREFIX)/bin/vtium-image) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) $(call build-dir,$(INSTALL_TARGET_DIR)) cargo rustc $(CARGO_BUILD_FLAGS) --profile minspec -p vtium --bin vtium --target-dir $(INSTALL_TARGET_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(INSTALL_TARGET_DIR)/minspec/vtium)
 	grep -qaF '$(PREFIX)/bin/vtium-config' $(INSTALL_TARGET_DIR)/minspec/vtium || { echo "$(INSTALL_TARGET_DIR)/minspec/vtium does not start its helper at $(PREFIX)/bin/vtium-config" >&2; exit 1; }
 # At PREFIX=/usr this path is also the one vtium is built with when
@@ -544,7 +613,7 @@ install-build: ## Build what make install stages, for PREFIX (default /usr/local
 ifneq ($(IMAGES),)
 	grep -qaF '$(PREFIX)/bin/vtium-image' $(INSTALL_TARGET_DIR)/minspec/vtium || { echo "$(INSTALL_TARGET_DIR)/minspec/vtium does not start its image helper at $(PREFIX)/bin/vtium-image" >&2; exit 1; }
 endif
-	$(build_settings)$(package_folders) cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config -p vtium-clipboard $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
+	$(build_settings)$(package_folders) $(call build-dir,$(INSTALL_TARGET_DIR)) cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config -p vtium-clipboard $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
 
 .PHONY: install
 install: font-files-check install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default terminus cullet-mono jetbrains-mono unifont-icons unscii-icons), with the font files make font-files and make cullet-mono stage: make install DESTDIR=DIR PREFIX=/usr
@@ -562,6 +631,9 @@ endif
 	tools/vt/units.sh --name vtium --exec $(PREFIX)/bin/vtium --by 'make install' --conflicts 'kmsconvt@%i.service'$(if $(PAM_SESSION), --seat) $(DESTDIR)$(UNITDIR)
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
+endif
+ifneq ($(SPLIT),)
+	install -Dm644 $(VTIUM_INSTALL)/vtium-split.conf $(DESTDIR)$(PREFIX)/lib/sysusers.d/vtium-split.conf
 endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS)))
@@ -637,9 +709,11 @@ arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link agains
 	tools/arm/sysroot fetch arm64 armhf
 
 # The oldest Rust vtium builds on: the rust-version Cargo.toml declares. The
-# build has a target directory of its own, so the gates' other builds keep
-# theirs.
+# build has a target directory of its own, msrv under the target directory
+# in use, so the other builds keep theirs; under make gates that is in the
+# gate's own directory.
 MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"$$/\1/p' Cargo.toml)
+MSRV_DIR = $(or $(CARGO_TARGET_DIR),target)/msrv
 
 # make deny, a gate, checks the license and the source of every crate that a
 # lock file of vtium's names, and runs cargo-deny's bans check on them, against
@@ -650,10 +724,38 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"$$/\1/p' Cargo.toml)
 # the same way on every machine.
 DENY_VERSION   = 0.20.2
 DENY_INSTALL   = cargo install --locked cargo-deny --version $(DENY_VERSION)
-DENY_MANIFESTS = Cargo.toml tools/shader-timing/Cargo.toml $(sort $(wildcard crates/*/fuzz/Cargo.toml crates/*/gen-*/Cargo.toml))
+DENY_MANIFESTS = Cargo.toml tools/shader-timing/Cargo.toml tools/scroll-timing/Cargo.toml $(sort $(wildcard crates/*/fuzz/Cargo.toml crates/*/gen-*/Cargo.toml))
 define deny-version
 @v=$$(cargo deny --version 2>/dev/null) || v=; [ "$$v" = "cargo-deny $(DENY_VERSION)" ] || { echo "$@ needs cargo-deny $(DENY_VERSION), and this machine has $${v:-no cargo-deny}. Install it with: $(DENY_INSTALL)" >&2; exit 1; }
 endef
+
+# make test-all-features and make test-default, two gates, run the
+# workspace's tests with every feature and with the default build. They run
+# the tests with cargo-nextest, which runs each test in a process of its own
+# and as many at once as the machine has cores, where cargo test runs one test
+# binary after another. nextest runs no doctests, so each target then runs
+# them with cargo test --doc. Both commands run to the end, so one failing
+# test binary never hides another. Both targets need cargo-nextest at
+# NEXTEST_VERSION, the version CI installs, so that the gates judge the same
+# way on every machine.
+NEXTEST_VERSION = 0.9.151
+NEXTEST_INSTALL = cargo install --locked cargo-nextest@$(NEXTEST_VERSION)
+define nextest-version
+@v=$$(cargo nextest --version 2>/dev/null | sed -n '1s/^cargo-nextest \([^ ]*\).*/\1/p'); [ "$$v" = "$(NEXTEST_VERSION)" ] || { echo "$@ needs cargo-nextest $(NEXTEST_VERSION), and this machine has $${v:+cargo-nextest }$${v:-no cargo-nextest}. Install it with: $(NEXTEST_INSTALL)" >&2; exit 1; }
+endef
+# The workspace's tests under nextest, then its doctests, with the cargo
+# flags $(1), and a failure if either failed.
+workspace-tests = status=0; cargo nextest run --workspace $(1) --no-fail-fast || status=1; cargo test --doc --workspace $(1) || status=1; exit $$status
+
+.PHONY: test-all-features
+test-all-features: ## Run the workspace's tests and doctests with every feature, the tests with cargo-nextest (needs cargo-nextest at NEXTEST_VERSION)
+	$(nextest-version)
+	$(call workspace-tests,--all-features)
+
+.PHONY: test-default
+test-default: ## Run the workspace's tests and doctests in the default build, the tests with cargo-nextest (needs cargo-nextest at NEXTEST_VERSION)
+	$(nextest-version)
+	$(call workspace-tests,)
 
 .PHONY: keymaps
 keymaps: ## Compile the keyboard tests' keymap fixtures again from this machine's xkeyboard-config with xkbcli, and record its version (needs xkbcli)
@@ -670,11 +772,11 @@ advisories: ## Check the workspace's crates against the RustSec advisory databas
 	cargo deny --locked check advisories
 
 .PHONY: msrv
-msrv: ## Build the workspace, its tests and the minspec profile with the oldest Rust vtium builds on, Cargo.toml's rust-version, in target/msrv (rustup installs that Rust when it is missing)
+msrv: ## Build the workspace, its tests and the minspec profile with the oldest Rust vtium builds on, Cargo.toml's rust-version, in target/msrv or CARGO_TARGET_DIR/msrv (rustup installs that Rust when it is missing)
 	@[ -n "$(MSRV)" ] || { echo "msrv: Cargo.toml declares no rust-version" >&2; exit 1; }
 	@rustup run $(MSRV) rustc --version >/dev/null 2>&1 || rustup toolchain install $(MSRV) --profile minimal --no-self-update
-	cargo +$(MSRV) build --workspace --all-features --all-targets --locked --target-dir target/msrv
-	cargo +$(MSRV) build --profile minspec --locked --target-dir target/msrv
+	$(call build-dir,$(MSRV_DIR)) cargo +$(MSRV) build --workspace --all-features --all-targets --locked --target-dir $(MSRV_DIR)
+	$(call build-dir,$(MSRV_DIR)) cargo +$(MSRV) build --profile minspec --locked --target-dir $(MSRV_DIR)
 
 .PHONY: arm
 arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE/minspec (ARM_TARGETS='...'; needs clang)
@@ -754,16 +856,19 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the release files' check, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the locale mode scripts with the real vtium-config, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the feature check's plan and the minspec size report, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the release files' check, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the scroll timing tool's ways and its frame loop on a counted display without a KMS device, the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I tools/vt/tests/test_typepad.py
 	python3 -I -B tools/vt/tests/test_vim_vt510.py
+	cargo build -q -p vtium-config --bin vtium-config
+	python3 -I -B tools/vt/tests/test_locale.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
 	python3 -I -B tools/gallery/tests/test_gallery.py
 	python3 -I -B tools/fuzz/test_run.py
 	python3 -I -B tools/gates/test_run.py
+	python3 -I -B tools/gates/test_features.py
 	python3 -I -B docs/scripts/test_fork_refs.py
 	python3 -I -B docs/scripts/test_prose.py
 	python3 -I -B docs/scripts/test_claims.py
@@ -772,23 +877,26 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B tools/stage/test_check.py
 	python3 -I -B tools/vendor/test_manifest.py
 	python3 -I -B tools/vendor/test_archive.py
+	python3 -I -B tools/release/test_check.py
 	python3 -I -B tools/fonts/test_files.py
 	cargo test -q -p vtium-font --test set
 	cargo test -q -p vtium-tier1-shots --features draw
 	cargo test -q -p vtium-site
-	cargo test -q --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool
-	cargo test -q --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/shader-timing-tool
+	$(call build-dir,$(CULLET_MONO_TARGET)) cargo test -q --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(CULLET_MONO_TARGET)
+	$(call build-dir,$(SHADER_TIMING_TARGET)) cargo test -q --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(SHADER_TIMING_TARGET)
+	$(call build-dir,$(SCROLL_TIMING_TARGET)) cargo test -q --locked --manifest-path tools/scroll-timing/Cargo.toml --target-dir $(SCROLL_TIMING_TARGET)
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/t3-novt tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap tools/vendor/archive tools/fonts/files && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/vt/locale/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/t3-novt tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap tools/vendor/archive tools/fonts/files && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The key table's crates' unit tests, built as the vtium package builds
 # them, with VTIUM_HWACCEL=on, VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8) and
 # vtium's gpu feature, in a target directory of their own so the other
 # builds keep their cache. --lib runs the unit tests alone and leaves out
 # every integration test.
-TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 cargo test -q --target-dir $(or $(CARGO_TARGET_DIR),target)/build-settings -p vtium-settings -p vtium -p vtium-config --features vtium/gpu --lib
+BUILD_SETTINGS_TARGET = $(or $(CARGO_TARGET_DIR),target)/build-settings
+TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 $(call build-dir,$(BUILD_SETTINGS_TARGET)) cargo test -q --target-dir $(BUILD_SETTINGS_TARGET) -p vtium-settings -p vtium -p vtium-config --features vtium/gpu --lib
 
 .PHONY: fuzz
 # FUZZ_TARGETS and FUZZ_TIME reach tools/fuzz/run through the environment;
@@ -892,7 +1000,7 @@ $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 .PHONY: vt-dev-console
 vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec $(REMAP_PATHS) -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
+	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) $(call build-dir,$(VTIUM_DEV_DIR)) cargo rustc --profile minspec $(REMAP_PATHS) -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
 	$(call check-relr,$(VTIUM_DEV))
 	$(call check-paths,$(VTIUM_DEV))
 	$(call check-glibc,$(VTIUM_DEV))
@@ -964,7 +1072,8 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 #
 # References:
 # - ADR-1204 D2: the sources, the name and the icon sets.
-CULLET_MONO := cargo run --release --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool --
+CULLET_MONO_TARGET = $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool
+CULLET_MONO := $(call build-dir,$(CULLET_MONO_TARGET)) cargo run --release --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(CULLET_MONO_TARGET) --
 CULLET_MONO_OUT := $(or $(CARGO_TARGET_DIR),target)/cullet-mono
 .PHONY: font-files font-files-check
 font-files: ## Stage the Terminus and Unifont files every build installs in target/font-files: Terminus 4.49.1's archive fetched once into the cache, and each file checked against tools/fonts/pins.tsv (needs curl and the network once)
@@ -989,12 +1098,39 @@ cullet-mono-check: ## Check the Cullet Mono faces in target/cullet-mono against 
 #
 # References:
 # - ADR-1304 D18, "measuring first": what the harness measures, and why.
-SHADER_TIMING := cargo run --release --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/shader-timing-tool --
+SHADER_TIMING_TARGET = $(or $(CARGO_TARGET_DIR),target)/shader-timing-tool
+SHADER_TIMING := $(call build-dir,$(SHADER_TIMING_TARGET)) cargo run --release --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(SHADER_TIMING_TARGET) --
 SHADER_TIMING_OUT := $(or $(CARGO_TARGET_DIR),target)/shader-timing
 .PHONY: shader-timing
 shader-timing: ## Time the spatial shaders of ADR-1304 D18 off-screen on DEVICE (surfaceless, software or a render node; default surfaceless) at 1920x1080 and 3840x2160, into target/shader-timing/DEVICE.tsv; ARGS='...' passes more options
 	@mkdir -p $(SHADER_TIMING_OUT)
 	$(SHADER_TIMING) run --device '$(or $(DEVICE),surfaceless)' --tsv '$(SHADER_TIMING_OUT)/$(notdir $(or $(DEVICE),surfaceless)).tsv' $(ARGS)
+
+# The scroll timing tool, which times three ways to scroll the CPU path's
+# display on a KMS device: the copy from a ring in system memory, the move
+# of rows within the display's buffer and the pan over a taller buffer,
+# beside today's redraw. Not a gate: its numbers belong to the machine that
+# runs it. The tool takes DRM master, so it never runs on a desktop that is
+# showing. DEVICE=tier3, the default, runs it in tier 3's 1-vCPU guest, once
+# at 1920x1080 and once at 1366x768, into target/tier3/scroll-timing/. A
+# card's path, such as DEVICE=/dev/dri/card1, runs it on that card at its
+# preferred mode, into target/scroll-timing/cardN.tsv, as a user who may
+# take DRM master, from a text console nobody else draws on. ARGS passes
+# more options to the tool, such as ARGS='--frames 60'.
+#
+# References:
+# - ADR-1310 D6, "The measurement": what the tool measures, and why.
+SCROLL_TIMING_TARGET := $(or $(CARGO_TARGET_DIR),target)/scroll-timing-tool
+SCROLL_TIMING_OUT := $(or $(CARGO_TARGET_DIR),target)/scroll-timing
+.PHONY: scroll-timing
+scroll-timing: ## Time ADR-1310 D6's three ways to scroll on DEVICE (default tier3, the 1-vCPU guest; or a card such as /dev/dri/card1, which takes DRM master); ARGS='...' passes more options
+	@if [ '$(or $(DEVICE),tier3)' = tier3 ]; then \
+		$(MAKE) --no-print-directory tier3-image && $(T3_PY) tools/tier3/t3_scrolltiming.py -- $(ARGS); \
+	else \
+		$(call build-dir,$(SCROLL_TIMING_TARGET)) cargo build --release --locked --manifest-path tools/scroll-timing/Cargo.toml --target-dir $(SCROLL_TIMING_TARGET) && \
+		mkdir -p $(SCROLL_TIMING_OUT) && \
+		$(SCROLL_TIMING_TARGET)/release/scroll-timing run --device '$(DEVICE)' --tsv '$(SCROLL_TIMING_OUT)/$(notdir $(DEVICE)).tsv' $(ARGS); \
+	fi
 
 # What the maintainer reviews tier 1's goldens on (ADR-1505, V3); not a
 # gate. tier1-shots replays every case of the corpus and of vtium's own
@@ -1079,6 +1215,16 @@ api: ## Build the crates' interfaces with rustdoc into target/doc, failing on an
 	rm -rf $(API_DOC_DIR)
 	RUSTDOCFLAGS="$(API_RUSTDOCFLAGS)" cargo doc --no-deps --all-features --lib $(API_PACKAGES)
 
+# make features-check runs clippy and rustdoc on each crate under crates/
+# that declares cargo features, once with no feature and once with each
+# feature alone, through tools/gates/features. The gate line's clippy and make
+# api build every crate with every feature on, so they never see an import
+# or a doc link that only a build with fewer features breaks. rustdoc runs
+# with make api's flags. make features-check is a gate of the gate line.
+.PHONY: features-check
+features-check: ## Run clippy and rustdoc on each crate with no feature and with each feature alone, failing on any warning and naming the crate and the features
+	RUSTDOCFLAGS="$(API_RUSTDOCFLAGS)" python3 -I -B tools/gates/features
+
 site-api: api ## Copy the crates' interfaces into the built site under target/site/api (run make docs first)
 	@test -f target/site/index.html || { echo "target/site has no built site: run make docs first" >&2; exit 1; }
 	mkdir -p target/site/api
@@ -1146,11 +1292,14 @@ man-check: ## Fail when a man page in man/ is stale or mandoc -T lint finds a wa
 # tools/tier3/goldens (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
 # variant boots the machine tools/tier3/t3_scenario.py names; JOBS=N runs up to
 # N variants at once, and with JOBS above 1, T3_DEADLINE=S stops a variant
-# still running after S seconds. GL variants never run together.
+# still running after S seconds. The default, JOBS=auto, runs as many at once
+# as the host's cores and memory hold for the run's largest machine, which
+# tools/tier3/t3.py works out; JOBS=1 runs them one after another, as the
+# figures in tools/tier3/README.md want. GL variants never run together.
 T3_DIR      := tools/tier3
 T3_VM       := target/tier3/vm
 T3_PY       := python3 -I -B
-JOBS        ?= 1
+JOBS        ?= auto
 T3_DEADLINE ?= 1800
 # The guest images: a cache every vtium checkout shares, which
 # target/tier3/vm/images links to, and where tier3-image fetches the pristine
@@ -1205,8 +1354,8 @@ tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: 
 tier3-images: tier3-image ## Tier 3's pictures: the install tree built with images, then the images variants on the minspec machine at 640x480
 	$(T3_RUN) --features '$(sort images $(subst $(comma), ,$(FEATURES)))' --tree-target install-tree $(or $(VARIANTS),images-640x480 images-640x480-nobody)
 
-# The checks of ADR-1400 D4 (tools/tier3/README.md, "The checks of the
-# privilege split"): the probe in tools/tier3/probes, run in the guest as root
+# The checks of ADR-1400 D4 (tools/tier3/README.md, "The checks the split
+# rests on"): the probe in tools/tier3/probes, run in the guest as root
 # and as a system account. SEATD_SRC=DIR, an unpacked seatd source tree, adds
 # check 3's run with a libseat built with its builtin backend.
 .PHONY: tier3-rootchecks
@@ -1246,8 +1395,8 @@ tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: v
 define GATE_LINE
 cargo fmt --all --check
 cargo clippy --workspace --all-features --all-targets -- -D warnings
-cargo test --workspace --all-features
-cargo test --workspace
+make test-all-features
+make test-default
 cargo build --profile minspec
 make msrv
 make deny
@@ -1259,6 +1408,7 @@ docs/scripts/claims
 docs/scripts/prose --check
 docs/scripts/coverage
 make api
+make features-check
 make man-check
 make test-tools
 make conformance
@@ -1278,32 +1428,84 @@ awk 'f && /^```/ { f = 0; done = 1 } f { sub(/^ *(&& )?/, ""); sub(/ \\$$/, "");
 endef
 
 # make gates runs the gate line's gates through tools/gates/run, up to
-# JOBS=N at once, 8 unless JOBS is set on the command line or in the
-# environment; the file's own JOBS is tier 3's, 1. Each gate builds in a
-# target directory of its own, $(GATES_DIR)/NAME, and writes its output to
-# $(GATES_DIR)/logs/NN-NAME.log; the script's docstring describes the run
-# and its report. No gate needs the machine to itself. A CARGO_TARGET_DIR
-# set by the caller must not be shared by worktrees whose sources differ
-# (AGENTS.md, "The gates").
-GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),8)
+# JOBS=N at once: half the machine's cores, and at least 8, unless JOBS is
+# set on the command line or in the environment; the file's own JOBS is tier
+# 3's. Each gate builds in a directory of its own, VTIUM_GATES_DIR/NAME,
+# which is both its cargo target directory and its build directory, and
+# writes its output to $(GATES_DIR)/logs/NN-NAME.log; the script's docstring
+# describes the run and its report. VTIUM_GATES_DIR is
+# $(BUILD_VOLUME)/vtium/CHECKOUT/gates on the build volume, and
+# $(GATES_DIR), in the checkout's target/, on a machine without the volume
+# or when the caller sets CARGO_TARGET_DIR. A VTIUM_GATES_DIR from the
+# command line or the environment wins. The directories stay between runs,
+# so each run builds only what changed. After each run, the script removes
+# the directories under VTIUM_GATES_DIR that no gate of the run owns, and
+# keeps minspec-size; the volume's own timer keeps its size in check. The
+# gates that took longest in the last run start first. No gate needs the
+# machine to itself. A CARGO_TARGET_DIR or VTIUM_GATES_DIR set by the caller
+# must not be shared by worktrees whose sources differ (AGENTS.md, "The
+# gates").
+#
+# After the gates, make gates builds the minspec binary with make minspec,
+# in VTIUM_GATES_DIR/minspec-size, and tools/gates/minspec-size prints its size
+# against tier 3's budget. make minspec builds the binary that tier 3
+# measures, and the gate cargo build --profile minspec builds another one,
+# without the minspec link flags. The report is not a gate: a binary over
+# the budget prints a warning, and make gates exits as the gates decided.
+# make tier3-minimal is the check that fails on that binary. The sub-make
+# gets make's command line through MAKEFLAGS, so the build names FEATURES,
+# HWACCEL, DISPLAY_BUFFERS, and CARGO_TARGET_DIR itself: make gates
+# FEATURES=images still measures the minspec binary, in its own directory.
+# The report follows each run in which the gates ran, passed or failed. An
+# interrupted run and a usage error of tools/gates/run skip it.
+#
+# References:
+# - ADR-1200 D19: the minspec binary's size budget.
+GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),$(shell echo $$(( $(CORES) / 2 > 8 ? $(CORES) / 2 : 8 ))))
 GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
+VTIUM_GATES_DIR ?= $(if $(and $(VTIUM_BUILDS),$(if $(CARGO_TARGET_DIR),,yes)),$(VTIUM_BUILDS)/gates,$(GATES_DIR))
+GATES_SIZE_DIR = $(abspath $(VTIUM_GATES_DIR))/minspec-size
+GATES_SIZE_LOG = $(GATES_DIR)/logs/minspec-size.log
+# The recipe names make through this variable rather than as $(MAKE): make
+# runs a recipe line that names $(MAKE) even under make -n, and make -n gates
+# must print the gates' line without running the gates.
+GATES_SIZE_BUILD = $(MAKE) --no-print-directory minspec $(call own-dirs,$(GATES_SIZE_DIR)) \
+	FEATURES= HWACCEL= DISPLAY_BUFFERS=
+
+# The gates' debug builds keep only line tables, the file and line of each
+# instruction, in place of full debug information. A panic's backtrace
+# still names each file and line, and the test gates' target directories
+# take about half the space, and link faster. A CARGO_PROFILE_DEV_DEBUG from
+# the caller wins.
+gates: export CARGO_PROFILE_DEV_DEBUG ?= line-tables-only
 
 .PHONY: gates
-gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed
-	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR)
+gates: ## Run every gate of the gate line, up to JOBS=N at once (default half the cores, at least 8), each to the end and each in a build directory of its own under VTIUM_GATES_DIR (default /data/1/cargo/vtium/CHECKOUT/gates when that volume exists, otherwise target/gates), report each exit code and fail if any failed; then report the minspec binary's size against tier 3's budget
+	$(sccache-note)
+	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR) --build-root $(abspath $(VTIUM_GATES_DIR)) --keep minspec-size; code=$$?; \
+	[ $$code -eq 0 ] || [ $$code -eq 1 ] || exit $$code; \
+	echo; echo "==> make minspec, for the size of the binary tier 3 measures (log: $(GATES_SIZE_LOG))"; \
+	if $(GATES_SIZE_BUILD) >$(GATES_SIZE_LOG) 2>&1 </dev/null; then \
+		python3 -I -B tools/gates/minspec-size $(GATES_SIZE_DIR)/$(X86_TARGET)/minspec/vtium; \
+	else \
+		echo "warning: make minspec failed, so make gates cannot report the minspec binary's size. Its log is $(GATES_SIZE_LOG)."; \
+	fi; \
+	exit $$code
 
 # make ci-local runs the tests in a container with the userland of CI's
 # runner, Ubuntu 24.04, so a test that only fails there shows up before a
-# push; tools/ci-local/run describes the run. It caches under
+# push; tools/ci-local/run describes the run. It builds in
+# $(BUILD_VOLUME)/vtium/CHECKOUT/ci-local on the build volume, and keeps the
+# rest of its cache, and its builds on a machine without the volume, under
 # $XDG_CACHE_HOME/vtium/ci-local, never in target/.
 BUILDS ?= all-features default
 
 .PHONY: ci-local
-ci-local: ## Run cargo test --workspace, with every feature and with the default build, in a container matching CI's Ubuntu 24.04 runner (needs podman or docker; BUILDS='all-features default', TEST_ARGS='-p CRATE ...')
+ci-local: ## Run the workspace's tests under cargo-nextest and its doctests, with every feature and with the default build, in a container matching CI's Ubuntu 24.04 runner, building in /data/1/cargo/vtium/CHECKOUT/ci-local when that volume exists (needs podman or docker; BUILDS='all-features default', TEST_ARGS='-p CRATE ...')
 	@tools/ci-local/run --builds '$(BUILDS)' $(TEST_ARGS)
 
 # The steering session runs this before it moves stage to a commit of
-# integration (AGENTS.md, "The working loop", step 7). It fetches main from
+# integration (docs/contributing/steering.md, step 7). It fetches main from
 # origin and fails unless COMMIT descends from it, which happens when a stage
 # pull request has merged into main and main has not been merged back into
 # integration since.

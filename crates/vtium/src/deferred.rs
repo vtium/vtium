@@ -131,8 +131,64 @@ pub struct Shown {
     pub clusters: Vec<Text>,
 }
 
+/// The frame of `term`'s view that the console reads to ask the helper
+/// for the glyphs its displays draw. In a build with `scroll-pan` the frame
+/// holds the rows of history above the screen that the term's views asked
+/// their last frames to hold: the rows the spare lines above the grid and
+/// the overscan draw. A view asks for them as it takes its frame, so the
+/// glyphs of a row that output moves above the screen are asked for in the
+/// turn before the frame that draws it.
+///
+/// References:
+/// - ADR-1310 D2 and D10: the rows above the screen that a view asks for.
+pub fn frame_shown(term: &crate::term::Term) -> vtium_term::Frame<'_> {
+    let palette = term.terminal.palette();
+    let screen = term.terminal.screen();
+    #[cfg(feature = "scroll-pan")]
+    return screen.frame_reaching(
+        palette,
+        vtium_term::Age::NEVER,
+        vtium_term::Reach {
+            above: term.rows_above(),
+            ..vtium_term::Reach::default()
+        },
+    );
+    #[cfg(not(feature = "scroll-pan"))]
+    return screen.frame(palette, vtium_term::Age::NEVER);
+}
+
+/// Adds to `all` what `frame` shows in a build without the bidi feature:
+/// each character and each cluster whole, in each variant a cell draws its
+/// glyph in, on every row the frame holds (`positions`), and what each
+/// line of double size shows at its size ([`read_doubled`]).
+#[cfg(not(feature = "bidi"))]
+pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
+    use vtium_term::Glyph;
+    read_doubled(frame, all);
+    for row in positions(frame) {
+        for cell in cells_at(frame, row) {
+            let i = shown_index(all, variant_of(cell.attrs), None);
+            let Some(shown) = all.get_mut(i) else {
+                continue;
+            };
+            match cell.glyph {
+                Glyph::Char(c) => shown.chars.push(c),
+                Glyph::Cluster(text) => {
+                    shown.chars.extend(text.chars());
+                    shown.clusters.push(text.chars().collect());
+                }
+                Glyph::Empty => {}
+            }
+        }
+    }
+}
+
 /// Adds to `all` what `frame` shows, as the console reads it to ask the
-/// helper for the glyphs a display draws. It reads each variant a cell
+/// helper for the glyphs a display draws. It reads every row the frame
+/// holds: the screen's rows, and in a build with `scroll-pan` the rows of
+/// history above the screen that the spare lines and the overscan draw, so
+/// that a row the screen never showed has its glyphs before it is drawn.
+/// It reads each variant a cell
 /// draws its glyph in: bold, italic, both or neither, and normal,
 /// superscript or subscript. It adds each character, every character of a
 /// cluster among them, and each cluster whole. It adds what a
@@ -153,6 +209,7 @@ pub struct Shown {
 ///   mirroring.
 /// - ADR-1203 D3: a syllable's pieces.
 /// - ADR-1308 D8: the programming ligatures.
+/// - ADR-1310 D2 and D10: the rows above the screen that the frame holds.
 #[cfg(feature = "bidi")]
 pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures: bool) {
     use vtium_render::joined;
@@ -162,17 +219,17 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures
     let mut drawn = Vec::new();
     let mut runs = Runs::default();
     read_doubled(frame, all);
-    for row in 0..frame.rows() {
+    for row in positions(frame) {
         // a line of double size asks for what it draws at its size too
-        let doubled = frame.line(row).and_then(|l| doubled_of(l.flags().size()));
+        let doubled = line_at(frame, row).and_then(|l| doubled_of(l.flags().size()));
         let sized = |all: &mut Vec<Shown>, variant: Variant| {
             doubled
                 .filter(|_| variant.script == Script::Baseline)
                 .map(|d| shown_index(all, variant, Some(d)))
         };
-        for (col, cell) in frame.cells(row).enumerate() {
+        for (col, cell) in cells_at(frame, row).enumerate() {
             // a syllable's pieces, once, from its first cell
-            if let Some((run, 0)) = runs.find(frame, (col, row), &cell, ligatures)
+            if let Some((run, 0)) = runs.find_at(frame, (col, row), &cell, ligatures)
                 && let Some(s) = runs.get(run)
             {
                 let mut keys = Vec::new();
@@ -207,8 +264,8 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures
             drawn.clear();
             joined::text(&cell, &mut drawn);
             let mut texts = vec![drawn.clone()];
-            if joined::span(frame, (col, row), &cell, None) == joined::Span::Pair
-                && let Some(lam) = frame.cell(row, col.saturating_add(1))
+            if joined::span_at(frame, (col, row), &cell, None) == joined::Span::Pair
+                && let Some(lam) = cell_at(frame, row, col.saturating_add(1))
             {
                 let mut pair = Vec::new();
                 joined::pair_text(&cell, &lam, &mut pair);
@@ -253,7 +310,7 @@ pub fn shown_index(all: &mut Vec<Shown>, variant: Variant, doubled: Option<Doubl
 }
 
 /// Adds to `all` the characters and the clusters each line of double size
-/// in `frame` shows, at that size and in each cell's variant, which the
+/// in `frame` shows, on the screen or above it, at that size and in each cell's variant, which the
 /// console asks the helper to render at that size (vtium/vtium#61): a
 /// cluster's characters and the cluster whole, as at the normal size, so
 /// an emoji sequence and a letter with its marks draw at that size too.
@@ -261,14 +318,14 @@ pub fn shown_index(all: &mut Vec<Shown>, variant: Variant, doubled: Option<Doubl
 /// superscript or subscript at a double size. Every build reads them, so
 /// every build draws an outline font's lines of double size from glyphs
 /// rendered at that size. A build with the bidi feature adds the joined
-/// forms and syllables those lines draw ([`read_shown`]).
+/// forms and syllables those lines draw (`read_shown`).
 pub fn read_doubled(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
     use vtium_term::Glyph;
-    for row in 0..frame.rows() {
-        let Some(doubled) = frame.line(row).and_then(|l| doubled_of(l.flags().size())) else {
+    for row in positions(frame) {
+        let Some(doubled) = line_at(frame, row).and_then(|l| doubled_of(l.flags().size())) else {
             continue;
         };
-        for cell in frame.cells(row) {
+        for cell in cells_at(frame, row) {
             let variant = variant_of(cell.attrs);
             if variant.script != Script::Baseline || cell.glyph == Glyph::Empty {
                 continue;
@@ -287,6 +344,53 @@ pub fn read_doubled(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
             }
         }
     }
+}
+
+/// The positions of the rows `frame` holds: the screen's rows from 0, and
+/// in a build with `scroll-pan` the rows beyond the screen, which lie above
+/// it at negative positions and below it from the screen's row count.
+fn positions(frame: &vtium_term::Frame<'_>) -> core::ops::Range<isize> {
+    #[cfg(feature = "scroll-pan")]
+    return frame.captured();
+    #[cfg(not(feature = "scroll-pan"))]
+    return 0..isize::try_from(frame.rows()).unwrap_or(isize::MAX);
+}
+
+/// The line at position `row` of `frame` ([`positions`]).
+fn line_at<'a>(frame: &vtium_term::Frame<'a>, row: isize) -> Option<&'a vtium_term::Line> {
+    #[cfg(feature = "scroll-pan")]
+    return frame.line_at(row);
+    #[cfg(not(feature = "scroll-pan"))]
+    return usize::try_from(row).ok().and_then(|r| frame.line(r));
+}
+
+/// The cells of the row at position `row` of `frame` as drawn, left to
+/// right ([`positions`]).
+fn cells_at<'a, 'f>(
+    frame: &'f vtium_term::Frame<'a>,
+    row: isize,
+) -> impl Iterator<Item = vtium_term::FrameCell<'a>> + 'f {
+    #[cfg(feature = "scroll-pan")]
+    return frame.cells_at(row);
+    #[cfg(not(feature = "scroll-pan"))]
+    return usize::try_from(row)
+        .ok()
+        .into_iter()
+        .flat_map(move |r| frame.cells(r));
+}
+
+/// The cell at column `col` of the row at position `row` of `frame`
+/// ([`positions`]).
+#[cfg(feature = "bidi")]
+fn cell_at<'a>(
+    frame: &vtium_term::Frame<'a>,
+    row: isize,
+    col: usize,
+) -> Option<vtium_term::FrameCell<'a>> {
+    #[cfg(feature = "scroll-pan")]
+    return frame.cell_at(row, col);
+    #[cfg(not(feature = "scroll-pan"))]
+    return usize::try_from(row).ok().and_then(|r| frame.cell(r, col));
 }
 
 /// The double size a line of `size` draws its glyphs at: `None` for a
@@ -321,7 +425,6 @@ pub fn variant_of(attrs: vtium_term::Attrs) -> Variant {
 
 /// Each of `all`'s characters and clusters sorted and once, white space
 /// left out, as the console asks the helper for them.
-#[cfg(feature = "bidi")]
 pub fn settle(all: &mut [Shown]) {
     for shown in all {
         shown.chars.retain(|c| !c.is_whitespace());
@@ -989,8 +1092,22 @@ fn pack(pixels: &[u8], width: u32) -> Option<Vec<u8>> {
 #[derive(Debug, Default)]
 pub struct Generated {
     entries: Vec<Entry>,
+    /// The underline and strike-through lines the helper's answers report
+    /// at each cell and band, one for each script, from the last answer
+    /// that added a glyph there. They are kept apart from the glyphs, so a
+    /// cell keeps its font's lines when a full store evicts every glyph at
+    /// it, and they go only when [`Generated::retain`] drops the cell.
+    lines: Vec<CellLines>,
     /// Counts [`Generated::touch`]es: the store's clock.
     tick: u64,
+}
+
+/// The lines the helper's answers in `script` report at `at`.
+#[derive(Clone, Copy, Debug)]
+struct CellLines {
+    at: SpacedCell,
+    script: Script,
+    lines: Decorations,
 }
 
 /// The store, shared between the console and its displays' faces, which
@@ -1116,15 +1233,51 @@ impl Generated {
     }
 
     /// Adds `fresh`: the face it draws through, for the caller to ask what
-    /// it holds; `None` when it adds no glyph.
+    /// it holds; `None` when it adds no glyph. The lines its strikes
+    /// report become its cell's lines in its script when it adds a glyph,
+    /// and when the store keeps none there yet.
     pub fn add(&mut self, fresh: Fresh) -> Option<SetFace> {
         let Fresh(entry) = fresh;
+        self.keep_lines(&entry);
         if entry.glyphs.is_empty() {
             return None;
         }
         let face = entry.face.clone();
         self.entries.push(entry);
         Some(face)
+    }
+
+    /// Keeps the lines `entry`'s strikes report at its cell and band in
+    /// its script. Every answer in one script at one cell and band reports
+    /// the same lines while the helper runs: the frit's first source's, at
+    /// the small glyph's size for a superscript or subscript. When the
+    /// helper crashes on a font, vtium leaves that font out and starts the
+    /// helper again without dropping the store, so the next source's
+    /// answers report other lines. An answer that adds a glyph therefore
+    /// replaces the kept lines, and the lines follow the font that draws
+    /// the newest glyphs. An answer that adds none keeps its lines only
+    /// where none are kept yet, since the glyphs already held at the cell
+    /// came with the kept lines. An answer drawn at a double size reports
+    /// the lines of the larger cell, so it says nothing about the cell's
+    /// own lines.
+    fn keep_lines(&mut self, entry: &Entry) {
+        if entry.doubled.is_some() {
+            return;
+        }
+        let (at, script) = (entry.at(), entry.variant.script);
+        let lines = match script {
+            Script::Baseline => entry.face.decorations(),
+            _ => entry.face.script_decorations(script),
+        };
+        match self
+            .lines
+            .iter_mut()
+            .find(|l| l.at == at && l.script == script)
+        {
+            Some(kept) if !entry.glyphs.is_empty() => kept.lines = lines,
+            Some(_) => {}
+            None => self.lines.push(CellLines { at, script, lines }),
+        }
     }
 
     /// Whether the store holds at `at`, in any variant, the glyph of a
@@ -1191,7 +1344,8 @@ impl Generated {
     /// free less than their share, the next least recently shown glyphs
     /// go too. The texts no longer held, by cell, band, variant and double
     /// size; nothing is redrawn, and each is asked for again when the
-    /// screen shows it.
+    /// screen shows it. Each cell keeps the lines its answers reported,
+    /// even when no glyph at it is left.
     pub fn make_room(&mut self, overrun: u64) -> Vec<(Held, Vec<Text>)> {
         let mut out: Vec<(Held, Vec<Text>)> = Vec::new();
         let mut short = overrun;
@@ -1274,9 +1428,11 @@ impl Generated {
         }
     }
 
-    /// Drops the glyphs of every cell and band but `cells`.
+    /// Drops the glyphs and the kept lines of every cell and band but
+    /// `cells`.
     pub fn retain(&mut self, cells: &[SpacedCell]) {
         self.entries.retain(|e| cells.contains(&e.at()));
+        self.lines.retain(|l| cells.contains(&l.at));
     }
 
     /// Whether any glyph at `at` is held.
@@ -1284,28 +1440,29 @@ impl Generated {
         self.entries.iter().any(|e| e.at() == at)
     }
 
-    /// The lines the helper's normal strikes at `at` report (ADR-1302 D3):
-    /// every answer for normal glyphs at one cell and band reports the
-    /// frit's first source's, so the first such set held there gives them.
-    /// `None` while no set of normal glyphs at `at` is held, since a
-    /// superscript or subscript set reports the lines of its own script.
-    fn decorations(&self, at: SpacedCell) -> Option<Decorations> {
-        let e = self
-            .normal()
-            .find(|e| e.at() == at && e.variant.script == Script::Baseline)?;
-        Some(e.face.decorations())
+    /// The lines the helper's strikes in `script` at `at` report, kept
+    /// from the last answer that added a glyph in that script at the cell
+    /// and band: for the baseline, the frit's first source's lines, and
+    /// for a superscript or subscript, those lines at the small glyph's
+    /// size, where its own box lies. `None` until the helper's first
+    /// answer in `script` at `at` is added, and again once the store drops
+    /// the cell.
+    ///
+    /// References:
+    /// - ADR-1302 D3: the underline and strike-through follow the font's lines.
+    /// - ADR-1202 D8: a superscript or subscript strike reports its script's lines.
+    fn decorations(&self, at: SpacedCell, script: Script) -> Option<Decorations> {
+        self.lines
+            .iter()
+            .find(|l| l.at == at && l.script == script)
+            .map(|l| l.lines)
     }
 
-    /// The lines the helper's strikes of `script` at `at` report: the
-    /// lines of the frit's first source at the small glyph's size, where
-    /// its own box lies (ADR-1202 D8). Every answer in one script at one
-    /// cell and band reports the same lines, so the first such set held
-    /// there gives them. `None` while none is held.
-    fn script_decorations(&self, at: SpacedCell, script: Script) -> Option<Decorations> {
-        let e = self
-            .normal()
-            .find(|e| e.at() == at && e.variant.script == script)?;
-        Some(e.face.script_decorations(script))
+    /// Whether the store keeps lines at `at` in any script: whether the
+    /// helper has answered at the cell at its normal size since the store
+    /// last dropped it.
+    fn answered(&self, at: SpacedCell) -> bool {
+        self.lines.iter().any(|l| l.at == at)
     }
 
     /// How many cells the store's normal glyph for `c` at `at` spans, as
@@ -1962,18 +2119,25 @@ impl Face for DeferredFace {
         (glyph.format() == Format::Mask && (text || glyph.width() <= width)).then_some(glyph)
     }
 
-    /// The lines the helper's strikes at the cell report, once a set there
-    /// is held: an outline first source's own, measured from the font's
-    /// `post` and `OS/2` tables, and a bitmap first source's the lines for
-    /// the cell's height. The helper moves a font's line that would pass
-    /// the cell inside it, and the set reader refuses a strike whose line
-    /// passes its cell, so a line held here always lies in the cell's rows.
-    /// Before any set at the cell is held: the built-in font's in its own
-    /// cell, and in another the lines for the cell's height. Line spacing
-    /// moves the built-in font's lines down with its text band (ADR-1302
-    /// D13); the helper's strikes report them moved already.
+    /// The lines the helper's strikes at the cell report, once the helper
+    /// has answered there: an outline first source's own, measured from
+    /// the font's `post` and `OS/2` tables, and a bitmap first source's
+    /// the lines for the cell's height. The helper moves a font's line
+    /// that would pass the cell inside it, and the set reader refuses a
+    /// strike whose line passes its cell, so a line held here always lies
+    /// in the cell's rows. The store keeps these lines after a full store
+    /// evicts every glyph at the cell, so the underline stays on the
+    /// font's row while the built-in font draws the cell's text. Before
+    /// the helper's first answer at the cell: the built-in font's lines in
+    /// its own cell, and in another the lines for the cell's height. Line
+    /// spacing moves the built-in font's lines down with its text band;
+    /// the helper's strikes report them moved already.
+    ///
+    /// References:
+    /// - ADR-1302 D13: line spacing adds rows to the cell and moves the
+    ///   text band, and the lines with it, down.
     fn decorations(&self) -> Decorations {
-        if let Some(lines) = lock(&self.generated).decorations(self.at()) {
+        if let Some(lines) = lock(&self.generated).decorations(self.at(), Script::Baseline) {
             return lines;
         }
         let text = self.text();
@@ -1989,14 +2153,20 @@ impl Face for DeferredFace {
         }
     }
 
-    /// A superscript or subscript cell's lines (ADR-1202 D8): the lines
-    /// the helper's strike of that script reports, once one is held at
-    /// the cell. While it is on its way, the cell's normal lines go
-    /// through D4's map, the text band their own box
+    /// A superscript or subscript cell's lines: the lines the helper's
+    /// strike of that script reports, once one is held at the cell. While
+    /// that strike is on its way, vtium maps the cell's normal lines to
+    /// the small glyph's rows, taking the text band as their own box
     /// ([`vtium_font::script::lines::of_face`]), and the strike's lines
-    /// replace them when it arrives. Before any set of the frit's at the
-    /// cell is held, the built-in font's own script lines in its own cell,
+    /// replace them when it arrives. Before the helper's first answer at
+    /// the cell, the built-in font's own script lines in its own cell,
     /// moved down with its text band, as its glyphs are drawn then.
+    ///
+    /// References:
+    /// - ADR-1202 D8: a superscript or subscript cell takes the lines its
+    ///   own strike reports.
+    /// - ADR-1202 D4: how a cell's normal lines map to the small glyph's
+    ///   rows.
     fn script_decorations(&self, script: Script) -> Decorations {
         if script == Script::Baseline {
             return self.decorations();
@@ -2004,9 +2174,9 @@ impl Face for DeferredFace {
         let at = self.at();
         let held = {
             let store = lock(&self.generated);
-            match store.script_decorations(at, script) {
+            match store.decorations(at, script) {
                 Some(lines) => return lines,
-                None => store.holds(at),
+                None => store.answered(at) || store.holds(at),
             }
         };
         if !held && self.builtin.cell() == self.text() {
@@ -2914,6 +3084,238 @@ mod tests {
         assert_eq!(
             f.script_decorations(Script::Sub),
             vtium_font::script::lines::mapped(normal, Script::Sub, (0, 19), 19, Band::NONE)
+        );
+    }
+
+    /// A set at `cell` mapping 'A' to one solid glyph in `script`, whose
+    /// strike reports `lines`, as the helper answers an ask for a
+    /// superscript or subscript glyph.
+    fn script_set(cell: Cell, script: Script, lines: Decorations) -> Arc<Set> {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default())
+            .script(script)
+            .decorations(lines);
+        let g = s.glyph(
+            Width::Narrow,
+            vec![255; (cell.width * cell.height) as usize],
+        );
+        s.map('A', g);
+        Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
+    }
+
+    /// The lines of a font at [`CELL`] that differ from the built-in
+    /// font's and from the lines for the cell's height, and the lines of
+    /// its superscript strike there.
+    const FONT_LINES: Decorations = Decorations {
+        underline: 12,
+        underline_thickness: 1,
+        strike: 7,
+        strike_thickness: 1,
+        overline: 0,
+    };
+    const SUPER_LINES: Decorations = Decorations {
+        underline: 8,
+        underline_thickness: 1,
+        strike: 4,
+        strike_thickness: 1,
+        overline: 0,
+    };
+
+    /// Adds to `generated` a normal set and a superscript set at [`CELL`],
+    /// each holding 'A' and taking one byte, whose strikes report
+    /// [`FONT_LINES`] and [`SUPER_LINES`].
+    fn add_lines_at_cell(generated: &Shared) {
+        let mut store = lock(generated);
+        add(
+            &mut store,
+            CELL,
+            with_lines(CELL, &['A'], FONT_LINES),
+            vec![(0x41, 1)],
+            1,
+        );
+        let variant = Variant {
+            style: Style::default(),
+            script: Script::Super,
+        };
+        let fresh = store
+            .fresh(
+                (AT, variant),
+                script_set(CELL, Script::Super, SUPER_LINES),
+                &[(0x41, 1)],
+                1,
+            )
+            .unwrap();
+        store.add(fresh).unwrap();
+    }
+
+    // #462: a cell keeps the lines its font's answers reported after a
+    // full store evicts every set at the cell. The screen at the cell may
+    // show nothing the font draws (a cleared screen, a row of underlined
+    // spaces), so no glyph there is asked for again, and the underline
+    // must stay on the font's row instead of moving to the cell's bottom
+    // row. A script the store never held keeps the lines mapped from the
+    // font's normal lines, not the built-in font's own script lines.
+    #[test]
+    fn a_cells_lines_outlast_the_eviction_of_its_glyphs() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        add_lines_at_cell(&generated);
+        let other = Cell {
+            width: 10,
+            height: 19,
+        };
+        add(
+            &mut lock(&generated),
+            other,
+            solid(other, &['A']),
+            vec![(0x41, 1)],
+            100,
+        );
+        let sub = f.script_decorations(Script::Sub);
+        assert_eq!(f.decorations(), FONT_LINES);
+        assert_eq!(f.script_decorations(Script::Super), SUPER_LINES);
+        assert_ne!(sub, Unifont::new(16).script_decorations(Script::Sub));
+        // the other cell's glyph is on the screen, so the two at CELL
+        // are the least recently shown, and making room for 2 bytes
+        // drops both sets there
+        lock(&generated).touch(SpacedCell::plain(other), &shown(&['A']));
+        lock(&generated).make_room(2);
+        assert!(!lock(&generated).holds(AT));
+        assert!(lock(&generated).holds(SpacedCell::plain(other)));
+        assert_eq!(f.decorations(), FONT_LINES);
+        assert_eq!(f.script_decorations(Script::Super), SUPER_LINES);
+        assert_eq!(f.script_decorations(Script::Sub), sub);
+    }
+
+    // #462: the last answer that adds a glyph at a cell sets the cell's
+    // lines. After the helper starts again without the font that answered
+    // first, the next font's glyphs refill the cell, and its underline
+    // must follow them once eviction drops the old glyphs. An answer that
+    // adds no glyph keeps the lines of the glyphs already held.
+    #[test]
+    fn a_cells_lines_follow_its_last_answer() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        let next = Decorations {
+            underline: 10,
+            strike: 6,
+            ..FONT_LINES
+        };
+        let mut store = lock(&generated);
+        add(
+            &mut store,
+            CELL,
+            with_lines(CELL, &['A'], FONT_LINES),
+            vec![(0x41, 1)],
+            1,
+        );
+        add(
+            &mut store,
+            CELL,
+            with_lines(CELL, &['B'], next),
+            vec![(0x42, 1)],
+            1,
+        );
+        // 'B' is on the screen, so making room drops the first answer's 'A'
+        store.touch(AT, &shown(&['B']));
+        store.make_room(1);
+        assert!(store.held(AT, Variant::default(), &['B']));
+        assert!(!store.held(AT, Variant::default(), &['A']));
+        drop(store);
+        assert_eq!(f.decorations(), next);
+        // an answer for 'B' again adds no glyph, and its lines do not
+        // replace those of the 'B' already held
+        let mut store = lock(&generated);
+        assert!(
+            add(
+                &mut store,
+                CELL,
+                with_lines(CELL, &['B'], FONT_LINES),
+                vec![(0x42, 1)],
+                1,
+            )
+            .is_none()
+        );
+        drop(store);
+        assert_eq!(f.decorations(), next);
+    }
+
+    // #462: when no set in a full store maps a text, making room clears
+    // the store, and each cell still keeps the lines its answers reported
+    #[test]
+    fn clearing_the_store_keeps_each_cells_lines() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        add_lines_at_cell(&generated);
+        let sub = f.script_decorations(Script::Sub);
+        for e in &mut lock(&generated).entries {
+            e.glyphs.clear();
+        }
+        assert_eq!(lock(&generated).make_room(1), vec![]);
+        assert!(lock(&generated).entries.is_empty());
+        assert_eq!(f.decorations(), FONT_LINES);
+        assert_eq!(f.script_decorations(Script::Super), SUPER_LINES);
+        assert_eq!(f.script_decorations(Script::Sub), sub);
+    }
+
+    // #462: lines from an answer for bold glyphs count for the normal
+    // cell, since every answer at a cell in the baseline script reports
+    // the font's lines, and an answer drawn at a double size says nothing
+    // about the cell's own lines
+    #[test]
+    fn a_bold_answer_gives_the_cell_its_lines_and_a_double_one_does_not() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        let doubled = Doubled::Height;
+        let big = doubled.cell(CELL).unwrap();
+        let mut store = lock(&generated);
+        let fresh = store
+            .fresh_doubled(
+                (AT, Variant::default(), doubled),
+                with_lines(big, &['A'], Decorations::for_height(big.height)),
+                &[(0x41, 1)],
+                1,
+            )
+            .unwrap();
+        store.add(fresh).unwrap();
+        drop(store);
+        assert_eq!(f.decorations(), Unifont::new(16).decorations());
+        let bold_style = Style {
+            bold: true,
+            italic: false,
+        };
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, bold_style).decorations(FONT_LINES);
+        let g = s.glyph(Width::Narrow, vec![255; 128]);
+        s.map('A', g);
+        let bold =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        let variant = Variant {
+            style: bold_style,
+            script: Script::Baseline,
+        };
+        let mut store = lock(&generated);
+        let fresh = store.fresh((AT, variant), bold, &[(0x41, 1)], 1).unwrap();
+        store.add(fresh).unwrap();
+        for e in &mut store.entries {
+            e.glyphs.clear();
+        }
+        store.make_room(1);
+        drop(store);
+        assert_eq!(f.decorations(), FONT_LINES);
+    }
+
+    // #462: a cell the store drops loses its kept lines, so a display that
+    // draws at the cell again starts from the built-in font's lines
+    #[test]
+    fn a_cell_the_store_drops_loses_its_lines() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        add_lines_at_cell(&generated);
+        let unifont = Unifont::new(16);
+        lock(&generated).retain(&[]);
+        assert_eq!(f.decorations(), unifont.decorations());
+        assert_eq!(
+            f.script_decorations(Script::Super),
+            unifont.script_decorations(Script::Super)
         );
     }
 
@@ -4626,6 +5028,50 @@ mod tests {
         ];
         for doubled in [Doubled::Width, Doubled::Height] {
             let shown = all.iter().find(|s| s.doubled == Some(doubled)).unwrap();
+            for key in &keys {
+                assert!(shown.clusters.contains(key), "{key:?} in {shown:?}");
+            }
+        }
+    }
+
+    // A row of history above the screen, which the spare lines above the
+    // grid and the overscan draw, asks for its glyphs as a row of the
+    // screen does: salam scrolled off the screen asks for its joined
+    // letters and its lam-alef ligature, which no row of the screen uses,
+    // and so does a line of double width above the screen at its size
+    //
+    // References:
+    // - ADR-1310 D2 and D10: the rows above the screen the frame holds.
+    // - ADR-1004 D6: the keys of joined letters and of the lam-alef
+    //   ligature.
+    #[cfg(all(feature = "bidi", feature = "scroll-pan"))]
+    #[test]
+    fn a_row_of_history_above_the_screen_asks_for_its_glyphs() {
+        const ZWJ: char = '\u{200d}';
+        let (seen, lam, alef) = ('\u{633}', '\u{644}', '\u{627}');
+        let mut t = vtium_term::Terminal::new(10, 2, 1000);
+        t.screen_mut().set_scrollback_max(100);
+        t.input("\x1b#6سلام\r\nسلام\r\nab\r\ncd".as_bytes());
+        let palette = t.palette().clone();
+        let reach = vtium_term::Reach {
+            above: 2,
+            ..vtium_term::Reach::default()
+        };
+        let frame = t
+            .screen()
+            .frame_reaching(&palette, vtium_term::Age::NEVER, reach);
+        assert_eq!(frame.rows_above(), 2, "both lines of salam lie above");
+        let mut all = vec![Shown::default()];
+        read_shown(&frame, &mut all, false);
+        settle(&mut all);
+        let keys = [
+            vec![seen, ZWJ],
+            vec![ZWJ, lam, ZWJ],
+            vec![ZWJ, alef],
+            vec![ZWJ, lam, alef],
+        ];
+        for doubled in [None, Some(Doubled::Width)] {
+            let shown = all.iter().find(|s| s.doubled == doubled).unwrap();
             for key in &keys {
                 assert!(shown.clusters.contains(key), "{key:?} in {shown:?}");
             }

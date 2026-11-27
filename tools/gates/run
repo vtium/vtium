@@ -6,7 +6,7 @@ Usage:
 
     make gates
     make gates JOBS=4
-    GATE_LINE="$(...)" tools/gates/run --jobs N --dir DIR
+    GATE_LINE="$(...)" tools/gates/run --jobs N --dir DIR [--build-root ROOT] [--keep NAME ...]
 
 `make gates` runs this script. The Makefile's GATE_LINE lists the gates, one
 command per line in the gate line's order, and reaches the script through the
@@ -22,20 +22,36 @@ its standard input at /dev/null.
 Each gate writes its output to a log of its own, DIR/logs/NN-NAME.log, where NN
 is the gate's place in the gate line and NAME is the gate's command in lower
 case with each run of other characters than a-z and 0-9 made one hyphen, such
-as 03-cargo-test-workspace-all-features.log. The script replaces each log at
+as 03-make-test-all-features.log. The script replaces each log at
 each run. With N at 1, the output also goes to the terminal as the gate runs.
 With N above 1 it goes to the log alone, so the output of gates that run at the
 same time never interleaves, and the terminal gets a line as each gate starts
 and as it ends.
 
-Each gate runs with CARGO_TARGET_DIR set to DIR/NAME, a cargo target directory
-of its own. Two gates that shared one would wait on each other's lock on it,
-and two that build with different features, such as `cargo test --workspace
---all-features` and `cargo test --workspace`, would each rebuild what the other
-built. Each directory stays between runs, so a second run builds only what
-changed. The Makefile's targets read CARGO_TARGET_DIR wherever they name a
-cargo target directory, except `make msrv`, which builds in target/msrv, a
-directory no other gate uses.
+Each gate runs with CARGO_TARGET_DIR and CARGO_BUILD_BUILD_DIR both set to
+ROOT/NAME, a cargo directory of its own. ROOT is DIR unless --build-root names
+another directory; `make gates` names VTIUM_GATES_DIR, which the Makefile
+describes. Cargo writes its final artifacts to CARGO_TARGET_DIR and its
+intermediate files to CARGO_BUILD_BUILD_DIR, which a `build.build-dir` in
+cargo's own configuration may otherwise set to one directory for every build
+of the checkout. Two gates that shared a directory would wait on each other's
+lock on it, and two that build with different features, such as
+`make test-all-features` and `make test-default`, would each rebuild what the
+other built. The Makefile's targets read CARGO_TARGET_DIR wherever they name a
+cargo target directory.
+
+Each directory stays between runs, so a second run builds only what changed.
+After the run, the script removes each directory directly under ROOT that no
+gate of this run owns, such as the directory of a gate the gate line no longer
+lists. It removes only a directory whose name has the form of a gate's NAME,
+that cargo marked as its own with a CACHEDIR.TAG file, and that --keep does not
+name. `make gates` keeps minspec-size, where it builds the minspec binary after
+the gates.
+
+With N above 1, the gates start in the order of the time each took in the last
+run, the longest first, so that the longest gates never wait for a free slot at the
+end. The script records those times in DIR/durations.tsv. A gate with no
+recorded time starts first, in the gate line's order.
 
 When every gate has ended, the script prints a table with one line per gate in
 the gate line's order: the gate's exit code, two spaces and the gate. Then it
@@ -47,6 +63,7 @@ when the gate list is empty or --jobs is not a whole number of 1 or more.
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -72,16 +89,53 @@ def gates_of(text):
     return list(zip(gates, names))
 
 
+# The form of a gate's NAME, which name_of gives.
+NAME_FORM = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+
+
+def prune(root, keep):
+    """Removes each directory under `root` whose name is not in `keep`, has
+    the form of a gate's name, and holds cargo's CACHEDIR.TAG, as the
+    docstring describes. Returns the names it removed."""
+    gone = []
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return gone
+    for d in entries:
+        if (d.name in keep or not NAME_FORM.fullmatch(d.name) or d.is_symlink()
+                or not (d / "CACHEDIR.TAG").is_file()):
+            continue
+        shutil.rmtree(d, ignore_errors=True)
+        gone.append(d.name)
+    return gone
+
+
+def read_durations(path):
+    """{gate: seconds} from the last run's durations.tsv, or {}."""
+    out = {}
+    try:
+        for line in path.read_text().splitlines():
+            secs, _, gate = line.partition("\t")
+            out[gate] = float(secs)
+    except (OSError, ValueError):
+        return {}
+    return out
+
+
 class Run:
     """One run of the gates: where their logs and target directories go, and
     the lock that keeps the lines the script prints whole."""
 
-    def __init__(self, gates, jobs, root):
+    def __init__(self, gates, jobs, dir, build_root=None, keep=()):
         self.gates = gates
+        self.keep = set(keep)
         self.jobs = jobs
-        self.root = root
-        self.logs = root / "logs"
+        self.dir = dir
+        self.root = build_root or dir
+        self.logs = dir / "logs"
         self.lock = threading.Lock()
+        self.took = {}
 
     def say(self, line):
         with self.lock:
@@ -93,7 +147,8 @@ class Run:
     def gate(self, i):
         """Runs gate i to its end and returns its exit code."""
         gate, name = self.gates[i]
-        env = dict(os.environ, CARGO_TARGET_DIR=str(self.root / name))
+        own = str(self.root / name)
+        env = dict(os.environ, CARGO_TARGET_DIR=own, CARGO_BUILD_BUILD_DIR=own)
         log = self.log_of(i)
         self.say(f"==> {gate}" + ("" if self.jobs == 1 else f" (log: {log})"))
         start = time.monotonic()
@@ -109,7 +164,9 @@ class Run:
             code = 128 - code
         # The time a gate took is printed for the person reading the run;
         # nothing the script decides depends on it.
-        self.say(f"<== {code}  {gate} ({time.monotonic() - start:.0f} s)")
+        took = time.monotonic() - start
+        self.took[gate] = took
+        self.say(f"<== {code}  {gate} ({took:.0f} s)")
         return code
 
     def tee(self, gate, env, out):
@@ -125,9 +182,19 @@ class Run:
 
     def run(self):
         self.logs.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True)
+        if self.root != self.dir:
+            print(f"gates: the gates build in {self.root}", flush=True)
+        # With more than one job, the longest gates of the last run start
+        # first; the order of the table does not change.
+        durations = self.dir / "durations.tsv"
+        last = read_durations(durations) if self.jobs > 1 else {}
+        order = sorted(range(len(self.gates)),
+                       key=lambda i: -last.get(self.gates[i][0], float("inf")))
         pool = ThreadPoolExecutor(max_workers=self.jobs)
         try:
-            codes = list(pool.map(self.gate, range(len(self.gates))))
+            futures = {i: pool.submit(self.gate, i) for i in order}
+            codes = [futures[i].result() for i in range(len(self.gates))]
         except KeyboardInterrupt:
             # Ctrl-C reached the running gates too, which share this
             # script's process group; the gates still waiting never start.
@@ -135,6 +202,9 @@ class Run:
             print("gates: interrupted", file=sys.stderr)
             return 130
         pool.shutdown()
+        durations.write_text("".join(f"{self.took[g]:.0f}\t{g}\n" for g, _ in self.gates))
+        for name in prune(self.root, self.keep | {n for _, n in self.gates}):
+            print(f"gates: removed {self.root / name}, which no gate of this run builds in", flush=True)
         print()
         print("exit  gate")
         for (gate, _), code in zip(self.gates, codes):
@@ -154,7 +224,12 @@ def main():
     ap = argparse.ArgumentParser(description="Run the gates of GATE_LINE, several at once, each to the end.")
     ap.add_argument("--jobs", default="8", help="the most gates that run at once (default 8)")
     ap.add_argument("--dir", required=True, type=Path,
-                    help="where the logs and each gate's cargo target directory go")
+                    help="where the logs go, and each gate's cargo target directory unless "
+                         "--build-root names another place")
+    ap.add_argument("--build-root", metavar="ROOT", type=Path,
+                    help="where each gate's cargo directories go (default DIR)")
+    ap.add_argument("--keep", action="append", default=[], metavar="NAME",
+                    help="a directory under ROOT that the run keeps although no gate owns it")
     args = ap.parse_args()
     if not re.fullmatch(r"[1-9][0-9]*", args.jobs):
         print(f"gates: JOBS={args.jobs}: a whole number of 1 or more", file=sys.stderr)
@@ -167,8 +242,9 @@ def main():
     if not gates:
         print("gates: the gate list is empty", file=sys.stderr)
         return 2
-    return Run(gates, int(args.jobs), args.dir.resolve()).run()
-
+    dir = args.dir.resolve()
+    root = args.build_root.resolve() if args.build_root else dir
+    return Run(gates, int(args.jobs), dir, root, args.keep).run()
 
 if __name__ == "__main__":
     sys.exit(main())

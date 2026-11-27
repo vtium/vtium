@@ -291,6 +291,49 @@ mod flow_view {
             assert_eq!(out.last(), Some(&Effect::Exit(0)));
         }
     }
+
+    /// While the TUI is still finding out what this terminal is, `t` and
+    /// `p` on the Flow view say so, and neither says that this terminal
+    /// is not a vtium console. Once the wait ends with no answer, both
+    /// say that it is not one.
+    #[test]
+    fn t_and_p_while_the_tui_still_asks_say_it_is_still_finding_out() {
+        use vtium_config::tui::model::Live;
+        let mut a = app(80, 25);
+        assert_eq!(a.shared.live, Live::Asking);
+        press(&mut a, Key::Char('t'));
+        assert_eq!(a.shared.message.as_deref(), Some(words::TRIAL_ASKING));
+        press(&mut a, Key::Char('p'));
+        assert_eq!(
+            a.shared.message.as_deref(),
+            Some(words::PREVIEW_PATH_ASKING)
+        );
+        a.event(Event::Timeout);
+        assert_eq!(a.shared.live, Live::NotVtium);
+        press(&mut a, Key::Char('t'));
+        assert_eq!(a.shared.message.as_deref(), Some(words::NOT_VTIUM));
+        press(&mut a, Key::Char('p'));
+        assert_eq!(
+            a.shared.message.as_deref(),
+            Some(words::PREVIEW_PATH_NOT_HERE)
+        );
+    }
+
+    /// `p` on the Flow view in a vtium console with `allow-font-ops` off
+    /// says what previewing a path waits for, as it does with the trial
+    /// on, because this terminal is a vtium console.
+    #[test]
+    fn p_in_a_vtium_console_with_font_ops_off_does_not_say_it_is_not_one() {
+        use vtium_config::tui::input::{Input, Reply};
+        use vtium_config::tui::model::Live;
+        let mut a = app(80, 25);
+        for r in [Reply::Version("vtium(test)".into()), Reply::Attributes] {
+            a.event(Event::Input(Input::Reply(r)));
+        }
+        assert_eq!(a.shared.live, Live::OpsOff);
+        press(&mut a, Key::Char('p'));
+        assert_eq!(a.shared.message.as_deref(), Some(words::PREVIEW_PATH_LATER));
+    }
 }
 
 /// The Flow view on a draft (ADR-1403 D7, D8), driven through the real
@@ -777,7 +820,7 @@ mod draft_flow {
             screen.contains("Font set proof  →  look big  →  All displays"),
             "{screen}"
         );
-        assert!(flat(screen).contains(words::SUBFLOW_REQUIRES), "{screen}");
+        assert!(flat(screen).contains(words::SUBFLOW_NO_VTLOOK), "{screen}");
     }
 
     // vtium draws a terminal that names no look with the draft's
@@ -888,6 +931,30 @@ mod draft_flow {
         );
     }
 
+    /// A change on a terminal's card waits for Save, and the message says
+    /// how to save it: close the card, then press s. It never says the
+    /// change is in the draft already.
+    ///
+    /// References:
+    /// - ADR-1403 D7: a change waits for Save.
+    #[test]
+    fn a_change_on_a_terminal_s_card_says_how_to_save_it() {
+        const DOWN: &[u8] = b"\x1b[B";
+        let b = bench("card-look-said");
+        let ran = run(&b, &[b"\x1b[H", RIGHT, b"\r", DOWN, LEFT, b"\r"]);
+        let screen = ran
+            .screen()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            screen.contains(
+                "Changed the terminal desk. Press Esc and then s to save the change into the draft."
+            ),
+            "{screen}"
+        );
+    }
+
     #[test]
     fn a_change_waits_for_save_and_s_saves_it() {
         let b = bench("save");
@@ -917,7 +984,7 @@ mod draft_flow {
         let ran = run(&b, &[&CHANGE[..], &[b"q"]].concat());
         assert!(
             flat(ran.screen()).contains(
-                "1 change is not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back."
+                "1 change is not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back. The console then shows what is installed until you install the draft, with i or vtium-config install."
             ),
             "{}",
             ran.screen()
@@ -1027,7 +1094,7 @@ mod draft_flow {
         std::fs::write(path, &unrouted).expect("the draft");
         let asked = run(&b, &[b"i"]);
         assert!(
-            flat(asked.screen()).contains(&flat(&words::no_route_question(5, 3, 0))),
+            flat(asked.screen()).contains(&flat(&words::no_route_question(5, 3, 0, 0))),
             "{}",
             asked.screen()
         );

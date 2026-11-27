@@ -542,6 +542,7 @@ pub(crate) fn runs(
     out: &mut impl FnMut(PlaceholderRun),
 ) -> usize {
     let cols = cols.min(line.len());
+    let double = line.flags().size().is_double();
     let mut reader = Reader {
         left: carry.0.take(),
     };
@@ -580,6 +581,7 @@ pub(crate) fn runs(
             placement,
             row: r.row,
             column: r.column,
+            double,
         }) {
             out(run);
         }
