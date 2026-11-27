@@ -1661,8 +1661,10 @@ mod tests {
     }
 
     /// The drawer's real setup, checked from inside the drawer after the
-    /// exec: it is not dumpable, it has no-new-privileges, and it holds no
-    /// capability. The stand-in exits 0 only when each holds.
+    /// exec: it is not dumpable, it has no-new-privileges, it holds no
+    /// capability, it leads a session of its own, so it has no controlling
+    /// terminal, and its standard input is `/dev/null`. The stand-in exits
+    /// 0 only when each holds.
     #[test]
     fn the_drawer_runs_set_up() {
         assert_eq!(broker("check", LONG), (0, 1));
@@ -1902,6 +1904,9 @@ mod tests {
                     field("CapPrm:") == "0000000000000000",
                     field("CapInh:") == "0000000000000000",
                     field("CapAmb:") == "0000000000000000",
+                    rustix::process::getsid(None).ok() == Some(rustix::process::getpid()),
+                    std::fs::read_link("/proc/self/fd/0").ok()
+                        == Some(std::path::PathBuf::from("/dev/null")),
                 ];
                 let failed = checks.iter().position(|ok| !ok);
                 std::process::exit(failed.map_or(0, |i| 10 + i32::try_from(i).unwrap()));
