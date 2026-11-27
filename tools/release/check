@@ -104,7 +104,7 @@ def check_is_draft(repo, tag):
 
 def check_tag(stage, repo, tag, commit):
     remake = (
-        f"Delete the tag, make it again with the signed git tag command in AGENTS.md's step 10, "
+        f"Delete the tag, make it again with the signed git tag command in docs/contributing/steering.md, "
         f"and push it with git push --force origin {tag}."
     )
     ref = gh_json("api", f"repos/{repo}/git/ref/tags/{tag}")
