@@ -42,8 +42,8 @@ the file rules: the temporary file rule	crates/vtium-image-helper/src/files.rs	t
 replies never echo what a program sent; a fixed empty title	crates/vtium-term/src/terminal/reply.rs	reply_window
 OSC 52 sets the selection and is never read back	crates/vtium-term/src/terminal/clipboard.rs	set_clipboard
 allow-font-ops, on by default	crates/vtium-settings/src/keys.rs	key allow-font-ops
-OSC 50 names only installed frits or built-in fonts	crates/vtium/src/font.rs	by_name
-a frit name is a name, never a path	crates/vtium/src/font.rs	frit_name
+OSC 50 names only installed frits or built-in fonts	crates/vtium/src/font/named.rs	by_name
+a frit name is a name, never a path	crates/vtium/src/font/frits.rs	frit_name
 allow-window-ops, off by default	crates/vtium-settings/src/keys.rs	key allow-window-ops
 a link is copied, never opened	crates/vtium/src/head.rs	copy_link
 clipboard-write, on by default, with no system clipboard	crates/vtium-settings/src/keys.rs	key clipboard-write

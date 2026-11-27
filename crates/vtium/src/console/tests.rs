@@ -25,10 +25,12 @@
 )]
 #![expect(clippy::indexing_slicing, reason = "a test's set-up fails loudly")]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::fs::symlink;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
+use super::systemd::Link;
 use super::*;
 
 /// systemd's `getty@.service` `[Install]` section, as Arch's systemd 262
