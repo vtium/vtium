@@ -718,11 +718,11 @@ fn a_look_with_no_font_set_anywhere_says_what_vtium_uses() {
     let screen = reach_inputs(with_conf(conf), &[TO_LOOKS, b"\r"]);
     let text = flat(&screen);
     assert!(
-        text.contains("Font set none, so vtium uses the font that vconsole.conf names, or else its built-in font"),
+        text.contains("Font set none, so vtium uses the font that vconsole.conf names, else the font set terminus where it is installed, or else its built-in font"),
         "{screen}"
     );
     assert!(
-        text.contains("Text: the font that vconsole.conf names, or else vtium's built-in font"),
+        text.contains("Text: the font that vconsole.conf names, else the font set terminus where it is installed, or else vtium's built-in font"),
         "{screen}"
     );
     assert!(!text.contains("vtium's own choice"), "{screen}");
@@ -1887,6 +1887,69 @@ fn enter_on_a_size_tries_its_grid_on_the_console_and_a_key_puts_it_back() {
     assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
 }
 
+/// An install that turns `allow-window-ops` on does not change the
+/// running console, which read the key when vtium made its head. So a
+/// size picked after the install sends no grid request and says that the
+/// console resizes its grid only once vtium starts again.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the size is tried
+///   only where the console lets programs resize its grid.
+#[test]
+fn installing_window_ops_does_not_turn_them_on_in_the_running_console() {
+    let conf = inputs().conf.expect("the conf");
+    let mut d = desk();
+    d.installed = conf.clone();
+    d.draft = conf.clone();
+    let mut keys: Vec<&[u8]> = vec![TO_LOOKS, b"w", b"y", b"i", b"y"];
+    keys.extend_from_slice(&[b"\r", DOWN, DOWN, b"\r", DOWN, DOWN, b"\r"]);
+    let mut c = console().keys(&keys);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(&conf), Some(&mut d)).expect("the loop");
+    assert!(d.installed.contains("allow-window-ops"), "{}", d.installed);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert_eq!(grid_requests(&c.written), Vec::<String>::new(), "{seen}");
+    assert!(!seen.contains("Trying 6 pt on the console"), "{seen}");
+    assert!(
+        seen.contains("The console does not let programs resize its grid until vtium starts again, because vtium reads allow-window-ops when it starts."),
+        "{seen}"
+    );
+}
+
+/// Putting a tried size back gives the console its grid back, and the
+/// look keeps the size it was given, as a change to save. The message
+/// says both, so a person does not take the key for an undo of the pick.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": any key but `k` puts
+///   the grid back.
+#[test]
+fn putting_a_tried_size_back_says_the_look_still_holds_it() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let (c, _) = run_on(&window_ops_on(), &keys);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(
+        seen.contains("The console's grid is back to 80×25. The look still holds 6 pt as a change to save. Pick another size to change it."),
+        "{seen}"
+    );
+}
+
+/// Enter on Automatic, which sets no size of its own, tries nothing on
+/// the console, and the message says why.
+#[test]
+fn enter_on_automatic_says_there_is_no_size_to_try() {
+    let keys: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r", DOWN, b"\r"];
+    let (c, _) = run_on(&window_ops_on(), keys);
+    assert_eq!(grid_requests(&c.written), Vec::<String>::new());
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(
+        seen.contains(
+            "This choice sets no size of its own, so there is nothing to try on the console."
+        ),
+        "{seen}"
+    );
+}
+
 /// `k` keeps the size on the console, and quitting gives the console the
 /// grid it had when vtium-config started.
 ///
@@ -2320,4 +2383,569 @@ fn u_below_the_minimum_puts_back_the_start_font_then_the_start_grid() {
         switch < grid,
         "u asked for the start grid before the start font"
     );
+}
+
+/// A vtium.conf whose look `nordic` sets the font set proof, a size and the
+/// color scheme nord, with `top` at its top level and `head` as the head
+/// desk's section.
+use vtium_config::tui::input::{Input, Key, Reply};
+use vtium_config::tui::model::{App, Effect, Event};
+
+fn nordic_conf(top: &str, head: &str) -> String {
+    format!(
+        "# mine\nfont-name=unifont\n{top}version = 1\n[look nordic]\nfont-name = proof\nfont-size = 16\npalette = nord\n[head desk]\n{head}[rules]\ndisplay * -> desk\n"
+    )
+}
+
+/// The TUI started on `inputs` in a vtium console at 80×25 that answered
+/// the start's queries with unifont as its font.
+fn started(inputs: Inputs) -> (vtium_config::tui::model::App, Vec<model::Effect>) {
+    started_on(inputs, "unifont")
+}
+
+/// The TUI started on `inputs` in a vtium console at 80×25 that answered
+/// the start's queries with `font` as its font.
+fn started_on(inputs: Inputs, font: &str) -> (vtium_config::tui::model::App, Vec<model::Effect>) {
+    let (mut app, mut effects) = App::new(inputs, 80, 25);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Font(font.into()),
+        Reply::Attributes,
+    ] {
+        effects.extend(app.event(Event::Input(Input::Reply(r))));
+    }
+    (app, effects)
+}
+
+/// The palette that `t` leaves on the stand-in console.
+fn console_palette(c: &Console) -> vtium_term::Palette {
+    match &c.answerer {
+        Answerer::Vtium(t) => t.palette().clone(),
+        Answerer::Da1Only { .. } => panic!("not a vtium console"),
+    }
+}
+
+/// `t` on a look tries the whole look: its font set through OSC 50, its
+/// color scheme through OSC 4, 10 and 11, and the end of the trial puts
+/// the font back and the colors back with XTPOPCOLORS. With
+/// `allow-window-ops` off, the countdown says that the size waits for the
+/// next start.
+///
+/// References:
+/// - ADR-1201 D4, "The live trial, on a key": `t` on a look tries it on
+///   the live console, and any other key puts the console back.
+#[test]
+fn t_on_a_look_tries_its_font_set_and_its_colors() {
+    let conf = nordic_conf("", "look = nordic\n");
+    let nord = vtium_term::Palette::named("nord").expect("nord");
+    let red = nord.color(1);
+    let set_red = format!(
+        "\x1b]4;0;rgb:{:02x}/{:02x}/{:02x};1;rgb:{:02x}/{:02x}/{:02x}",
+        nord.color(0).r,
+        nord.color(0).g,
+        nord.color(0).b,
+        red.r,
+        red.g,
+        red.b
+    );
+    // during the countdown the console draws the scheme's colors
+    let mut c = console().keys(&[TO_LOOKS, b"t"]);
+    drive(&mut c, with_conf(&conf)).expect("the loop");
+    assert_eq!(c.switches().first().map(String::as_str), Some("proof"));
+    assert!(
+        find(&c.written, set_red.as_bytes()).is_some(),
+        "no OSC 4 for color 1"
+    );
+    // the bytes the trial sends are ones vtium's terminal takes
+    let mut t = Terminal::new(80, 25, 0);
+    t.input(&vtium_config::tui::shot::colors_request(
+        &nord,
+        &vtium_term::Palette::default(),
+    ));
+    assert_eq!(t.palette().color(1), red);
+    assert_eq!(t.palette().bg(), nord.bg());
+    // the countdown says that the size waits for the next start
+    let (mut app, _) = started(with_conf(&conf));
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
+    let request = [
+        vtium_config::tui::shot::COLORS_SAVE,
+        &vtium_config::tui::shot::colors_request(&nord, &vtium_term::Palette::default()),
+    ]
+    .concat();
+    assert!(tried.contains(&Effect::Write(request)), "{tried:?}");
+    assert!(
+        tried.contains(&Effect::Write(model::switch("proof"))),
+        "{tried:?}"
+    );
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(
+            "Trying the look nordic for 10 s. Press k to keep it, or any other key to put the console back. Its size, 16 pt, takes effect when vtium starts again, because the console does not let programs resize its grid."
+        )
+    );
+    // any other key puts the font and the colors back
+    let mut c = console().keys(&[TO_LOOKS, &[b"t".as_slice(), b"x"].concat(), b"q"]);
+    drive(&mut c, with_conf(&conf)).expect("the loop");
+    assert_eq!(c.switches(), ["proof", "unifont"], "{:?}", c.log);
+    assert!(find(&c.written, b"\x1b[#Q").is_some());
+    assert_eq!(
+        console_palette(&c).color(1),
+        vtium_term::Palette::named("legacy")
+            .expect("legacy")
+            .color(1)
+    );
+}
+
+/// The colors a look's trial sends carry the whole color scheme: the
+/// cursor's color and the selection's colors that a color scheme file
+/// sets, and a color from 16 to 255 that it sets. A color the scheme
+/// leaves unset is unset on the console, which then inverts the cell.
+///
+/// References:
+/// - ADR-1000, the row `color.kitty-protocol`: OSC 21 sets a color by its
+///   key, and an empty value unsets a special color.
+#[test]
+fn a_look_s_colors_carry_the_cursor_the_selection_and_the_256() {
+    use vtium_term::{Palette, Rgb, Special};
+    let legacy = Palette::default();
+    let mut scheme = Palette::named("nord").expect("nord");
+    let cursor = Rgb::new(0xf8, 0xf8, 0xf2);
+    let selection = Rgb::new(0x44, 0x47, 0x5a);
+    let ink = Rgb::new(0xf8, 0xf8, 0xf1);
+    let hundred = Rgb::new(0x10, 0x20, 0x30);
+    scheme.set_special(Special::Cursor, Some(cursor));
+    scheme.set_special(Special::SelectionBg, Some(selection));
+    scheme.set_special(Special::SelectionFg, Some(ink));
+    scheme.set_color(100, hundred);
+    let mut t = Terminal::new(80, 25, 0);
+    t.input(&vtium_config::tui::shot::colors_request(&scheme, &legacy));
+    assert_eq!(t.palette().special(Special::Cursor), Some(cursor));
+    assert_eq!(t.palette().special(Special::SelectionBg), Some(selection));
+    assert_eq!(t.palette().special(Special::SelectionFg), Some(ink));
+    assert_eq!(t.palette().color(100), hundred);
+    assert_eq!(t.palette().color(101), legacy.color(101));
+    // back to a scheme that sets none of them
+    t.input(&vtium_config::tui::shot::colors_request(&legacy, &scheme));
+    assert_eq!(t.palette().special(Special::Cursor), None);
+    assert_eq!(t.palette().special(Special::SelectionBg), None);
+    assert_eq!(t.palette().color(100), legacy.color(100));
+}
+
+/// `t` on a look whose color scheme is a file the batch does not list
+/// tries nothing, since the console would draw `legacy` in its place, and
+/// offers to activate the file in the draft.
+///
+/// References:
+/// - ADR-1205 D4: a palette file draws only while the batch holds it, and
+///   activating it is an act of trust.
+#[test]
+fn t_on_a_look_whose_color_scheme_is_not_active_offers_to_activate_it() {
+    use vtium_config::batch::Change;
+    use vtium_config::tui::desk::Op;
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look nordic]\nfont-name = proof\npalette = spare\n[head desk]\nlook = nordic\n[rules]\ndisplay * -> desk\n";
+    let (root, inputs) = schemes_on_disk(conf);
+    let spare = root.join("etc/spare.palette");
+    let (mut app, _) = started(inputs);
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert!(
+        !tried.iter().any(|e| matches!(e, Effect::Write(_))),
+        "{tried:?}"
+    );
+    assert_eq!(app.nav.trial, None);
+    let confirm = app.nav.confirm.clone().expect("the question");
+    assert_eq!(
+        confirm.question,
+        format!(
+            "The color scheme spare is not active, so t cannot try the look nordic. Activate it in the draft? y activates {}, and n or Esc leaves it as it is. It takes effect once you install the draft and log in again.",
+            spare.display()
+        )
+    );
+    assert_eq!(
+        confirm.then,
+        model::Then::Desks(vec![Op::Resource {
+            path: spare,
+            change: Change::Activate,
+        }])
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A draft that defines no head and no rule runs vtium's built-in
+/// terminal, whose head `console` draws the look `default`, so `t` on that
+/// look never says that no terminal uses it.
+///
+/// References:
+/// - ADR-1401 D3: vtium runs the built-in default terminal when the file
+///   defines no head and no rule.
+#[test]
+fn the_built_in_terminal_uses_the_look_default() {
+    use vtium_config::tui::tabs::looks::list;
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look default]\npalette = legacy\n";
+    let (mut app, _) = started(with_conf(conf));
+    assert_eq!(list::heads(&app.shared, "default"), ["console"]);
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    let said = app.shared.message.clone().unwrap_or_default();
+    assert!(!said.contains("No terminal uses"), "{said}");
+}
+
+/// A look whose size is the size the installed vtium.conf already gives
+/// the console says nothing of a size that waits for the next start.
+#[test]
+fn a_look_s_trial_at_the_installed_size_says_nothing_of_the_size() {
+    let conf = nordic_conf("font-size = 16\n", "look = nordic\n");
+    let (mut app, _) = started(with_conf(&conf));
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(
+            "Trying the look nordic for 10 s. Press k to keep it, or any other key to put the console back."
+        )
+    );
+}
+
+/// A stand-in console in which a program has set color 1 and the
+/// background before vtium-config started.
+fn console_with_program_colors(keys: &[&[u8]]) -> Console {
+    let mut c = console().keys(keys);
+    match &mut c.answerer {
+        Answerer::Vtium(t) => {
+            t.input(b"\x1b]4;1;rgb:12/34/56\x1b\\\x1b]11;rgb:01/02/03\x1b\\");
+        }
+        Answerer::Da1Only { .. } => panic!("not a vtium console"),
+    }
+    c
+}
+
+/// A look's trial saves the console's colors with XTPUSHCOLORS before it
+/// sets the look's, and restores them with XTPOPCOLORS, so colors that a
+/// program set before vtium-config started come back as they were: when
+/// any other key puts the trial back, and when vtium-config leaves after
+/// `k` kept the look.
+///
+/// References:
+/// - ADR-1000, the row `color.stack`: vtium keeps a color stack with
+///   XTPUSHCOLORS and XTPOPCOLORS.
+#[test]
+fn a_look_s_trial_gives_back_the_colors_a_program_set() {
+    let conf = nordic_conf("", "look = nordic\n");
+    let program_red = vtium_term::Rgb::new(0x12, 0x34, 0x56);
+    let program_bg = vtium_term::Rgb::new(0x01, 0x02, 0x03);
+    let nord = vtium_term::Palette::named("nord").expect("nord");
+    for keys in [&[TO_LOOKS, b"t", b"x", b"q"], &[TO_LOOKS, b"t", b"k", b"q"]] {
+        let mut c = console_with_program_colors(keys);
+        drive(&mut c, with_conf(&conf)).expect("the loop");
+        let saved = find(&c.written, b"\x1b[#P").expect("XTPUSHCOLORS");
+        let set = find(
+            &c.written,
+            &vtium_config::tui::shot::colors_request(&nord, &vtium_term::Palette::default()),
+        )
+        .expect("the look's colors");
+        assert!(
+            saved < set,
+            "the colors were saved after the trial set its own"
+        );
+        let palette = console_palette(&c);
+        assert_eq!(palette.color(1), program_red, "{keys:?}");
+        assert_eq!(palette.bg(), program_bg, "{keys:?}");
+    }
+}
+
+/// After `k` kept a look's colors, a crash or an I/O error would make the
+/// terminal's restore write the bytes that give the console back its
+/// colors, as it does for the font and the grid.
+#[test]
+fn a_crash_after_k_kept_a_look_s_colors_gives_the_colors_back() {
+    let conf = nordic_conf("", "look = nordic\n");
+    let mut c = console().keys(&[TO_LOOKS, b"t", b"k"]);
+    drive(&mut c, with_conf(&conf)).expect("the loop");
+    let restore = c.seen_panic.clone().expect("the restore");
+    assert!(
+        find(&restore, b"\x1b[#Q").is_some(),
+        "{:?}",
+        String::from_utf8_lossy(&restore)
+    );
+}
+
+/// With `allow-window-ops` on, `t` on a look also tries its size: once
+/// the console draws the look's font set, the font helper measures the
+/// cell at the look's size and the grid request follows.
+#[test]
+fn t_on_a_look_tries_its_size_where_the_console_lets_programs_resize_it() {
+    let conf = nordic_conf("allow-window-ops\n", "look = nordic\n");
+    let mut c = console().keys(&[TO_LOOKS, b"t"]);
+    drive(&mut c, with_conf(&conf)).expect("the loop");
+    assert_eq!(c.switches().first().map(String::as_str), Some("proof"));
+    // 16 pt at the fixture's 96 dpi is 21 pixels high
+    assert!(c.cells.contains(&("proof".to_owned(), 21)), "{:?}", c.cells);
+    assert!(find(&c.written, b"\x1b[8;").is_some(), "no grid request");
+}
+
+/// `k` pressed during a look's trial before the font helper measured the
+/// look's size keeps the size with the look: when the cell comes, the grid
+/// request goes to the console with no countdown of its own, and leaving
+/// gives the start grid back.
+#[test]
+fn k_before_the_look_s_size_is_measured_keeps_the_size_with_no_second_trial() {
+    let conf = nordic_conf("allow-window-ops\n", "look = nordic\n");
+    let (mut app, _) = started(with_conf(&conf));
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    let switched = app.event(Event::Input(Input::Reply(Reply::Font("proof".into()))));
+    assert!(
+        switched.contains(&Effect::Cell {
+            font: "proof".into(),
+            height: 21
+        }),
+        "{switched:?}"
+    );
+    app.event(Event::Input(Input::Key(Key::Char('k'))));
+    let kept = app.shared.message.clone();
+    let celled = app.event(Event::Celled {
+        font: "proof".into(),
+        height: 21,
+        cell: Ok((
+            Cell {
+                width: 10,
+                height: 21,
+            },
+            21,
+        )),
+    });
+    assert!(
+        celled
+            .iter()
+            .any(|e| matches!(e, Effect::Write(b) if b.starts_with(b"\x1b[8;"))),
+        "{celled:?}"
+    );
+    assert!(
+        !celled.iter().any(|e| matches!(e, Effect::Wait(_))),
+        "{celled:?}"
+    );
+    assert_eq!(app.nav.trial, None);
+    assert_eq!(app.shared.message, kept);
+    assert!(app.shared.grid_moved, "leaving gives the start grid back");
+}
+
+/// `t` on a look that no terminal uses, whose font set and color scheme
+/// the console already shows, says that no terminal uses it in place of
+/// "already uses", and `y` gives it to the draft's terminal. A look's
+/// size that waits for the next start is no reason to say the console
+/// already shows the look.
+///
+/// References:
+/// - ADR-1403 D4: a terminal draws the look its `look =` line names.
+#[test]
+fn t_on_a_look_no_terminal_uses_offers_it_to_the_terminal() {
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look nordic]\nfont-name = proof\nfont-size = 16\npalette = legacy\n[head desk]\n[rules]\ndisplay * -> desk\n";
+    let mut d = desk();
+    d.installed = conf.to_owned();
+    d.draft = conf.to_owned();
+    let mut c = Console::vtium(80, 25, true, "proof")
+        .takes("proof", (80, 25))
+        .takes("unifont", (80, 25))
+        .keys(&[TO_LOOKS, b"t", b"y"]);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(conf), Some(&mut d)).expect("the loop");
+    // nothing to switch: the console draws proof already
+    assert_eq!(c.switches(), Vec::<String>::new());
+    let head = d.draft.split("[head desk]\n").nth(1).unwrap_or_default();
+    assert!(head.starts_with("look = nordic\n"), "{}", d.draft);
+    let (mut app, _) = started_on(with_conf(conf), "proof");
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(
+            "No terminal uses the look nordic, and the console already shows its font set and color scheme. Use it for the terminal desk? y sets it in the draft, and n or Esc leaves the draft as it is."
+        )
+    );
+}
+
+/// The screen as text at `cols` by `rows`, its rows joined by spaces and
+/// its runs of spaces cut to one, so a sentence the message line wraps
+/// reads whole.
+fn screen_words(app: &App, cols: usize, rows: usize) -> String {
+    let size = model::Size {
+        cols,
+        rows,
+        cell_px: None,
+    };
+    let text = vtium_config::tui::view::as_text(&vtium_config::tui::view::screen_at(app, size));
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The countdown of a look whose text font is missing and whose size waits
+/// for the next start shows whole at 80×25: it says why vtium's built-in
+/// font draws the text, and leaves the size out, since the message line
+/// holds three rows.
+#[test]
+fn a_look_s_countdown_with_a_missing_text_font_shows_whole_at_80x25() {
+    let (mut app, _) = started(with_conf(&nordic_conf("", "look = nordic\n")));
+    app.event(Event::Sourced(vec![(
+        "proof".into(),
+        Sources::LeftOut(vec![LeftOut {
+            missing: true,
+            line: 27,
+            spelling: "font:JetBrains Mono".into(),
+            why: "no such family".into(),
+        }]),
+    )]));
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    let screen = screen_words(&app, 80, 25);
+    assert!(
+        screen.contains("Trying the look nordic for 10 s. Press k to keep it, or any other key to put the console back. Its text font, the font family JetBrains Mono, is not installed, so vtium's built-in font draws the text until you install it."),
+        "{screen}"
+    );
+    assert!(!screen.contains('…'), "{screen}");
+}
+
+/// The question that offers a look no terminal uses to the console's
+/// terminal shows whole on the screen, what `y` does included, at 80×25
+/// and on the screen below the minimum that a terminal shrunk to 79×24
+/// shows. That holds for the question after `t`, where the console already
+/// shows the look and a size waits for the next start, and for the
+/// question after `k`.
+#[test]
+fn the_question_that_offers_an_unused_look_shows_whole_at_80x25_and_79x24() {
+    let answer = "Use it for the terminal desk? y sets it in the draft, and n or Esc leaves the draft as it is.";
+    // t, where the console already draws proof in legacy's colors
+    let shown = "# mine\nfont-name=unifont\nversion = 1\n[look nordic]\nfont-name = proof\nfont-size = 16\npalette = legacy\n[head desk]\n[rules]\ndisplay * -> desk\n";
+    let (mut app, _) = started_on(with_conf(shown), "proof");
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    // k, after a trial of nord's colors and proof
+    let (mut kept, _) = started(with_conf(&nordic_conf("", "")));
+    kept.event(Event::Input(Input::Key(Key::Char('3'))));
+    kept.event(Event::Input(Input::Key(Key::Char('t'))));
+    kept.event(Event::Input(Input::Reply(Reply::Font("proof".into()))));
+    kept.event(Event::Input(Input::Key(Key::Char('k'))));
+    for (app, first) in [
+        (
+            &app,
+            "No terminal uses the look nordic, and the console already shows its font set and color scheme.",
+        ),
+        (
+            &kept,
+            "No terminal uses the look nordic, so the console shows it only until you quit vtium-config.",
+        ),
+    ] {
+        for (cols, rows) in [(80, 25), (79, 24)] {
+            let screen = screen_words(app, cols, rows);
+            assert!(
+                screen.contains(&format!("{first} {answer}")),
+                "{cols}×{rows}: {screen}"
+            );
+            assert!(!screen.contains('…'), "{cols}×{rows}: {screen}");
+        }
+    }
+}
+
+/// A vtium.conf with the look `nordic`, which no terminal uses, and the
+/// terminal desk, which names no look.
+const UNUSED_LOOK: &str = "# mine\nfont-name=unifont\nversion = 1\n[look nordic]\nfont-size = 16\n[head desk]\n[rules]\ndisplay * -> desk\n";
+
+/// Choosing a font set on the card of a look that no terminal uses, while
+/// the console's terminal names no look, gives the terminal the look, and
+/// the message line says so. Without that, the font set saved in the look
+/// reaches no console, and quitting puts the console back.
+///
+/// References:
+/// - ADR-1201 D3, "What it writes": when the console's head names no
+///   look, the tab sets the head's `look =` line and says on screen that
+///   it did.
+#[test]
+fn a_font_set_chosen_for_a_look_no_terminal_uses_gives_the_console_s_terminal_the_look() {
+    // Enter opens the card, Down reaches its font set line, and Right
+    // steps from vtium.conf's font set to the first font set
+    let keys: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, b"\x1b[C", ESC, b"s"];
+    let draft = draft_after(UNUSED_LOOK, keys);
+    let head = draft.split("[head desk]\n").nth(1).unwrap_or_default();
+    assert!(head.starts_with("look = nordic\n"), "{draft}");
+    let mut d = desk();
+    d.installed = UNUSED_LOOK.to_owned();
+    d.draft = UNUSED_LOOK.to_owned();
+    let mut c = console().keys(&[TO_LOOKS, b"\r", DOWN, b"\x1b[C"]);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(UNUSED_LOOK), Some(&mut d))
+        .expect("the loop");
+    let screen = flat(&c.seen.clone().expect("the screen"));
+    assert!(
+        screen.contains(
+            "The terminal desk named no look, so vtium-config set it to use the look nordic."
+        ),
+        "{screen}"
+    );
+}
+
+/// `q` with changes that are not saved says that the draft is not
+/// installed yet, so the console goes back to its installed font, and
+/// what installs the draft.
+#[test]
+fn q_says_the_draft_is_not_installed_and_what_installs_it() {
+    let mut d = desk();
+    d.installed = UNUSED_LOOK.to_owned();
+    d.draft = UNUSED_LOOK.to_owned();
+    let mut c = console().keys(&[TO_LOOKS, b"\r", DOWN, b"\x1b[C", ESC, b"q"]);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(UNUSED_LOOK), Some(&mut d))
+        .expect("the loop");
+    let screen = flat(&c.seen.clone().expect("the screen"));
+    assert!(
+        screen.contains("The console then shows what is installed until you install the draft, with i or vtium-config install."),
+        "{screen}"
+    );
+}
+
+/// The card's list of font sets marks a set whose text font this machine
+/// lacks, so a set that would draw in vtium's built-in font is not chosen
+/// by mistake.
+#[test]
+fn the_card_marks_a_font_set_whose_text_font_is_missing() {
+    let screen = reach_inputs(with_conf(UNUSED_LOOK), &[TO_LOOKS, b"\r", DOWN, b"\r"]);
+    let rows: Vec<String> = body(&screen)
+        .into_iter()
+        .filter(|r| r.contains("proof"))
+        .collect();
+    assert!(
+        rows.iter()
+            .any(|r| r.contains("its text font is not on this machine")),
+        "{rows:?}\n{screen}"
+    );
+}
+
+/// Picking the font set a look already has changes nothing in the draft,
+/// so the status line counts no change and the message line names no
+/// command, and `s` then says there is nothing to save.
+///
+/// References:
+/// - ADR-1403 D7: a change waits for Save, and Save says what it saved.
+#[test]
+fn picking_the_value_a_look_already_has_counts_no_change() {
+    let conf = inputs().conf.expect("the conf");
+    let (c, draft) = run_on(&conf, &[TO_LOOKS, b"\r", DOWN, b"\r", b"\r", ESC]);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert_eq!(draft, conf, "the draft is unchanged");
+    assert!(!seen.contains("not saved"), "{seen}");
+    assert!(!seen.contains("look set proof"), "{seen}");
+    let (c, draft) = run_on(&conf, &[TO_LOOKS, b"\r", DOWN, b"\r", b"\r", ESC, b"s"]);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert_eq!(draft, conf, "the draft is unchanged");
+    assert!(!seen.contains("Saved 1 change"), "{seen}");
+    assert!(seen.contains(words::NOTHING_TO_SAVE), "{seen}");
+}
+
+/// `w`, where the draft already lets programs resize the grid, asks
+/// nothing, because a yes would change nothing. It says when the console
+/// lets programs resize its grid, and the draft stays as it is.
+#[test]
+fn w_when_the_draft_already_allows_window_ops_says_so_and_asks_nothing() {
+    let conf = window_ops_on();
+    let (c, draft) = run_on(&conf, &[TO_LOOKS, b"w", b"y"]);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert_eq!(draft, conf, "the draft is unchanged");
+    assert!(!seen.contains("not saved"), "{seen}");
+    assert!(seen.contains(words::WINDOW_OPS_ON), "{seen}");
+    assert!(!seen.contains("Let programs resize the grid?"), "{seen}");
 }

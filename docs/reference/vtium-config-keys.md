@@ -176,7 +176,7 @@ A part's detail on its label line: the part's name and label, with the choices t
 | Key | Shown as | What it does |
 |---|---|---|
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
-| Esc | back | Goes back, with the same item highlighted. |
+| Esc | back, keep changes | Goes back, with the part highlighted. Your changes stay, and s saves them into the draft. |
 | Tab | - | Does nothing until you close what is open with Esc. |
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
@@ -276,7 +276,7 @@ An added path's terminal card, in CONFIGURATION.
 | Key | Shown as | What it does |
 |---|---|---|
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
-| Esc | back | Goes back, with the same item highlighted. |
+| Esc | back, keep changes | Goes back, with the terminal highlighted. Your changes stay, and s saves them into the draft. |
 | Tab | - | Does nothing until you close what is open with Esc. |
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
@@ -574,7 +574,7 @@ The Looks tab: the looks, the font sets, the color schemes and the installed poi
 | t | try live | Tries the highlighted look or font set on this console for 10 seconds. |
 | Enter | open | On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail. |
 | p | picture \| sample | On a look or a font set, switches the preview between the sample characters and the picture of the console. On a font set that vtium cannot read, also says that the font set has no preview. |
-| w | resize grid | Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing. |
+| w | resize grid | Asks whether to let programs resize the console's grid while the draft leaves allow-window-ops off. y turns allow-window-ops on in the draft, and any other answer changes nothing. When the draft already turns it on, w asks nothing and says so. |
 | o | - | Does nothing here. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
@@ -631,7 +631,7 @@ A look's card: its name, font set, size, color scheme, vtlook and pointer theme,
 | Key | Shown as | What it does |
 |---|---|---|
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
-| Esc | back | Goes back, with the same item highlighted. |
+| Esc | back, keep changes | Goes back to the list, with the look highlighted. Your changes stay, and s saves them into the draft. |
 | Tab | - | Does nothing until you close what is open with Esc. |
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
@@ -1038,7 +1038,7 @@ One section: its groups as headed blocks, with their keys beneath.
 | Key | Shown as | What it does |
 |---|---|---|
 | Enter | change | Lets you type the highlighted key's value, or shows its allowed values as a list. |
-| Esc | back | Goes back to the list of sections. |
+| Esc | back, keep changes | Goes back to the list of sections. Your changes stay, and s saves them into the draft. |
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
 | Tab | - | Does nothing until you close what is open with Esc. |
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |

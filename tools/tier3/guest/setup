@@ -67,6 +67,20 @@ if [ -f /usr/lib/sysusers.d/vtium-image.conf ]; then
         images="${images%%, account*}, account vtium-image removed"
     fi
 fi
+# A tree whose console is built with split holds the sysusers file of the
+# privilege split, from which systemd-sysusers makes the account vtium, which
+# vtium's drawing process runs as, and vtium-session, as a package's install
+# hook runs it (ADR-1400 D4, "The accounts"). The report line gives both
+# accounts' ids.
+split=none
+if [ -f /usr/lib/sysusers.d/vtium-split.conf ]; then
+    if ! out=$(systemd-sysusers /usr/lib/sysusers.d/vtium-split.conf 2>&1); then
+        printf 'TIER3-INSTALL-FAIL systemd-sysusers: %s\n' "$out" > /dev/ttyS0
+        exit 1
+    fi
+    split="account vtium uid $(id -u vtium) gid $(id -g vtium) groups $(id -G vtium | tr ' ' ',')"
+    split="$split, account vtium-session uid $(id -u vtium-session) gid $(id -g vtium-session)"
+fi
 # A variant drawing with the test fonts names them in its config.
 if [ -d "$disc"/fonts ]; then
     install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*
@@ -205,11 +219,12 @@ chmod 0666 /dev/ttyS1
 echo 'echo "T3-LOGIN $(tty)" > /dev/ttyS1' > /etc/profile.d/tier3.sh
 # Any kmscon, libtsm or vtium package installed, which must be none; the
 # kernel the guest runs, which the report records; the image helper and its
-# account; and the tree unpacked, so the log shows which build drew the
-# screens.
+# account; the accounts of the privilege split; and the tree unpacked, so the
+# log shows which build drew the screens.
 report=$(echo "TIER3-INSTALL-OK packages: $(pacman -Q | grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \
     "kernel: $(uname -r);" \
     "images: $images;" \
+    "split: $split;" \
     "tree: $tree")
 if [ -f "$disc"/soft-reboot ]; then
     mkdir -p "${claimed%/*}"

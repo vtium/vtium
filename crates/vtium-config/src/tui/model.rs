@@ -468,6 +468,15 @@ pub struct Shared {
     /// The Looks tab has sent the console a grid request, so leaving
     /// gives the console [`Shared::start_grid`] back.
     pub grid_moved: bool,
+    /// vtium-config saved the console's colors with XTPUSHCOLORS before a
+    /// look's trial set them, and has not restored them yet. A trial put
+    /// back and leaving restore them with XTPOPCOLORS, so colors a program
+    /// set before vtium-config started come back as they were.
+    pub colors_saved: bool,
+    /// The colors that `k` kept from a look's trial, which the console
+    /// shows until vtium-config leaves. A later look's trial compares its
+    /// colors with these, and putting that trial back sends these again.
+    pub kept_colors: Option<vtium_term::Palette>,
     /// `u` asked for [`Shared::start_grid`] while another font switch was
     /// in flight, so the grid request waits until the start font's switch
     /// goes: a font switch moves the console's grid too, and would undo a
@@ -476,6 +485,9 @@ pub struct Shared {
     /// The size whose cell the font helper is measuring for a trial of the
     /// size on the console.
     pub size_asked: Option<super::shot::SizeAsked>,
+    /// The installed vtium.conf's `allow-window-ops` when vtium-config
+    /// started, which [`Shared::window_ops`] reports.
+    running_window_ops: bool,
 }
 
 /// The terminal's grid, and its cell in pixels where it reports its size
@@ -529,15 +541,14 @@ impl Shared {
             .unwrap_or(true)
     }
 
-    /// Whether the console lets programs resize its grid: the installed
-    /// vtium.conf's `allow-window-ops`, which the running console read
-    /// when it started. It is off by default.
+    /// Whether the console lets programs resize its grid: the
+    /// `allow-window-ops` of the vtium.conf that was installed when
+    /// vtium-config started, which the running console read when it made
+    /// its head. An install during this run changes the installed file
+    /// and not the running console, which reads the key again only when
+    /// vtium starts again. It is off by default.
     pub fn window_ops(&self) -> bool {
-        self.inputs
-            .conf
-            .as_deref()
-            .and_then(|c| conf_switch(c, "allow-window-ops"))
-            .unwrap_or(false)
+        self.running_window_ops
     }
 
     /// Whether the draft turns `allow-window-ops` on, so the Looks tab's
@@ -629,6 +640,8 @@ pub struct Confirm {
 pub enum Then {
     Change(DraftChange),
     Desk(Op),
+    /// Hands the desk each of these, in order.
+    Desks(Vec<Op>),
     Install(Plan),
     /// Leaves with this status: `y` saves the unsaved changes first, `n`
     /// leaves without them.
@@ -676,6 +689,11 @@ impl App {
             _ => vtium_term::ClusterWidth::Double,
         };
         let _rule = super::canvas::measure_by(cluster_width);
+        let running_window_ops = inputs
+            .conf
+            .as_deref()
+            .and_then(|c| conf_switch(c, "allow-window-ops"))
+            .unwrap_or(false);
         let mut app = App {
             nav: super::nav::Nav {
                 view,
@@ -717,7 +735,10 @@ impl App {
                 start_grid: (size.cols, size.rows),
                 grid_moved: false,
                 grid_after_font: false,
+                colors_saved: false,
+                kept_colors: None,
                 size_asked: None,
+                running_window_ops,
             },
             size,
             fonts: super::tabs::fonts::Fonts::default(),
@@ -1071,6 +1092,7 @@ impl App {
             self.shared.shown_font = shown.or(self.shared.shown_font.take());
             return Vec::new();
         }
+        let mut reset = Vec::new();
         if let Some(asked) = asked
             && shown.as_ref() != Some(&asked)
         {
@@ -1078,8 +1100,12 @@ impl App {
             if self.shared.want.as_deref() == Some(asked.as_str()) {
                 self.shared.want = shown.clone().or_else(|| self.shared.shown_font.clone());
             }
-            if self.nav.trial.as_ref().is_some_and(|t| t.font == asked) {
-                self.nav.trial = None;
+            if let Some(t) = self.nav.trial.take_if(|t| t.font == asked) {
+                // a look's trial that set the console's colors gives them
+                // back with the font
+                if let Some(tried) = t.look.as_ref().and_then(|l| l.colors.as_ref()) {
+                    reset.extend(self.colors_back(tried));
+                }
                 self.shared.message = Some(if super::shot::is_file(&asked) {
                     super::words::font_file_refused(super::shot::font_shown(&asked))
                 } else {
@@ -1090,8 +1116,14 @@ impl App {
         if shown.is_some() {
             self.shared.shown_font = shown;
         }
-        let mut out = self.follow();
+        let mut out = Vec::new();
+        if !reset.is_empty() {
+            out.push(Effect::Write(reset));
+        }
+        out.extend(self.follow());
         out.extend(self.grid_after_font());
+        // a look's trial tries its size once the console draws its font
+        out.extend(self.look_size());
         out
     }
 
@@ -1101,7 +1133,7 @@ impl App {
     /// request that follows them lands after the font has changed. A font
     /// wanted since then, other than the start font, replaces what `u`
     /// asked for, and the grid then goes back only when the TUI leaves.
-    fn grid_after_font(&mut self) -> Vec<Effect> {
+    pub(crate) fn grid_after_font(&mut self) -> Vec<Effect> {
         if !self.shared.grid_after_font {
             return Vec::new();
         }
@@ -1215,6 +1247,8 @@ impl App {
         if self.shared.leaving.is_some() {
             return Vec::new();
         }
+        // the colors a look's trial set go back below, whether `k` kept
+        // them or the trial still counts down
         self.nav.trial = None;
         // the font the console ends in once the switch in flight, if any,
         // is answered: the start font is sent only where it is another
@@ -1236,6 +1270,10 @@ impl App {
         if mouse {
             bytes.extend_from_slice(MOUSE_OFF);
         }
+        if std::mem::take(&mut self.shared.colors_saved) {
+            bytes.extend_from_slice(super::shot::COLORS_RESTORE);
+        }
+        self.shared.kept_colors = None;
         // the grid the console had at the start goes back after its font,
         // since a font switch can change the grid too
         let grid = if self.shared.grid_moved {
@@ -1348,6 +1386,7 @@ impl App {
                 }
                 Command::Change(Change::Say(line)) => self.shared.message = Some(line),
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
+                Command::Change(Change::TryLook(look)) => effects.extend(self.try_look(look)),
                 Command::Change(Change::TrySize { font, points }) => {
                     effects.extend(self.try_size(font, points));
                 }

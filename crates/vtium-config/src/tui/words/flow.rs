@@ -101,7 +101,18 @@ pub fn deleted_draft(next: &str) -> String {
     format!("Draft deleted. Draft {next} starts again from the installed vtium.conf.")
 }
 
-pub const NO_HISTORY: &str = "Nothing to restore: vtium-config has not installed anything yet.";
+/// The command line's note on a look that no head uses: it changes
+/// nothing on screen, and the command that gives it to `head`, the
+/// draft's first head, or to a head the person names.
+pub fn no_head_uses(look: &str, head: Option<&str>) -> String {
+    let head = head.unwrap_or("HEAD");
+    format!(
+        "No head uses look {look}, so it changes nothing on screen. To use it, run vtium config head set {head} --look {look}."
+    )
+}
+
+pub const NO_HISTORY: &str =
+    "Nothing to restore: no install has replaced a vtium.conf yet, so there is no earlier file.";
 
 pub fn restore_question(n: usize, added: usize, removed: usize) -> String {
     format!(
@@ -451,7 +462,32 @@ pub fn look_missing_about(name: &str) -> String {
     )
 }
 
-pub const SUBFLOW_REQUIRES: &str = "Filters and requirements: vtium-config does not read a look's vtlook file yet, so this card names the look and shows no filters.";
+/// The line under a terminal's subflow when its look draws the built-in
+/// vtlook.
+pub const SUBFLOW_NO_VTLOOK: &str =
+    "Effects: No filter, the built-in vtlook, which changes no color.";
+
+/// The line under a terminal's subflow when its look draws the vtlook
+/// `name`, which reads.
+pub fn subflow_vtlook(name: &str) -> String {
+    format!("Effects: the vtlook {name}. The Effects tab shows its filters.")
+}
+
+/// The line under a terminal's subflow when the vtlook `name` that its
+/// look names has an error.
+pub fn subflow_vtlook_broken(name: &str) -> String {
+    format!(
+        "Effects: the vtlook {name} has an error, so vtium renders the built-in vtlook in its place. The Effects tab shows the error."
+    )
+}
+
+/// The line under a terminal's subflow when this machine has no vtlook
+/// `name`, which its look names.
+pub fn subflow_vtlook_missing(name: &str) -> String {
+    format!(
+        "Effects: this machine has no vtlook named {name}, so vtium renders the built-in vtlook in its place."
+    )
+}
 
 pub const EVERY_OF_TYPE: &str = "every input of that type";
 
@@ -665,6 +701,14 @@ pub fn display_off(display: &str) -> String {
     )
 }
 
+/// Space on a display that vtium cannot match as itself: it reports no
+/// EDID, and without a udev daemon vtium knows no connector to match.
+pub fn display_no_match(display: &str) -> String {
+    format!(
+        "The display {display} reports no EDID, and without a udev daemon vtium has no other way to tell it apart, so vtium-config cannot pick it as itself. To show a terminal on it, open the Display template, choose All displays, and press Space on it."
+    )
+}
+
 /// A display that a path on the same VT holds (ADR-1403 D7): the topic,
 /// the display, first, then the terminal that holds it and the VT where
 /// the two clash, `None` when both run on every VT.
@@ -697,8 +741,13 @@ pub fn path_revised(head: &str) -> String {
     )
 }
 
-pub fn changed_in_draft(head: &str) -> String {
-    format!("Changed {} in the draft.", terminal(head))
+/// What the status line says once a change on a terminal's card is made.
+/// The change waits for Save, which acts once the card is closed.
+pub fn card_changed(head: &str) -> String {
+    format!(
+        "Changed {}. Press Esc and then s to save the change into the draft.",
+        terminal(head)
+    )
 }
 
 pub fn piece_out(title: &str) -> String {
@@ -793,11 +842,14 @@ pub const LABEL_TYPING: &str =
 pub const LABEL_HASH: &str = "This label starts with #, which vtium.conf reads as the start of a comment. Start the label with another character.";
 
 pub const LABEL_REMOVED: &str =
-    "This part has no label now. vtium-config took it out of the draft.";
+    "This part has no label now. Press Esc and then s to save the change into the draft.";
 
-/// What the status line says once a part's label is written.
+/// What the status line says once a part's label is changed. The label
+/// waits for Save, which acts once the part's detail is closed.
 pub fn label_set(label: &str) -> String {
-    format!("This part's label is now \u{201c}{label}\u{201d}. vtium-config wrote it to the draft.")
+    format!(
+        "This part's label is now \u{201c}{label}\u{201d}. Press Esc and then s to save it into the draft."
+    )
 }
 
 /// Esc in the Flow view while NEW PATH is empty.

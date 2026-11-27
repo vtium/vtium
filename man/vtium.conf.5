@@ -1023,6 +1023,32 @@ It takes one of \fBauto\fR, \fBpan\fR, \fBcopy\fR, \fBredraw\fR. Default: \fBaut
 .IP
 Set it in the top level or a \fB[head NAME]\fR section, or on vtium's command line with \fB\-\-scroll\-draw=VALUE\fR.
 .TP
+\fBsmooth-scroll\fR
+Turn smooth scrolling on, in a build with the \fBsmooth\-scroll\fR feature.
+.IP
+When off, the default, vtium centres the text on the screen. A screen whose size is not a whole number of character cells leaves pixels over, and they form bars of the border's color on both sides of the text. When on, the text's last row touches the bottom of the screen, and \fBpartial\-row\fR sets what the pixel lines left over above the text show. A build without the \fBsmooth\-scroll\fR feature always centres the text.
+.IP
+A head's value wins over its look's, and both win over the top level's. A program can switch smooth scrolling with DECSCLM (mode 4), but the text stays where this key puts it.
+.IP
+vtium does not slide the text by pixels yet, so it scrolls by whole rows either way.
+.IP
+It takes one of \fBoff\fR, \fBon\fR. Default: \fBoff\fR.
+.IP
+Set it in the top level, a \fB[look NAME]\fR section or a \fB[head NAME]\fR section, or on vtium's command line with \fB\-\-smooth\-scroll=VALUE\fR.
+.TP
+\fBpartial-row\fR
+What the pixel lines left over above the text show while smooth scrolling is on.
+.IP
+A screen whose height is not a whole number of rows leaves pixel lines over. While \fBsmooth\-scroll\fR is on, they lie above the text's first row. \fBhistory\fR shows the bottom of the scrollback's row above the screen, cut off at the screen's edge. \fBblank\fR shows the border's color. \fBfade\fR shows the row above, fading into the border's color toward the screen's edge.
+.IP
+While smooth scrolling is off, vtium centres the text, and the pixels left over show the border's color whatever this key says. A build without the \fBscroll\-pan\fR feature shows the border's color under every value.
+.IP
+vtium logs one line for each display whose size leaves pixels over. The line names the columns and rows that fit, and the pixels left over on each side.
+.IP
+It takes one of \fBhistory\fR, \fBblank\fR, \fBfade\fR. Default: \fBhistory\fR.
+.IP
+Set it in the top level or a \fB[look NAME]\fR section, or on vtium's command line with \fB\-\-partial\-row=VALUE\fR.
+.TP
 \fBhwaccel\fR
 Draw with the GPU, in a build that supports it.
 .IP

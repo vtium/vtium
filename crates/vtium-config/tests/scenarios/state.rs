@@ -205,6 +205,7 @@ fn open(app: &App, at: &str) -> (StateKind, &'static str) {
                     vtium_config::tui::desk::Op::Restore(_) => "restore",
                     _ => "desk",
                 },
+                Then::Desks(_) => "activate",
             },
         );
     }

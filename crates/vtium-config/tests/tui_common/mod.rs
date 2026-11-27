@@ -51,6 +51,10 @@ pub struct Console {
     pub armed: bool,
     /// Every byte the TUI wrote.
     pub written: Vec<u8>,
+    /// What the stand-in font helper says of a font set in place of what
+    /// [`Port::sources`] says of it by default, as the console's helper
+    /// says it through the installed batch.
+    pub sources_found: BTreeMap<String, Sources>,
     /// Each OSC 50 switch the console took ("set NAME") or refused
     /// ("refuse NAME") as the TUI wrote it, and each reply ("reply NAME")
     /// as the TUI read it, in order.
@@ -60,6 +64,9 @@ pub struct Console {
     /// The privileged step's command fails, saying this.
     pub save_result: Result<(), String>,
     pub panic_bytes: Vec<u8>,
+    /// What a panic would have written when the script ran out, before the
+    /// SIGTERM that follows makes the TUI leave.
+    pub seen_panic: Option<Vec<u8>>,
     /// The screen when the script ran out, after which the console sends
     /// SIGTERM.
     pub seen: Option<String>,
@@ -122,10 +129,12 @@ impl Console {
             pending: VecDeque::new(),
             armed: false,
             written: Vec::new(),
+            sources_found: BTreeMap::new(),
             log: Vec::new(),
             saves: Vec::new(),
             save_result: Ok(()),
             panic_bytes: Vec::new(),
+            seen_panic: None,
             seen: None,
             seen_at: 0,
             graphics: false,
@@ -286,6 +295,7 @@ impl Port for Console {
         }
         assert!(self.seen.is_none(), "the TUI still waits after SIGTERM");
         self.seen = Some(self.screen());
+        self.seen_panic = Some(self.panic_bytes.clone());
         self.seen_at = self.written.len();
         Ok(vec![Wake::Signal(15)])
     }
@@ -440,6 +450,9 @@ impl Port for Console {
         let found = fonts
             .into_iter()
             .map(|font| {
+                if let Some(found) = self.sources_found.get(&font) {
+                    return (font, found.clone());
+                }
                 let left = match font.as_str() {
                     "proof" => Sources::LeftOut(vec![LeftOut {
                         missing: true,
@@ -447,7 +460,7 @@ impl Port for Console {
                         spelling: "font:JetBrains Mono".into(),
                         why: "no such family".into(),
                     }]),
-                    "tiny5" => Sources::DrawsNothing("no source left".into()),
+                    "tiny5" => Sources::DrawsNothing("no source left".into(), Vec::new()),
                     _ => Sources::LeftOut(Vec::new()),
                 };
                 (font, left)
@@ -612,14 +625,34 @@ impl Desk {
     }
 
     /// The plan an install hands the privileged step, as the store's
-    /// prepare builds it: the font sets first, then vtium.conf where the
+    /// prepare builds it: the font sets first, then the batch file where
+    /// the draft changes the active resources, then vtium.conf where the
     /// draft differs from it.
     fn plan(&self) -> vtium_config::draft::Plan {
+        use vtium_config::batch::State;
         let (mut files, removals) = vtium_config::tui::fixture::frit_plan(
             &self.frits,
             &self.installed_frits,
             &inputs().frits,
         );
+        let listed = |states: &[State]| -> String {
+            self.resources
+                .iter()
+                .filter(|(_, s)| states.contains(s))
+                .map(|(p, _)| format!("{}\n", p.display()))
+                .collect()
+        };
+        if self
+            .resources
+            .iter()
+            .any(|(_, s)| matches!(s, State::Activates | State::Deactivates))
+        {
+            files.push(vtium_config::draft::FileEdit {
+                path: PathBuf::from("/etc/vtium/batch.conf"),
+                old: Some(listed(&[State::Active, State::Deactivates])),
+                new: listed(&[State::Active, State::Activates]),
+            });
+        }
         if self.draft != self.installed {
             files.push(vtium_config::draft::FileEdit {
                 path: PathBuf::from("/etc/vtium/vtium.conf"),

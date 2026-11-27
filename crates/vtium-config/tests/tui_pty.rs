@@ -1168,7 +1168,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     // and in no frame it drew did it say a frit draws nothing; the test
     // reads every byte the TUI wrote, so no frame is caught half drawn
     let written = String::from_utf8_lossy(&c.written()).into_owned();
-    if let Some(at) = written.find("no font file on this machine") {
+    if let Some(at) = written.find("no font file vtium can use") {
         // the frame's bytes around the words, a row or so to each side
         let before: String = written[..at].chars().rev().take(200).collect();
         let before: String = before.chars().rev().collect();

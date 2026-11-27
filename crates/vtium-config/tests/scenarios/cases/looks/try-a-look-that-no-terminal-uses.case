@@ -1,0 +1,46 @@
+kind i-want-to
+title I want to try a look that no terminal uses yet.
+intro A look changes what a terminal shows only once a terminal uses it. When the console's terminal names no look, vtium-config gives it the look you are making and says so. You can try the look on the console before you install it.
+see looks/make-a-look-and-use-it-on-the-console
+
+# vtium.conf already sets the font set mono for everything.
+file etc/vtium.conf
+    version = 1
+    font-name = mono
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Go to the Looks tab.
+2. Choose New look.
+3. Erase the name.
+4. Type big.
+5. Press Enter.
+6. Set Font set to mono.
+at the font set is chosen
+check screen shows "The terminal console named no look, so vtium-config set it to use the look big."
+7. Choose Size.
+8. Choose 24 pt.
+9. Set Color scheme to vga.
+10. Press Esc.
+at the look is made
+check screen shows "Terminal console uses it."
+check screen lacks "already"
+
+11. Press t to try live.
+at the trial
+check screen lacks "already"
+12. Press Esc.
+
+13. Press s to save.
+14. Press i to install.
+at the install question
+check screen lacks "already"
+15. Press y.
+at the install
+check installed look big font-size 24
+check installed look big font-name mono

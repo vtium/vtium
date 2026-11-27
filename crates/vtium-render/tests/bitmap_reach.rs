@@ -66,10 +66,6 @@ fn screen() -> Screen {
     s
 }
 
-/// The display's lines above the grid: its 2 spare lines, since the grid's
-/// last row touches the display's bottom edge.
-const TOP: u32 = 2;
-
 fn size(s: &Screen) -> (u32, u32) {
     (s.cols as u32 * CW + 4, s.rows as u32 * CH + 2)
 }
@@ -92,13 +88,12 @@ fn cpu(s: &Screen, face: SetFace) -> Canvas {
 }
 
 /// The rows of the cell `col`, `row` drawn in the foreground, from the
-/// top of the grid: the display's border is 2 pixels at each side and
-/// [`TOP`] lines above the grid.
+/// top of the grid: the display's border is 2 pixels across and 1 down.
 fn inked_rows(c: &Canvas, col: u32, rows: std::ops::Range<u32>) -> Vec<u32> {
     let want = u32::from_str_radix(FG, 16).unwrap();
     rows.filter(|&y| {
         (0..CW).any(|x| {
-            c.pixel(2 + col * CW + x, TOP + y)
+            c.pixel(2 + col * CW + x, 1 + y)
                 .is_some_and(|p| p & 0xff_ffff == want)
         })
     })
@@ -130,7 +125,7 @@ fn a_raised_bitmap_glyph_draws_its_hook_in_the_row_above_on_the_cpu_path() {
     let want = u32::from_str_radix(FG, 16).unwrap();
     for y in [14, 15] {
         assert_eq!(
-            c.pixel(2 + CW + 4, TOP + y).map(|p| p & 0xff_ffff),
+            c.pixel(2 + CW + 4, 1 + y).map(|p| p & 0xff_ffff),
             Some(want),
             "row {y}"
         );
@@ -237,10 +232,7 @@ fn inked_lines(c: &Canvas, cols: u32, rows: std::ops::Range<u32>) -> Vec<Vec<boo
     let want = u32::from_str_radix(FG, 16).unwrap();
     rows.map(|y| {
         (0..cols)
-            .map(|x| {
-                c.pixel(2 + x, TOP + y)
-                    .is_some_and(|p| p & 0xff_ffff == want)
-            })
+            .map(|x| c.pixel(2 + x, 1 + y).is_some_and(|p| p & 0xff_ffff == want))
             .collect::<Vec<bool>>()
     })
     .filter(|line| line.contains(&true))
@@ -316,7 +308,7 @@ fn hook_under(top: LineSize, hook: bool) -> Screen {
 /// The pixels of grid row `row` of `c`, `cols` cells across.
 fn row_pixels(c: &Canvas, cols: u32, row: u32) -> Vec<u32> {
     (row * CH..(row + 1) * CH)
-        .flat_map(|y| (0..cols * CW).map(move |x| c.pixel(2 + x, TOP + y).unwrap_or(0)))
+        .flat_map(|y| (0..cols * CW).map(move |x| c.pixel(2 + x, 1 + y).unwrap_or(0)))
         .collect()
 }
 
@@ -461,7 +453,7 @@ fn every_gpu_frame_of_a_doubled_glyphs_ink_matches_a_whole_draw() {
         if what == "its line doubles in width" {
             // the grin's top row, in the row above its line
             let fg = u32::from_str_radix(FG, 16).unwrap();
-            let above = (TOP + CH - 1) * w;
+            let above = (1 + CH - 1) * w;
             let lit = (0..w).any(|x| got[(above + x) as usize] & 0xff_ffff == fg);
             assert!(lit, "{what}: the row above shows the grin's top row");
         }

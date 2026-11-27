@@ -169,7 +169,8 @@ minspec install-tree vt-dev-console config-release image-release clipboard-relea
 FEATURES :=
 # The acceptance pass shows every page by default (ADR-1501 D5): make
 # vt-accept builds the console with images, bidi, filters, scroll-pan, and
-# split, the features of the packaged console, unless make's command line
+# split, the features of the packaged console, and with smooth-scroll, so a
+# tour's configuration can turn smooth scrolling on, unless make's command line
 # names FEATURES, so make vt-accept FEATURES= is a pass of the minspec build. A
 # binary named with VTIUM_BIN is run as it is, so its features are the ones
 # it was built with: images when it carries the line only a build with
@@ -198,7 +199,7 @@ ifneq ($(origin FEATURES),command line)
 ifeq ($(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),)
 FEATURES := $(if $(shell grep -qaF -- '$(VT_IMAGES_MARKER)' '$(VTIUM_BIN)' 2>/dev/null && echo images),images)
 else
-FEATURES := images bidi filters scroll-pan split$(if $(filter gpu,$(RENDER_PATH)), gpu)
+FEATURES := images bidi filters scroll-pan split smooth-scroll$(if $(filter gpu,$(RENDER_PATH)), gpu)
 endif
 else ifeq ($(RENDER_PATH),gpu)
 ifeq ($(filter gpu,$(subst $(comma), ,$(FEATURES))),)
@@ -232,7 +233,9 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 # D4), with images in
 # FEATURES the picture gallery tool as vtium-gallery (ADR-1500 D8), and with
 # libseat and logind in FEATURES seat mode's unit vtium-seat@.service and the
-# PAM file /etc/pam.d/vtium (ADR-1400 D3), the man pages in /usr/share/man,
+# PAM file /etc/pam.d/vtium (ADR-1400 D3), with split in FEATURES the sysusers
+# file that makes the accounts of the privilege split (ADR-1400 D4), the man
+# pages in /usr/share/man,
 # and the package data install-package-data names: the color schemes, their
 # license texts and the preset vtlooks. Tier 3 installs this tree in its
 # guest.
@@ -243,6 +246,12 @@ VTIUM_INSTALL := crates/vtium/install
 # build installs none (ADR-1101 D1). FEATURES may separate its features
 # with commas or spaces, as cargo's --features does (comma, above).
 IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
+# A console built with split runs as a root process and a drawing process
+# that runs as the account vtium (ADR-1400 D4). So with split in FEATURES,
+# make install and make install-tree stage the sysusers file vtium-split.conf,
+# from which systemd-sysusers makes the accounts vtium and vtium-session, and
+# only then. A minspec build leaves the split out and needs neither account.
+SPLIT := $(filter split,$(subst $(comma), ,$(FEATURES)))
 # A console built with libseat and logind runs in direct mode through
 # vtium@.service, or in seat mode through vtium-seat@.service, which opens a
 # PAM session of vtium's own that libseat's logind backend takes the seat
@@ -409,6 +418,9 @@ endif
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
 endif
+ifneq ($(SPLIT),)
+	install -Dm644 $(VTIUM_INSTALL)/vtium-split.conf $(DESTDIR)/usr/lib/sysusers.d/vtium-split.conf
+endif
 
 # vtium as a package ships it, staged under DESTDIR with PREFIX, so that a
 # package's build can be one call: make install DESTDIR="$pkgdir"
@@ -434,7 +446,9 @@ endif
 # color schemes and preset vtlooks in PREFIX/share/vtium with the schemes'
 # license texts in PKGNAME's license folder, and with libseat and logind in
 # FEATURES seat mode's unit vtium-seat@.service and the PAM file
-# /etc/pam.d/vtium (ADR-1400 D3).
+# /etc/pam.d/vtium (ADR-1400 D3), and with split in FEATURES the sysusers
+# file vtium-split.conf in PREFIX/lib/sysusers.d, which makes the accounts of
+# the privilege split (ADR-1400 D4).
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's terminfo entry, compiled under its
@@ -563,6 +577,9 @@ endif
 	tools/vt/units.sh --name vtium --exec $(PREFIX)/bin/vtium --by 'make install' --conflicts 'kmsconvt@%i.service'$(if $(PAM_SESSION), --seat) $(DESTDIR)$(UNITDIR)
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
+endif
+ifneq ($(SPLIT),)
+	install -Dm644 $(VTIUM_INSTALL)/vtium-split.conf $(DESTDIR)$(PREFIX)/lib/sysusers.d/vtium-split.conf
 endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS)))
@@ -1247,8 +1264,8 @@ tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: 
 tier3-images: tier3-image ## Tier 3's pictures: the install tree built with images, then the images variants on the minspec machine at 640x480
 	$(T3_RUN) --features '$(sort images $(subst $(comma), ,$(FEATURES)))' --tree-target install-tree $(or $(VARIANTS),images-640x480 images-640x480-nobody)
 
-# The checks of ADR-1400 D4 (tools/tier3/README.md, "The checks of the
-# privilege split"): the probe in tools/tier3/probes, run in the guest as root
+# The checks of ADR-1400 D4 (tools/tier3/README.md, "The checks the split
+# rests on"): the probe in tools/tier3/probes, run in the guest as root
 # and as a system account. SEATD_SRC=DIR, an unpacked seatd source tree, adds
 # check 3's run with a libseat built with its builtin backend.
 .PHONY: tier3-rootchecks

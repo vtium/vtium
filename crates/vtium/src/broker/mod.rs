@@ -7,14 +7,15 @@
 //! broker's answers, is not stopped for it: the broker ignores what it
 //! refuses and never waits for the drawer.
 //! When the drawer ends, the broker puts the VT back and exits with the
-//! drawer's status. vtium splits only when it starts as root and the
-//! account `vtium` exists. Otherwise it runs as one process, as it always
-//! has.
+//! drawer's status, or with a failure when a signal killed the drawer or
+//! the VT hung up. vtium splits only when it starts as root, no seat
+//! manager serves its seat, and the account `vtium` exists, as [`plan`]
+//! decides. Otherwise it runs as one process.
 //!
-//! The split is off in every build until the broker also holds the
-//! devices, the VT and the sessions. A drawer without root cannot open a
-//! display today, so [`SPLIT`] stays `false`, and nothing a user runs
-//! reaches the broker. The tests run the broker against stand-in drawers.
+//! This module is built only with the feature `split`, and there
+//! [`SPLIT`] is `true`. A build without the feature has no broker and
+//! runs as one process. The tests run the broker against stand-in
+//! drawers, since a test runs without root.
 //!
 //! References:
 //! - ADR-1400 D4: the broker, the drawer, when vtium runs as one process,
@@ -64,12 +65,18 @@ use refusals::Refusals;
 use start::{ACCOUNT, Account, DRAWER, Program, Started};
 use watch::{FAILURE, Seen};
 
-/// The internal switch that turns the privilege split on. It stays off
-/// until the cards that move the devices and the VT, and the sessions and
-/// helpers, into the broker have landed, and the card that installs the
-/// account `vtium` turns it on. Until then vtium runs as one process on
-/// every path a user can reach.
-pub const SPLIT: bool = false;
+/// The internal switch that turns the privilege split on. It is on in
+/// every build with the feature `split`, the only builds that carry this
+/// module. vtium then splits whenever [`plan`] says so: when it starts as
+/// root, no seat manager serves its seat, and the account `vtium` exists.
+/// The packages install that account with the sysusers file
+/// `vtium-split.conf`.
+///
+/// References:
+/// - ADR-1400 D4, "The accounts": the sysusers file makes the account.
+/// - ADR-1400 D4, "The slices", the note on the build: the split builds
+///   only behind the feature `split`, which the minspec build leaves out.
+pub const SPLIT: bool = true;
 
 /// How long the broker waits for the drawer's ready after it starts the
 /// drawer. A drawer that is not ready by then is stopped, and the broker
@@ -98,11 +105,23 @@ impl Default for Bounds {
     }
 }
 
-/// What decides whether vtium splits: whether it runs as root, and the
-/// account the drawer runs as.
+/// What decides whether vtium splits: whether it runs as root, the
+/// account the drawer runs as, and the seat managers.
 pub trait Facts {
     fn root(&self) -> bool;
     fn account(&self, name: &str) -> Option<Account>;
+    /// What vtium finds about the seat managers, before it opens anything.
+    fn seat(&self) -> Seat;
+}
+
+/// What vtium finds about the seat managers at its start.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Seat {
+    /// A seat manager, seatd or logind, would serve vtium's seat.
+    pub served: bool,
+    /// vtium looks for seatd alone, being in no logind session of its own
+    /// with no libseat backend named.
+    pub seatd_only: bool,
 }
 
 /// The running system.
@@ -116,6 +135,20 @@ impl Facts for System {
     fn account(&self, name: &str) -> Option<Account> {
         start::lookup(name)
     }
+
+    #[cfg(feature = "libseat")]
+    fn seat(&self) -> Seat {
+        let managers = vtium_platform::seat::managers();
+        Seat {
+            served: managers.serve,
+            seatd_only: managers.seatd_only,
+        }
+    }
+
+    #[cfg(not(feature = "libseat"))]
+    fn seat(&self) -> Seat {
+        Seat::default()
+    }
 }
 
 /// Whether vtium splits.
@@ -123,21 +156,42 @@ impl Facts for System {
 pub enum Plan {
     /// vtium runs as one process, and logs the line, if any.
     OneProcess(Option<String>),
-    /// vtium starts a broker and a drawer that runs as the account.
-    Split(Account),
+    /// vtium runs as one process because a seat manager serves its seat,
+    /// and logs the line.
+    Seat(String),
+    /// vtium starts a broker and a drawer that runs as the account. With
+    /// `seatd_only`, vtium looked for seatd alone and found none, so it
+    /// splits on the kernel's VT.
+    Split { account: Account, seatd_only: bool },
 }
 
-/// vtium splits only when it runs as root and the account `vtium` exists.
-/// A vtium started without root has no privilege to drop, so it runs as
-/// one process and says nothing. A vtium started as root without the
+/// vtium splits only when it runs as root, no seat manager serves its
+/// seat, and the account `vtium` exists. A vtium started without root has
+/// no privilege to drop, so it runs as one process and says nothing. A
+/// vtium that would take its seat from seatd or logind runs as one process
+/// and logs one line that says why, since the drawer does not yet take its
+/// devices from a seat manager. A vtium started as root without the
 /// account also runs as one process, and logs one line that names the
 /// account.
+///
+/// References:
+/// - ADR-1400 D4, "When vtium runs as one process": the three cases, and
+///   the seat managers until the second slice.
 pub fn plan(facts: &dyn Facts) -> Plan {
     if !facts.root() {
         return Plan::OneProcess(None);
     }
+    let seat = facts.seat();
+    if seat.served {
+        return Plan::Seat(
+            "A seat manager serves vtium's seat, so vtium runs as one process, as root: its privilege split does not work with a seat manager yet.".to_owned(),
+        );
+    }
     match facts.account(ACCOUNT) {
-        Some(account) => Plan::Split(account),
+        Some(account) => Plan::Split {
+            account,
+            seatd_only: seat.seatd_only,
+        },
         None => Plan::OneProcess(Some(format!(
             "The system account {ACCOUNT} does not exist, so vtium runs as one process, as root."
         ))),
@@ -153,8 +207,8 @@ pub trait Serve {
 
     /// Runs once a turn of the broker's loop, at `now`: acts on what the
     /// loop saw outside the drawer's requests, such as the VT's switches,
-    /// and sends what follows through `out`. Returns whether the drawer
-    /// must stop, as when the VT hung up.
+    /// and sends what follows through `out`. Returns whether the VT hung
+    /// up. The broker then stops the drawer and exits with a failure.
     fn turn(&mut self, now: Instant, out: &mut Outbox<'_>) -> bool {
         let _ = (now, out);
         false
@@ -170,6 +224,10 @@ pub trait Serve {
     /// It sends nothing while the queue of orders is full, and keeps what
     /// it holds for a later turn.
     fn tick(&mut self, _out: &mut Outbox<'_>) {}
+
+    /// Runs once, after the drawer has ended and the VT is back, however
+    /// the drawer ended.
+    fn end(&mut self) {}
 }
 
 /// The broker's requests as the broker serves them: the devices and the VT
@@ -198,6 +256,10 @@ impl Serve for Served {
 
     fn due(&self) -> Option<Instant> {
         self.devices.due()
+    }
+
+    fn end(&mut self) {
+        self.jobs.end();
     }
 }
 
@@ -260,6 +322,12 @@ impl Serve for Jobs {
     fn tick(&mut self, out: &mut Outbox<'_>) {
         self.processes.tick(out);
     }
+
+    /// The sessions the keeper holds run on for the next vtium, and the
+    /// rest are hung up, as vtium in one process does at its exit.
+    fn end(&mut self) {
+        self.processes.sessions.end();
+    }
 }
 
 /// The broker's process jobs: the sessions, the helpers, the power keys,
@@ -296,6 +364,25 @@ impl Processes {
             unasked: std::collections::VecDeque::new(),
             signalled: std::rc::Rc::default(),
         }
+    }
+
+    /// Names to the drawer each console whose session an earlier vtium
+    /// kept, as the first orders no request asks for, and ends the list
+    /// with [`Order::KeptEnd`]. The drawer waits for that end at its start,
+    /// so it knows every kept console before its heads start. It opens
+    /// each of them as its head starts, and closes each one it has no
+    /// place for.
+    ///
+    /// References:
+    /// - ADR-1400 D4, "What the broker does": the broker keeps the pty
+    ///   masters through a restart.
+    /// - ADR-1401 D13: a head that starts opens the consoles whose
+    ///   sessions were kept, within the caps.
+    pub fn name_kept(&mut self) {
+        for console in self.sessions.kept() {
+            self.unasked.push_back(Order::Kept { console });
+        }
+        self.unasked.push_back(Order::KeptEnd);
     }
 
     /// Takes `SIGRTMIN+1` and `SIGRTMIN+2`, which `vtium blank` and
@@ -577,6 +664,40 @@ pub fn drawer(args: &mut Vec<OsString>) -> io::Result<Option<(Link, u16)>> {
     start::begin().map(|link| Some((link, vt)))
 }
 
+/// Logs what [`plan`] decides from `facts`, and returns the drawer's
+/// account when vtium splits. A vtium that splits after it looked for
+/// seatd alone and found none logs that once here. A vtium that runs as
+/// one process logs it as it pins libseat to seatd, so the line never
+/// comes twice.
+fn decide(facts: &dyn Facts) -> Option<Account> {
+    match plan(facts) {
+        Plan::OneProcess(line) => {
+            if let Some(line) = line {
+                log::warn!(target: "broker", "{line}");
+            }
+            None
+        }
+        Plan::Seat(line) => {
+            log::info!(target: "broker", "{line}");
+            None
+        }
+        Plan::Split {
+            account,
+            seatd_only,
+        } => {
+            // vtium looked for seatd alone and found none, so it splits on
+            // the kernel's VT, as vtium in one process runs on it then.
+            #[cfg(feature = "libseat")]
+            if seatd_only {
+                log::info!(target: "seat", "{}", vtium_platform::seat::SEATD_ONLY);
+            }
+            #[cfg(not(feature = "libseat"))]
+            let _ = seatd_only;
+            Some(account)
+        }
+    }
+}
+
 /// Takes [`DRAWER`] and the VT's number off the front of `args`: `None`
 /// when the run is not the drawer's, and an error when the number is
 /// missing or is not a VT's.
@@ -598,15 +719,7 @@ fn drawers_vt(args: &mut Vec<OsString>) -> Option<io::Result<u16>> {
 /// until the drawer ends, and returns the broker's exit status. Returns
 /// `None` when vtium runs as one process.
 pub fn split(args: &[OsString]) -> Option<u8> {
-    let account = match plan(&System) {
-        Plan::OneProcess(line) => {
-            if let Some(line) = line {
-                log::warn!(target: "broker", "{line}");
-            }
-            return None;
-        }
-        Plan::Split(account) => account,
-    };
+    let account = decide(&System)?;
     Some(match broker(args, &account) {
         Ok(status) => status,
         Err(e) => {
@@ -637,8 +750,9 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
     let env = begun.env.clone();
     let kernel = begun.kernel(&lp);
-    let processes = begun.processes(&lp);
+    let mut processes = begun.processes(&lp);
     processes.listen(&lp)?;
+    processes.name_kept();
     // The broker holds the VT before it says it is ready and before the
     // drawer starts, and puts the VT back after any end of the drawer.
     let path = devices::vt_path(args)?;
@@ -703,9 +817,15 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
 /// - A drawer still running at the end of the stop bound gets `SIGKILL`.
 ///
 /// `restore` puts the VT back. The broker calls it exactly once, after
-/// any end of the drawer. Once the drawer has said it runs, the broker
-/// exits with the drawer's own status, or with a failure when a signal
-/// killed the drawer.
+/// any end of the drawer, and then [`Serve::end`] once. Once the drawer
+/// has said it runs, the broker exits with the drawer's own status. It
+/// exits with a failure instead when a signal killed the drawer, or when
+/// the VT hung up, as vtium in one process does at a hangup.
+///
+/// References:
+/// - ADR-1400 D4, "Start, stop and exit": the broker's exit status.
+/// - ADR-1401 D9: under the closed policy, systemd restarts vtium after a
+///   failure, and no getty takes the VT.
 pub fn run(
     lp: &mut Loop<Seen>,
     link: &Link,
@@ -729,6 +849,7 @@ pub fn run(
     if let Some(line) = refusals.end() {
         log::warn!(target: "broker", "{line}");
     }
+    serve.end();
     status
 }
 
@@ -766,7 +887,10 @@ fn turns(
     let started = clock();
     let ready_by = started.checked_add(bounds.start).unwrap_or(started);
     let mut ready = false;
-    // set once the start fails, whatever the drawer's own status
+    // Set once the start fails or the VT hangs up, whatever the drawer's
+    // own status. vtium in one process exits with a failure at a hangup,
+    // so systemd restarts it under the closed policy, and the broker does
+    // the same.
     let mut failed = false;
     let mut stop_by: Option<Instant> = None;
     let stop_at = |now: Instant| Some(now.checked_add(bounds.stop).unwrap_or(now));
@@ -779,9 +903,10 @@ fn turns(
     };
     loop {
         // What the loop saw besides the drawer's requests, such as the VT's
-        // switches, before the loop waits again; and whether that asks the
-        // drawer to stop.
-        let stop_asked = serve.turn(clock(), &mut out);
+        // switches, before the loop waits again; and whether the VT hung
+        // up, which stops the drawer.
+        let hung_up = serve.turn(clock(), &mut out);
+        failed |= hung_up;
         // While the queue of orders is full, the broker reads no requests
         // and waits for room; while any order waits, it watches for room.
         if let Some(watched) = socket.as_mut()
@@ -793,7 +918,7 @@ fn turns(
             return FAILURE;
         }
         let mut seen = Seen {
-            stop: stop_asked,
+            stop: hung_up,
             ..Seen::default()
         };
         let now = clock();
@@ -1251,14 +1376,54 @@ mod tests {
     }
 
     /// The loop runs the devices' turn when it is due, with no event from
-    /// the drawer or the kernel, and a VT that hung up stops the drawer,
-    /// whose own status is then the broker's.
+    /// the drawer or the kernel, and a VT that hung up stops the drawer.
+    /// The broker then exits with a failure although the drawer stops with
+    /// status 0, as vtium in one process exits at a hangup, so systemd
+    /// restarts vtium under the closed policy.
     #[test]
     fn the_loop_runs_the_devices_turn_when_due_and_a_hangup_stops_the_drawer() {
         let ran = bounded(move || {
-            broker_serving("stop:7", &[], LONG, |_, _| Box::new(HangUpWhenDue(None)))
+            broker_serving("stop:0", &[], LONG, |_, _| Box::new(HangUpWhenDue(None)))
         });
-        assert_eq!((ran.status, ran.restored), (7, 1));
+        assert_eq!((ran.status, ran.restored), (FAILURE, 1));
+    }
+
+    /// Serves as [`StopOnPower`] does, and counts the calls of
+    /// [`Serve::end`].
+    struct CountsEnd(StopOnPower, Arc<std::sync::atomic::AtomicU32>);
+
+    impl Serve for CountsEnd {
+        fn serve(&mut self, request: Request, out: &mut Outbox<'_>) -> io::Result<()> {
+            self.0.serve(request, out)
+        }
+
+        fn end(&mut self) {
+            self.1.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// However the drawer ends, the broker ends what it runs for the drawer
+    /// once, after the drawer: the sessions the keeper holds run on, and
+    /// the broker hangs up the rest. A drawer that stops when told, one
+    /// that a signal kills, and one that exits before it says it runs all
+    /// count.
+    #[test]
+    fn the_broker_ends_the_sessions_once_after_any_end_of_the_drawer() {
+        for (mode, status) in [("stop:7", 7), ("signal", FAILURE), ("early:3", FAILURE)] {
+            let ended = Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let counts = Arc::clone(&ended);
+            let ran = bounded(move || {
+                broker_serving(mode, &[], LONG, |ping, _| {
+                    Box::new(CountsEnd(StopOnPower(ping), counts))
+                })
+            });
+            assert_eq!((ran.status, ran.restored), (status, 1), "{mode}");
+            assert_eq!(
+                ended.load(Ordering::SeqCst),
+                1,
+                "{mode}: the sessions were not ended once"
+            );
+        }
     }
 
     /// A message that the protocol refuses is dropped, and the broker
@@ -1637,6 +1802,8 @@ mod tests {
     struct Stand {
         root: bool,
         account: Option<Account>,
+        seat_manager: bool,
+        seatd_only: bool,
     }
 
     impl Facts for Stand {
@@ -1647,6 +1814,89 @@ mod tests {
             assert_eq!(name, "vtium");
             self.account.clone()
         }
+        fn seat(&self) -> Seat {
+            Seat {
+                served: self.seat_manager,
+                seatd_only: self.seatd_only,
+            }
+        }
+    }
+
+    /// vtium logs that it looked for seatd alone once, and only when it
+    /// splits. A vtium that runs as one process logs the same line itself
+    /// as it pins libseat to seatd, so the broker's plan logs none then.
+    #[cfg(feature = "libseat")]
+    #[test]
+    fn seatd_only_is_logged_once_and_only_when_vtium_splits() {
+        let account = Account {
+            uid: 970,
+            gid: 970,
+            groups: Some(vec![970]),
+        };
+        let seatd_lines = |lines: &[String]| {
+            lines
+                .iter()
+                .filter(|l| *l == vtium_platform::seat::SEATD_ONLY)
+                .count()
+        };
+        logged();
+        let splits = Stand {
+            root: true,
+            account: Some(account),
+            seat_manager: false,
+            seatd_only: true,
+        };
+        assert!(decide(&splits).is_some());
+        assert_eq!(seatd_lines(&logged()), 1, "the split logs the line once");
+        let alone = Stand {
+            account: None,
+            ..splits
+        };
+        assert!(decide(&alone).is_none());
+        let lines = logged();
+        assert_eq!(
+            seatd_lines(&lines),
+            0,
+            "one process logs it itself: {lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("account vtium does not exist")),
+            "{lines:?}"
+        );
+    }
+
+    /// Where a seat manager serves the seat, vtium runs as one process, as
+    /// root, with the account or without it, and logs one line that says
+    /// why. Without root it logs nothing, as always.
+    #[test]
+    fn under_a_seat_manager_vtium_runs_as_one_process() {
+        let account = Account {
+            uid: 970,
+            gid: 970,
+            groups: Some(vec![970]),
+        };
+        for account in [Some(account), None] {
+            let seated = Stand {
+                root: true,
+                account,
+                seat_manager: true,
+                seatd_only: false,
+            };
+            let Plan::Seat(line) = plan(&seated) else {
+                panic!("one process for the seat manager: {:?}", plan(&seated));
+            };
+            assert!(line.contains("seat manager"), "{line}");
+            assert!(!line.contains('\n'), "{line}");
+        }
+        let user = Stand {
+            root: false,
+            account: None,
+            seat_manager: true,
+            seatd_only: false,
+        };
+        assert_eq!(plan(&user), Plan::OneProcess(None));
     }
 
     /// vtium splits only as root with the account `vtium`. Without root
@@ -1663,16 +1913,28 @@ mod tests {
         let split = Stand {
             root: true,
             account: Some(account.clone()),
+            seat_manager: false,
+            seatd_only: false,
         };
-        assert_eq!(plan(&split), Plan::Split(account.clone()));
+        assert_eq!(
+            plan(&split),
+            Plan::Split {
+                account: account.clone(),
+                seatd_only: false
+            }
+        );
         let user = Stand {
             root: false,
             account: Some(account),
+            seat_manager: false,
+            seatd_only: false,
         };
         assert_eq!(plan(&user), Plan::OneProcess(None));
         let missing = Stand {
             root: true,
             account: None,
+            seat_manager: false,
+            seatd_only: false,
         };
         let Plan::OneProcess(Some(line)) = plan(&missing) else {
             panic!("one process with a line");

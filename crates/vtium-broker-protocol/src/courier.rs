@@ -116,8 +116,24 @@ impl Courier {
         bound_ms: u32,
     ) -> io::Result<Arrived> {
         self.send(request)?;
+        self.wait_within(&matches, bound_ms)
+    }
+
+    /// Waits, without sending a request, for the order that `matches`
+    /// accepts, as [`Courier::call`] waits for its answer: every other
+    /// order read meanwhile waits in the queue, and the wait fails in the
+    /// same two ways. The drawer waits so for the orders that the broker
+    /// sends unasked at its start.
+    pub fn wait(&self, matches: impl Fn(&Order) -> bool) -> io::Result<Arrived> {
+        self.wait_within(&matches, CALL_BOUND_MS)
+    }
+
+    fn wait_within(&self, matches: &dyn Fn(&Order) -> bool, bound_ms: u32) -> io::Result<Arrived> {
+        if self.closed.get() {
+            return Err(gone());
+        }
         let queued = self.queue.borrow().len();
-        let answer = self.wait_for(&matches, bound_ms);
+        let answer = self.wait_for(matches, bound_ms);
         if self.queue.borrow().len() > queued
             && let Some(wake) = self.wake.borrow().as_ref()
         {
@@ -374,6 +390,36 @@ mod tests {
             Got::Message(Ok((Order::Blank, None)))
         ));
         drop(broker);
+    }
+
+    #[test]
+    fn a_wait_sends_nothing_and_takes_only_the_order_it_waits_for() {
+        let (broker, courier) = courier();
+        let woken = Rc::new(Cell::new(0u32));
+        let w = Rc::clone(&woken);
+        courier.on_queued(Box::new(move || w.set(w.get().saturating_add(1))));
+        broker.order(&Order::Blank, None).unwrap();
+        broker.order(&Order::KeptEnd, None).unwrap();
+        broker.order(&Order::Wake, None).unwrap();
+        let (got, fd) = courier.wait(|o| matches!(o, Order::KeptEnd)).unwrap();
+        assert_eq!(got, Order::KeptEnd);
+        assert!(fd.is_none());
+        assert!(
+            matches!(broker.next_request().unwrap(), Got::Nothing),
+            "a wait sent a request"
+        );
+        assert_eq!(woken.get(), 1, "the order left in the queue woke no loop");
+        assert!(matches!(
+            courier.next().unwrap(),
+            Got::Message(Ok((Order::Blank, None)))
+        ));
+        assert!(matches!(
+            courier.next().unwrap(),
+            Got::Message(Ok((Order::Wake, None)))
+        ));
+        drop(broker);
+        let e = courier.wait(|_| true).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::BrokenPipe);
     }
 
     #[test]

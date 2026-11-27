@@ -3364,6 +3364,51 @@ fn the_loop_sends_a_frame_kept_from_a_busy_swap_once_the_flip_ends() {
     assert_eq!(counts(&mut app), (swaps + 1, 1), "once");
 }
 
+// A row of history that output moves above the screen in one read, so
+// that no row of the screen ever shows it, has its glyphs asked for before
+// the frame that draws it in the overscan. The view asked its frames to
+// hold the rows above the screen when it took the first frame, and what
+// the displays show, which the asks to the font helper read, holds those
+// rows from then on. Here salam's lam-alef ligature is such a glyph.
+//
+// References:
+// - ADR-1310 D2: the rows above the screen that a view asks for.
+// - ADR-1004 D6: the key of the lam-alef ligature.
+#[cfg(all(feature = "bidi", feature = "scroll-pan"))]
+#[test]
+fn a_row_of_history_no_screen_row_showed_is_asked_for_before_it_is_drawn() {
+    let (mut lp, mut app) = seat(None, no_fonts());
+    let node = PathBuf::from("/dev/mem0");
+    app.add_video(node.clone(), Box::new(Still::new(&[(1, "A")])));
+    shown(&mut app);
+    let t = Instant::now();
+    settle(&mut lp, &mut app, t);
+    let swaps = app
+        .videos
+        .get_mut(&node)
+        .and_then(|v| v.as_any().downcast_mut::<Still>())
+        .map_or(0, |still| still.swaps);
+    assert_eq!(swaps, 1, "one frame drawn");
+    let ligature = vec!['\u{200d}', '\u{644}', '\u{627}'];
+    let asked = |app: &App| {
+        app.heads
+            .first()
+            .and_then(|head| head.visible().into_iter().next())
+            .is_some_and(|shown| shown.clusters.contains(&ligature))
+    };
+    let head = app.heads.first_mut().unwrap();
+    let mut output = "سلام".to_owned();
+    for _ in 0..head.grid.1 {
+        output.push_str("\r\nx");
+    }
+    head.console.term.terminal.input(output.as_bytes());
+    assert!(
+        !head.screen_text().iter().any(|l| l.contains('\u{644}')),
+        "salam lies above the screen"
+    );
+    assert!(asked(&app), "asked before the next frame draws it");
+}
+
 // ADR-1401 D2: the loop hands a synchronized update's end to each
 // display as the end of an update, not as a draw asked at once, so on a
 // display whose draws wait for the flip, an end no key caused composes

@@ -48,6 +48,18 @@ libseat = ["vtium-platform/libseat"]
 # - ADR-1310 D6: the pan, the copy, and the feature that builds them.
 # - ADR-1401 D2: the tall buffer and the copy's ring.
 scroll-pan = ["vtium-term/rows-beyond", "vtium-render/scroll-pan", "vtium-platform/scroll-pan"]
+# Smooth scrolling. A console whose `smooth-scroll` is on keeps its grid's
+# last row against the screen's bottom edge, and the spare pixel lines above
+# the grid show what `partial-row` says. A build without the feature centres
+# the grid on every console. The slide, its pacing and the row slot are the
+# later parts of the same work, and land behind this feature too.
+#
+# References:
+# - ADR-1310 D7: the feature, and the rows beyond the screen it shares with
+#   scroll-pan.
+# - ADR-1310 D10 and D12: where the grid sits with smooth scrolling on and
+#   off.
+smooth-scroll = ["vtium-term/rows-beyond"]
 # The privilege split: run as root with the account `vtium`, vtium becomes a
 # root process that holds the VT, opens the devices and starts every
 # process, and runs the rest of vtium as a drawing process under that

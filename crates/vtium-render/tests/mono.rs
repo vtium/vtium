@@ -31,15 +31,10 @@ fn drawn(s: &Screen, config: Config, blink_hidden: bool) -> Canvas {
     c
 }
 
-/// The display's lines above the grid, on a display 4 pixels taller than
-/// its grid: its last row touches the display's bottom edge, so all 4
-/// spare lines lie above it. The 4 spare columns split 2 a side.
-const TOP: u32 = 4;
-
-/// The lit pixels of the cell at `col`, `row`, inside the border.
+/// The lit pixels of the cell at `col`, `row`, inside the 2-pixel border.
 fn lit(c: &Canvas, col: u32, row: u32) -> usize {
     (0..16)
-        .flat_map(|y| (0..8).map(move |x| (col * 8 + 2 + x, row * 16 + TOP + y)))
+        .flat_map(|y| (0..8).map(move |x| (col * 8 + 2 + x, row * 16 + 2 + y)))
         .filter(|&(x, y)| c.pixel(x, y) == Some(WHITE))
         .count()
 }
@@ -94,7 +89,7 @@ fn colors_map_to_lit_or_unlit_by_cell() {
     let c = drawn(&screen(), one(), false);
     let color = drawn(&screen(), Config::default(), false);
     let glyph = (0..16)
-        .flat_map(|y| (0..8).map(move |x| (x + 2, y + TOP)))
+        .flat_map(|y| (0..8).map(move |x| (x + 2, y + 2)))
         .filter(|&(x, y)| color.pixel(x, y) == Some(0xff_0000))
         .count();
     assert!(glyph > 10, "the H covers {glyph} pixels");
@@ -148,7 +143,7 @@ fn partial_blink_hides_the_glyph_at_one_bit() {
         ..config
     };
     let partial = drawn(&s, color, true);
-    assert!((0..8).any(|x| (0..16).any(|y| partial.pixel(x + 2, y + TOP) != Some(0x10_1010))));
+    assert!((0..8).any(|x| (0..16).any(|y| partial.pixel(x + 2, y + 2) != Some(0x10_1010))));
 }
 
 // the depth is kept for the owner, which builds the next renderer with it
@@ -298,7 +293,7 @@ fn shades_at_1_bit_are_patterns_that_join() {
     // each pair of like cells, two rows tall, repeats every 2 pixels
     for pair in 0..3u32 {
         let x0 = pair * 16 + 2;
-        for y in TOP..TOP + 32 - 2 {
+        for y in 2..2 + 32 - 2 {
             for x in x0..x0 + 16 - 2 {
                 assert_eq!(c.pixel(x, y), c.pixel(x + 2, y), "{x},{y} across");
                 assert_eq!(c.pixel(x, y), c.pixel(x, y + 2), "{x},{y} down");
@@ -308,9 +303,9 @@ fn shades_at_1_bit_are_patterns_that_join() {
     // in color the shades keep their coverage: each cell one even gray
     let color = drawn(&s, Config::default(), false);
     for col in [0, 2, 4] {
-        let first = color.pixel(col * 8 + 2, TOP).unwrap();
+        let first = color.pixel(col * 8 + 2, 2).unwrap();
         assert!(first != 0x10_1010 && first != 0xc0_c0c0, "{first:06x}");
-        for y in TOP..TOP + 16 {
+        for y in 2..18 {
             for x in col * 8 + 2..col * 8 + 10 {
                 assert_eq!(color.pixel(x, y), Some(first), "{x},{y}");
             }
@@ -637,7 +632,7 @@ fn a_bitmap_script_glyph_at_1_bit_is_its_small_glyph_exactly() {
             for y in 0..16 {
                 for x in 0..8 {
                     let want = small.pixel(x, y).unwrap()[0] != 0;
-                    let got = c.pixel(col * 8 + 2 + x, TOP + y) == Some(WHITE);
+                    let got = c.pixel(col * 8 + 2 + x, 2 + y) == Some(WHITE);
                     assert_eq!(got, want, "{ch} {script:?} at {x},{y}");
                 }
             }

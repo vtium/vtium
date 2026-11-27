@@ -10,7 +10,7 @@
 
 use vtium_term::Rgb;
 
-#[cfg(feature = "images")]
+#[cfg(any(feature = "images", feature = "scroll-pan"))]
 pub(crate) mod linear;
 
 /// `t / 255` rounded, exact for `t` up to 255 * 255, without a division.
@@ -154,6 +154,33 @@ fn linear_channel(s: u8, d: u8, recip: u32, a: u32, na: u32) -> u32 {
         .wrapping_div(4080);
     let step = usize::try_from(step.min(4095)).unwrap_or(4095);
     u32::from(linear::TO_SRGB.get(step).copied().unwrap_or(255))
+}
+
+/// The display pixels `a` and `b` mixed in linear light, `a` weighted by
+/// `keep` of 255 and `b` by the rest: what the fade of the spare lines
+/// shows, by the same tables a partly transparent picture blends through.
+///
+/// References:
+/// - ADR-1310 D12, "The key `partial-row`": the fade mixes in linear light, as a picture blends.
+/// - ADR-1300 D7: the reciprocal, linear and sRGB tables.
+#[cfg(feature = "scroll-pan")]
+pub(crate) fn mix_linear(a: u32, b: u32, keep: u8) -> u32 {
+    let k = u32::from(keep);
+    let nk = 255u32.wrapping_sub(k);
+    let ch = |shift: u32| {
+        let lin = |p: u32| {
+            let byte = usize::try_from(p >> shift & 0xff).unwrap_or(0);
+            u32::from(linear::TO_LINEAR.get(byte).copied().unwrap_or(0))
+        };
+        let step = lin(a)
+            .wrapping_mul(k)
+            .wrapping_add(lin(b).wrapping_mul(nk))
+            .wrapping_add(2040)
+            .wrapping_div(4080);
+        let step = usize::try_from(step.min(4095)).unwrap_or(4095);
+        u32::from(linear::TO_SRGB.get(step).copied().unwrap_or(255))
+    };
+    ch(16) << 16 | ch(8) << 8 | ch(0)
 }
 
 #[cfg(test)]

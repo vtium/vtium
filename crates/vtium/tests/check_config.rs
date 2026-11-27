@@ -153,6 +153,16 @@ const WRITES: [&str; 37] = [
     "open_by_handle_at",
 ];
 
+/// Whether a line of `strace -y` acts on a socket, which `-y` prints as
+/// `N<socket:[INODE]>`. A build with `split` looks the account `vtium` up
+/// through the name service, and nss-systemd marks each of its varlink
+/// sockets with an extended attribute. That changes no file.
+fn on_socket(line: &str) -> bool {
+    line.split_once('(')
+        .and_then(|(_, args)| args.split(',').next())
+        .is_some_and(|fd| fd.contains("<socket:"))
+}
+
 /// What a line of `strace -f` names: the syscall, and its first quoted
 /// argument, a path.
 fn syscall(line: &str) -> Option<(&str, &str)> {
@@ -197,7 +207,10 @@ fn it_opens_nothing_under_dev_and_writes_nothing() {
             "opened {path}: {line}"
         );
         assert!(!(open && writing), "opened {path} to write: {line}");
-        assert!(!WRITES.contains(call), "changed {path}: {line}");
+        assert!(
+            on_socket(line) || !WRITES.contains(call),
+            "changed {path}: {line}"
+        );
     }
 }
 
@@ -233,7 +246,7 @@ fn traced(d: &Path, extra: &[&str]) -> Option<String> {
         return None;
     }
     let out = Command::new("strace")
-        .args(["-f", "-o", "/dev/stderr", "-e"])
+        .args(["-f", "-y", "-o", "/dev/stderr", "-e"])
         .arg(format!("trace=%file,{}", WRITES.join(",")))
         .arg(env!("CARGO_BIN_EXE_vtium"))
         .args(["check-config", "-c"])

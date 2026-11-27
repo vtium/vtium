@@ -54,6 +54,7 @@ import t3_heads  # noqa: E402
 import t3_images  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_pictures  # noqa: E402
+import t3_split  # noqa: E402
 import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
 import t3_rootchecks  # noqa: E402
@@ -1344,6 +1345,10 @@ class VtiumGoldenTest(unittest.TestCase):
         #   whole number of rows tall. They are provisional until the B8c
         #   cards have moved them all and the maintainer has reviewed the one
         #   redraw; that golden commit empties MOVING again.
+        # - 2026-11-25: ADR-1310 D12 centres the grid on both axes again
+        #   while smooth scrolling is off, the default, which every variant
+        #   runs with, so most of these goldens may match their committed
+        #   pixels again; the same redraw shows which.
         moving = ("2d-1280x800", "2d-1366x768-potato", "2d-7680x2160",
                   "2d-7680x2160-font32", "2d-potato-min")
         expected = sorted(
@@ -1745,8 +1750,24 @@ class VariantTest(unittest.TestCase):
                "[   81.007692] vtium[1397]: log: vtium Revision v0.1\n"
                "[   81.195906] vtium[1397]: Display Virtual-1 with backend [drm2d] "
                "text renderer [cpu], cell size 8x16\n")
+        # Under the privilege split, the root process logs the revision and
+        # names its drawing process, which logs the display lines; a second
+        # console's drawing process still does not count.
+        split = ("[    7.79] vtium[780]: log: vtium Revision v0.1\n"
+                 "[    7.79] vtium[780]: broker: vtium runs as two processes: this root "
+                 "process, and drawing process 781, which runs everything else as the "
+                 "account vtium\n"
+                 "[    7.80] vtium[781]: log: vtium Revision v0.1\n"
+                 "[    7.87] vtium[781]: Display Virtual-1 with backend [drm2d] "
+                 "text renderer [cpu], cell size 10x19\n"
+                 "[  132.54] vtium[5170]: log: vtium Revision v0.1\n"
+                 "[  132.54] vtium[5170]: broker: vtium runs as two processes: this root "
+                 "process, and drawing process 5171, which runs everything else as the "
+                 "account vtium\n"
+                 "[  132.60] vtium[5171]: Display Virtual-1 with backend [drm2d] "
+                 "text renderer [cpu], cell size 8x16\n")
         for text, want in [(log, [10, 18]), ("[    1.0] vtium[5]: started\n", None),
-                           ("Display a, cell size 8x16\n", [8, 16])]:
+                           ("Display a, cell size 8x16\n", [8, 16]), (split, [10, 19])]:
             with tempfile.NamedTemporaryFile("w", delete=False) as f:
                 f.write(text)
             try:
@@ -1769,6 +1790,19 @@ class VariantTest(unittest.TestCase):
             f.write("[    6.663227] kmscon[459]: log: kmscon Revision v10\n")
         try:
             self.assertIsNone(t3_scenario.console_startup_ms(f.name))
+        finally:
+            os.unlink(f.name)
+        # under the privilege split, the root process's revision line to its
+        # drawing process's display line
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write("[    7.797109] vtium[780]: log: vtium Revision v0.1\n"
+                    "[    7.797200] vtium[780]: broker: vtium runs as two processes: this root "
+                    "process, and drawing process 781, which runs everything else as the "
+                    "account vtium\n"
+                    "[    7.870848] vtium[781]: Display Virtual-1 with backend [drm2d] "
+                    "text renderer [cpu], cell size 10x19\n")
+        try:
+            self.assertEqual(t3_scenario.console_startup_ms(f.name), 73.7)
         finally:
             os.unlink(f.name)
 
@@ -2760,21 +2794,59 @@ class PointerTest(unittest.TestCase):
         # a 64-pixel cell: a hotspot of 3, the grid 1344x768 at 11,0
         self.assertEqual(t3_pointer.corner((0, 0), self.DISPLAY, (32, 64)), (11 - 3, -3))
 
-    def test_the_corner_counts_the_spare_lines_above_the_grid(self):
-        # 640x480 in 6x9 cells: a grid of 636x477, centred across with 2
-        # spare columns on each side, its last row on the display's bottom
-        # edge and the 3 spare lines above it, so at 2,3; a hotspot of 1
+    def test_the_grid_is_centred_while_smooth_scrolling_is_off(self):
+        # 640x480 in 6x9 cells: a grid of 636x477, with 2 spare columns on
+        # each side, and of the 3 spare lines 1 above it and 2 below, so at
+        # 2,1; a hotspot of 1
         display, cell = (640, 480), (6, 9)
-        self.assertEqual(t3_pointer.origin(display, cell), (2, 3))
-        self.assertEqual(t3_pointer.corner((0, 0), display, cell), (2 - 1, 3 - 1))
+        self.assertEqual(t3_pointer.origin(display, cell), (2, 1))
+        self.assertEqual(t3_pointer.corner((0, 0), display, cell), (2 - 1, 1 - 1))
         self.assertEqual(t3_pointer.corner((t3_pointer.ABS_MAX,) * 2, display, cell),
-                         (2 + 635 - 1, 3 + 476 - 1))
-        # 1280x800 in 10x19 cells: 798 lines of grid, 2 spare lines above
-        self.assertEqual(t3_pointer.origin((1280, 800), (10, 19)), (0, 2))
-        self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 19)), (3, 8))
+                         (2 + 635 - 1, 1 + 476 - 1))
+        # 1280x800 in 10x19 cells: 798 lines of grid, 1 spare line above
+        # and 1 below; 1366x768 in 8x19 cells: 8 spare lines, 4 above
+        self.assertEqual(t3_pointer.origin((1280, 800), (10, 19)), (0, 1))
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 19)), (3, 4))
+        # 1366x768 in 8x18 cells, as tier3-minimal's pointer case draws:
+        # 12 spare lines, 6 above the grid
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 18)), (3, 6))
         # 1366 across in 9-pixel cells leaves 7 spare columns: 3 on the
         # left and the odd one with the other 3 on the right
         self.assertEqual(t3_pointer.origin(self.DISPLAY, (9, 16)), (3, 0))
+
+    def test_the_grid_is_flush_to_the_bottom_while_smooth_scrolling_is_on(self):
+        # the same displays with smooth scrolling on: every spare line lies
+        # above the grid, and the spare columns still split
+        display, cell = (640, 480), (6, 9)
+        self.assertEqual(t3_pointer.origin(display, cell, smooth=True), (2, 3))
+        self.assertEqual(t3_pointer.corner((0, 0), display, cell, smooth=True), (2 - 1, 3 - 1))
+        self.assertEqual(t3_pointer.origin((1280, 800), (10, 19), smooth=True), (0, 2))
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (8, 19), smooth=True), (3, 8))
+        self.assertEqual(t3_pointer.origin(self.DISPLAY, (9, 16), smooth=True), (3, 0))
+
+    def test_smooth_scrolling_is_read_from_the_head_its_look_and_the_top_level(self):
+        on = ["smooth-scroll"]
+        smooth = t3_pointer.smooth_scrolls
+        # off by default, and on only in a build with the feature
+        self.assertFalse(smooth("", on))
+        self.assertTrue(smooth("smooth-scroll=on\n", on))
+        self.assertFalse(smooth("smooth-scroll=on\n", ["images", "scroll-pan"]))
+        self.assertFalse(smooth("smooth-scroll = off\n", on))
+        # a look's value wins over the top level's, and a head's over its
+        # look's; a head with no look uses the look default
+        look = "smooth-scroll=on\n[look big]\nsmooth-scroll=off\n"
+        self.assertFalse(smooth(look + "[head console]\nlook = big\n", on))
+        self.assertTrue(smooth(look + "[head console]\nlook = big\nsmooth-scroll = on\n", on))
+        self.assertTrue(smooth(look + "[head console]\n", on))
+        self.assertFalse(smooth("[look default]\nsmooth-scroll=off\n[head a]\n"
+                                "smooth-scroll=off\n", on))
+        self.assertTrue(smooth("[look default]\nsmooth-scroll=on\n[head a]\n", on))
+        # a comment and another section's lines set nothing
+        self.assertFalse(smooth("#smooth-scroll=on\n[rules]\nsmooth-scroll=on\n", on))
+        # every tier 3 variant runs with smooth scrolling off
+        for name, variant in t3_scenario.VARIANTS.items():
+            with self.subTest(variant=name):
+                self.assertFalse(t3_pointer.variant_smooth(variant))
 
     def test_the_planes_are_read_from_the_dump(self):
         planes = t3_pointer.planes(self.STATE)
@@ -2824,12 +2896,15 @@ class PointerTest(unittest.TestCase):
                 at = t3_pointer.aim(target, display, cell)
                 self.assertTrue(all(0 <= v <= t3_pointer.ABS_MAX for v in at), at)
                 hot = t3_pointer.hotspot(cell[1])
-                # centred across, and the spare lines above the grid
+                # centred on both axes, and with smooth scrolling on, the
+                # spare lines above the grid
                 (w, h), (cw, ch) = display, cell
-                off = [(w - w // cw * cw) // 2, h - h // ch * ch]
-                want = tuple(o + n * c + c // 2 - hot
-                             for o, n, c in zip(off, target, cell))
-                self.assertEqual(t3_pointer.corner(at, display, cell), want)
+                for smooth, top in ((False, (h - h // ch * ch) // 2), (True, h - h // ch * ch)):
+                    off = [(w - w // cw * cw) // 2, top]
+                    want = tuple(o + n * c + c // 2 - hot
+                                 for o, n, c in zip(off, target, cell))
+                    self.assertEqual(t3_pointer.corner(at, display, cell, smooth=smooth), want)
+                want = t3_pointer.corner(at, display, cell)
                 # each value is the smallest that reaches the pixel
                 self.assertNotEqual(t3_pointer.corner((at[0] - 1, at[1]), display, cell)[0],
                                     want[0])
@@ -4550,6 +4625,32 @@ esac
         self.assertIn("still run", t3_heads.judge_stopped(
             before, t3_heads.parse_ptys([prompt])))
 
+    def test_every_session_survives_judged_both_ways(self):
+        one, two = "pty 700 pts/0 80x30 bash", "pty 702 pts/2 80x30 bash"
+        prompt = "pty 701 pts/1 80x30 login"
+        before = t3_heads.parse_ptys([one, prompt, two, "pty 703 pts/3 80x30 vim",
+                                      "masters 410 3"])
+        good = t3_heads.parse_ptys([one, prompt, two, "masters 512 3"])
+        self.assertEqual(set(t3_heads.sessions_of(before)), {700, 701, 702})
+        self.assertIsNone(t3_heads.judge_all_survived(before, good, 512, []))
+        for start, after, vtium, missing, why in (
+                (before, good, 512, [3], "console 3"),
+                (t3_heads.parse_ptys([one, prompt, "masters 410 2"]), good, 512, [],
+                 "fewer than two shells"),
+                (before, t3_heads.parse_ptys([one, prompt, "masters 512 2"]), 512, [],
+                 "bash 702 is gone"),
+                (before, t3_heads.parse_ptys([one, two, "masters 512 2"]), 512, [],
+                 "login 701 is gone"),
+                (before, t3_heads.parse_ptys([one, prompt, "pty 702 pts/3 80x30 bash",
+                                              "masters 512 3"]), 512, [], "not pts/2"),
+                (before, t3_heads.parse_ptys([one, prompt, "pty 702 pts/2 40x10 bash",
+                                              "masters 512 3"]), 512, [], "not 80x30"),
+                (before, t3_heads.parse_ptys([one, prompt, two, "masters 512 2"]), 512, [],
+                 "does not hold the 3 pty masters"),
+                (before, good, 513, [], "does not hold")):
+            with self.subTest(why):
+                self.assertIn(why, t3_heads.judge_all_survived(start, after, vtium, missing))
+
     def test_parse_state(self):
         st = t3_heads.parse_state(agent_state(tty2="agetty", fallback=("inactive", "success",
                                                                        "yes", 99)))
@@ -6139,14 +6240,14 @@ class DefaultVariantsTest(unittest.TestCase):
 
     def test_default_variants(self):
         # Every default variant draws the image screens, so its console is
-        # built with images, and with scroll-pan, as the packages are, and
-        # the GL one, which draws on the GPU path, with gpu too; goldens
-        # judge each one.
+        # built with images, and with scroll-pan and split, as the packages
+        # are, and the GL one, which draws on the GPU path, with gpu too;
+        # goldens judge each one.
         for name in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
-                features = (["gpu", "images", "scroll-pan"] if name == "gl-1280x800"
-                            else ["images", "scroll-pan"])
+                features = (["gpu", "images", "scroll-pan", "split"] if name == "gl-1280x800"
+                            else ["images", "scroll-pan", "split"])
                 self.assertEqual(v["tree_features"], features)
                 self.assertIn(name, t3_scenario.golden_cases())
                 self.assertEqual(t3_scenario.check_tree_features([name], {"tree_features": []}),
@@ -6334,10 +6435,10 @@ class DefaultVariantsTest(unittest.TestCase):
         # variants need, each once.
         for declared, variants, want in (
                 (None, ["2d-potato-min"], []),
-                (None, t3_scenario.DEFAULT_VARIANTS, ["gpu", "images", "scroll-pan"]),
-                (None, ["2d-1280x800", "2d-7680x2160"], ["images", "scroll-pan"]),
-                (["logind"], [self.VARIANT], ["images", "logind", "scroll-pan"]),
-                (["images"], [self.VARIANT, "2d-potato-min"], ["images", "scroll-pan"]),
+                (None, t3_scenario.DEFAULT_VARIANTS, ["gpu", "images", "scroll-pan", "split"]),
+                (None, ["2d-1280x800", "2d-7680x2160"], ["images", "scroll-pan", "split"]),
+                (["logind"], [self.VARIANT], ["images", "logind", "scroll-pan", "split"]),
+                (["images"], [self.VARIANT, "2d-potato-min"], ["images", "scroll-pan", "split"]),
                 ([], ["images-640x480", "2d-640x480-psf16"], ["images"])):
             with self.subTest(declared=declared, variants=variants):
                 self.assertEqual(t3.tree_features(declared, variants), want)
@@ -8324,6 +8425,159 @@ class HandOverTest(unittest.TestCase):
         self.assertIn("t3-probe take-master --check hand-over", agent)
 
 
+class SplitTest(unittest.TestCase):
+    """The privilege split's checks (t3_split.py) and the tree's accounts,
+    without a guest."""
+
+    # The agent's answer to `drawer` for a drawing process set up as
+    # ADR-1400 D4 says.
+    DRAWER = ["root 780 0 0 0 0",
+              "drawer 781 parent 780",
+              "status Uid: 969 969 969 969",
+              "status Gid: 969 969 969 969",
+              "status Groups: 969",
+              "status CapInh: 0000000000000000",
+              "status CapPrm: 0000000000000000",
+              "status CapEff: 0000000000000000",
+              "status CapBnd: 0000000000000000",
+              "status CapAmb: 0000000000000000",
+              "status NoNewPrivs: 1",
+              "status Seccomp: 0",
+              "proc-owner 0:0",
+              "account vtium 969 969"]
+    ACCOUNTS = "account vtium uid 969 gid 969 groups 969, account vtium-session uid 968 gid 968"
+
+    def judge(self, lines):
+        return t3_split.judge_drawer(t3_split.parse_drawer(lines))
+
+    def test_a_drawing_process_set_up_as_the_record_says_passes(self):
+        self.assertIsNone(self.judge(self.DRAWER))
+
+    def test_each_departure_from_the_setup_fails(self):
+        for old, new, why in (
+                ("root 780 0 0 0 0", "root 780 0 0 0 969", "does not run as root"),
+                ("drawer 781 parent 780", "drawer 781 parent 1", "not of the root process"),
+                ("status Uid: 969 969 969 969", "status Uid: 969 969 0 969", "user ids"),
+                ("status Gid: 969 969 969 969", "status Gid: 969 0 969 969", "group ids"),
+                ("status Groups: 969", "status Groups: 969 5", "supplementary groups"),
+                ("status CapEff: 0000000000000000", "status CapEff: 0000000000200000",
+                 "CapEff 0000000000200000"),
+                ("status CapBnd: 0000000000000000", "status CapBnd: 000001ffffffffff",
+                 "CapBnd"),
+                ("status CapAmb: 0000000000000000", "status CapAmb: 0000000000000001",
+                 "CapAmb"),
+                ("status NoNewPrivs: 1", "status NoNewPrivs: 0", "NoNewPrivs is"),
+                ("proc-owner 0:0", "proc-owner 969:969", "dumpable"),
+                ("account vtium 969 969", "account vtium 0 0", "no account vtium")):
+            with self.subTest(new):
+                lines = [new if line == old else line for line in self.DRAWER]
+                self.assertIn(why, self.judge(lines) or "")
+        self.assertIn("runs no drawing process",
+                      self.judge([line for line in self.DRAWER if not line.startswith("drawer")]))
+
+    def test_the_vt_while_vtium_runs_and_after_the_kill(self):
+        running = t3_split.parse_vt(["ROOTCHECK vt tty2: owner=0:5 perm=0620 kd=KD_GRAPHICS "
+                                     "kb=K_OFF switch=VT_PROCESS relsig=10 acqsig=12 "
+                                     "shown=tty2"])
+        self.assertIsNone(t3_split.judge_vt_running(running))
+        self.assertIn("not KD_GRAPHICS", t3_split.judge_vt_running(
+            t3_split.parse_vt(["ROOTCHECK vt tty2: kd=KD_TEXT kb=K_UNICODE switch=VT_AUTO"])))
+        unit = "unit failed exit-code status 1 1"
+        back = "ROOTCHECK vt tty2: owner=0:5 perm=0620 kd=KD_TEXT kb=K_UNICODE switch=VT_AUTO " \
+               "shown=tty2"
+        self.assertIsNone(t3_split.judge_vt_after(t3_split.parse_vt([unit, back])))
+        for lines, why in (
+                (["unit failed signal status 2 9", back], "must exit with a failure"),
+                (["unit inactive success status 1 0", back], "must exit with a failure"),
+                ([back], "not reported"),
+                ([unit, back.replace("KD_TEXT", "KD_GRAPHICS")], "not KD_TEXT"),
+                ([unit, back.replace("switch=VT_AUTO", "switch=VT_PROCESS relsig=10")],
+                 "not VT_AUTO"),
+                ([unit, back.replace("K_UNICODE", "K_OFF")], "keyboard mode is K_OFF")):
+            with self.subTest(lines):
+                self.assertIn(why, t3_split.judge_vt_after(t3_split.parse_vt(lines)) or "")
+
+    def test_the_graphical_program_must_take_the_card_on_vt_1(self):
+        answer = ["ROOTCHECK split-switch open /dev/dri/card0: ok",
+                  "ROOTCHECK split-switch master: yes, after 0 ms", "shown 1"]
+        self.assertIsNone(t3_split.judge_master(answer))
+        self.assertIn("never became", t3_split.judge_master(
+            ["ROOTCHECK split-switch master: no, vtium still held the card after 10 s",
+             "shown 1"]))
+        self.assertIn("VT shown changed", t3_split.judge_master(answer[:-1] + ["shown 2"]))
+
+    def test_the_variants(self):
+        v = t3_scenario.VARIANTS["split-direct"]
+        self.assertTrue(v["agent"] and v["probe"])
+        self.assertEqual(v["tree_features"], ["split"])
+        self.assertEqual(v["checks"], [t3_split.STATUS, t3_split.SWITCH, t3_split.KILL])
+        for check in v["checks"]:
+            self.assertIn(check, t3_scenario.CHECK_RUNS)
+            self.assertEqual(t3_evaluate.describe(check), (t3_split.CHECKS[check], None))
+        survive = t3_scenario.VARIANTS["split-survive"]
+        self.assertEqual(survive["tree_features"], ["split"])
+        self.assertEqual(survive["checks"], ["opened-survives"])
+        self.assertEqual(survive["policy"], "open")
+        with open(t3_heads.head_file(survive)) as f:
+            self.assertRegex(f.read(), r"(?m)^policy = open$")
+        self.assertIn("opened-survives", t3_scenario.CHECK_RUNS)
+        self.assertEqual(t3_evaluate.describe("opened-survives"),
+                         (t3_heads.CHECKS["opened-survives"], None))
+        fallback = t3_scenario.VARIANTS["split-fallback"]
+        self.assertEqual(fallback["failures"], ["kill", "drawer-kill"])
+        self.assertEqual(t3_heads.FAILURES["drawer-kill"], ("kill-drawer KILL", ("exit-code",)))
+        self.assertEqual(t3_evaluate.GOLDENS_OF["split-direct"], "2d-potato-min")
+        self.assertEqual(t3_evaluate.GOLDENS_OF["split-fallback"], "heads-partly-open")
+
+    def test_the_agent_answers_the_split_requests(self):
+        with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
+            agent = f.read()
+        for request in ("drawer)", '"kill-drawer KILL")', "hold-vt)", "vt-after)", "vt-now)",
+                        "unhold-vt)", "take-master)"):
+            self.assertIn("\n        %s" % request, agent)
+        self.assertIn("Restart=no\\nTTYReset=no\\nTTYVHangup=no\\nTTYVTDisallocate=no", agent)
+
+    def test_split_files(self):
+        # A tree built with split holds the sysusers file of its accounts,
+        # and a tree built without holds none (ADR-1400 D4).
+        base = dict(ImplementationTest.TREE)
+        accounts = {t3_impl.SPLIT_FILES[0]: "x"}
+        with tempfile.TemporaryDirectory() as d:
+            for files, features, why in (
+                    (base, ["split"], "built with split, holds no "
+                                      "/usr/lib/sysusers.d/vtium-split.conf"),
+                    (dict(base, **accounts), [], "built without split, installs "
+                                                 "/usr/lib/sysusers.d/vtium-split.conf")):
+                with self.subTest(features=features):
+                    tree = os.path.join(d, "t%d" % len(os.listdir(d)))
+                    write_tree(tree, files)
+                    with self.assertRaisesRegex(SystemExit, why):
+                        t3_impl.tree(tree, os.path.join(d, "x.tar"), features=features)
+            tree = os.path.join(d, "good")
+            write_tree(tree, dict(base, **accounts))
+            impl = t3_impl.tree(tree, os.path.join(d, "x.tar"), features=["split"])
+            self.assertEqual(impl["tree_features"], ["split"])
+
+    def test_check_guest(self):
+        t3_scenario.check_guest("split-direct", {"split": self.ACCOUNTS})
+        t3_scenario.check_guest("2d-potato-min", {"split": "none"})
+        for accounts in (None, "none", self.ACCOUNTS.replace("uid 969", "uid 0"),
+                         self.ACCOUNTS.replace("vtium-session uid 968 gid 968",
+                                               "vtium-session uid 968 gid 0")):
+            with self.subTest(accounts):
+                installed = {} if accounts is None else {"split": accounts}
+                with self.assertRaisesRegex(RuntimeError, "accounts of the privilege split"):
+                    t3_scenario.check_guest("split-direct", installed)
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            text = f.read()
+        self.assertIn("systemd-sysusers /usr/lib/sysusers.d/vtium-split.conf", text)
+        self.assertIn('"split: $split;"', text)
+        line = ("TIER3-INSTALL-OK packages: ; kernel: 7.2.11-arch1-1; images: none; split: %s; "
+                "tree: %s" % (self.ACCOUNTS, "a" * 64))
+        self.assertEqual(t3_scenario.check_install(line, {"tree_sha256": "a" * 64})["split"],
+                         self.ACCOUNTS)
+
+
 def figures_line(t, frames, echoes=None, head="Virtual-1", pid=505, before=""):
     """A head's frame-times line on the serial log, as vtium logs it at debug
     level under the render target (Head::figures_line), with its
@@ -8849,7 +9103,7 @@ class FontSourcesTest(unittest.TestCase):
         # cells of 8 with 6 left over, and 768 pixels 19 rows of 40 with 8
         for size, cell, grid in ((16, (8, 16), (3, 0)), (40, (20, 40), (3, 4))):
             img = self.terminus_screen(size, cell, glyphs, grid=grid)
-            self.assertEqual(t3_fonts.judge_terminus(img, cell, size, glyphs)[1], [], size)
+            self.assertEqual(t3_fonts.judge_terminus(img, cell, size, glyphs, grid)[1], [], size)
         # the next smaller strike in a 24-pixel cell
         img = self.terminus_screen(24, (12, 24), glyphs, strike=22)
         _, faults = t3_fonts.judge_terminus(img, (12, 24), 24, glyphs)
@@ -8880,6 +9134,25 @@ class FontSourcesTest(unittest.TestCase):
         _, faults = t3_fonts.judge_terminus(img, (8, 16), 16, glyphs)
         self.assertEqual(faults, ["the emoji U+1F600 is drawn in 2 colors, not in 1 bit",
                                   "the Nerd Fonts icon U+F121 is not a hollow box"])
+
+    def test_the_probes_are_judged_from_the_grid_s_origin(self):
+        glyphs = self.sources()
+        # 1366x768 in 8x18 cells leaves 6 spare columns and 12 spare lines:
+        # with smooth scrolling off, the grid starts at 3,6
+        cell, origin = (8, 18), (3, 6)
+        img = self.terminus_screen(16, cell, glyphs, grid=origin)
+        img = t3img.Image(img.width, img.height + 18, img.data + b"\x10\x10\x10" * img.width * 18)
+        self.assertEqual(t3_fonts.judge_terminus(img, cell, 16, glyphs, origin)[1], [])
+        # the same probes drawn with the spare lines all above the grid, as
+        # with smooth scrolling on, stand 6 lines below their cells
+        img = self.terminus_screen(16, cell, glyphs, grid=(3, 12))
+        img = t3img.Image(img.width, img.height + 18, img.data + b"\x10\x10\x10" * img.width * 18)
+        _, faults = t3_fonts.judge_terminus(img, cell, 16, glyphs, origin)
+        self.assertIn("the letter g has ink outside its cells", faults)
+        # the origin comes from the variant's display and configuration
+        variant = t3_fonts.variants()["default-font-40"]
+        self.assertEqual(t3_fonts.grid_origin(variant, (20, 40)), (3, 4))
+        self.assertEqual(t3_fonts.grid_origin(variant, (12, 24)), (5, 0))
 
     def cullet_screens(self, cell, glyphs):
         """A capture of cullet-mono and the reference's, as Cullet Mono,
@@ -9004,10 +9277,12 @@ class FontSourcesTest(unittest.TestCase):
         # a fault must leave the capture out.
         glyphs = self.sources()
         cell = (8, 16)
-        good = self.terminus_screen(16, cell, glyphs)
+        # the variants' 1366 pixels hold 170 cells of 8, and vtium centres
+        # them, so the grid starts 3 pixels right of the display's edge
+        good = self.terminus_screen(16, cell, glyphs, grid=(3, 0))
         caps, errors, typed = self.check("default-font-16", [self.screen(cell), good], cell)
         self.assertEqual((list(caps), errors, typed), ([t3_fonts.CASE], {}, ["t3 font-probe\n"]))
-        wrong = self.terminus_screen(16, cell, glyphs, strike=14)
+        wrong = self.terminus_screen(16, cell, glyphs, strike=14, grid=(3, 0))
         caps, errors, _ = self.check("default-font-16", [self.screen(cell), wrong], cell)
         self.assertEqual(caps, {})
         self.assertRegex(errors[t3_fonts.CASE], r"^in a 8x16 cell, the letter g matches "

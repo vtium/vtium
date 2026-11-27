@@ -166,17 +166,26 @@ pub fn screens(profile: &Profile, sources: &Sources) -> Result<Vec<Vec<u32>>, St
 mod tests {
     use super::*;
     use vtium_font::Unifont;
+    use vtium_render::{PartialRow, Placement};
 
     // A display of 320×245 holds 15 rows of 16-pixel cells and 5 spare
-    // pixel rows. The renderer puts the grid's last row on the display's
-    // bottom edge, so the bands are cut from a grid that starts 5 pixels
-    // down.
+    // pixel rows. The bands are cut from wherever the renderer puts the
+    // grid. By default the grid is centred, so it starts 2 pixels down and
+    // the bottom gets the other 3. With the grid flush to the bottom, which
+    // smooth scrolling chooses, it starts 5 pixels down.
     //
     // References:
     // - ADR-1310 D10: the grid flush to the text's bottom edge.
+    // - ADR-1310 D12: the grid centred while smooth scrolling is off.
     #[test]
     fn the_bands_start_where_the_renderer_puts_the_grid() {
-        let r = Renderer::new(Font::new(Unifont::new(16)), 320, 245, Config::default());
+        let renderer = |placement| {
+            let config = Config {
+                placement,
+                ..Config::default()
+            };
+            Renderer::new(Font::new(Unifont::new(16)), 320, 245, config)
+        };
         let layout = Layout {
             cols: 40,
             rows: 15,
@@ -187,6 +196,8 @@ mod tests {
             pages: 1,
             slices: 1,
         };
-        assert_eq!(grid_top(&r, &layout), 5);
+        assert_eq!(grid_top(&renderer(Placement::Centred), &layout), 2);
+        let flush = Placement::Bottom(PartialRow::History);
+        assert_eq!(grid_top(&renderer(flush), &layout), 5);
     }
 }

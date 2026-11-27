@@ -1,0 +1,29 @@
+kind check-if
+title Check if a terminal uses a look.
+intro The Looks tab lists the looks of the draft. Beside the highlighted look, vtium-config says which terminals use it. Looking changes nothing.
+see looks/make-a-look-and-use-it-on-the-console
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [look big]
+    font-name = mono
+    font-size = 24
+    [look small]
+    font-name = mono
+    [head console]
+    vt = 5
+    look = big
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Go to the Looks tab.
+2. Highlight big.
+at big is highlighted
+check screen shows "Terminal console uses it"
+3. Highlight small.
+at small is highlighted
+check screen shows "No terminal uses it"

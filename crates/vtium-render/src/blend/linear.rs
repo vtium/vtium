@@ -34,8 +34,10 @@
 ///
 /// A premultiplied channel `s` times the entry for its alpha, shifted
 /// right by 16 bits, is `s * 255 / a`: the channel's straight color.
+#[cfg(feature = "images")]
 pub(crate) static RECIPROCAL: [u32; 256] = reciprocals();
 
+#[cfg(feature = "images")]
 const fn reciprocals() -> [u32; 256] {
     let mut t = [0u32; 256];
     let mut a = 1u32;
@@ -296,10 +298,10 @@ pub(crate) static TO_SRGB: [u8; 4096] = [
 ];
 
 /// The width of [`texture`] in texels.
-#[cfg(feature = "gpu")]
+#[cfg(all(feature = "gpu", feature = "images"))]
 pub(crate) const TEXTURE_WIDTH: u32 = 64;
 /// The height of [`texture`] in texels: its 5,632 bytes in rows of 256.
-#[cfg(feature = "gpu")]
+#[cfg(all(feature = "gpu", feature = "images"))]
 pub(crate) const TEXTURE_HEIGHT: u32 = 22;
 
 /// The three tables as the bytes of an RGBA8 texture of [`TEXTURE_WIDTH`]
@@ -311,7 +313,7 @@ pub(crate) const TEXTURE_HEIGHT: u32 = 22;
 /// texture is 64 texels wide, so it fits the smallest texture side a test
 /// sets, and every OpenGL ES 3.0 GPU, whose largest texture is at least
 /// 2,048 a side.
-#[cfg(feature = "gpu")]
+#[cfg(all(feature = "gpu", feature = "images"))]
 pub(crate) fn texture() -> Vec<u8> {
     let mut bytes = Vec::with_capacity(5632);
     bytes.extend(RECIPROCAL.iter().flat_map(|r| r.to_le_bytes()));

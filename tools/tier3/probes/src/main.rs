@@ -30,7 +30,9 @@
 //! - `drm --check N --user U --vt V`: as root, opens the card and holds
 //!   master on it, and passes a copy of the descriptor to a process running
 //!   as U, which draws with dumb buffers and page flips while root drops
-//!   and sets master on its own copy.
+//!   and sets master on its own copy. It answers check 10 too: the
+//!   process running as U calls SET_MASTER and DROP_MASTER on its copy
+//!   while the copy holds master.
 //! - `take-master --check N --card PATH`: as root, plays the graphical
 //!   program of a display hand-over (ADR-1401 D16). It opens the card and
 //!   tries to become its master for at most 10 s, as a program does after a
@@ -929,6 +931,30 @@ fn draw(args: &Args) -> i32 {
             &check,
             "the CRTC shows the drawer's last buffer",
             drawing.shows_front(copy),
+        );
+        // Check 10: while its copy holds master, the drawer's own master
+        // calls on that copy. The kernel checks the caller's permission
+        // before it looks at whether the file is master, and the drawer did
+        // not open the file, so both are expected to fail with EACCES.
+        for (call, req) in [
+            ("SET_MASTER", drm::SET_MASTER),
+            ("DROP_MASTER", drm::DROP_MASTER),
+        ] {
+            answer(
+                "10",
+                &format!("the drawer calls {call} on its copy while the copy holds master"),
+                drm::master_call(copy, req),
+            );
+            answer(
+                "10",
+                &format!("after the drawer's {call}, its copy holds master"),
+                drm::is_master(copy),
+            );
+        }
+        answer(
+            "10",
+            "after the drawer's calls, a page flip",
+            drawing.flip(copy).map_or_else(|e| e, |()| "ok".into()),
         );
         step(drawer_end);
         sys::await_signal(drawer_end);

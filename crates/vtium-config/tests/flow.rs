@@ -292,6 +292,26 @@ fn install_installs_the_draft_and_keeps_the_file_it_replaced() {
     assert_eq!(f.draft(), INSTALLED);
 }
 
+/// An install over no vtium.conf replaces no file, so `history` lists
+/// nothing, and says so in the words the TUI's Restore uses.
+#[test]
+fn history_says_so_when_no_install_has_replaced_a_vtium_conf() {
+    let f = fixture("history-first");
+    std::fs::remove_file(f.path("etc/vtium.conf")).expect("no vtium.conf");
+    f.desk();
+    assert_eq!(f.run(&["set", "font-size", "14"]).status, 0);
+    let ran = f.run(&["install"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    let history = f.run(&["history"]);
+    assert_eq!(
+        (history.status, history.out.as_str()),
+        (
+            0,
+            "Nothing to restore: no install has replaced a vtium.conf yet, so there is no earlier file.\n"
+        )
+    );
+}
+
 #[test]
 fn edit_installs_nothing_when_the_editor_adds_a_bad_line() {
     let f = fixture("edit");
@@ -529,6 +549,33 @@ fn a_look_in_use_is_kept_unless_forced_to_the_default() {
 
 // ADR-1403 D5, D8: `look add` and `look set` take a look's cell, and
 // `set`, which writes the top level, refuses it and names `look set`
+/// A look that no head uses changes nothing on screen, so `look add`,
+/// `look set` and `install` say so for each such look, with the command
+/// that gives it to a head. Once a head uses the look, they say nothing.
+#[test]
+fn the_look_commands_and_install_name_a_look_that_no_head_uses() {
+    const NOTE: &str = "No head uses look big, so it changes nothing on screen. To use it, run vtium config head set desk --look big.";
+    let f = fixture("look-unused");
+    f.desk();
+    let added = f.run(&["look", "add", "big", "--frit", "monoid"]);
+    assert_eq!(added.status, 0, "{}", added.err);
+    assert!(added.out.ends_with(&format!("{NOTE}\n")), "{}", added.out);
+    let set = f.run(&["look", "set", "big", "--size", "20"]);
+    assert_eq!(set.status, 0, "{}", set.err);
+    assert!(set.out.ends_with(&format!("{NOTE}\n")), "{}", set.out);
+    let install = f.run(&["install"]);
+    assert_eq!(install.status, 0, "{}{}", install.out, install.err);
+    assert!(
+        install.out.starts_with(&format!("{NOTE}\n")),
+        "{}",
+        install.out
+    );
+    assert_eq!(f.run(&["head", "set", "desk", "--look", "big"]).status, 0);
+    let set = f.run(&["look", "set", "big", "--size", "22"]);
+    assert_eq!(set.status, 0, "{}", set.err);
+    assert!(!set.out.contains("No head uses"), "{}", set.out);
+}
+
 #[test]
 fn look_add_and_look_set_take_a_look_s_cell() {
     let f = fixture("look-cell");
@@ -559,6 +606,42 @@ fn look_add_and_look_set_take_a_look_s_cell() {
         top.err
     );
     assert_eq!(f.draft(), before);
+}
+
+// ADR-1403 D8: every change the view makes is also a command, and the
+// look card sets a look's vtlook, so `look add` and `look set` take
+// --vtlook; the help's usage lines name --ligatures and --vtlook
+#[test]
+fn look_add_and_look_set_take_a_look_s_vtlook() {
+    let f = fixture("look-vtlook");
+    f.desk();
+    let added = f.run(&[
+        "look", "add", "big", "--frit", "monoid", "--vtlook", "amber",
+    ]);
+    assert_eq!(added.status, 0, "{}", added.err);
+    assert!(
+        f.draft()
+            .contains("[look big]\nfont-name = monoid\nvtlook = amber\n"),
+        "{}",
+        f.draft()
+    );
+    let set = f.run(&["look", "set", "big", "--vtlook", "sepia"]);
+    assert_eq!(set.status, 0, "{}", set.err);
+    assert!(
+        f.draft()
+            .contains("[look big]\nfont-name = monoid\nvtlook = sepia\n"),
+        "{}",
+        f.draft()
+    );
+    let help = f.run(&["--help", "look"]);
+    assert_eq!(help.status, 0, "{}", help.err);
+    let line = help
+        .out
+        .lines()
+        .find(|l| l.contains("look set NAME"))
+        .unwrap_or_else(|| panic!("look set's usage in {}", help.out));
+    assert!(line.contains("[--ligatures L]"), "{line}");
+    assert!(line.contains("[--vtlook NAME]"), "{line}");
 }
 
 #[test]

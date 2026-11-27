@@ -1,0 +1,60 @@
+kind how-do-i
+title How do I make a new look and use it on the console?
+intro A look is a font set, a size and a color scheme that a terminal draws in. You make a look in the Looks tab, and give it to a terminal in the Flow tab.
+see looks/try-a-whole-look-on-the-console
+see install-and-restore/save-on-quit-and-install-from-the-command-line
+
+# The machine: vtium runs one head, console, on VT 5, in the built-in
+# font. The font set mono draws the bitmap font mono.bdf, which is
+# installed and active.
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+draft from-installed
+
+1. Go to the Looks tab.
+2. Choose New look.
+3. Erase the name.
+4. Type big.
+5. Press Enter.
+note The look's card opens. Its lines are the look's name, font set, size and color scheme.
+6. Set Font set to mono.
+7. Choose Size.
+8. Choose 24 pt.
+9. Set Color scheme to vga.
+10. Press Esc.
+at the look is made
+check screen shows "big uses the font set"
+
+11. Go to the Flow tab.
+12. Choose console.
+13. Set Look to big.
+14. Press Esc.
+at the look is on the console's terminal
+check screen shows "look big"
+
+15. Press s to save.
+16. Press i to install.
+note vtium-config asks before it installs the draft.
+17. Press y.
+at the install
+check draft head console look big
+check draft look big font-name mono
+check installed head console font-name mono
+check installed head console font-size 24
+check installed head console palette vga
+
+18. Press q to quit.
+19. Restart vtium.
+at the restart
+check exited 0
+check console draws mono
+check console cell 16x32
+check console palette vga

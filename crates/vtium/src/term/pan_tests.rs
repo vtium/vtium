@@ -330,6 +330,15 @@ impl Video for Panning {
     }
 }
 
+/// The grid placed at the bottom, as a console with smooth scrolling on
+/// places it, so the spare lines above the grid show the rows of history
+/// that these tests count.
+///
+/// References:
+/// - ADR-1310 D10: the rows of history in the spare lines while smooth scrolling is on.
+const PLACED: vtium_render::Placement =
+    vtium_render::Placement::Bottom(vtium_render::PartialRow::History);
+
 /// A terminal of `screen`'s size in cells and a view of it that draws a
 /// scroll as `scroll` says, turned as `orientation` says.
 fn view(screen: (u32, u32), scroll: ScrollDraw, orientation: Orientation) -> (Term, View) {
@@ -351,6 +360,7 @@ fn view(screen: (u32, u32), scroll: ScrollDraw, orientation: Orientation) -> (Te
         None,
         RenderConfig {
             orientation,
+            placement: PLACED,
             ..RenderConfig::default()
         },
         false,
@@ -665,6 +675,7 @@ fn refont(term: &mut Term, view: &mut View, height: u32, orientation: Orientatio
     let face: DisplayFace = Box::new(Unifont::new(height));
     let config = RenderConfig {
         orientation,
+        placement: PLACED,
         ..RenderConfig::default()
     };
     view.rebuild(Font::new(face), height, config);
@@ -1047,4 +1058,108 @@ fn the_rows_a_snapshot_holds_follow_the_views_that_ask() {
         .screen()
         .frame_reaching(&palette, Age::NEVER, more);
     assert_eq!(frame.rows_above(), 10 + 5);
+}
+
+/// A move of the view through the scrollback, or output, between frames.
+#[derive(Clone, Copy, Debug)]
+enum Move {
+    /// The view goes back this many lines, or forward when negative.
+    View(i64),
+    /// A line of output arrives.
+    Output,
+}
+
+/// What a display of `screen` shows under `scroll` on `buffers` buffers,
+/// with the window the display shows, after 46 lines of output, most of
+/// them in the scrollback, and then after each run of `moves`: each run is
+/// drawn as one frame.
+fn shows_view(
+    screen: (u32, u32),
+    scroll: ScrollDraw,
+    buffers: usize,
+    moves: &[&[Move]],
+) -> Vec<(Vec<u8>, u32)> {
+    let (mut term, mut view) = view(screen, scroll, Orientation::Normal);
+    let mut video = Panning::new(screen, buffers);
+    term.terminal.screen_mut().set_scrollback_max(100);
+    for n in 0..46 {
+        feed(&mut term, format!("\r\nline {n}").as_bytes());
+    }
+    draw(&mut term, &mut view, &mut video);
+    let mut shown = vec![(video.shown(), video.shown)];
+    for run in moves {
+        for &m in *run {
+            let s = term.terminal.screen_mut();
+            match m {
+                Move::View(n) if n > 0 => s.scroll_view_up(n.unsigned_abs() as usize),
+                Move::View(n) => s.scroll_view_down(n.unsigned_abs() as usize),
+                Move::Output => feed(&mut term, b"\r\nmore output"),
+            }
+        }
+        draw(&mut term, &mut view, &mut video);
+        shown.push((video.shown(), video.shown));
+    }
+    shown
+}
+
+/// Whether `after` is `before` moved down by `lines` pixel lines, in the
+/// part of the screen that both show, on a screen `width` pixels wide.
+fn moved_down(before: &[u8], after: &[u8], width: u32, lines: usize) -> bool {
+    let line = width as usize * 4;
+    let kept = before.len() - lines * line;
+    after[lines * line..] == before[..kept]
+}
+
+// A view moved through the scrollback comes to rest on whole rows, with
+// the grid flush to the bottom edge: one wheel step's three lines,
+// several quick wheel steps drawn as one frame, a page back as
+// Shift+PageUp moves it, a page forward, output that arrives while the
+// view is back, and a line at a time. The pan and the copy show what the
+// redraw shows at each frame, the pan's window starts on a row of the
+// ring, and a move of the view alone shows the picture before it moved
+// down by whole rows. This holds on a screen the rows fit exactly and on
+// one with spare lines above the grid, on one to three buffers.
+//
+// References:
+// - ADR-1310 D1: the view through the scrollback moves by the lines the
+//   person asks for.
+// - ADR-1310 D6: the pan and the copy show what a redraw shows.
+// - ADR-1310 D10: at rest the grid's last row touches the bottom edge.
+#[test]
+fn a_view_moved_through_the_scrollback_rests_on_whole_rows() {
+    const PAGE: i64 = 5;
+    let moves: &[&[Move]] = &[
+        &[Move::View(3)],
+        &[Move::View(3), Move::View(3), Move::View(3)],
+        &[Move::View(PAGE)],
+        &[Move::View(-PAGE)],
+        &[Move::View(1)],
+        &[Move::View(3), Move::Output],
+        &[Move::View(-3)],
+        &[Move::View(3), Move::View(-3), Move::View(3)],
+        &[Move::View(PAGE), Move::View(PAGE)],
+        &[Move::View(-100)],
+    ];
+    for screen in [(160, 96), (160, 104)] {
+        for buffers in [1, 2, 3] {
+            let want = shows_view(screen, ScrollDraw::Redraw, buffers, moves);
+            for scroll in [ScrollDraw::Pan, ScrollDraw::Copy] {
+                let got = shows_view(screen, scroll, buffers, moves);
+                for (n, ((g, window), (w, _))) in got.iter().zip(&want).enumerate() {
+                    let what = format!("{scroll:?} {screen:?} {buffers} buffers, frame {n}");
+                    assert!(g == w, "{what}: the picture is the redraw's");
+                    assert_eq!(window % CELL.1, 0, "{what}: the window starts on a row");
+                }
+            }
+            // a move of the view alone shows the picture moved by its
+            // whole rows
+            for (n, lines) in [(1, 3), (3, PAGE), (5, 1)] {
+                let rows = usize::try_from(lines).unwrap() * CELL.1 as usize;
+                assert!(
+                    moved_down(&want[n - 1].0, &want[n].0, screen.0, rows),
+                    "{screen:?} {buffers} buffers, frame {n}: the picture moved {lines} rows"
+                );
+            }
+        }
+    }
 }

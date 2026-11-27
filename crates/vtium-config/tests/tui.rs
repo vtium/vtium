@@ -219,6 +219,17 @@ fn with_font_operations_off_the_tui_says_so_and_offers_the_key() {
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains("text preview · no live trial"), "{screen}");
     assert!(screen.contains("allow-font-ops turned off"), "{screen}");
+    // the running console reads allow-font-ops when vtium makes its head,
+    // and the TUI asks once at its start, so an install alone turns
+    // nothing on
+    assert!(
+        screen
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .contains("install, and restart vtium and vtium-config."),
+        "{screen}"
+    );
     // t says why it does nothing, and sends nothing
     let mut c = Console::vtium(80, 25, false, "unifont")
         .takes("tiny5", (80, 25))

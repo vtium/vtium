@@ -4216,3 +4216,84 @@ fn a_top_level_vtlook_that_is_no_name_is_reported_once_where_it_is_given() {
         "{reported:#?}"
     );
 }
+
+// check-config warns of a vtium.conf that the account of vtium's drawing
+// process cannot read, such as a file of mode 0600, and says nothing of one
+// of mode 0644.
+//
+// References:
+// - ADR-1400 D4, "vtium.conf under the split": check-config warns when the
+//   drawer's account cannot read vtium.conf.
+#[cfg(feature = "split")]
+#[test]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn a_vtium_conf_the_drawing_process_cannot_read_is_warned_of() {
+    use std::os::unix::fs::PermissionsExt;
+    let me = rustix::process::geteuid().as_raw();
+    let other = if me == 990 { 991 } else { 990 };
+    let (_dir, file, _) = heads_fixture("drawer-reads", "version = 1\n", 0o600);
+    let f = file.display().to_string();
+    let host = Host {
+        conf_file: file.with_file_name("installed.conf"),
+        udev_control: file.with_file_name("no-udev"),
+        roots: nowhere(),
+        frits: PathBuf::from("/nonexistent/vtium/frits"),
+        frit_trust: font::trust(),
+        systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
+    };
+    let vtium = Reader {
+        name: "vtium".to_owned(),
+        uid: other,
+        gid: other,
+        groups: vec![other],
+    };
+    let args: Vec<OsString> = [SUBCOMMAND, f.as_str()]
+        .iter()
+        .map(OsString::from)
+        .collect();
+    let loaded = config::load(&args, &mut |_: &Path| Ok(None));
+    assert_eq!(
+        unreadable(&loaded, &host, &vtium),
+        Some(format!(
+            "{f}: vtium's drawing process could not read this file once it is installed. The drawing process runs as the account vtium, and the file's mode 0600 does not let that account read it. Install the file with mode 644 so that every account can read it."
+        ))
+    );
+    // the account that owns the file reads it through the owner's bits
+    let owner = Reader {
+        uid: me,
+        gid: me,
+        groups: Vec::new(),
+        ..vtium.clone()
+    };
+    assert_eq!(unreadable(&loaded, &host, &owner), None);
+    // the subcommand's outcome carries the warning on standard error, which
+    // makes the status 1, and the help and a machine without the account
+    // carry none
+    let warned = |args: &[&str], drawer: Option<&Reader>| {
+        let args: Vec<OsString> = [SUBCOMMAND]
+            .iter()
+            .chain(args)
+            .map(OsString::from)
+            .collect();
+        let loaded = config::load(&args, &mut |_: &Path| Ok(None));
+        let mut out = outcome(&loaded, &host);
+        warn_unreadable(&mut out, &loaded, &host, drawer);
+        out
+    };
+    let out = warned(&["--no-devices", f.as_str()], Some(&vtium));
+    assert_eq!(out.status, 1);
+    assert_eq!(
+        out.stderr.last().map(String::as_str),
+        unreadable(&loaded, &host, &vtium).as_deref()
+    );
+    let out = warned(&["--no-devices", f.as_str()], None);
+    assert_eq!((out.status, out.stderr), (0, Vec::new()));
+    let out = warned(&["--no-devices", "--help", f.as_str()], Some(&vtium));
+    assert_eq!(out.status, 0);
+    // readable by every account
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(unreadable(&loaded, &host, &vtium), None);
+    let out = warned(&["--no-devices", f.as_str()], Some(&vtium));
+    assert_eq!((out.status, out.stderr), (0, Vec::new()));
+}

@@ -810,15 +810,23 @@
 
 # -- Drawing a scroll --------------------------------------------------------
 
-## How the displays of a head show text that scrolls.
+## scroll-draw: How the displays of a head show text that scrolls.
 ##
 ## `auto` pans where the display's driver allows it, and copies where it does
 ## not. `pan` does the same, and logs a warning when the driver does not allow
 ## the pan. `copy` always copies, and `redraw` redraws every line a scroll
 ## moves. A head that draws with the GPU, or can move to it, always uses
 ## `redraw`, and so does a build without the `scroll-pan` feature.
+#
+## smooth-scroll: Turn smooth scrolling on, in a build with the
+## `smooth-scroll` feature.
+#
+## partial-row: What the pixel lines left over above the text show while
+## smooth scrolling is on.
 
 #scroll-draw=auto
+#smooth-scroll=off
+#partial-row=history
 
 # -- Drawing with the GPU ----------------------------------------------------
 

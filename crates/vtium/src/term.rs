@@ -181,7 +181,7 @@ impl Term {
     /// its frames to hold. The count goes down when the view that asked for
     /// the most goes away or asks for fewer.
     #[cfg(feature = "scroll-pan")]
-    fn rows_above(&self) -> usize {
+    pub(crate) fn rows_above(&self) -> usize {
         self.asks
             .iter()
             .filter_map(std::rc::Weak::upgrade)
@@ -1421,6 +1421,10 @@ pub struct View {
     /// ([`Term::rows_above`]).
     #[cfg(feature = "scroll-pan")]
     rows_above: Rc<std::cell::Cell<usize>>,
+    /// The columns and rows the log last said fit on the display, and the
+    /// pixels left over, so a layout that does not change logs nothing
+    /// more ([`View::fit_changed`]).
+    fit_told: std::cell::Cell<Option<vtium_settings::fit::Fit>>,
     /// The log said once that the GPU path failed one of the display's
     /// frames.
     pub gpu_failure_logged: bool,
@@ -1513,6 +1517,7 @@ impl View {
             told: None,
             #[cfg(feature = "scroll-pan")]
             rows_above: Rc::default(),
+            fit_told: std::cell::Cell::new(None),
             gpu_failure_logged: false,
             timer: measure.then(RenderTimer::new),
             timer_line: None,
@@ -1535,6 +1540,26 @@ impl View {
         };
         view.install(renderer);
         view
+    }
+
+    /// The columns and rows of the drawing's cell that fit on the display,
+    /// and the pixels left over on each axis, when they differ from what
+    /// the log last said for this view; `None` when they do not. The view
+    /// then remembers them, so each layout is told once.
+    ///
+    /// References:
+    /// - ADR-1310 D12, "vtium logs it": once whenever the display's layout changes.
+    pub fn fit_changed(&self) -> Option<vtium_settings::fit::Fit> {
+        let cell = (self.cell.width, self.cell.height);
+        let fit = vtium_settings::fit::Fit::of(
+            self.size,
+            cell,
+            matches!(
+                self.orientation,
+                vtium_render::Orientation::Left | vtium_render::Orientation::Right
+            ),
+        );
+        (self.fit_told.replace(Some(fit)) != Some(fit)).then_some(fit)
     }
 
     /// The drawing's renderer, the one frames are drawn with from now on.
@@ -2789,8 +2814,7 @@ mod tests {
     }
 
     /// A terminal of 4 by 2 cells and its view on a display of 36 by 34,
-    /// the grid at 2,2: centred across, its last row on the display's
-    /// bottom edge.
+    /// the grid at 2,1.
     fn view() -> (Term, View) {
         let clock: Clock = Rc::new(Instant::now);
         let term = Term::new(
@@ -2894,9 +2918,9 @@ mod tests {
         }
 
         /// Whether buffer `b` shows anything in the grid's cell `col` of
-        /// row 0, the grid at 2,2 in 8x16 cells.
+        /// row 0, the grid at 2,1 in 8x16 cells.
         fn shows(&self, b: usize, col: u32) -> bool {
-            (2..18).any(|y| {
+            (1..17).any(|y| {
                 (2 + col * 8..10 + col * 8).any(|x| {
                     let i = ((y * SIZE.0 + x) * 4) as usize;
                     self.bufs[b].lock().unwrap()[i..i + 3]
@@ -3417,10 +3441,10 @@ mod tests {
         let mut video = Plane::new(true);
         draw(&mut term, &mut view, &mut video, Some((5, 6)));
         assert_eq!(video.arrow.as_ref(), Some(view.arrow()));
-        assert_eq!(video.sent, Some((7, 8)), "the first frame carries it");
+        assert_eq!(video.sent, Some((7, 7)), "the first frame carries it");
         assert!(!lit(&video), "the frame draws no arrow");
         draw(&mut term, &mut view, &mut video, Some((9, 9)));
-        assert_eq!(video.sent, Some((11, 11)));
+        assert_eq!(video.sent, Some((11, 10)));
         assert_eq!(video.swaps, [1, 0], "the move swaps the plane alone");
         draw(&mut term, &mut view, &mut video, Some((9, 9)));
         assert_eq!(video.swaps, [1, 0], "nothing changed, nothing swapped");
@@ -3539,9 +3563,8 @@ mod tests {
         draw(&mut term, &mut view, &mut video, Some((5, 6)));
         let turned = Arrow::new(16, vtium_render::Orientation::Right);
         assert_eq!(video.arrow, Some(turned));
-        // turned right, the grid's last row touches the display's left
-        // edge, so the grid's pixel 5,6 lands at 0 + 32 - 1 - 6, 1 + 5
-        assert_eq!(video.sent, Some((25, 6)));
+        // turned right, the grid's pixel 5,6 lands at 2 + 32 - 1 - 6, 1 + 5
+        assert_eq!(video.sent, Some((27, 6)));
     }
 
     // The pointer's log line names the display as the video device names
@@ -3604,7 +3627,7 @@ mod tests {
         assert!(view.pending, "a draw is owed");
         draw(&mut term, &mut view, &mut video, Some((5, 6)));
         assert!(lit(&video), "the arrow is drawn in software");
-        assert_eq!(video.pixel(7, 9) & 0xff_ff_ff, 0xff_ff_ff);
+        assert_eq!(video.pixel(7, 8) & 0xff_ff_ff, 0xff_ff_ff);
     }
 
     // A display without a cursor plane has the renderer draw the arrow.
@@ -3615,8 +3638,8 @@ mod tests {
         draw(&mut term, &mut view, &mut video, Some((5, 6)));
         assert_eq!(video.arrow, None);
         assert!(lit(&video), "the frame draws the arrow");
-        // its tip's fill, one pixel below the hotspot at 7,8
-        assert_eq!(video.pixel(7, 9) & 0xff_ff_ff, 0xff_ff_ff);
+        // its tip's fill, one pixel below the hotspot at 7,7
+        assert_eq!(video.pixel(7, 8) & 0xff_ff_ff, 0xff_ff_ff);
         assert_eq!(video.swaps, [1]);
     }
 

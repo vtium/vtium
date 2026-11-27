@@ -1,0 +1,36 @@
+kind i-want-to
+title I want to use a bigger font on the console.
+intro A bigger font means a look with a bigger size. This is the example that the scenarios README walks through.
+see looks/make-a-look-and-use-it-on-the-console
+
+file etc/vtium.conf
+    version = 1
+    [head console]
+    vt = 5
+    look = big
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Go to the Looks tab.
+2. Choose New look.
+3. Erase the name.
+4. Type big.
+5. Press Enter.
+6. Set Font set to mono.
+7. Choose Size.
+8. Choose 24 pt.
+9. Press Esc.
+10. Press q to quit.
+11. Press y to save and quit.
+at the end of vtium-config
+check exited 0
+check draft look big font-name mono
+
+12. Run `vtium-config install`.
+13. Restart vtium.
+at the restart
+check console draws mono
+check console cell 16x32

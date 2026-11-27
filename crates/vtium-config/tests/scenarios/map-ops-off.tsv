@@ -213,11 +213,11 @@ ops-off any.question.window-ops +unsaved	Esc	ops-off looks(no looks) +unsaved
 ops-off any.question.window-ops +unsaved	Shrink	ops-off any.question.window-ops below 80×25 +unsaved	
 ops-off any.question.window-ops +unsaved	n	ops-off looks(no looks) +unsaved	
 ops-off any.question.window-ops +unsaved	y	ops-off looks(no looks) +unsaved	check
-ops-off any.question.window-ops +unsaved +pending	Ctrl-C	ops-off looks(marked) +unsaved +pending	
-ops-off any.question.window-ops +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
+ops-off any.question.window-ops +unsaved +pending	Ctrl-C	ops-off looks(no looks) +unsaved +pending	
+ops-off any.question.window-ops +unsaved +pending	Esc	ops-off looks(no looks) +unsaved +pending	
 ops-off any.question.window-ops +unsaved +pending	Shrink	ops-off any.question.window-ops below 80×25 +unsaved +pending	
-ops-off any.question.window-ops +unsaved +pending	n	ops-off looks(marked) +unsaved +pending	
-ops-off any.question.window-ops +unsaved +pending	y	ops-off looks(marked) +unsaved +pending	check
+ops-off any.question.window-ops +unsaved +pending	n	ops-off looks(no looks) +unsaved +pending	
+ops-off any.question.window-ops +unsaved +pending	y	ops-off looks(no looks) +unsaved +pending	check
 ops-off any.question.window-ops below 80×25	Ctrl-C	ops-off any.too-small	
 ops-off any.question.window-ops below 80×25	Esc	ops-off any.too-small	
 ops-off any.question.window-ops below 80×25	Grow	ops-off any.question.window-ops	
@@ -3551,7 +3551,6 @@ ops-off looks(frit) +unsaved +pending	n	ops-off looks.new-frit(row 0) +unsaved +
 ops-off looks(frit) +unsaved +pending	q	ops-off any.question.quit +unsaved +pending	
 ops-off looks(frit) +unsaved +pending	r	ops-off looks(marked) +unsaved +pending	font set
 ops-off looks(frit) +unsaved +pending	s	ops-off looks(frit) +pending	save
-ops-off looks(frit) +unsaved +pending	w	ops-off any.question.window-ops +unsaved +pending	
 ops-off looks(look)	1	ops-off fonts(filter)	
 ops-off looks(look)	2	ops-off effects(filter)	
 ops-off looks(look)	4	ops-off flow(doc display)	mouse on
@@ -3606,7 +3605,6 @@ ops-off looks(look) +unsaved	n	ops-off looks.look.typing +unsaved	check
 ops-off looks(look) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off looks(look) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off looks(look) +unsaved	s	ops-off looks(look)	save
-ops-off looks(look) +unsaved	w	ops-off any.question.window-ops +unsaved	
 ops-off looks(look) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	
 ops-off looks(look) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
 ops-off looks(look) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
@@ -3625,7 +3623,6 @@ ops-off looks(look) +unsaved +pending	n	ops-off looks.look.typing +unsaved +pend
 ops-off looks(look) +unsaved +pending	q	ops-off any.question.quit +unsaved +pending	
 ops-off looks(look) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off looks(look) +unsaved +pending	s	ops-off looks(look) +pending	save
-ops-off looks(look) +unsaved +pending	w	ops-off any.question.window-ops +unsaved +pending	
 ops-off looks(marked) +pending	1	ops-off fonts(filter) +pending	
 ops-off looks(marked) +pending	2	ops-off effects(filter) +pending	
 ops-off looks(marked) +pending	4	ops-off flow(doc display) +pending	mouse on
@@ -3668,7 +3665,6 @@ ops-off looks(marked) +unsaved +pending	n	ops-off looks.new-frit(row 0) +unsaved
 ops-off looks(marked) +unsaved +pending	q	ops-off any.question.quit +unsaved +pending	
 ops-off looks(marked) +unsaved +pending	r	ops-off looks(refused) +unsaved	font set
 ops-off looks(marked) +unsaved +pending	s	ops-off looks(marked) +pending	save
-ops-off looks(marked) +unsaved +pending	w	ops-off any.question.window-ops +unsaved +pending	
 ops-off looks(no looks)	1	ops-off fonts(filter)	
 ops-off looks(no looks)	2	ops-off effects(filter)	
 ops-off looks(no looks)	4	ops-off flow(doc display)	mouse on
@@ -4807,22 +4803,22 @@ ops-off looks.look(vtlook) +unsaved +pending	Shrink	ops-off any.too-small +unsav
 ops-off looks.look(vtlook) +unsaved +pending	Up	ops-off looks.look(color scheme) +unsaved +pending	
 ops-off looks.look(vtlook) +unsaved +pending	q	ops-off any.question.quit +unsaved +pending	
 ops-off looks.look.list	Ctrl-C	ops-off left	exit 130
-ops-off looks.look.list	Enter	ops-off looks.look(font set) +unsaved	check
+ops-off looks.look.list	Enter	ops-off looks.look(font set)	
 ops-off looks.look.list	Esc	ops-off looks.look(font set)	
 ops-off looks.look.list	Shrink	ops-off any.too-small	
 ops-off looks.look.list	q	ops-off left	exit 0
 ops-off looks.look.list +pending	Ctrl-C	ops-off left	exit 130
-ops-off looks.look.list +pending	Enter	ops-off looks.look(font set) +unsaved +pending	check
+ops-off looks.look.list +pending	Enter	ops-off looks.look(font set) +pending	
 ops-off looks.look.list +pending	Esc	ops-off looks.look(font set) +pending	
 ops-off looks.look.list +pending	Shrink	ops-off any.too-small +pending	
 ops-off looks.look.list +pending	q	ops-off left	exit 0
 ops-off looks.look.list +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.look.list +unsaved	Enter	ops-off looks.look(font set) +unsaved	check
+ops-off looks.look.list +unsaved	Enter	ops-off looks.look(font set) +unsaved	
 ops-off looks.look.list +unsaved	Esc	ops-off looks.look(font set) +unsaved	
 ops-off looks.look.list +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off looks.look.list +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off looks.look.list +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.look.list +unsaved +pending	Enter	ops-off looks.look(font set) +unsaved +pending	check
+ops-off looks.look.list +unsaved +pending	Enter	ops-off looks.look(font set) +unsaved +pending	
 ops-off looks.look.list +unsaved +pending	Esc	ops-off looks.look(font set) +unsaved +pending	
 ops-off looks.look.list +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off looks.look.list +unsaved +pending	q	ops-off any.question.quit +unsaved +pending	
@@ -5561,7 +5557,7 @@ ops-off settings.section.list +pending	Esc	ops-off settings.section(choice) +pen
 ops-off settings.section.list +pending	Shrink	ops-off any.too-small +pending	
 ops-off settings.section.list +pending	q	ops-off left	exit 0
 ops-off settings.section.list +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off settings.section.list +unsaved	Enter	ops-off settings.section(choice) +unsaved	check
+ops-off settings.section.list +unsaved	Enter	ops-off settings.section(choice) +unsaved	
 ops-off settings.section.list +unsaved	Esc	ops-off settings.section(choice) +unsaved	
 ops-off settings.section.list +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off settings.section.list +unsaved	q	ops-off any.question.quit +unsaved	
@@ -5571,18 +5567,18 @@ ops-off settings.section.list +unsaved +pending	Esc	ops-off settings.section(cho
 ops-off settings.section.list +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off settings.section.list +unsaved +pending	q	ops-off any.question.quit +unsaved +pending	
 ops-off settings.section.typing	Ctrl-C	ops-off left	exit 130
-ops-off settings.section.typing	Enter	ops-off settings.section(value) +unsaved	check
+ops-off settings.section.typing	Enter	ops-off settings.section(value)	
 ops-off settings.section.typing	Esc	ops-off settings.section(value)	
 ops-off settings.section.typing	Shrink	ops-off any.too-small	
 ops-off settings.section.typing +pending	Ctrl-C	ops-off left	exit 130
-ops-off settings.section.typing +pending	Enter	ops-off settings.section(value) +unsaved +pending	check
+ops-off settings.section.typing +pending	Enter	ops-off settings.section(value) +pending	
 ops-off settings.section.typing +pending	Esc	ops-off settings.section(value) +pending	
 ops-off settings.section.typing +pending	Shrink	ops-off any.too-small +pending	
 ops-off settings.section.typing +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off settings.section.typing +unsaved	Enter	ops-off settings.section(value) +unsaved	check
+ops-off settings.section.typing +unsaved	Enter	ops-off settings.section(value) +unsaved	
 ops-off settings.section.typing +unsaved	Esc	ops-off settings.section(value) +unsaved	
 ops-off settings.section.typing +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off settings.section.typing +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off settings.section.typing +unsaved +pending	Enter	ops-off settings.section(value) +unsaved +pending	check
+ops-off settings.section.typing +unsaved +pending	Enter	ops-off settings.section(value) +unsaved +pending	
 ops-off settings.section.typing +unsaved +pending	Esc	ops-off settings.section(value) +unsaved +pending	
 ops-off settings.section.typing +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	

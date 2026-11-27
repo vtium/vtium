@@ -262,6 +262,10 @@ enum Conf {
     /// text goes into the installed history once the privileged step has
     /// run, `None` when no vtium.conf is installed.
     Replaces(Option<String>),
+    /// The draft is the installed vtium.conf, and the install writes only
+    /// the batch file. vtium reads the batch file again at the next login,
+    /// so the step that restarts vtium does not run.
+    Beside,
 }
 
 impl Store {
@@ -449,7 +453,11 @@ impl Store {
                         self.ready = Some(Prepared {
                             name,
                             text,
-                            conf: Conf::Replaces(ready.replaced),
+                            conf: if ready.restarts() {
+                                Conf::Replaces(ready.replaced)
+                            } else {
+                                Conf::Beside
+                            },
                         });
                         Done::Plan(ready.plan)
                     }
@@ -579,6 +587,7 @@ impl Desk for Store {
                 Conf::Replaces(replaced) => {
                     session.finish(&name, &text, replaced.as_deref(), &mut said)
                 }
+                Conf::Beside => session.finish(&name, &text, None, &mut said),
             })
             .and_then(|()| self.opened(&name, &text))
             .map_err(|fail| {
@@ -588,7 +597,7 @@ impl Desk for Store {
         // the step after an install runs when it wrote vtium.conf, as the
         // command line's install does
         let after = match conf {
-            Conf::Same => None,
+            Conf::Same | Conf::Beside => None,
             Conf::Replaces(_) => session.after(&text, run, Some(ask), out),
         };
         Ok(match after {

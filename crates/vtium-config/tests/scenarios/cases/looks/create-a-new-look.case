@@ -1,0 +1,31 @@
+kind how-do-i
+title How do I create a new look?
+intro A look is a font set, a size and a color scheme. A new look goes into the draft when you save, and the console uses it once a terminal uses the look and you install the draft.
+see looks/make-a-look-and-use-it-on-the-console
+
+file etc/vtium.conf
+    version = 1
+    font-name = unifont
+    [head console]
+    vt = 5
+file etc/batch.conf
+    ROOT/fonts/mono.bdf
+font fonts/mono.bdf 8x16
+frit mono
+    source=bdf:ROOT/fonts/mono.bdf
+
+1. Go to the Looks tab.
+2. Choose New look.
+3. Erase the name.
+4. Type Monoid-Nerd.
+5. Press Enter.
+6. Set Font set to mono.
+7. Choose Size.
+8. Choose 16 pt.
+9. Press Esc.
+10. Press s to save.
+at the save
+check screen shows "Monoid-Nerd"
+check draft look Monoid-Nerd font-name mono
+check draft look Monoid-Nerd font-size 16
+check installed lacks "Monoid-Nerd"

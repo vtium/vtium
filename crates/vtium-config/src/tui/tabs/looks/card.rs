@@ -205,10 +205,20 @@ pub fn choices(shared: &Shared, look: &Look, line: Line) -> Vec<Choice> {
                     .into_iter()
                     .filter(|f| super::fontsets::usable(shared, f) && !removed.contains(&f.name))
                     .map(|f| {
-                        let note = if super::fontsets::only_drafted(shared, &f.name) {
-                            words::IN_DRAFT
-                        } else {
-                            ""
+                        // a set whose text font is left out draws its text
+                        // in vtium's built-in font, which the list says
+                        let note = match super::fontsets::text_font_left_out(shared, &f.name) {
+                            _ if super::fontsets::only_drafted(shared, &f.name) => words::IN_DRAFT,
+                            Some(super::fontsets::TextFont::Missing(_)) => {
+                                words::CHOICE_TEXT_MISSING
+                            }
+                            Some(super::fontsets::TextFont::Inactive(_)) => {
+                                words::CHOICE_TEXT_INACTIVE
+                            }
+                            Some(super::fontsets::TextFont::Refused(..)) => {
+                                words::CHOICE_TEXT_REFUSED
+                            }
+                            None => "",
                         };
                         Choice::new(f.name.clone(), Some(f.name), note)
                     }),
@@ -679,14 +689,39 @@ impl Card {
         ) else {
             return Vec::new();
         };
-        vec![Command::Change(Change::Make {
-            changes: vec![DraftChange::LookKey {
-                name: self.name.clone(),
-                key,
-                value: choice.value,
-            }],
-            select: None,
-        })]
+        let mut changes = vec![DraftChange::LookKey {
+            name: self.name.clone(),
+            key,
+            value: choice.value.clone(),
+        }];
+        // a font set or a size for a look that no terminal uses reaches
+        // the console only once the console's terminal uses the look, so
+        // a console whose terminal names no look takes this one
+        let head = (matches!(line, Line::FontSet | Line::Size)
+            && choice.value.is_some()
+            && self.name != words::DEFAULT_LOOK
+            && list::heads(shared, &self.name).is_empty())
+        .then(|| list::console_head(shared))
+        .flatten()
+        .filter(|h| list::names_no_look(shared, h));
+        let Some(head) = head else {
+            return vec![Command::Change(Change::Make {
+                changes,
+                select: None,
+            })];
+        };
+        changes.push(DraftChange::HeadKey {
+            name: head.clone(),
+            key: "look",
+            value: Some(self.name.clone()),
+        });
+        vec![
+            Command::Change(Change::Make {
+                changes,
+                select: None,
+            }),
+            Command::Change(Change::Say(words::look_given(&head, &self.name))),
+        ]
     }
 
     /// Enter on the size `pick` of the size line's list: the size tried on

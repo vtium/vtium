@@ -20,8 +20,8 @@ description: "flow.new-card at 100×30, keys: 4 e Enter"
 
  WHAT THIS TERMINAL DRAWS
    Font set proof  →  look proof  →  All displays
-   Filters and requirements: vtium-config does not read a look's vtlook file yet, so this card
-   names the look and shows no filters.
+   Effects: the vtlook sepia. The Effects tab shows its filters.
+
 
 
 

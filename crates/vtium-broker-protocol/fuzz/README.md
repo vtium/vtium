@@ -7,6 +7,6 @@ From the repository's root, `make fuzz FUZZ_TARGETS=vtium-broker-protocol:protoc
 | Path | What it is |
 |---|---|
 | `fuzz_targets/protocol.rs` | Any input as a request from the drawer and as an order from the broker: no panic, and every message either reader accepts encodes back to the same bytes. The answer that the broker gives a refused request is an order the drawer accepts. |
-| `seeds/protocol/` | Whole messages to start from, one of each layout: ready, opening a device, opening a session, starting an image helper, switching VT, a power key, a device's descriptor, a refused pty, a session killed by a signal, and stop. The unit test `the_fuzz_seeds_are_accepted_messages` checks that each one is accepted. |
+| `seeds/protocol/` | Whole messages to start from, one of each layout: ready, opening a device, opening a session, starting an image helper, switching VT, a power key, a device's descriptor, a refused pty, a session killed by a signal, a kept console, and stop. The unit test `the_fuzz_seeds_are_accepted_messages` checks that each one is accepted. |
 | `Cargo.toml`, `Cargo.lock` | The fuzz crate and its pinned dependencies. |
 | `.gitignore` | Leaves out `target`, `corpus`, `artifacts` and `coverage`. |
