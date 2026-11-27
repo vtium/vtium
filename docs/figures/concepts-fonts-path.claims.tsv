@@ -9,10 +9,10 @@ vtium config new-frit --from takes a file you wrote from its template	crates/vti
 by hand: the file you write is read as strictly as any frit	crates/vtium-config/src/frit.rs	FritError
 transition installing it asks for sudo once	crates/vtium-config/src/apply.rs	Route::Sudo
 the frit: the directory of frits, /etc/vtium/fonts/	crates/vtium/src/font.rs	frits
-the frit: NAME.vtfrit	crates/vtium/src/font.rs	frit
+the frit: NAME.vtfrit	crates/vtium/src/font/frits.rs	frit
 the frit names the sources in order	crates/vtium-config/src/frit.rs	Frit
-the frit: root owns it, and vtium reads it only after the ownership check	crates/vtium/src/font.rs	trust
-vtium reads the frit, once the frit passes the ownership check that vtium.conf passes	crates/vtium/src/font.rs	frit_text
+the frit: root owns it, and vtium reads it only after the ownership check	crates/vtium/src/font/frits.rs	trust
+vtium reads the frit, once the frit passes the ownership check that vtium.conf passes	crates/vtium/src/font/frits.rs	frit_text
 vtium, the console, as root, starts the font helper	crates/vtium/src/helper/launcher.rs	Launcher::process
 the built-in fonts, Unifont and Unscii-8, compiled into vtium	crates/vtium-font/src/set/builtin.rs	builtin
 Unscii-8 draws character cells under 16 pixels high	crates/vtium-font/src/set/builtin.rs	builtin_name
