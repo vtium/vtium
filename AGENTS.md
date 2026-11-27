@@ -88,6 +88,8 @@ Verification runs at five levels, which ADR-1505 decides. Each level has a stop 
 
 Two rules go with the table. The steering session sizes each card to finish in well under half of an agent's context, so that verification does not cost more than the build. Every brief names its level, the agent runs exactly that level, and a slice plan in an ADR may not add checks beyond the table: an ADR's slice list names what a slice proves, and never which tiers it runs.
 
+The depth of checking goes on the merged candidate, not on each branch. A deep review of one branch finds deficiencies that the merge with the other branches makes moot. That review adds work to the backlog, and it still misses the defects that only appear between branches. Checking each branch in depth is suboptimization, and the work a process creates for itself is called failure demand. Each card runs only its own V0 and V1 checks.
+
 A delegated agent runs the level its brief names in its own worktree, and stops there. This machine is the maintainer's live desktop, so an agent on this machine never takes DRM master, never sets a display mode, never switches VT, never opens a `/dev/tty<N>` console and never runs sudo. An agent may create GL contexts on a render node, use its own ptys and run the tier 3 VM. A render node refuses dumb buffers, the plain memory buffers that the CPU draws into, with `EACCES`, so only tier 3 can prove the dumb-buffer path.
 
 ## The working loop
