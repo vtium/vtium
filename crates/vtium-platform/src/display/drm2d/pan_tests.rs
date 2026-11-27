@@ -20,6 +20,7 @@ mod pan {
     use super::super::*;
     use crate::display::fake::{Commit, FakeCard};
     use crate::display::mode::mode;
+    use crate::display::{Rect, SwapError, Swapped};
 
     const A: u32 = 41;
 
@@ -567,6 +568,7 @@ mod pan {
 )]
 fn a_build_without_scroll_pan_makes_screen_sized_buffers() {
     use super::*;
+    use crate::display::Rect;
     use crate::display::fake::FakeCard;
     use crate::display::mode::mode;
     let card = FakeCard::new(&[(41, vec![mode(640, 480, 60, true)])]);

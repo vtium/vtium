@@ -11,16 +11,21 @@
     reason = "test arithmetic on bounded values; a test fails by panicking"
 )]
 
-use drm_ffi::drm_mode_modeinfo;
+use drm_ffi::{
+    DRM_MODE_ATOMIC_ALLOW_MODESET, DRM_MODE_ATOMIC_NONBLOCK, DRM_MODE_PAGE_FLIP_EVENT,
+    drm_mode_modeinfo,
+};
 use log::Level;
 use rustix::io::Errno;
+use std::sync::Arc;
 
-use super::output::signed;
+use super::output::{Moved, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY, mode_bytes, signed};
 use super::*;
 use crate::display::blank::Due;
 use crate::display::fake::{BufferCall, Color, Commit, FakeCard, ListRead, Plane, RemoveFb, logs};
+use crate::display::kms::{CrtcEvent, Object, Request};
 use crate::display::mode::mode;
-use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
+use crate::display::{Blank, DPMS_TIMEOUT, Rect, SwapError, Swapped, Wanted, lock};
 use crate::scratch::Scratch;
 use std::rc::Rc;
 
