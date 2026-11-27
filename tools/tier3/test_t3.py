@@ -715,14 +715,22 @@ class ImplementationTest(unittest.TestCase):
         built = os.path.join(self.dir.name, "vtium-logind")
         with open(built, "w") as f:
             f.write("logind build")
-        impl["features"] = {"logind": built}
+        minspec = os.path.join(self.dir.name, "vtium-minspec")
+        with open(minspec, "w") as f:
+            f.write("minspec build")
         verbose = "kernel.printk = 7 4 1 7\n"
-        for variant, sysctl, binary in (
-                ("power-reboot-hard", "kernel.ctrl-alt-del = 1\n", None),
-                ("power-reboot", None, None), ("power-off", None, None),
-                ("power-suspend-off", verbose, None),
-                ("power-suspend-logind", verbose, "logind build")):
-            with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
+        # The minspec console goes on power-suspend-off's disc when the
+        # tree's console carries features, and none goes when the tree's
+        # console is the minspec build already (t3.build_features: None).
+        for variant, sysctl, binary, features in (
+                ("power-reboot-hard", "kernel.ctrl-alt-del = 1\n", None, {}),
+                ("power-reboot", None, None, {}), ("power-off", None, None, {}),
+                ("power-suspend-off", verbose, "minspec build", {"": minspec}),
+                ("power-suspend-off", verbose, None, {"": None}),
+                ("power-suspend-logind", verbose, "logind build", {"logind": built})):
+            impl["features"] = features
+            with self.subTest(variant, features=features), \
+                    mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 path = os.path.join(disc, "sysctl.conf")
                 if sysctl is None:
@@ -955,6 +963,36 @@ class ImplementationTest(unittest.TestCase):
                                return_value=subprocess.CompletedProcess([], 2)):
             with self.assertRaisesRegex(SystemExit, "make install-tree failed with exit code 2"):
                 t3.build_tree("install-tree", tree, [], lambda msg: None)
+
+    def test_build_features_builds_each_console_the_tree_lacks(self):
+        # A variant's feature set that differs from the tree's is built with
+        # cargo, the empty set without --features; the set the tree's
+        # console was built with builds nothing and maps to None, so the
+        # variant runs the tree's console.
+        seen = []
+
+        def cargo(args, cwd, env=None, **kwargs):
+            if args[0] == "git":
+                return subprocess.CompletedProcess(args, 0, stdout="rev\n")
+            seen.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        variants = ["power-suspend-off", "power-suspend-logind"]
+        with mock.patch.object(t3.subprocess, "run", side_effect=cargo):
+            out = t3.build_features(variants, ["libseat", "logind"], lambda msg: None)
+        none = os.path.join(t3_common.OUT, "features-none")
+        logind = os.path.join(t3_common.OUT, "features-logind")
+        self.assertEqual(out, {"": os.path.join(none, "minspec", "vtium"),
+                               "logind": os.path.join(logind, "minspec", "vtium")})
+        self.assertEqual(seen, [["cargo", "build", "--profile", "minspec", "-p", "vtium",
+                                 "--target-dir", none],
+                                ["cargo", "build", "--profile", "minspec", "-p", "vtium",
+                                 "--features", "logind", "--target-dir", logind]])
+        seen.clear()
+        with mock.patch.object(t3.subprocess, "run", side_effect=cargo):
+            out = t3.build_features(variants, [], lambda msg: None)
+        self.assertEqual(out, {"": None, "logind": os.path.join(logind, "minspec", "vtium")})
+        self.assertEqual([a[-3:] for a in seen], [["logind", "--target-dir", logind]])
 
 
 
@@ -1208,7 +1246,7 @@ class PreflightTest(unittest.TestCase):
                 mock.patch.object(t3_impl, "RUNDIR", os.path.join(out, "run")), \
                 mock.patch.object(t3.subprocess, "run", side_effect=make), \
                 mock.patch.object(t3, "build_tree", wraps=t3.build_tree) as build, \
-                mock.patch.object(t3, "build_features", lambda variants, log: {}), \
+                mock.patch.object(t3, "build_features", lambda variants, tree_features, log: {}), \
                 mock.patch.object(t3, "build_fonts", lambda variants, log: None), \
                 mock.patch.object(t3_runner, "run_variants", side_effect=variants):
             try:
@@ -2083,9 +2121,11 @@ class PowerTest(unittest.TestCase):
         # power-off runs on a guest that has not slept.
         self.assertEqual(t3_scenario.VARIANTS["power-off"]["power"], ["power-off"])
         # Suspend through logind runs vtium built with it; the minspec
-        # build suspends through sysfs. Each is followed by a power-off.
+        # build suspends through sysfs, so power-suspend-off runs vtium
+        # built with no features, whatever the tree's console was built
+        # with. Each is followed by a power-off.
         self.assertEqual(t3_scenario.VARIANTS["power-suspend-logind"]["features"], "logind")
-        self.assertNotIn("features", t3_scenario.VARIANTS["power-suspend-off"])
+        self.assertEqual(t3_scenario.VARIANTS["power-suspend-off"]["features"], "")
         for name in ("power-suspend-off", "power-suspend-logind"):
             self.assertEqual(t3_scenario.VARIANTS[name]["power"][-1], "power-off-after-s3")
 
