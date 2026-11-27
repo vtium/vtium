@@ -247,7 +247,8 @@ impl App {
 
     /// Lays head `h` out again, as [`App::lay_out`] does, and then logs the
     /// display line again for each display the layout moved to another
-    /// grid, cell or orientation ([`App::layout_moved`]). A turn, a new
+    /// grid, cell or orientation, or left with other pixels over
+    /// ([`App::layout_moved`]). A turn, a new
     /// mode after a VT switch or a modeset, a display that comes or goes, a
     /// console that opens, and a change of font or size all lay the head
     /// out here. Returns what [`App::lay_out`] returns.
