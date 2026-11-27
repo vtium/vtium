@@ -1058,7 +1058,7 @@ mod tests {
 
     use super::*;
     use std::cell::Cell;
-    use std::os::fd::OwnedFd;
+    use std::os::fd::{BorrowedFd, OwnedFd};
     use std::rc::Rc;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1101,6 +1101,25 @@ mod tests {
         let chunk = [b'x'; 65_536];
         while std::io::Write::write(&mut &socket, &chunk).is_ok() {}
         (OwnedFd::from(socket), peer)
+    }
+
+    /// Sends `request` with the descriptor `fd` on `drawer`, the drawer's
+    /// end of the socket, as a hostile drawer would.
+    fn send_with(
+        drawer: impl AsFd,
+        request: &Request,
+        fd: BorrowedFd<'_>,
+    ) -> rustix::io::Result<usize> {
+        let mut space = [std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+        let mut control = rustix::net::SendAncillaryBuffer::new(&mut space);
+        let fds = [fd];
+        assert!(control.push(rustix::net::SendAncillaryMessage::ScmRights(&fds)));
+        rustix::net::sendmsg(
+            drawer,
+            &[std::io::IoSlice::new(&request.encode())],
+            &mut control,
+            rustix::net::SendFlags::empty(),
+        )
     }
 
     /// A request to switch to VT 0, which the reader refuses.
@@ -1530,19 +1549,36 @@ mod tests {
     }
 
     /// A descriptor that comes with a request never holds up the broker's
-    /// loop, even when its last close blocks. The stand-in sends a request
-    /// with a TCP socket whose close waits out a linger time of 120 s,
-    /// then checks the error answer and sends a power key. The broker's
-    /// own end here takes descriptors, as on a kernel older than Linux
-    /// 6.16, so the descriptor reaches the broker, which refuses the
-    /// request. A broker that closed the socket on its loop would not
-    /// serve the power key for 120 s, and the test waits 30 s.
+    /// loop, even when its last close blocks. Before the stand-in starts,
+    /// the test puts a request on the drawer's end of the socket with a
+    /// TCP socket whose last close waits out a linger time of 120 s, and
+    /// closes its own copy. Until the broker reads the message, the kernel
+    /// holds the socket in it, so the broker's copy is the only one. The
+    /// broker's close of that copy blocks until the test closes the peer,
+    /// after the run. The broker's own end here takes descriptors, as on a
+    /// kernel older than Linux 6.16, so the descriptor reaches the broker,
+    /// which refuses the request. The stand-in checks the error answer and
+    /// sends a power key. A broker that closed the socket on its loop
+    /// would not serve the power key for 120 s, and the test waits 30 s.
+    ///
+    /// The test sends the socket itself because a stand-in that sent it
+    /// would race the broker. When the broker closed its copy first, the
+    /// stand-in's own close would be the last one, and the stand-in would
+    /// wait in that close instead of sending the power key.
     #[test]
     fn a_descriptor_whose_close_blocks_leaves_the_broker_serving() {
         let ran = bounded(|| {
-            broker_on(Link::pair().unwrap(), "linger:7", &[], LONG, |ping, _| {
+            let (link, theirs) = Link::pair().unwrap();
+            let (socket, peer) = lingering();
+            send_with(&theirs, &open_device(3), socket.as_fd()).unwrap();
+            drop(socket);
+            let ran = broker_on((link, theirs), "linger:7", &[], LONG, |ping, _| {
                 Box::new(StopOnPower(ping))
-            })
+            });
+            // The peer resets the connection as it closes, which ends the
+            // close that blocks on the broker's closing thread.
+            drop(peer);
+            ran
         });
         assert_eq!((ran.status, ran.restored), (7, 1));
     }
@@ -1790,33 +1826,15 @@ mod tests {
                         }
                         power();
                     }
-                    "linger" | "linger-refused" => {
-                        // The peer stays open and reads nothing until the
-                        // stand-in exits, so the last close of the socket
-                        // that goes with the request waits out its linger
-                        // time.
+                    // The test sent the request and its socket before the
+                    // stand-in started, so the first order the stand-in
+                    // reads is the broker's error answer to that request.
+                    "linger" => answered(3, libc::EINVAL, 24),
+                    "linger-refused" => {
                         let (socket, _peer) = lingering();
-                        let request = open_device(3).encode();
-                        let mut space =
-                            [std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
-                        let mut control = rustix::net::SendAncillaryBuffer::new(&mut space);
-                        let fds = [socket.as_fd()];
-                        assert!(control.push(rustix::net::SendAncillaryMessage::ScmRights(&fds)));
-                        let sent = rustix::net::sendmsg(
-                            &link,
-                            &[std::io::IoSlice::new(&request)],
-                            &mut control,
-                            rustix::net::SendFlags::empty(),
-                        );
-                        match (mode, sent) {
-                            ("linger", Ok(_)) => {
-                                // The stand-in lets its own copy go, so
-                                // the broker's copy is the last one.
-                                drop(socket);
-                                answered(3, libc::EINVAL, 24);
-                            }
-                            ("linger-refused", Err(rustix::io::Errno::PERM)) => {
-                                // The stand-in's copy is the last one, and
+                        match send_with(&link, &open_device(3), socket.as_fd()) {
+                            Err(rustix::io::Errno::PERM) => {
+                                // The stand-in's copy is the only one, and
                                 // without its linger time it closes at once.
                                 rustix::net::sockopt::set_socket_linger(&socket, None).unwrap();
                                 drop(socket);
