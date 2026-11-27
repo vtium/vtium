@@ -14,7 +14,12 @@
 //! the whole multiples of the tallest strike. vtium asks the font helper
 //! which strike draws at the heights it tries, so a request lands on a
 //! strike. All the asks of one request share one wait for the helper's
-//! answers ([`App::strike_step`]).
+//! answers ([`App::strike_step`]). When the helper has not answered a
+//! height the search needs by then, vtium resizes nothing yet: it carries
+//! the search on at each turn that takes the helper's late answers
+//! ([`App::resume_climbs`]), and the console that asked takes none of its
+//! program's output until the search ends. So a slow helper delays the
+//! request, and the grid is the one a fast helper gives.
 //!
 //! - An omitted side keeps the length it has, and a side of 0 takes the
 //!   length the displays hold at the height chosen for the other side, as
@@ -59,6 +64,7 @@ impl App {
     /// `request`: the head draws at the largest zoom step whose grid holds
     /// it, on exactly that grid where the displays hold it.
     pub(super) fn request_grid(&mut self, h: usize, request: GridRequest) {
+        self.drop_climb(h);
         self.choose_font(h);
         let dpi = self.dpi(h);
         let locale = self.locale.clone();
@@ -106,7 +112,8 @@ impl App {
         // there.
         let next = |app: &mut App, at: u32, dir: Zoom| {
             let n = app.size_step(h, at, dir, dpi, end)?;
-            Some((n, fit_at(app.heads.get(h)?, n, &locale)?))
+            let grid = app.heads.get(h).and_then(|head| fit_at(head, n, &locale));
+            grid.map(|grid| (n, grid)).ok_or(NoStep::End)
         };
         // Down a step at a time until the grid holds what is asked, or to
         // the smallest step, where a side the displays cannot hold becomes
@@ -114,8 +121,9 @@ impl App {
         let mut target = want;
         while !holds(fit, target) {
             match next(self, at, Zoom::Out) {
-                Some((n, grid)) => (at, fit) = (n, grid),
-                None => {
+                Ok((n, grid)) => (at, fit) = (n, grid),
+                Err(NoStep::Owed) => return self.climb_waits(h, request),
+                Err(NoStep::End) => {
                     target = (
                         target.0.map(|c| c.min(fit.0)),
                         target.1.map(|r| r.min(fit.1)),
@@ -125,11 +133,12 @@ impl App {
             }
         }
         // Then up a step at a time while the next step still holds it.
-        while let Some((n, grid)) = next(self, at, Zoom::In) {
-            if !holds(grid, target) {
-                break;
+        loop {
+            match next(self, at, Zoom::In) {
+                Ok((n, grid)) if holds(grid, target) => (at, fit) = (n, grid),
+                Ok(_) | Err(NoStep::End) => break,
+                Err(NoStep::Owed) => return self.climb_waits(h, request),
             }
-            (at, fit) = (n, grid);
         }
         let Some(head) = self.heads.get(h) else {
             return;
@@ -158,19 +167,80 @@ impl App {
         }
     }
 
+    /// Head `h`'s search for the text area `request` waits for a late
+    /// answer from the font helper. The head keeps its size and grid, and
+    /// the shown console, which asked, keeps the request and takes none of
+    /// its program's output, until [`App::resume_climbs`] ends the search.
+    fn climb_waits(&mut self, h: usize, request: GridRequest) {
+        if let Some(head) = self.heads.get_mut(h) {
+            head.console.term.sizing = Some(request);
+        }
+    }
+
+    /// Head `h` stops waiting to carry on a search through its font set's
+    /// strikes, because a new request, a zoom or a new size takes its
+    /// place. The shown console, if its text area request waited, takes
+    /// its program's output again. A hidden console keeps the request it
+    /// waits on, since the new size is not its own until it is shown.
+    pub(super) fn drop_climb(&mut self, h: usize) {
+        if let Some(head) = self.heads.get_mut(h) {
+            head.zoom_waits = None;
+            head.console.term.sizing = None;
+        }
+    }
+
+    /// Carries on each search through a font set's strikes that waits for
+    /// a late answer from the font helper, at each turn that takes the
+    /// helper's answers. The search starts again from the head's size, so
+    /// it reuses every answer it has and asks only at the heights it has
+    /// yet to ask at. It ends once every height it needs has an answer, or
+    /// once the helper has failed and cannot answer.
+    ///
+    /// Only the shown console's text area request goes on. A console that
+    /// was hidden while its request waited goes on holding the request
+    /// and its program's output, and vtium carries the request on at the
+    /// first turn after the console is shown again, as it carries out a
+    /// request that a hidden console holds once that console is shown. That
+    /// request takes the place of a zoom that still waits.
+    ///
+    /// References:
+    /// - ADR-1401 D1: a hidden console keeps its own grid and cell.
+    pub(super) fn resume_climbs(&mut self) {
+        for h in 0..self.heads.len() {
+            let Some(head) = self.heads.get(h) else {
+                continue;
+            };
+            if let Some(request) = head.console.term.sizing {
+                self.request_grid(h, request);
+            } else if let Some(dir) = head.zoom_waits {
+                self.zoom(h, dir);
+            }
+        }
+    }
+
     /// The height that head `h` draws at after one zoom step from `at` in
-    /// the direction `dir`, or `None` past the font's last step. An
-    /// XTWINOPS 8 request walks the same steps as a zoom, so the grid it
-    /// settles on is one a zoom also reaches. `end` bounds the wait for the
-    /// font helper's answers ([`App::strike_step`]).
-    fn size_step(&mut self, h: usize, at: u32, dir: Zoom, dpi: f64, end: Instant) -> Option<u32> {
-        let chosen = self.heads.get(h)?.chosen();
+    /// the direction `dir`. [`NoStep::End`] says the font has no step that
+    /// way, and [`NoStep::Owed`] that the font helper has yet to answer at
+    /// a height the step needs. An XTWINOPS 8 request walks the same steps
+    /// as a zoom, so the grid it settles on is one a zoom also reaches.
+    /// `end` bounds the wait for the font helper's answers
+    /// ([`App::strike_step`]).
+    fn size_step(
+        &mut self,
+        h: usize,
+        at: u32,
+        dir: Zoom,
+        dpi: f64,
+        end: Instant,
+    ) -> Result<u32, NoStep> {
+        let chosen = self.heads.get(h).ok_or(NoStep::End)?.chosen();
         if chosen.struck() {
             return self.strike_step(h, at, dir, end);
         }
         chosen
             .zoom(at, dir, &self.locale, dpi)
             .filter(|&n| if dir == Zoom::In { n > at } else { n < at })
+            .ok_or(NoStep::End)
     }
 
     /// The next height from `from` in the direction `dir` at which head
@@ -195,9 +265,11 @@ impl App {
     ///
     /// Every ask of one step, or of one text area request, shares one wait
     /// of [`helper::OWN_CELL_MS`] for the helper's answers, which `end`
-    /// marks. An ask with no answer by then, or a helper that could not
-    /// answer at all, stops the step, so a slow helper holds the loop up for
-    /// at most that wait. The late answer is kept for the next step.
+    /// marks, so a slow helper holds the loop up for at most that wait. An
+    /// ask with no answer by then stops the step with [`NoStep::Owed`]
+    /// while the helper still runs, and the caller carries the step on once
+    /// the late answer comes ([`App::resume_climbs`]). A helper that could
+    /// not answer at all ends the step with [`NoStep::End`].
     ///
     /// References:
     /// - ADR-1204 D2: the cell of the tallest strike no taller than each
@@ -209,16 +281,17 @@ impl App {
         from: u32,
         dir: Zoom,
         end: Instant,
-    ) -> Option<u32> {
+    ) -> Result<u32, NoStep> {
         if dir == Zoom::Out {
-            let at = from.checked_sub(1).filter(|&a| a > 0)?;
+            let at = from.checked_sub(1).filter(|&a| a > 0).ok_or(NoStep::End)?;
             return match self.strike_answer(h, at, end) {
-                Strike::At(cell) => Some(font::whole_height(cell, at)),
-                Strike::Short | Strike::Unknown => None,
+                Strike::At(cell) => Ok(font::whole_height(cell, at)),
+                Strike::Owed => Err(NoStep::Owed),
+                Strike::Short | Strike::Unknown => Err(NoStep::End),
             };
         }
         if from > font::ZOOM_IN_MAX {
-            return None;
+            return Err(NoStep::End);
         }
         let base = self.strike_answer(h, from, end);
         // The highest height the search asks at: the next whole multiple
@@ -227,30 +300,34 @@ impl App {
         // starts from.
         let limit = match base {
             Strike::At(cell) => from
-                .checked_div(cell.height)?
-                .checked_add(1)?
-                .checked_mul(cell.height)?,
+                .checked_div(cell.height)
+                .and_then(|n| n.checked_add(1))
+                .and_then(|n| n.checked_mul(cell.height))
+                .ok_or(NoStep::End)?,
             Strike::Short => font::ZOOM_IN_MAX,
-            Strike::Unknown => return None,
+            Strike::Owed => return Err(NoStep::Owed),
+            Strike::Unknown => return Err(NoStep::End),
         }
         .min(vtium_font::CELL_SIDE_MAX);
         if limit <= from {
-            return None;
+            return Err(NoStep::End);
         }
         // Whether the answer at a height differs from the one at `from`.
-        // `None` stops the step: no answer in time, a helper that could
-        // not answer, or a refusal above a strike, which a helper that
-        // names the tallest strike no taller than the height never sends.
+        // An error stops the step: an answer that has yet to come, a helper
+        // that could not answer, or a refusal above a strike, which a
+        // helper that names the tallest strike no taller than the height
+        // never sends.
         let differs = |app: &mut App, at: u32| match (base, app.strike_answer(h, at, end)) {
-            (_, Strike::Unknown) | (Strike::At(_), Strike::Short) => None,
-            (Strike::At(a), Strike::At(b)) => Some(a != b),
-            (Strike::Short, Strike::At(_)) => Some(true),
-            (Strike::Short, Strike::Short) => Some(false),
-            (Strike::Unknown, _) => None,
+            (_, Strike::Owed) => Err(NoStep::Owed),
+            (_, Strike::Unknown) | (Strike::At(_), Strike::Short) => Err(NoStep::End),
+            (Strike::At(a), Strike::At(b)) => Ok(a != b),
+            (Strike::Short, Strike::At(_)) => Ok(true),
+            (Strike::Short, Strike::Short) => Ok(false),
+            (Strike::Owed | Strike::Unknown, _) => Err(NoStep::End),
         };
         let mut hi = limit;
         if matches!(base, Strike::At(_)) && !differs(self, limit)? {
-            return Some(limit);
+            return Ok(limit);
         }
         // The first height above `from` whose answer differs lies in
         // (lo, hi]: double the gap from `from` until an answer differs,
@@ -270,7 +347,7 @@ impl App {
             gap = gap.saturating_mul(2);
         }
         if hi == limit && matches!(base, Strike::Short) && !differs(self, limit)? {
-            return None;
+            return Err(NoStep::End);
         }
         // lo < hi throughout, so the gap and the midpoint stay in range.
         while hi.saturating_sub(lo) > 1 {
@@ -282,8 +359,11 @@ impl App {
             }
         }
         match self.strike_answer(h, hi, end) {
-            Strike::At(cell) => Some(font::whole_height(cell, hi)).filter(|&n| n > from),
-            Strike::Short | Strike::Unknown => None,
+            Strike::At(cell) => Some(font::whole_height(cell, hi))
+                .filter(|&n| n > from)
+                .ok_or(NoStep::End),
+            Strike::Owed => Err(NoStep::Owed),
+            Strike::Short | Strike::Unknown => Err(NoStep::End),
         }
     }
 
@@ -298,15 +378,28 @@ impl App {
         if let Some(cell) = head.chosen().strike_at(at) {
             return Strike::At(cell);
         }
-        let answer = head
-            .frit()
-            .and_then(|name| self.frits.get(name))
-            .and_then(|frit| frit.own.get(&at));
-        match answer {
+        let Some(frit) = head.frit().and_then(|name| self.frits.get(name)) else {
+            return Strike::Unknown;
+        };
+        let running = frit
+            .helper
+            .as_ref()
+            .is_some_and(|helper| helper.failed().is_none());
+        match frit.own.get(&at) {
             Some(Err(no)) if no.from_frit => Strike::Short,
+            Some(Err(no)) if no.late && running => Strike::Owed,
             _ => Strike::Unknown,
         }
     }
+}
+
+/// Why a zoom step from a height finds no next height.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NoStep {
+    /// The font has no step that way, or the helper could not answer.
+    End,
+    /// The font helper has yet to answer at a height the step needs.
+    Owed,
 }
 
 /// What the helper says of a height, for a font set whose first source is
@@ -317,6 +410,9 @@ enum Strike {
     At(vtium_font::Cell),
     /// No strike is that short.
     Short,
-    /// No answer: none in time, or the helper could not answer.
+    /// No answer yet: none came in time, and the helper still runs, so
+    /// its late answer is on the way.
+    Owed,
+    /// No answer, because the helper could not answer.
     Unknown,
 }

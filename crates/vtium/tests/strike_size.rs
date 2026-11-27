@@ -182,26 +182,39 @@ fn struck_set(name: &str) -> Scratch {
 struct Seat {
     lp: Loop<App>,
     app: App,
-    _dir: Scratch,
+    dir: Scratch,
 }
 
 impl Seat {
     /// The seat drawing the set `t` at `--font-size=<size>`, its session
     /// printing one A at the top left. Its first turn has run.
     fn boot(test: &str, size: u32) -> Seat {
-        Seat::boot_with(test, size, &[], "printf A; exec sleep 30")
+        Seat::boot_with(test, size, &[], "printf A; exec sleep 30", false)
     }
 
     /// The seat drawing the set `t` at `--font-size=<size>`, with the
     /// options `more`, its session running `script` under `/bin/sh`. Its
-    /// first turn has run.
-    fn boot_with(test: &str, size: u32, more: &[&str], script: &str) -> Seat {
+    /// first turn has run. A `held` helper sends no answer until
+    /// [`Seat::let_go`], so the first turn's ask at
+    /// `size` has no answer in time whatever the machine's speed.
+    fn boot_with(test: &str, size: u32, more: &[&str], script: &str, held: bool) -> Seat {
         let dir = struck_set(test);
         let kinds = dir.join("kinds");
+        let go = dir.join("go");
+        if held {
+            rustix::fs::mknodat(
+                rustix::fs::CWD,
+                &go,
+                rustix::fs::FileType::Fifo,
+                rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+                0,
+            )
+            .expect("the go FIFO");
+        }
         let fonts = Sources {
             frits: dir.to_path_buf(),
             trust: vtium::font::trust().below(&dir),
-            helper: Some(real_helper(&kinds, None)),
+            helper: Some(real_helper(&kinds, held.then_some(go.as_path()))),
             vconsole_conf: PathBuf::from("/dev/null"),
             kernel_cmdline: PathBuf::from("/dev/null"),
         };
@@ -233,7 +246,22 @@ impl Seat {
         app.vt.activate().expect("the fake VT");
         app.start();
         app.turn(now());
-        Seat { lp, app, _dir: dir }
+        Seat { lp, app, dir }
+    }
+
+    /// Lets a held helper send its answers: the helper waits to open the
+    /// FIFO `go` to read, so an open to write succeeds once it does.
+    fn let_go(&mut self) {
+        let go = self.dir.join("go");
+        let open = |_: &mut Seat| {
+            rustix::fs::open(
+                &go,
+                rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::NONBLOCK,
+                rustix::fs::Mode::empty(),
+            )
+            .is_ok()
+        };
+        assert!(self.until(open), "the helper answers");
     }
 
     /// Turns the loop until `done` holds, at most [`BOUND`].
@@ -390,6 +418,7 @@ fn a_text_area_request_draws_the_strike_whose_grid_holds_it() {
             size,
             &["--allow-window-ops"],
             &script,
+            false,
         );
         let what = format!("{rows} rows of {cols} columns from {size} pixels");
         s.draws((w, h), (0, 0, w, h), &what);
@@ -435,6 +464,7 @@ fn a_text_area_request_asks_the_helper_at_few_heights() {
         16,
         &["--allow-window-ops"],
         "printf 'A\\033[8;1;1t'; exec sleep 30",
+        false,
     );
     assert!(s.until(|s| s.app.grid() == (1, 1)), "the grid");
     let heights: Vec<u32> = s.app.frit_cells("t").iter().map(|(at, _)| *at).collect();
@@ -442,5 +472,126 @@ fn a_text_area_request_asks_the_helper_at_few_heights() {
         heights.len() <= 26 && heights.contains(&160),
         "{} asks, at {heights:?}",
         heights.len()
+    );
+}
+
+/// A text area request whose search through the strikes meets a helper
+/// that has yet to answer still ends where a fast helper's answers take
+/// it. The helper is held, so the start's ask at 16 pixels has no answer
+/// in time, and the program then asks for one row of one column. vtium
+/// takes the request and resizes nothing yet, and the console takes none
+/// of the program's output after the request. Once the test lets the
+/// helper answer, the late answer at 16 pixels carries the search on, as
+/// does each later answer that misses its wait on a loaded machine. The
+/// search climbs to 160 pixels, five times the 32-pixel strike, as with a
+/// fast helper, and the console then takes the rest of the program's
+/// output, the B.
+// covers: window.resize
+#[test]
+fn a_text_area_request_waits_for_the_helpers_late_answers() {
+    let mut s = Seat::boot_with(
+        "strike-window-late",
+        16,
+        &["--allow-window-ops"],
+        "printf 'A\\033[8;1;1tB'; exec sleep 30",
+        true,
+    );
+    // A, then the 8 bytes of the request.
+    let taken = |s: &mut Seat| {
+        s.app
+            .term()
+            .is_some_and(|t| t.parsed >= 9 && !t.terminal.grid_requested())
+    };
+    assert!(s.until(taken), "vtium takes the request");
+    assert!(
+        s.app
+            .frit_cells("t")
+            .iter()
+            .all(|(_, answer)| answer.is_err()),
+        "the held helper answered nothing: {:?}",
+        s.app.frit_cells("t")
+    );
+    s.let_go();
+    let shows_b = |s: &mut Seat| s.app.screen_text().iter().any(|l| l.contains('B'));
+    assert!(
+        s.until(|s| s.app.grid() == (1, 1) && shows_b(s)),
+        "the grid {:?} and the screen {:?}",
+        s.app.grid(),
+        s.app.screen_text()
+    );
+    let heights: Vec<u32> = s.app.frit_cells("t").iter().map(|(at, _)| *at).collect();
+    assert!(
+        heights.contains(&160),
+        "the search reached 160: {heights:?}"
+    );
+    assert_eq!(s.answer(160), Some(Ok((16, 32))), "the 32-pixel strike");
+}
+
+/// A zoom whose step meets a helper that has yet to answer takes the step
+/// once the answer comes. The helper is held, so the start's ask at 16
+/// pixels has no answer in time, and a zoom in keeps the 16-pixel size.
+/// Once the test lets the helper answer, vtium takes the step to the
+/// 18-pixel strike, which fills its 10×18 cell.
+#[test]
+fn a_zoom_waits_for_the_helpers_late_answers() {
+    let mut s = Seat::boot_with("strike-zoom-late", 16, &[], "printf A; exec sleep 30", true);
+    s.app.input_event(zoom(Mods::CTRL, '='), now());
+    assert!(
+        s.app
+            .frit_cells("t")
+            .iter()
+            .all(|(_, answer)| answer.is_err()),
+        "the held helper answered nothing: {:?}",
+        s.app.frit_cells("t")
+    );
+    s.let_go();
+    s.draws(
+        (10, 18),
+        (0, 0, 10, 18),
+        "16, zoomed in to 18 after the wait",
+    );
+}
+
+/// A text area request goes with the session that asked for it. The
+/// helper is held, so the search for the one row of one column that the
+/// program asks for waits, and the program exits meanwhile. The console's
+/// next session starts, and its output, the C, draws at once. Once the
+/// test lets the helper answer, vtium carries out nothing of the ended
+/// session's request: the grid keeps its size, and vtium asks the helper
+/// at no height but the start's.
+#[test]
+fn a_text_area_request_ends_with_the_session_that_asked() {
+    let once = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("vtium-strike-window-exit-{}", std::process::id()))
+        .join("once");
+    let script = format!(
+        "if [ -e '{0}' ]; then printf C; exec sleep 30; fi; : > '{0}'; printf 'A\\033[8;1;1t'",
+        once.display()
+    );
+    let mut s = Seat::boot_with(
+        "strike-window-exit",
+        16,
+        &["--allow-window-ops"],
+        &script,
+        true,
+    );
+    let grid = s.app.grid();
+    let shows_c = |s: &mut Seat| s.app.screen_text().iter().any(|l| l.contains('C'));
+    assert!(
+        s.until(shows_c),
+        "the next session's output draws: {:?}",
+        s.app.screen_text()
+    );
+    s.let_go();
+    assert!(
+        s.until(|s| matches!(s.answer(16), Some(Ok(_)))),
+        "the helper answers at 16 pixels: {:?}",
+        s.app.frit_cells("t")
+    );
+    let heights: Vec<u32> = s.app.frit_cells("t").iter().map(|(at, _)| *at).collect();
+    assert_eq!(
+        (s.app.grid(), heights),
+        (grid, vec![16]),
+        "no search for the ended session's request"
     );
 }

@@ -1651,6 +1651,70 @@ fn a_zoom_in_through_a_helper_that_cannot_answer_asks_no_further() {
     assert_eq!(now, asked, "no other height asked");
 }
 
+/// One row of one column, which every display holds at every height.
+const ONE_CELL: vtium_term::GridRequest = vtium_term::GridRequest {
+    rows: vtium_term::Extent::Cells(1),
+    cols: vtium_term::Extent::Cells(1),
+};
+
+// ctlseqs, XTWINOPS 8: a text area request on a font set with strikes
+// waits while the font helper still owes an answer at a height its
+// search needs, and the console takes none of its program's output
+// meanwhile. A helper that vtium gives up never answers, so the search
+// ends at the next turn that takes the helper's answers. It ends as it
+// does when the helper could not answer in time: at the height the
+// search reached, here the start's, on exactly the grid asked for. The
+// console then takes its program's output again.
+#[test]
+fn a_text_area_request_ends_once_the_font_helper_is_given_up() {
+    let (_lp, mut app, _dir) = struck_seat("climb-given-up");
+    let head = app.heads.first().unwrap();
+    let (size, grid) = (head.font_size, head.grid);
+    app.request_grid(0, ONE_CELL);
+    let head = app.heads.first().unwrap();
+    assert!(!head.console.term.takes_input(), "the console waits");
+    assert_eq!((head.font_size, head.grid), (size, grid), "no resize yet");
+    let frit = app.frits.get_mut("t").unwrap();
+    frit.helper.as_mut().unwrap().give_up("the helper failed");
+    app.helper_turn((app.clock)());
+    let head = app.heads.first().unwrap();
+    assert!(head.console.term.takes_input(), "the console takes output");
+    assert_eq!((head.font_size, head.grid), (size, (1, 1)), "the request");
+}
+
+// ctlseqs, XTWINOPS 8: a console that is hidden while its text area
+// request waits for the font helper goes on holding the request and its
+// program's output, as a hidden console holds a request it has not yet
+// carried out. Shown again, the console carries the request out. Here
+// the helper is given up meanwhile, so the request ends at the height
+// the search reached, on exactly the grid asked for.
+//
+// References:
+// - ADR-1401 D1: a hidden console keeps its own grid and cell.
+#[test]
+fn a_text_area_request_from_a_console_hidden_while_it_waits_is_carried_out_once_shown() {
+    let (_lp, mut app, _dir) = struck_seat("climb-hidden");
+    let head = app.heads.first().unwrap();
+    let (first, size, grid) = (head.console.id, head.font_size, head.grid);
+    app.request_grid(0, ONE_CELL);
+    let now = Instant::now();
+    assert!(app.open_console(0, now), "a second console opens");
+    app.turn(now);
+    let frit = app.frits.get_mut("t").unwrap();
+    frit.helper.as_mut().unwrap().give_up("the helper failed");
+    app.turn(Instant::now());
+    let head = app.heads.first().unwrap();
+    assert_eq!(head.grid, grid, "the second console keeps the grid");
+    let hidden = head.hidden.iter().find(|c| c.id == first).unwrap();
+    assert!(!hidden.term.takes_input(), "the hidden console waits");
+    app.chord(Some(0), HeadChord::NextConsole, false, Instant::now());
+    app.turn(Instant::now());
+    let head = app.heads.first().unwrap();
+    assert_eq!(head.console.id, first, "console 1 is shown again");
+    assert!(head.console.term.takes_input(), "the console takes output");
+    assert_eq!((head.font_size, head.grid), (size, (1, 1)), "the request");
+}
+
 // ADR-1200 D14: once vtium leaves out a font of a frit, here its text
 // font, after the font made the helper fail, the console forgets the
 // cells the helper answered and asks for each again. The helper now
@@ -2542,6 +2606,54 @@ fn a_late_cell_answer_fills_only_a_missing_answer() {
     assert_eq!(known.get(&(at + 1)), Some(&refused));
     assert_eq!(known.get(&(at + 2)), Some(&late_refusal));
     assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
+}
+
+// The font helper's late answer that a font set has no character cell
+// of its own is logged with the font set named first, then the helper's
+// reason, which names the font file, then what vtium does and how to see
+// and activate the fonts the set lacks. A helper that could not answer
+// at all blames no font, so its line gives no advice about fonts.
+//
+// References:
+// - ADR-1200 D17: a refusal leaves the display's cell in use.
+// - ADR-1205 D4: a font draws only while it is among the active fonts.
+#[test]
+fn a_late_refusal_names_the_font_set_and_the_helpers_reason_and_what_to_do() {
+    let (_lp, mut app, _dir) = late_seat("late-refusal-line");
+    let at = app.heads.first().map(|h| h.font_size).unwrap();
+    crate::getty::tests::logged();
+    let why = "the text font source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf is not among the active fonts. The built-in font draws the text in its place, and the character cell comes from the configuration. To activate the font file, run vtium-config activate /usr/share/fonts/TTF/DejaVuSansMono.ttf --install";
+    app.late_cell(
+        "t",
+        at + 2,
+        Err(helper::NoCell {
+            why: why.to_owned(),
+            late: false,
+            from_frit: true,
+        }),
+    );
+    app.late_cell(
+        "t",
+        at + 3,
+        Err(helper::NoCell {
+            why: "the helper ended".to_owned(),
+            late: false,
+            from_frit: false,
+        }),
+    );
+    let lines: Vec<String> = crate::getty::tests::logged()
+        .into_iter()
+        .filter(|l| l.starts_with("The font set t "))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            format!(
+                "The font set t has no character cell of its own. The font helper answered after vtium stopped waiting for it: {why}. The font set keeps the character cell it draws in now. To see each font the font set lacks, and to activate a font that is not active, run vtium config fonts."
+            ),
+            "The font set t has no character cell of its own. The font helper could not answer: the helper ended. The font set keeps the character cell it draws in now.".to_owned(),
+        ]
+    );
 }
 
 // ADR-1200 D17: a bitmap frit's answer holds at every height, so a
