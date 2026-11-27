@@ -1083,6 +1083,42 @@ mod tests {
         );
     }
 
+    /// A `gpu` that is a symbolic link could point the owner and the mode
+    /// that the broker sets at any folder, so the broker refuses it and
+    /// leaves the folder it points at as it was: its mode, its owner and
+    /// what it holds.
+    ///
+    /// References:
+    /// - ADR-1304 D20: the symbolic link.
+    #[test]
+    fn a_shader_cache_folder_that_is_a_symbolic_link_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = Folder::new("gpu-cache-link");
+        let target = folder.0.join("elsewhere");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("entry"), "kept").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o750)).unwrap();
+        let root = folder.0.join("vtium");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::os::unix::fs::symlink(&target, root.join("gpu")).unwrap();
+        let e = gpu_cache(&root, me().uid, &me()).unwrap_err();
+        assert!(e.to_string().contains("symbolic link"), "{e}");
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o7777,
+            0o750
+        );
+        assert_eq!(
+            std::fs::read_to_string(target.join("entry")).unwrap(),
+            "kept"
+        );
+        assert!(
+            std::fs::symlink_metadata(root.join("gpu"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
     /// Only root may own vtium's cache folder or write to it. Another
     /// account that could write there could put a `gpu` of its own choosing
     /// there between the broker's checks, which the broker would then give to
