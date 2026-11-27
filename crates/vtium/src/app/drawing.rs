@@ -48,16 +48,20 @@ impl App {
 
     /// Logs the display line again for each display in `before` that head
     /// `h` now draws differently: on another grid, in another character
-    /// cell, or turned another way. A display that left the head logs
-    /// nothing, and one that joined it logs its own line. So after a turn,
-    /// a new mode, a display that comes or goes, or a change of font or
-    /// size, the log says how each display draws now. While the head's
+    /// cell, turned another way, or with other pixels left over. A new mode
+    /// can keep the grid and the cell and still change the pixels left
+    /// over, as 1366×768 and 1360×768 both hold 170×48 cells of 8×16. A
+    /// display that left the head logs nothing, and one that joined it logs
+    /// its own line. So after a turn, a new mode, a display that comes or
+    /// goes, or a change of font or size, the log says how each display
+    /// draws now. While the head's
     /// render thread has not yet said which path draws it, vtium logs
     /// nothing here, since every display line of the head follows once the
     /// thread has said so.
     ///
     /// References:
     /// - ADR-1303 D10: the display line names the path that draws the display.
+    /// - ADR-1310 D12, "vtium logs it": the line on the pixels left over, again at a mode change.
     pub(super) fn layout_moved(&self, h: usize, before: &Layout) {
         let Some(head) = self.heads.get(h) else {
             return;
@@ -69,11 +73,14 @@ impl App {
         };
         let regrid = head.grid != before.grid;
         for (key, cell, orientation) in &before.displays {
-            if let Some(view) = head.views.get(key)
-                && (regrid || view.cell() != *cell || view.orientation != *orientation)
+            let Some(view) = head.views.get(key) else {
+                continue;
+            };
+            let fit = view.fit_changed();
+            if (regrid || fit.is_some() || view.cell() != *cell || view.orientation != *orientation)
                 && let Some(video) = self.videos.get(&key.0)
             {
-                display_line(&video.name(key.1), video.backend(), path, view);
+                display_line_fit(&video.name(key.1), video.backend(), path, view, fit);
             }
         }
     }
@@ -563,6 +570,18 @@ fn display_lines(head: &Head, videos: &BTreeMap<PathBuf, Box<dyn Video>>) {
 /// - ADR-1303 D10: the display line names the path that draws the display.
 /// - ADR-1310 D12, "vtium logs it": the line on the pixels left over, never a warning.
 pub(super) fn display_line(name: &str, backend: &str, path: crate::painter::Path, view: &View) {
+    display_line_fit(name, backend, path, view, view.fit_changed());
+}
+
+/// [`display_line`], with the columns and rows that fit given as `fit`
+/// when they changed since the log last said, or `None` when they did not.
+fn display_line_fit(
+    name: &str,
+    backend: &str,
+    path: crate::painter::Path,
+    view: &View,
+    fit: Option<vtium_settings::fit::Fit>,
+) {
     let cell = view.cell();
     log::info!(
         "Display {name} with backend [{backend}] text renderer [{}], cell size {}x{}",
@@ -570,7 +589,7 @@ pub(super) fn display_line(name: &str, backend: &str, path: crate::painter::Path
         cell.width,
         cell.height
     );
-    if let Some(line) = view.fit_changed().and_then(|f| f.line(name)) {
+    if let Some(line) = fit.and_then(|f| f.line(name)) {
         log::info!("{line}");
     }
 }
@@ -598,6 +617,7 @@ mod tests {
     use vtium_render::{Config as RenderConfig, Orientation};
 
     use super::display_line;
+    use crate::app::App;
     use crate::font::DisplayFace;
     use crate::getty::tests::logged;
     use crate::pointer_file::Store as PointerFile;
@@ -682,6 +702,83 @@ mod tests {
             fit_lines(),
             [
                 "Display DSI-1 is 770×1366 and holds 170 columns of 8 pixels and 48 rows of 16 pixels, so 6 pixel columns and 2 pixel lines are left over."
+            ]
+        );
+    }
+
+    // A new mode that keeps the head's grid and the display's cell still
+    // logs the display line again when it changes the pixels left over.
+    // With an 8×16 cell, 316×160 and 312×160 both hold 39 columns and 10
+    // rows. At 312×160 the line says the display draws with nothing left
+    // over, and back at 316×160 the line on the 4 pixel columns follows.
+    //
+    // References:
+    // - ADR-1310 D12, "vtium logs it": the line again at a mode change.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::unwrap_used,
+        reason = "a test's clock is the host's, and a test fails by panicking"
+    )]
+    fn a_new_mode_with_the_same_grid_logs_the_pixels_left_over_again() {
+        use std::path::{Path, PathBuf};
+        use std::time::Instant;
+
+        use vtium_platform::display::Event;
+
+        use crate::app::tests::{Still, no_fonts, seat, shown};
+
+        // installs the log's capture before anything logs
+        let _ = logged();
+        let (_lp, mut app) = seat(None, no_fonts());
+        let mut s = Still::new(&[(1, "A")]);
+        s.size = (316, 160);
+        app.add_video(PathBuf::from("/dev/mem0"), Box::new(s));
+        shown(&mut app);
+        // The display's first lines follow once the head's render thread
+        // has told the loop which path draws it. The bound on the wait only
+        // keeps the test from hanging when the thread never tells.
+        let end = Instant::now() + std::time::Duration::from_secs(10);
+        let mut first = Vec::new();
+        while !first
+            .iter()
+            .any(|l: &String| l.starts_with("Display A is 316×160"))
+            && Instant::now() < end
+        {
+            std::thread::yield_now();
+            app.turn(Instant::now());
+            first.extend(logged());
+        }
+        assert!(
+            first.iter().any(|l| l.starts_with("Display A is 316×160")),
+            "the display's first lines: {first:?}"
+        );
+        let grid = app.heads.first().map(|h| h.grid);
+        assert_eq!(grid, Some((39, 10)), "316×160 in 8×16 cells");
+        let moved = |app: &mut App, size| {
+            let _ = logged();
+            let video = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            let s = video.as_any().downcast_mut::<Still>().unwrap();
+            s.size = size;
+            s.events.push(Event::Redraw(DisplayId(1)));
+            app.turn(Instant::now());
+            assert_eq!(app.heads.first().map(|h| h.grid), grid, "at {size:?}");
+            logged()
+                .into_iter()
+                .filter(|l| l.contains(" with backend ") || l.contains("left over"))
+                .collect::<Vec<_>>()
+        };
+        let line = "Display A with backend [still] text renderer [cpu], cell size 8x16";
+        assert_eq!(
+            moved(&mut app, (312, 160)),
+            [line],
+            "at 312×160 nothing is left over"
+        );
+        assert_eq!(
+            moved(&mut app, (316, 160)),
+            [
+                line,
+                "Display A is 316×160 and holds 39 columns of 8 pixels, so 4 pixel columns are left over."
             ]
         );
     }
