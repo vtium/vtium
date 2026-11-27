@@ -38,7 +38,11 @@ These parts are in place:
 | `src/lib.rs` | The crate's documentation, its determinism lints and its public names. |
 | `src/cell.rs` | `Cell`: 8 bytes, its content and width (narrow, wide, a wide character's tail, or the pad a wide character leaves when it moves to the next row), and the indices of its style and hyperlink in its line's tables. |
 | `src/style.rs` | `Style`, `Color` and `Attrs`: colors kept unresolved, and every SGR attribute, overline, conceal and superscript and subscript among them. |
-| `src/line.rs` | `Line`: its cells, the style and link tables and the cluster arena they index, its `LineId`, its fill (the style of the cells past its end), the width its clusters were written at, and its `LineFlags` (the reflow flag, the OSC 133 marks, the line size, the mark of a row printed with mode 2028 reset). |
+| `src/line.rs` | `Line`: its cells, its `LineId`, its fill (the style of the cells past its end), the width its clusters were written at, and its `LineFlags` (the reflow flag, the OSC 133 marks, the line size, the mark of a row printed with mode 2028 reset), with the accessors that read a cell's style, link and glyph. |
+| `src/line/tables.rs` | The tables a line's cells index: its styles, its links, its sized runs and the cluster arena that holds its grapheme clusters, and the map a rewrap copies indices through. |
+| `src/line/edit.rs` | The edits of a line: writing and erasing cells, inserting and deleting them, resizing and trimming the line, and the copies a rewrap makes from one line into another. |
+| `src/line/runs.rs` | Sized runs: `TextSize`, the keys of one OSC 66 sequence, `SizedRun`, each line's share of a run, and the edits that keep a line's run table and its cells' marks in step. |
+| `src/line/memory.rs` | A line's memory: the cluster budget its cells write within, the limits its tables compact at, the compaction, and what a line keeps of a cluster that would pass its budget. |
 | `src/damage.rs` | `Damage`: change ages by screen position, the rule for what each screen event marks, and the scroll record. |
 | `src/frame.rs` | `Frame`, `FrameCell` and `Cursor`: what a renderer reads, a cell or a row at a time, with colors resolved at draw time and the selection drawn inverted or in its colors. |
 | `src/palette.rs` | `Palette`: the 256 colors, the two defaults and the cursor, pointer and selection colors, the named palettes the `palette` key chooses and the custom one (vtium/vtium#94). |
@@ -55,13 +59,16 @@ These parts are in place:
 | `src/screen/rect.rs` | The rectangle operations on the screen: DECERA, DECSERA, DECFRA and DECCRA, and DECCARA's and DECRARA's attribute changes in the extent DECSACE selects. |
 | `src/screen/reflow.rs` | Reflow (ADR-1003): a width change rewraps the main screen and its scrollback, carrying the cursor, the saved cursor, the selection and the view, and cuts the alternate screen. |
 | `src/links.rs` | The link store, each distinct link once by its id and URI within `LINKS_BYTES_MAX`, and the rule for what an OSC 8 link may hold. |
-| `src/scrollback.rs` | The scrollback and its view, the oldest rows waiting to be rewrapped after a width change, `sb-size`'s default and its cap, by default from the machine's memory or as the configuration sets it, and `sb-memory`'s byte budget, its default derived from the minspec peak, and its fence. |
+| `src/scrollback.rs` | The scrollback and its view: the rows it holds, the drops past `sb-size` and `sb-memory`, and the rewraps of its oldest rows. |
+| `src/scrollback/bounds.rs` | `sb-size`'s default and its cap, by default from the machine's memory or as the configuration sets it, and `sb-memory`'s byte budget, its default derived from the minspec peak, and its fence. |
+| `src/scrollback/waiting.rs` | The oldest rows waiting to be rewrapped after a width change, and with the `images` feature, the record of what happened to the rows a placement is anchored on. |
 | `src/terminal.rs` | `Terminal`: the parser and the dispatch of its actions, the host's settings, DECSC and DECRC, DECSTR and RIS. |
 | `src/terminal/charset.rs` | The character sets: what G0 to G3 hold, the slots GL and GR hold, the single shifts, and the DEC special and DEC supplemental graphics tables. |
 | `src/terminal/modes.rs` | The mode table, the single source for SM, RM, DECRQM, the resets and `docs/modes.md` and `docs/modes.tsv`, and the only module that reaches a mode's state. |
 | `src/terminal/bidi.rs` | With the `bidi` feature: SCP and SPD, the direction vtium.conf's `text-direction` gives (`TextDirection`), and the paragraph defaults DECSTR and RIS return to (ADR-1004 D2, D5). |
 | `src/terminal/sgr.rs` | SGR: the pen, its attributes and its colors in the semicolon and colon forms. |
 | `src/terminal/images.rs` | With the `images` feature: the router to the image protocols' handlers, the context they act through, the protocol switches and limits, the barrier a decode request holds, and the handlers' notes for the host's log. |
+| `src/line/tests.rs`, `src/scrollback/tests.rs`, `src/terminal/images/tests.rs` | The unit tests of the line, the scrollback and the image router. |
 | `src/terminal/rect.rs` | The rectangle operations' parameters, DECSACE and DECSCA, read into the screen's calls. |
 | `src/terminal/line_size.rs` | DECDWL, DECDHL and DECSWL, which make the cursor's line double or single size. |
 | `src/terminal/text_size.rs` | OSC 66: its metadata keys, read and checked, and the sized run it writes. |

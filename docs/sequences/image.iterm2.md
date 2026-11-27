@@ -54,7 +54,7 @@ These tests check what vtium does with the sequences on this page.
 - `an_animated_picture_covers_a_cell_only_where_every_frame_covers_it` in [crates/vtium-image/src/store/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-image/src/store/tests.rs)
 - `an_animated_picture_draws_nothing_only_where_every_frame_draws_nothing` in [crates/vtium-image/src/store/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-image/src/store/tests.rs)
 - `frames_reserved_ahead_of_their_image_free_other_animations_and_split_or_go_back` in [crates/vtium-image/src/store/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-image/src/store/tests.rs)
-- `the_parts_of_a_transfer_reach_the_iterm2_handler` in [crates/vtium-term/src/terminal/images.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/src/terminal/images.rs)
+- `the_parts_of_a_transfer_reach_the_iterm2_handler` in [crates/vtium-term/src/terminal/images/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/src/terminal/images/tests.rs)
 - `iterm2_is_on_while_sixel_is_offered_and_a_helper_can_start` in [crates/vtium/src/head/images.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/head/images.rs)
 
 ## Where to read more
