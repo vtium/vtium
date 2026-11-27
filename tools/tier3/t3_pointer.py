@@ -145,7 +145,8 @@ def variant_smooth(variant):
     variant installs and the features it names, "features" for a console
     built for the variant alone, else "tree_features"."""
     features = variant.get("features")
-    features = features.replace(",", " ").split() if features else variant.get("tree_features", ())
+    features = (features.replace(",", " ").split() if features is not None
+                else variant.get("tree_features", ()))
     return smooth_scrolls(t3_heads.guest_conf(variant), features)
 
 

@@ -6,7 +6,7 @@ vtium runs on a Linux virtual terminal (VT), one of the text screens you reach w
 
 That helps wherever you work at the machine's own screen: a server without a desktop, a kiosk, a small board, or the console before a desktop starts. Editors, file managers and tmux get the color, mouse and image support they expect there.
 
-This is alpha software, at version 0.1.0-alpha.10. Installing the package gives vtium every free VT from that VT's next start. On a machine with no display manager, that includes VT 1, the screen where the boot messages appear. To try one VT only, follow [Try vtium on one VT](tutorial-try-vtium.md) instead.
+This is alpha software, at version 0.1.0-alpha.12. Installing the package gives vtium every free VT from that VT's next start. On a machine with no display manager, that includes VT 1, the screen where the boot messages appear. To try one VT only, follow [Try vtium on one VT](tutorial-try-vtium.md) instead.
 
 ![A shell session on a Linux console in a smooth monospaced font: a colored prompt, a directory listing, a git log with a branch graph, a row of six images with their file names, greetings in several languages and scripts with emoji, and a line of underline and text styles.](showcase/hero.png)
 
@@ -36,7 +36,7 @@ The full steps are in [Find out what went wrong](troubleshooting.md) and [Upgrad
 
 ## Where to start
 
-On Arch, the AUR carries `vtium`, built from the latest release, and `vtium-git`, built from the tip of `main`. Both build vtium with images, right-to-left text, effects, the GPU path, seat mode, and logind support, so the suspend key asks logind to suspend the machine. They also turn the GPU path on. vtium is packaged only for Arch so far. [Install vtium and give it VTs](install.md) covers the other Arch packages, other distributions, and building from a checkout. The `vtium` recipe checks the maintainer's signing key, and the recipe carries its own copy of that key:
+On Arch, the AUR carries `vtium`, built from the latest release, and `vtium-git`, built from the tip of `main`. Both build vtium with images, right-to-left text, effects, the GPU path, seat mode, and logind support, so the suspend key asks logind to suspend the machine. From 0.1.0-alpha.12 on, they also build faster scrolling on the CPU and the privilege split, which runs most of vtium without root. They also turn the GPU path on. vtium is packaged only for Arch so far. [Install vtium and give it VTs](install.md) covers the other Arch packages, other distributions, and building from a checkout. The `vtium` recipe checks the maintainer's signing key, and the recipe carries its own copy of that key:
 
 ```
 $ git clone https://aur.archlinux.org/vtium.git
@@ -47,7 +47,7 @@ $ makepkg -si
 
 Because that key comes from the same clone it verifies, you can fetch it from a keyserver instead with `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. [The releases](https://github.com/vtium/vtium/releases) list what changed in each version. This site describes vtium's `main` branch, which may be ahead of the latest release.
 
-Once vtium is installed, it reads its settings from `/etc/vtium/vtium.conf`. Rules in that file place each display, keyboard, and mouse in a head, vtium's name for a terminal that spans one or more displays. vtium-config, vtium's setup tool, edits the file from a terminal, and `vtium config tui` opens its full-screen view. Its Flow tab draws vtium.conf as a diagram, from the displays through the rules and heads to the keyboards and mice. Your edits go into a draft of your own until a single `sudo` step installs the file. Its Fonts tab lists the fonts on the machine, with a preview of each. Its Looks tab can try a font set on the live console for 10 seconds before you keep it. Two things are still missing: identifying a device from a keypress on it, and trying a whole configuration on the console before installing it. [The vtium-config issue](https://github.com/vtium/vtium/issues/367) lists the rest.
+Once vtium is installed, it reads its settings from `/etc/vtium/vtium.conf`. Rules in that file place each display, keyboard, and mouse in a head, vtium's name for a terminal that spans one or more displays. vtium-config, vtium's setup tool, edits the file from a terminal, and `vtium config tui` opens its full-screen view. Its Flow tab draws vtium.conf as a diagram, from the displays through the rules and heads to the keyboards and mice. Your edits go into a draft of your own until a single `sudo` step installs the file. Its Fonts tab lists the fonts on the machine, with a preview of each. There you can try a font on the live console for 10 seconds before you keep it. Its Looks tab can try a whole look there: its font set, its color scheme and its size. Two things are still missing: identifying a device from a keypress on it, and trying a whole configuration on the console before installing it. [The vtium-config issue](https://github.com/vtium/vtium/issues/367) lists the rest.
 
 | If you want to | Start here |
 |---|---|

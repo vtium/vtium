@@ -245,7 +245,7 @@ def run(args, log):
         errors = t3_scenario.check_tree_features(variants, impl)
         if errors:
             raise SystemExit("\n".join(errors))
-        impl["features"] = build_features(variants, log)
+        impl["features"] = build_features(variants, impl["tree_features"], log)
         impl["fonts"] = build_fonts(variants, log)
         impl["text_fonts"] = text_fonts(variants, log)
         log("tree: %s, binary %d B, %s installed"
@@ -330,24 +330,40 @@ def recorded_tree(tree, declared):
     return impl
 
 
-def build_features(variants, log):
+def build_features(variants, tree_features, log):
     """vtium built with each feature set a variant in `variants` names, as
     {features: binary path}, each in a directory of its own under OUT,
     which is both its cargo target directory and its build directory, with
-    the minspec profile and the revision the tree's build logs."""
+    the minspec profile and the revision the tree's build logs. An empty
+    set is the minspec console, built in OUT/features-none. A set that
+    equals `tree_features`, the features the tree's console was built
+    with, maps to None and builds nothing, because the tree's console is
+    already that build and the variant runs it as it is.
+
+    One run builds one tree, with every feature any of its variants needs,
+    so a variant whose checks rest on the console lacking a feature names
+    its features here instead of taking the tree's. The minspec console
+    suspends through /sys/power/state, and a console built with logind asks
+    logind, which reaches systemd's Sleep target. So power-suspend-off names
+    the empty set, and it still runs the minspec console when a seat variant
+    in the same run makes the tree's console a logind build."""
     out = {}
     for features in sorted({t3_scenario.VARIANTS[v]["features"] for v in variants
                             if "features" in t3_scenario.VARIANTS[v]}):
-        target = os.path.join(OUT, "features-" + features)
-        log("building vtium with %s in %s" % (features, rel(target)))
+        if feature_list(features) == sorted(tree_features):
+            out[features] = None
+            continue
+        target = os.path.join(OUT, "features-" + (features or "none"))
+        log("building vtium with %s in %s" % (features or "no features", rel(target)))
         rev = subprocess.run(["git", "describe", "--always", "--dirty"], cwd=ROOT,
                              capture_output=True, text=True).stdout.strip() or "unknown"
-        r = subprocess.run(["cargo", "build", "--profile", "minspec", "-p", "vtium",
-                            "--features", features, "--target-dir", target], cwd=ROOT,
+        r = subprocess.run(["cargo", "build", "--profile", "minspec", "-p", "vtium"]
+                           + (["--features", features] if features else [])
+                           + ["--target-dir", target], cwd=ROOT,
                            env=dict(os.environ, VTIUM_REVISION=rev, CARGO_BUILD_BUILD_DIR=target))
         if r.returncode:
             raise SystemExit("building vtium with %s failed with exit code %d"
-                             % (features, r.returncode))
+                             % (features or "no features", r.returncode))
         out[features] = os.path.join(target, "minspec", "vtium")
     return out
 
