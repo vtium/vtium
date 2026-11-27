@@ -168,32 +168,13 @@ impl Run<'_> {
             }
             fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
         }
+        // Each screen draws and is judged on its own, so the screens are
+        // spread over the machine's cores; the reports keep the cases'
+        // order, and the first error in that order stops the run as it
+        // would on one thread.
         let mut out = Vec::new();
-        for case in self.cases {
-            let s = &case.screen;
-            let mut r = CaseReport::new(s.name, Status::Error);
-            r.description = Some(s.desc.to_owned());
-            let golden = self.goldens.join(format!("{}.ppm", s.name));
-            r.golden = Some(rel(self.root, &golden));
-            let actual = actual_dir.join(format!("{}.ppm", s.name));
-            match draw::draw(s) {
-                Ok(img) => {
-                    write(&actual, &img.to_ppm())?;
-                    write(
-                        &actual_dir.join(format!("{}.txt", s.name)),
-                        format!("{}\n", s.desc).as_bytes(),
-                    )?;
-                    r.actual = Some(rel(self.root, &actual));
-                    if golden.exists() {
-                        self.judge(&mut r, &golden, &img, &diff_dir);
-                    } else {
-                        r.status = Status::Missing;
-                        r.note = Some("no golden".to_owned());
-                    }
-                }
-                Err(e) => r.note = Some(format!("not drawn: {e}")),
-            }
-            out.push(r);
+        for r in self.each_case(&actual_dir, &diff_dir) {
+            out.push(r?);
         }
         // the screens tier 2 owes, and goldens no screen draws
         let mut pending = self.pending.to_vec();
@@ -212,6 +193,72 @@ impl Run<'_> {
             }
         }
         Ok(out)
+    }
+
+    /// Draws and judges each case on up to as many threads as the machine
+    /// has cores, and returns the results in the cases' order.
+    fn each_case(&self, actual_dir: &Path, diff_dir: &Path) -> Vec<Result<CaseReport, String>> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let threads = std::thread::available_parallelism()
+            .map_or(1, usize::from)
+            .clamp(1, self.cases.len().max(1));
+        let next = AtomicUsize::new(0);
+        let mut done: Vec<(usize, Result<CaseReport, String>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..threads)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut mine = Vec::new();
+                        loop {
+                            let i = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(case) = self.cases.get(i) else {
+                                return mine;
+                            };
+                            mine.push((i, self.one_case(case, actual_dir, diff_dir)));
+                        }
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().expect("a tier 2 drawing thread"))
+                .collect()
+        });
+        done.sort_by_key(|(i, _)| *i);
+        done.into_iter().map(|(_, r)| r).collect()
+    }
+
+    /// Draws one case, writes its drawing, and judges it against its
+    /// golden.
+    fn one_case(
+        &self,
+        case: &Case,
+        actual_dir: &Path,
+        diff_dir: &Path,
+    ) -> Result<CaseReport, String> {
+        let s = &case.screen;
+        let mut r = CaseReport::new(s.name, Status::Error);
+        r.description = Some(s.desc.to_owned());
+        let golden = self.goldens.join(format!("{}.ppm", s.name));
+        r.golden = Some(rel(self.root, &golden));
+        let actual = actual_dir.join(format!("{}.ppm", s.name));
+        match draw::draw(s) {
+            Ok(img) => {
+                write(&actual, &img.to_ppm())?;
+                write(
+                    &actual_dir.join(format!("{}.txt", s.name)),
+                    format!("{}\n", s.desc).as_bytes(),
+                )?;
+                r.actual = Some(rel(self.root, &actual));
+                if golden.exists() {
+                    self.judge(&mut r, &golden, &img, diff_dir);
+                } else {
+                    r.status = Status::Missing;
+                    r.note = Some("no golden".to_owned());
+                }
+            }
+            Err(e) => r.note = Some(format!("not drawn: {e}")),
+        }
+        Ok(r)
     }
 
     /// Judges `img` against the golden at `golden`, with its sidecar.
