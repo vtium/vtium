@@ -881,7 +881,7 @@ pub const SMOOTH_SCROLL: Key = Key {
     levels: TOP_LOOK_HEAD,
     what: "Turn smooth scrolling on, in a build with the `smooth-scroll` feature.\n\n\
            [docs] When off, the default, vtium centres the text on the screen. A screen whose size is not a whole number of character cells leaves pixels over, and they form bars of the border's color on both sides of the text. When on, the text's last row touches the bottom of the screen, and `partial-row` sets what the pixel lines left over above the text show. A build without the `smooth-scroll` feature always centres the text.\n\n\
-           [docs] A head's value wins over its look's, and both win over the top level's. A program can switch smooth scrolling with DECSCLM (mode 4), but the text stays where this key puts it.\n\n\
+           [docs] A head's value wins over its look's, and both win over the top level's. vtium ignores DECSCLM (mode 4), the sequence a program sends to switch smooth scrolling, so no program can move the text.\n\n\
            [docs] vtium does not slide the text by pixels yet, so it scrolls by whole rows either way.",
 };
 
