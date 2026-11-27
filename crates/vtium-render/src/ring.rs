@@ -1257,12 +1257,18 @@ impl<F: Face> Renderer<F> {
     /// `grid` columns and rows asks the terminal for: the overscan's 4
     /// rows (the bound `OVERSCAN_ROWS`), or as many as the spare lines above the grid show
     /// where that is more. The terminal hands one row more, for the ink of
-    /// the row above the last.
+    /// the row above the last. A centred grid's spare lines show the
+    /// border's color and no row of history, so a centred grid asks for the
+    /// overscan's rows alone, however many spare lines lie above it.
     ///
     /// References:
     /// - ADR-1310 D2: K rows on each side, and one more for the ink of the rows next to them.
     /// - ADR-1310 D10, "A strip taller than a row": the capture holds as many rows above as the spare lines show.
+    /// - ADR-1310 D12, "With smooth scrolling off": the spare lines of a centred grid show the border's color.
     pub fn rows_above_asked(&self, (cols, rows): (usize, usize)) -> usize {
+        if self.layout.placement == Placement::Centred {
+            return OVERSCAN_ROWS;
+        }
         let s = self.layout.grid_of(cols, rows);
         self.layout.strip_rows(&s).max(OVERSCAN_ROWS)
     }
