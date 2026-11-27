@@ -1901,6 +1901,85 @@ fn enter_on_a_size_tries_its_grid_on_the_console_and_a_key_puts_it_back() {
     assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
 }
 
+/// Enter on a size tries the look's font set at that size. The console
+/// draws unifont and the look proof's font set is proof, so vtium-config
+/// switches the console to proof first, and asks for proof's grid at 6 pt
+/// once the console draws proof. unifont alone cannot reach that grid.
+/// Any key but `k` then gives the console back its font and then its
+/// grid, and lets the grid fill the display again, so no grid that the
+/// trial asked for outlives it.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the preview shows the
+///   look at that size, and vtium meets the grid request with the zoom
+///   step of the font it draws.
+/// - ADR-1201 D4, "The live trial, on a key": any other key puts the
+///   console back as it was before the trial.
+#[test]
+fn enter_on_a_size_tries_the_look_s_font_set_at_that_size() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let (c, _) = run_on(&window_ops_on(), &keys);
+    let at = |needle: &[u8]| find(&c.written, needle);
+    let font = at(b"\x1b]50;proof").expect("the look's font set");
+    let grid = at(b"\x1b[8;30;80t").expect("the size's grid");
+    let back = at(b"\x1b]50;unifont").expect("the console's font given back");
+    let grid_back = at(b"\x1b[8;25;80t").expect("the console's grid given back");
+    assert!(
+        font < grid && grid < back && back < grid_back,
+        "{:?}",
+        c.log
+    );
+    // the console took the grid whole in proof, and the put-back leaves
+    // it filling the display in unifont
+    let tried = c.log.iter().position(|l| l == "set proof").expect("proof");
+    assert_eq!(
+        c.log.get(tried + 2).map(String::as_str),
+        Some("grid 30;80"),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(
+        (c.shown.as_str(), c.grid(), c.pinned),
+        ("unifont", (80, 25), None),
+        "{:?}",
+        c.log
+    );
+}
+
+/// After `k` keeps a size tried in the look's font set, and while such a
+/// trial still counts down, leaving vtium-config gives the console back
+/// its font and then its grid, and the grid fills the display again.
+///
+/// References:
+/// - ADR-1201 D4, "The live trial, on a key": a kept font and a kept
+///   look's grid stay on the console until the TUI leaves, which gives
+///   the start ones back.
+/// - ADR-1201 D4, "Giving the console back": leaving gives back the start
+///   font, then the start grid.
+#[test]
+fn leaving_after_a_size_trial_gives_the_console_its_font_and_grid_back() {
+    let kept: &[&[u8]] = &[b"k", ESC, ESC, b"q", b"n"];
+    // a signal leaves while the trial still counts down
+    let running: &[&[u8]] = &[b"!15"];
+    for (how, then) in [("kept", kept), ("running", running)] {
+        let mut keys = PICK_SIX.to_vec();
+        keys.extend_from_slice(then);
+        let (c, _) = run_on(&window_ops_on(), &keys);
+        let tried = find(&c.written, b"\x1b[8;30;80t").expect("the size's grid request");
+        let rest = &c.written[tried..];
+        let font = find(rest, b"\x1b]50;unifont").expect("the start font");
+        let grid = find(rest, b"\x1b[8;25;80t").expect("the start grid");
+        assert!(font < grid, "{how}: {:?}", c.log);
+        assert_eq!(
+            (c.shown.as_str(), c.grid(), c.pinned),
+            ("unifont", (80, 25), None),
+            "{how}: {:?}",
+            c.log
+        );
+    }
+}
+
 /// A size tried in the font set the console already draws changes only
 /// the grid, and putting it back lets the grid fill the display again.
 /// Otherwise the grid stays pinned at the start grid's rows and columns,
@@ -1970,7 +2049,7 @@ fn putting_a_tried_size_back_says_the_look_still_holds_it() {
     let (c, _) = run_on(&window_ops_on(), &keys);
     let seen = flat(&c.seen.expect("the screen"));
     assert!(
-        seen.contains("The console's grid is back to 80×25. The look still holds 6 pt as a change to save. Pick another size to change it."),
+        seen.contains("The console is back to unifont at 80×25. The look still holds 6 pt as a change to save. Pick another size to change it."),
         "{seen}"
     );
 }
@@ -2376,10 +2455,11 @@ fn the_console_s_text_under_the_size_list_follows_the_layout() {
 }
 
 /// `u` on the screen below the minimum size puts back the font and the
-/// grid the console had when vtium-config started. Here a size and then a
-/// font set were kept from their trials, and the font set leaves a grid of
-/// 30×8. `u` switches the console back to its start font first, then asks
-/// for the start grid, because the font switch changes the grid too.
+/// grid the console had when vtium-config started. Here a size in the
+/// look's font set proof and then the font set tiny5 were kept from their
+/// trials, and tiny5 leaves a grid of 30×8. `u` switches the console back
+/// to its start font first, then asks for the start grid, because the
+/// font switch changes the grid too.
 ///
 /// References:
 /// - ADR-1201 D3: `u` on the screen below the minimum size puts back the
@@ -2413,7 +2493,7 @@ fn u_below_the_minimum_puts_back_the_start_font_then_the_start_grid() {
         .takes("unifont", (80, 25))
         .keys(&keys);
     vtium_config::tui::port::drive_with(&mut c, with_conf(&conf), Some(&mut d)).expect("the loop");
-    assert_eq!(c.switches(), ["tiny5", "unifont"]);
+    assert_eq!(c.switches(), ["proof", "tiny5", "unifont"]);
     let switch = find(&c.written, b"\x1b]50;unifont").expect("the start font's switch");
     let grid = c
         .written

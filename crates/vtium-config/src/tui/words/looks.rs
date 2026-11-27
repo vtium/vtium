@@ -393,28 +393,45 @@ pub fn look_gone(name: impl Display) -> String {
 /// The heading of the Looks tab's group of color schemes.
 pub const COLOR_SCHEMES_GROUP: &str = "Color schemes";
 
-/// The countdown of a size tried on the console's grid.
-pub fn size_countdown(points: u32, left: u32) -> String {
-    format!(
-        "Trying {} on the console for {left} s. Press k to keep the size, or any other key to put the console's grid back.",
-        self::points(points)
-    )
+/// The countdown of a size tried on the console's grid. Where the trial
+/// also switched the console to the look's font set, `font` names it.
+pub fn size_countdown(points: u32, font: Option<&str>, left: u32) -> String {
+    let points = self::points(points);
+    match font {
+        Some(font) => format!(
+            "Trying {font} at {points} on the console for {left} s. Press k to keep them, or any other key to put the console's font and grid back."
+        ),
+        None => format!(
+            "Trying {points} on the console for {left} s. Press k to keep the size, or any other key to put the console's grid back."
+        ),
+    }
 }
 
-/// `k` during a size's trial.
-pub fn size_kept(points: u32) -> String {
-    format!(
-        "The console keeps {} until you quit vtium-config. The look keeps it once you press s to save and i to install.",
-        self::points(points)
-    )
+/// `k` during a size's trial, which also kept the look's font set `font`
+/// where the trial switched the console to it.
+pub fn size_kept(points: u32, font: Option<&str>) -> String {
+    let points = self::points(points);
+    match font {
+        Some(font) => format!(
+            "The console keeps {font} at {points} until you quit vtium-config. The look keeps the size once you press s to save and i to install."
+        ),
+        None => format!(
+            "The console keeps {points} until you quit vtium-config. The look keeps it once you press s to save and i to install."
+        ),
+    }
 }
 
-/// The end of a size's trial: the console's grid as it was, and the size
-/// `points` that the look keeps as a change to save, since Enter on the
-/// size both picked it for the look and tried it.
-pub fn size_back((cols, rows): (usize, usize), points: u32) -> String {
+/// The end of a size's trial: the console's grid as it was, with its font
+/// `font` where the trial switched the font too, and the size `points`
+/// that the look keeps as a change to save, since Enter on the size both
+/// picked it for the look and tried it.
+pub fn size_back((cols, rows): (usize, usize), points: u32, font: Option<&str>) -> String {
+    let back = match font {
+        Some(font) => format!("The console is back to {font} at {cols}×{rows}."),
+        None => format!("The console's grid is back to {cols}×{rows}."),
+    };
     format!(
-        "The console's grid is back to {cols}×{rows}. The look still holds {} as a change to save. Pick another size to change it.",
+        "{back} The look still holds {} as a change to save. Pick another size to change it.",
         self::points(points)
     )
 }

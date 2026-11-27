@@ -265,7 +265,7 @@ Enter on a look opens its card, with one line each for the look's name, font set
 - The vtlook line offers No filter, the presets and the vtlooks in `/etc/vtium/looks`, in the Effects tab's order. A vtlook with an error shows the error, and the look can still choose it.
 - The pointer theme line offers the theme that vtium.conf sets first, which leaves the look's own unset. Then come the active pointer themes, with vtium's own pictures first.
 
-While the size list is open, a preview of the highlighted size draws below the list and follows the highlight. Enter picks the size. In a vtium console with `allow-window-ops` on, Enter also tries the size on the console for 10 seconds. Press `k` to keep the size until you quit vtium-config. Any other key gives the console back its grid, and so does the end of the 10 seconds.
+While the size list is open, a preview of the highlighted size draws below the list and follows the highlight. Enter picks the size. In a vtium console with `allow-window-ops` on, Enter also tries the look's font set at that size on the console for 10 seconds. Press `k` to keep them until you quit vtium-config, which then gives the console back its font and grid. Any other key gives them back at once, and so does the end of the 10 seconds.
 
 `allow-window-ops` lets programs resize the console's grid, and it is off by default. Then a size you pick takes effect when vtium next starts, and the card says so. `w` in the Looks tab asks whether to let programs resize the grid. vtium-config writes `allow-window-ops = on` into the draft only when you answer `y`.
 

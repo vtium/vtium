@@ -1146,8 +1146,8 @@ impl App {
         }
         out.extend(self.follow());
         out.extend(self.grid_after_font());
-        // a look's trial tries its size once the console draws its font
-        out.extend(self.look_size());
+        // a trial tries its size once the console draws its font
+        out.extend(self.trial_size());
         out
     }
 
