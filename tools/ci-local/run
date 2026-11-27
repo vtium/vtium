@@ -18,8 +18,14 @@
 # never hides another.
 #
 # It uses podman when installed, docker otherwise, and stops when neither is.
-# The image, cargo's registry and a target directory for each worktree are
-# cached under $XDG_CACHE_HOME/vtium/ci-local. The worktree is mounted
+# The image and cargo's registry are cached under $XDG_CACHE_HOME/vtium/ci-local.
+# Each worktree has a build directory of its own, which stays between runs, so
+# a second run builds only what changed. On a machine with the build volume
+# that the Makefile names as BUILD_VOLUME, /data/1/cargo, it is
+# /data/1/cargo/vtium/CHECKOUT/ci-local, where CHECKOUT is the name of the
+# worktree's directory. Elsewhere it is in the cache, under a hash of the
+# worktree's path. In the container, that directory is both cargo's target
+# directory and its build directory. The worktree is mounted
 # read-only, and its files, those git tracks plus untracked ones it does not
 # ignore, are copied into the container before each build, so the run never
 # changes the worktree. Each build's output goes to a log in the cache.
@@ -67,10 +73,15 @@ gid=$(id -g)
 # version and the user, so a change to any of them builds a new image.
 recipe=$(sha256sum "$here/Containerfile" | cut -c1-12)
 image=localhost/vtium-ci-local:$toolchain-nextest-$nextest-$recipe-$uid
-# One target directory for each worktree: cargo decides what to rebuild from
+# One build directory for each worktree: cargo decides what to rebuild from
 # file times, so two worktrees whose sources differ must never share one.
+volume=/data/1/cargo
 tree=$(printf '%s' "$root" | sha256sum | cut -c1-16)
-target=$cache/target/$tree
+if [[ -d $volume ]]; then
+    target=$volume/vtium/$(basename "$root")/ci-local
+else
+    target=$cache/target/$tree
+fi
 logs=$cache/logs/$tree
 mkdir -p "$cache/registry" "$cache/git" "$target" "$logs"
 
@@ -122,7 +133,7 @@ for b in $builds; do
     # and CI's runner adds none; one test counts a process's filters, so the
     # container runs without that outer filter.
     $rt run --rm --init "${rt_user[@]}" --user 0 --security-opt seccomp=unconfined --shm-size=2g \
-        -e HOME=/home/runner -e USER=runner \
+        -e HOME=/home/runner -e USER=runner -e CARGO_BUILD_BUILD_DIR="$src/target" \
         -v "$root:/src:ro" -v "$list:/home/runner/files:ro" \
         -v "$cache/registry:/home/runner/.cargo/registry" -v "$cache/git:/home/runner/.cargo/git" \
         -v "$target:$src/target" -w "$src" "$image" \

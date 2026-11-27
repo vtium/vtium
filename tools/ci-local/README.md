@@ -39,7 +39,7 @@ The worktree is mounted read-only. Before each build, the script copies the file
 
 ## The cache
 
-Everything the runs keep is under `$XDG_CACHE_HOME/vtium/ci-local` (`~/.cache/vtium/ci-local` by default): cargo's registry, a log directory and a target directory for each worktree. Cargo decides what to rebuild from file times, so two worktrees whose sources differ never share a target directory. A worktree's target directory holds both builds and takes about 30 GB. Remove `target/` in the cache to free the space, and `docker image rm` the `localhost/vtium-ci-local` images you no longer need.
+The runs keep cargo's registry and a log directory for each worktree under `$XDG_CACHE_HOME/vtium/ci-local` (`~/.cache/vtium/ci-local` by default). Each worktree also has a build directory of its own, which holds both builds and takes about 30 GB. On a machine with the build volume `/data/1/cargo`, the build directory is `/data/1/cargo/vtium/CHECKOUT/ci-local`, where CHECKOUT is the name of the worktree's directory. The volume's own timer keeps its size in check. Elsewhere it is under `target/` in the cache, which you can remove to free the space. In the container the directory is both cargo's target directory and its build directory. Cargo decides what to rebuild from file times, so two worktrees whose sources differ never share one. `docker image rm` the `localhost/vtium-ci-local` images you no longer need.
 
 ## How long it takes
 
