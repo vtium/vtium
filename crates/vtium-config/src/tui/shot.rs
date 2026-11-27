@@ -1592,9 +1592,11 @@ impl App {
 
     /// Enter on a size in the shared list of a look's card: in a vtium
     /// console that lets programs resize its grid, tries the size on the
-    /// console as a timed trial. The font helper measures the cell of the
-    /// font set `font` at the size first, and [`App::size_measured`] sends
-    /// the grid request once the cell comes. An automatic size has no grid
+    /// console as a timed trial. Where the console draws another font set,
+    /// [`App::try_size_in`] switches it to `font` first. The font helper
+    /// measures the cell of the font set `font` at the size, and
+    /// [`App::size_measured`] sends the grid request once the cell comes.
+    /// An automatic size has no grid
     /// of its own, so it is not tried. Outside a vtium console the size
     /// shows only in the preview. With `allow-window-ops` off the tab says
     /// why: with the live trial on, the preview is the console's own text

@@ -2917,6 +2917,84 @@ fn k_before_the_look_s_size_is_measured_keeps_the_size_with_no_second_trial() {
     assert!(app.shared.grid_moved, "leaving gives the start grid back");
 }
 
+/// A look's trial that starts after `k` kept another font set gives the
+/// console back the kept font set and then the grid it had before the
+/// look's size. The grid request waits for the kept font set's switch,
+/// not for the font vtium-config started with.
+///
+/// References:
+/// - ADR-1201 D4, "The live trial, on a key": any other key puts the
+///   console back as it was before the trial.
+#[test]
+fn a_look_s_trial_after_a_kept_font_set_gives_back_that_font_set_and_then_the_grid() {
+    let conf = nordic_conf("allow-window-ops\n", "look = nordic\n");
+    let (mut app, _) = started(with_conf(&conf));
+    let key =
+        |app: &mut vtium_config::tui::model::App, k: Key| app.event(Event::Input(Input::Key(k)));
+    let reply = |app: &mut vtium_config::tui::model::App, font: &str| {
+        let mut out = app.event(Event::Input(Input::Reply(Reply::Font(font.into()))));
+        out.extend(app.event(Event::Input(Input::Reply(Reply::Attributes))));
+        out
+    };
+    // a font set below the look, tried and kept
+    key(&mut app, Key::Char('3'));
+    for _ in 0..4 {
+        key(&mut app, Key::Down);
+    }
+    key(&mut app, Key::Char('t'));
+    let kept = app.shared.want.clone().expect("a font set tried");
+    assert_ne!(kept, "unifont");
+    reply(&mut app, &kept);
+    key(&mut app, Key::Char('k'));
+    // the look, tried at its size
+    for _ in 0..4 {
+        key(&mut app, Key::Up);
+    }
+    key(&mut app, Key::Char('t'));
+    assert_eq!(
+        app.shared.want.as_deref(),
+        Some("proof"),
+        "{:?}",
+        app.shared.message
+    );
+    reply(&mut app, "proof");
+    let celled = app.event(Event::Celled {
+        font: "proof".into(),
+        height: 21,
+        cell: Ok((
+            Cell {
+                width: 10,
+                height: 21,
+            },
+            21,
+        )),
+    });
+    assert!(
+        celled
+            .iter()
+            .any(|e| matches!(e, Effect::Write(b) if b.starts_with(b"\x1b[8;"))),
+        "{celled:?}"
+    );
+    // any other key puts the look back
+    let mut out = key(&mut app, Key::Char('x'));
+    out.extend(reply(&mut app, &kept));
+    let bytes: Vec<u8> = out
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Write(b) => Some(b.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let font = find(&bytes, format!("\x1b]50;{kept}").as_bytes()).expect("the kept font set");
+    let grid = find(&bytes, b"\x1b[8;25;80t").expect("the grid before the look's size");
+    assert!(font < grid, "{:?}", String::from_utf8_lossy(&bytes));
+    assert!(
+        !app.shared.grid_moved,
+        "the console is back at its start grid"
+    );
+}
+
 /// `t` on a look that no terminal uses, whose font set and color scheme
 /// the console already shows, says that no terminal uses it in place of
 /// "already uses", and `y` gives it to the draft's terminal. A look's
