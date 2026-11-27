@@ -298,7 +298,7 @@ fn a_display_that_leaves_while_the_queue_is_full_goes_once_the_queue_has_room() 
     }
     painter.forget((PathBuf::from("/dev/test"), DisplayId(1)));
     drop(release);
-    // The bound only turns a hang into a failure (AGENTS.md, testing rules).
+    // The bound only turns a hang into a failure (crates/AGENTS.md, testing rules).
     // It is generous because a cold shader cache under qemu-user can
     // take many seconds to compose the queued frames.
     let end = Instant::now()

@@ -280,7 +280,7 @@ mod tests {
     use super::*;
 
     /// Whether `text` names a decision record or a bare issue number: a
-    /// page for people who use vtium links the issue instead (AGENTS.md,
+    /// page for people who use vtium links the issue instead (docs/AGENTS.md,
     /// "Writing").
     fn cites_a_record_or_a_bare_issue(text: &str) -> bool {
         text.contains("ADR-")
