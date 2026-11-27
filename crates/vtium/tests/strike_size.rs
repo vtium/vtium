@@ -551,3 +551,47 @@ fn a_zoom_waits_for_the_helpers_late_answers() {
         "16, zoomed in to 18 after the wait",
     );
 }
+
+/// A text area request goes with the session that asked for it. The
+/// helper is held, so the search for the one row of one column that the
+/// program asks for waits, and the program exits meanwhile. The console's
+/// next session starts, and its output, the C, draws at once. Once the
+/// test lets the helper answer, vtium carries out nothing of the ended
+/// session's request: the grid keeps its size, and vtium asks the helper
+/// at no height but the start's.
+#[test]
+fn a_text_area_request_ends_with_the_session_that_asked() {
+    let once = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("vtium-strike-window-exit-{}", std::process::id()))
+        .join("once");
+    let script = format!(
+        "if [ -e '{0}' ]; then printf C; exec sleep 30; fi; : > '{0}'; printf 'A\\033[8;1;1t'",
+        once.display()
+    );
+    let mut s = Seat::boot_with(
+        "strike-window-exit",
+        16,
+        &["--allow-window-ops"],
+        &script,
+        true,
+    );
+    let grid = s.app.grid();
+    let shows_c = |s: &mut Seat| s.app.screen_text().iter().any(|l| l.contains('C'));
+    assert!(
+        s.until(shows_c),
+        "the next session's output draws: {:?}",
+        s.app.screen_text()
+    );
+    s.let_go();
+    assert!(
+        s.until(|s| matches!(s.answer(16), Some(Ok(_)))),
+        "the helper answers at 16 pixels: {:?}",
+        s.app.frit_cells("t")
+    );
+    let heights: Vec<u32> = s.app.frit_cells("t").iter().map(|(at, _)| *at).collect();
+    assert_eq!(
+        (s.app.grid(), heights),
+        (grid, vec![16]),
+        "no search for the ended session's request"
+    );
+}
