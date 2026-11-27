@@ -490,9 +490,11 @@ pub struct Shared {
     ///   configured choice.
     pub start_colors: Option<vtium_term::Palette>,
     /// The grid that `k` kept from a trial of a size, with the font set
-    /// and the size in points that give it. An install that gives the
-    /// console's terminal that font set and size makes the grid the one
-    /// leaving gives back.
+    /// and the size in points that give it, while the console still holds
+    /// it: `u` gives the console its start grid back and drops it. A later
+    /// trial gives the console this grid back when it ends. An install
+    /// that gives the console's terminal that font set and size makes the
+    /// grid the one leaving gives back.
     pub kept_grid: Option<super::shot::KeptGrid>,
     /// A grid request that waits for a font switch to go: `u`'s start
     /// grid after the start font, or the grid a trial puts back after the
@@ -518,6 +520,25 @@ pub struct Size {
 }
 
 impl Shared {
+    /// Whether leaving still has to give the console its start grid back
+    /// once a put-back has given it the grid `back`: a grid that `k` kept
+    /// stays pinned, and any other grid than the start grid may stand at
+    /// another height than the one the console started at.
+    pub fn grid_moved_to(&self, back: super::shot::GridBack) -> bool {
+        !back.fill || back.grid != self.start_grid
+    }
+
+    /// The start grid, which fills the console's displays at its font.
+    /// vtium-config takes the grid the console had when vtium-config
+    /// started for one that filled the displays, since vtium draws a
+    /// console that way until a program asks for another grid.
+    pub fn start_back(&self) -> super::shot::GridBack {
+        super::shot::GridBack {
+            grid: self.start_grid,
+            fill: true,
+        }
+    }
+
     /// The installed vtium.conf's value of `key`.
     pub fn configured(&self, key: &str) -> Option<String> {
         self.inputs.conf.as_deref().and_then(|c| setting(c, key))
@@ -1184,11 +1205,8 @@ impl App {
         }
         // a console back at its starting grid needs nothing more when the
         // TUI leaves
-        self.shared.grid_moved = after.grid != self.shared.start_grid;
-        vec![Effect::Write(super::shot::grid_back(
-            &self.shared,
-            after.grid,
-        ))]
+        self.shared.grid_moved = self.shared.grid_moved_to(after.grid);
+        vec![Effect::Write(super::shot::grid_back(after.grid))]
     }
 
     /// What follows once the terminal is known: the sources each frit that
@@ -1307,7 +1325,7 @@ impl App {
         // the grid the console had at the start goes back after its font,
         // since a font switch can change the grid too
         let grid = if self.shared.grid_moved {
-            super::shot::grid_back(&self.shared, self.shared.start_grid)
+            super::shot::grid_back(self.shared.start_back())
         } else {
             Vec::new()
         };
@@ -1480,19 +1498,22 @@ impl App {
                 // another switch is in flight, the start font's switch can
                 // only go once the console answers that one, so the grid
                 // request waits for it too
+                // the start grid replaces a grid that `k` kept
+                if self.shared.grid_moved {
+                    self.shared.kept_grid = None;
+                }
                 match self.shared.start_font.clone() {
                     Some(font) if self.shared.grid_moved => {
                         self.shared.grid_after_font = Some(super::shot::GridAfter {
                             font,
-                            grid: self.shared.start_grid,
+                            grid: self.shared.start_back(),
                         });
                         out.extend(self.grid_after_font());
                     }
                     None if self.shared.grid_moved => {
                         self.shared.grid_moved = false;
                         out.push(Effect::Write(super::shot::grid_back(
-                            &self.shared,
-                            self.shared.start_grid,
+                            self.shared.start_back(),
                         )));
                     }
                     _ => {}
@@ -1718,6 +1739,11 @@ mod tests {
         }
         // a size kept from an earlier trial
         app.shared.grid_moved = true;
+        app.shared.kept_grid = Some(super::super::shot::KeptGrid {
+            font: "unifont".into(),
+            points: 6,
+            grid: (80, 30),
+        });
         // tiny5 is the fourth font set below the Looks tab's one look; t
         // tries it and k keeps it before the console answers the switch
         for key in [
@@ -1759,6 +1785,9 @@ mod tests {
             assert!(!more.contains("\x1b[8;"), "{more:?}");
         }
         assert!(!app.shared.grid_moved);
+        // the console no longer holds the kept grid, so a later trial
+        // gives the console back a grid that fills its displays
+        assert_eq!(app.shared.kept_grid, None);
     }
 
     /// A font tried after `u`, once the terminal is large again, replaces

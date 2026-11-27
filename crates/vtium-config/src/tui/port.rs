@@ -332,7 +332,7 @@ fn give_back(app: &App) -> Vec<u8> {
     let mut out = super::shot::colors_on_leaving(&app.shared);
     out.extend(font_back(app));
     if app.shared.grid_moved {
-        out.extend(super::shot::grid_back(&app.shared, app.shared.start_grid));
+        out.extend(super::shot::grid_back(app.shared.start_back()));
     }
     out
 }

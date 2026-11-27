@@ -2062,6 +2062,104 @@ fn putting_back_a_size_in_the_console_s_font_set_unpins_the_grid() {
     );
 }
 
+/// A vtium console whose grid vtium-config cannot guess: 213 columns by
+/// 60 rows of unifont, as a wide display holds them. unifont can also
+/// draw at 8 pixels high, where it fills the display with 426×120. The
+/// look proof's font set has a larger cell, so proof fills the display
+/// with 64×20 at the height the console starts at, and switching the
+/// console to proof moves its grid. [`run_with`] gives proof the step at
+/// 8 pixels where it fills 80×30, the grid of the trial's 6 pt.
+fn wide() -> Console {
+    Console::vtium(213, 60, true, "unifont")
+        .takes("unifont", (213, 60))
+        .reaches("unifont", 8, (426, 120))
+        .takes("proof", (64, 20))
+}
+
+/// A size trial that ends while vtium-config keeps running gives the
+/// console back the grid it had before the trial: unifont's own 213×60
+/// at the height the console started at, filling the display with no
+/// grid pinned. The grid that proof gave the console between the font
+/// switch and the grid request is not the console's grid before the
+/// trial, so the put-back never asks for it. vtium-config's own screen
+/// follows the console back to 213×60.
+///
+/// References:
+/// - ADR-1201 D4, "The live trial, on a key": any other key puts the
+///   console back as it was before the trial.
+#[test]
+fn a_size_trial_put_back_leaves_the_console_filling_its_display() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let (c, _) = run_with(wide(), &window_ops_on(), &keys);
+    let tried = c.log.iter().position(|l| l == "set proof").expect("proof");
+    assert_eq!(
+        c.log.get(tried + 2).map(String::as_str),
+        Some("grid 30;80"),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(
+        c.seen_console,
+        Some(Drew {
+            font: "unifont".to_owned(),
+            height: 16,
+            grid: (213, 60),
+            pinned: None,
+        }),
+        "{:?}",
+        c.log
+    );
+    let seen = c.seen.expect("the screen");
+    assert_eq!(seen.lines().count(), 60, "{seen}");
+    assert!(
+        seen.lines().any(|l| l.chars().count() > 200),
+        "vtium-config draws across the console's 213 columns: {seen}"
+    );
+}
+
+/// After `k` keeps a size, the console's grid stays pinned at the kept
+/// grid until vtium-config leaves. A later look's trial in another font
+/// set gives the console back that kept grid when it ends, with the kept
+/// font set's height, and leaves the grid pinned there, not at the grid
+/// the trial's font set gave the console. Leaving then gives the console
+/// its start grid, filling the display.
+///
+/// References:
+/// - ADR-1201 D4, "The live trial, on a key": a kept look's grid stays on
+///   the console until the TUI leaves, which gives the start ones back.
+#[test]
+fn a_trial_after_a_kept_size_gives_back_the_kept_grid() {
+    let conf = "# mine\nfont-name=unifont\nallow-window-ops\nversion = 1\n[look proof]\nfont-name = proof\n[look small]\nfont-name = tiny5\nfont-size = 6\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n";
+    let mut keys = PICK_SIX.to_vec();
+    keys.extend_from_slice(&[b"k".as_slice(), ESC, ESC, DOWN, b"t", b"x"]);
+    let (c, _) = run_with(wide().takes("tiny5", (40, 20)), conf, &keys);
+    // the look small's trial asked for tiny5's grid at 6 pt
+    let small = c.log.iter().position(|l| l == "set tiny5").expect("tiny5");
+    assert!(
+        c.log[small..].iter().any(|l| l.starts_with("grid 80;160")),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(
+        c.seen_console,
+        Some(Drew {
+            font: "proof".to_owned(),
+            height: 8,
+            grid: (80, 30),
+            pinned: Some((80, 30)),
+        }),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(
+        (c.shown.as_str(), c.height, c.grid(), c.pinned),
+        ("unifont", 16, (213, 60), None),
+        "{:?}",
+        c.log
+    );
+}
+
 /// An install that turns `allow-window-ops` on does not change the
 /// running console, which read the key when vtium made its head. So a
 /// size picked after the install sends no grid request and says that the

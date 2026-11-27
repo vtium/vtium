@@ -172,13 +172,16 @@ pub const GRID_MAX: (usize, usize) = (1024, 1024);
 /// are the same. A trial of a size in another font set switches the
 /// console to that font set first, as a look's trial does. `grid` holds
 /// the grid the trial asked the console for. A trial of a look holds what
-/// it tries beside the font in `look`.
+/// it tries beside the font in `look`. `before` holds the console's grid
+/// as it was when the trial started, before the trial's font switch moved
+/// it, which is the grid the end of the trial gives back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Trial {
     pub font: String,
     pub back: String,
     pub left: u32,
     pub grid: Option<GridTrial>,
+    pub before: GridBack,
     /// The size in points still to try, once the console draws `font`:
     /// the font helper then measures the cell, and the grid request
     /// follows.
@@ -341,7 +344,18 @@ pub fn font_shown(name: &str) -> String {
 pub struct GridTrial {
     pub points: u32,
     pub to: (usize, usize),
-    pub back: (usize, usize),
+    pub back: GridBack,
+}
+
+/// A grid to give the console back, columns by rows, and whether the
+/// console's grid then fills its displays. vtium keeps the grid that a
+/// grid request asked for until a request with both sides 0, so a grid
+/// that filled the displays needs that request after it. A grid that `k`
+/// kept stays pinned, as the kept trial left it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GridBack {
+    pub grid: (usize, usize),
+    pub fill: bool,
 }
 
 /// A grid that `k` kept on the console: the grid, columns by rows, and
@@ -375,7 +389,7 @@ pub struct SizeAsked {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GridAfter {
     pub font: String,
-    pub grid: (usize, usize),
+    pub grid: GridBack,
 }
 
 /// The grid request, `CSI 8 ; rows ; cols t`, which asks the console for a
@@ -405,15 +419,15 @@ pub fn grid_request((cols, rows): (usize, usize)) -> Vec<u8> {
 pub const GRID_FILL: &[u8] = b"\x1b[8;0;0t";
 
 /// The bytes that give the console back the grid `to`. The grid request
-/// brings back the height that gave the grid. Where `to` is the grid the
-/// console had when vtium-config started, the request with both sides 0
-/// follows it, so the grid fills the displays again, as it did then.
-/// vtium-config takes that start grid for the one the console's displays
-/// held at its font, since vtium draws a console that way until a program
-/// asks for another grid.
-pub fn grid_back(shared: &Shared, to: (usize, usize)) -> Vec<u8> {
-    let mut bytes = grid_request(to);
-    if to == shared.start_grid {
+/// brings back the height that gave the grid: vtium draws at the largest
+/// zoom step whose grid holds the request, and a trial's grid request
+/// changed that height, which a font switch keeps. The request with both
+/// sides 0 alone would fill the displays at the trial's height. Where the
+/// grid filled the displays, the request with both sides 0 follows, so
+/// the grid fills them again and no grid stays pinned.
+pub fn grid_back(to: GridBack) -> Vec<u8> {
+    let mut bytes = grid_request(to.grid);
+    if to.fill {
         bytes.extend_from_slice(GRID_FILL);
     }
     bytes
@@ -1274,6 +1288,7 @@ impl App {
             back,
             left: TRIAL_TICKS,
             grid: None,
+            before: self.grid_before(),
             size: None,
             look: None,
         });
@@ -1388,6 +1403,7 @@ impl App {
             back,
             left: TRIAL_TICKS,
             grid: None,
+            before: self.grid_before(),
             size,
             look: Some(LookParts {
                 name,
@@ -1482,12 +1498,10 @@ impl App {
             return self.put_look_back(&t, look);
         }
         self.shared.message = Some(match (t.grid, t.points()) {
-            (Some(g), _) => words::size_back(g.back, g.points, t.back_font().as_deref()),
-            (None, Some(points)) => words::size_back(
-                (self.size.cols, self.size.rows),
-                points,
-                t.back_font().as_deref(),
-            ),
+            (Some(g), _) => words::size_back(g.back.grid, g.points, t.back_font().as_deref()),
+            (None, Some(points)) => {
+                words::size_back(t.before.grid, points, t.back_font().as_deref())
+            }
             (None, None) => words::trial_back(font_shown(&t.back)),
         });
         self.font_and_grid_back(&t)
@@ -1513,10 +1527,8 @@ impl App {
                 out.extend(self.grid_after_font());
             }
         } else if let Some(g) = t.grid {
-            // a console back at its starting grid needs nothing more when
-            // the TUI leaves
-            self.shared.grid_moved = g.back != self.shared.start_grid;
-            out.push(Effect::Write(grid_back(&self.shared, g.back)));
+            self.shared.grid_moved = self.shared.grid_moved_to(g.back);
+            out.push(Effect::Write(grid_back(g.back)));
         }
         out
     }
@@ -1570,6 +1582,7 @@ impl App {
         {
             self.shared.start_grid = kept.grid;
             self.shared.grid_moved = false;
+            self.shared.kept_grid = None;
         }
     }
 
@@ -1704,6 +1717,7 @@ impl App {
             back,
             left: TRIAL_TICKS,
             grid: None,
+            before: self.grid_before(),
             size: Some(points),
             look: None,
         });
@@ -1759,9 +1773,10 @@ impl App {
             across(display.0, cell.width).clamp(1, GRID_MAX.0),
             across(display.1, cell.height).clamp(1, GRID_MAX.1),
         );
-        let back = (self.size.cols, self.size.rows);
+        // the grid the console shows now, in the font set the trial drew
+        let now = (self.size.cols, self.size.rows);
         if kept {
-            if to == back {
+            if to == now {
                 return Some(Vec::new());
             }
             self.shared.kept_grid = Some(KeptGrid {
@@ -1774,24 +1789,29 @@ impl App {
             return Some(vec![Effect::Write(grid_request(to))]);
         }
         if let Some(t) = self.nav.trial.as_mut().filter(|_| by_trial) {
-            if to == back {
+            if to == now {
                 return Some(Vec::new());
             }
+            // the grid the console had before the trial's font switch
+            // moved it, which the end of the trial gives back
+            let back = t.before;
             t.grid = Some(GridTrial { points, to, back });
             self.shared.grid_moved = true;
             self.shared.grid_after_font = None;
             return Some(vec![Effect::Write(grid_request(to))]);
         }
-        if to == back {
+        if to == now {
             self.shared.message = Some(words::size_same(points));
             return Some(Vec::new());
         }
         let font = self.shared.shown_font.clone().unwrap_or_default();
+        let back = self.grid_before();
         self.nav.trial = Some(Trial {
             font: font.clone(),
             back: font,
             left: TRIAL_TICKS,
             grid: Some(GridTrial { points, to, back }),
+            before: back,
             size: None,
             look: None,
         });
@@ -1800,6 +1820,29 @@ impl App {
         self.shared.grid_after_font = None;
         self.shared.message = Some(words::size_countdown(points, None, TRIAL_TICKS));
         Some(vec![Effect::Write(grid_request(to)), Effect::Wait(TICK)])
+    }
+
+    /// The console's grid before a trial that starts now, which the end of
+    /// the trial gives back. A grid request that waits for a font switch
+    /// gives the console its grid once the switch has gone, so the grid
+    /// before the trial is that grid. A grid that `k` kept stays pinned on
+    /// the console until vtium-config leaves, across font switches too.
+    /// Otherwise the console's grid fills its displays, and the grid it
+    /// shows now gives the height it draws at.
+    fn grid_before(&self) -> GridBack {
+        if let Some(after) = &self.shared.grid_after_font {
+            return after.grid;
+        }
+        match &self.shared.kept_grid {
+            Some(kept) => GridBack {
+                grid: kept.grid,
+                fill: false,
+            },
+            None => GridBack {
+                grid: (self.size.cols, self.size.rows),
+                fill: true,
+            },
+        }
     }
 
     /// One tick of the live trial's countdown: the next wait, or, at its
