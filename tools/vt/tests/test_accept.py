@@ -1113,6 +1113,16 @@ class Pages(Case):
                     self.assertIn("no Powerline font", out)
                 self.assertIn("\x1b#6😀", out)
 
+    def test_skip_ink_shows_the_whole_sample_on_its_double_width_line(self):
+        out = self.run_page("21-skip-ink.sh")
+        words = "gjpqy: jog, pygmy, quip, yoga, gauge"
+        wide = [l for l in out.split("\n") if l.startswith("\x1b#6")]
+        self.assertEqual(len(wide), 1)
+        self.assertIn(f"\x1b[4m{words}\x1b[0m", wide[0])
+        # a double-width line takes two columns for each character, and
+        # the pass runs on displays as narrow as 80 columns
+        self.assertLessEqual(2 * widest(wide[0]), 80, wide[0])
+
     def test_every_page_is_a_file_of_its_own_numbered_in_order(self):
         names = self.page_files()
         self.assertEqual(len(set(n[:2] for n in names)), len(names), "two pages share a number")

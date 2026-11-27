@@ -34,4 +34,7 @@ row 'italic' '3;4:3' "$words"
 printf '  Lines that skip nothing:\n'
 row '9 strike' '9' "$words"
 row '53 overline' '53' "$words"
-printf '\033#6  \033[4mdouble-width: jog, quip\033[0m\n'
+# A double-width line holds 40 characters at 80 columns, so the sample
+# goes on it with its indent and no label.
+printf '  The single underline on a double-width line:\n'
+printf '\033#6  \033[4m%s\033[0m\n' "$words"
