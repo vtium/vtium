@@ -43,8 +43,9 @@
 use std::ffi::{CString, OsString};
 use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use rustix::process::{Gid, Pid, PidfdFlags, Uid};
@@ -80,9 +81,22 @@ pub fn lookup(name: &str) -> Option<Account> {
     })
 }
 
+/// The home folder that the passwd entry of the account `name` names, or
+/// `None` when the account does not exist.
+pub fn home(name: &str) -> Option<PathBuf> {
+    let cname = CString::new(name).ok()?;
+    entry(&cname).map(|(_, _, home)| home)
+}
+
 /// The user and group id of the account `name`, through `getpwnam_r(3)`,
 /// its buffer grown until the entry fits.
 fn passwd(name: &CString) -> Option<(u32, u32)> {
+    entry(name).map(|(uid, gid, _)| (uid, gid))
+}
+
+/// The user id, the group id and the home folder of the account `name`,
+/// through `getpwnam_r(3)`, its buffer grown until the entry fits.
+fn entry(name: &CString) -> Option<(u32, u32, PathBuf)> {
     let mut size = 16_384usize;
     loop {
         let mut buf: Vec<libc::c_char> = vec![0; size];
@@ -97,7 +111,8 @@ fn passwd(name: &CString) -> Option<(u32, u32)> {
         )]
         // SAFETY: every pointer is a live local or the buffer of the
         // length given; the answer points into that buffer, which this
-        // function reads only through `pw`'s two integers.
+        // function reads only through `pw`'s two integers and its home
+        // folder's string, while the buffer lives.
         let r = unsafe {
             libc::getpwnam_r(
                 name.as_ptr(),
@@ -111,7 +126,20 @@ fn passwd(name: &CString) -> Option<(u32, u32)> {
             size = size.saturating_mul(2);
             continue;
         }
-        return (r == 0 && !res.is_null()).then_some((pw.pw_uid, pw.pw_gid));
+        if r != 0 || res.is_null() {
+            return None;
+        }
+        let home = if pw.pw_dir.is_null() {
+            PathBuf::from("/")
+        } else {
+            #[expect(unsafe_code, reason = "the home folder's C string in the buffer")]
+            // SAFETY: getpwnam_r succeeded, so `pw_dir` points at a string
+            // that ends in a NUL inside `buf`, which lives until the end of
+            // this function.
+            let dir = unsafe { std::ffi::CStr::from_ptr(pw.pw_dir) };
+            PathBuf::from(std::ffi::OsStr::from_bytes(dir.to_bytes()))
+        };
+        return Some((pw.pw_uid, pw.pw_gid, home));
     }
 }
 
@@ -142,14 +170,118 @@ fn group_list(name: &CString, gid: u32) -> Option<Vec<u32>> {
     }
 }
 
-/// The program the broker starts as the drawer, its arguments, and the
-/// variables it sets in the drawer's environment on top of the broker's.
+/// The program the broker starts as the drawer, its arguments, the
+/// variables of the broker's environment it leaves out of the drawer's,
+/// and the variables it sets in the drawer's environment on top of the
+/// broker's.
 #[derive(Clone, Debug)]
 pub struct Program {
     pub path: PathBuf,
     pub arg0: OsString,
     pub args: Vec<OsString>,
+    pub unset: Vec<OsString>,
     pub env: Vec<(OsString, OsString)>,
+}
+
+/// vtium's cache folder, where systemd's `CACHE_DIRECTORY` names none.
+pub const CACHE: &str = "/var/cache/vtium";
+
+/// The folder inside vtium's cache folder that holds the GPU driver's
+/// shader cache, which only the account that draws can read and write.
+const GPU_CACHE: &str = "gpu";
+
+/// The variables of the broker's environment that name the folders of the
+/// user who started vtium, such as root's runtime and configuration
+/// folders. The drawer runs as another account, so it never inherits
+/// them: a program that it starts or a library that it loads would
+/// otherwise look for its files there, and fail.
+const OF_THE_BROKERS_USER: [&str; 6] = [
+    "XDG_RUNTIME_DIR",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "MAIL",
+];
+
+/// The cache folder that systemd made for vtium's unit, the first that
+/// `CACHE_DIRECTORY` names in `env`, the broker's environment, or else
+/// [`CACHE`].
+pub fn cache_root(env: &[(OsString, OsString)]) -> PathBuf {
+    env.iter()
+        .find(|(k, _)| k == "CACHE_DIRECTORY")
+        .and_then(|(_, v)| v.as_bytes().split(|&b| b == b':').next())
+        .filter(|first| first.starts_with(b"/"))
+        .map_or_else(
+            || PathBuf::from(CACHE),
+            |first| PathBuf::from(std::ffi::OsStr::from_bytes(first)),
+        )
+}
+
+/// Makes the folder for the GPU driver's shader cache inside `root`,
+/// vtium's cache folder, for `account`, the account that draws, and gives
+/// its path. vtium makes `root` first where it is missing, owned by root
+/// and readable by everyone. The folder `gpu` inside it belongs to
+/// `account` and only that account can read or write it, so no other
+/// account reads what the driver compiled. vtium does not use a `gpu` that
+/// is a symbolic link or not a folder. A `gpu` that another account owns
+/// holds entries that account wrote, so vtium removes it and makes it
+/// again, empty, before it gives it to `account`.
+///
+/// References:
+/// - ADR-1304 D20: the folder, its owner and mode, the symbolic link, and
+///   the emptying when the account that draws changes.
+/// - ADR-1400 D4, its note on the GPU driver's shader cache: the broker
+///   makes the folder at each start.
+pub fn gpu_cache(root: &Path, account: &Account) -> io::Result<PathBuf> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    match std::fs::symlink_metadata(root) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            std::fs::DirBuilder::new().mode(0o755).create(root)?;
+        }
+        Err(e) => return Err(e),
+        Ok(m) if !m.is_dir() => {
+            return Err(io::Error::other(format!(
+                "{} is not a folder",
+                root.display()
+            )));
+        }
+        Ok(_) => {}
+    }
+    let gpu = root.join(GPU_CACHE);
+    match std::fs::symlink_metadata(&gpu) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+        Ok(m) if !m.is_dir() => {
+            return Err(io::Error::other(format!(
+                "{} is a symbolic link or not a folder",
+                gpu.display()
+            )));
+        }
+        Ok(m) if m.uid() != account.uid => std::fs::remove_dir_all(&gpu)?,
+        Ok(_) => {}
+    }
+    match std::fs::DirBuilder::new().mode(0o700).create(&gpu) {
+        Err(e) if e.kind() != io::ErrorKind::AlreadyExists => return Err(e),
+        _ => {}
+    }
+    // opened without following a symbolic link, so the owner and the mode
+    // go to the folder checked above
+    let folder = rustix::fs::open(
+        &gpu,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )?;
+    rustix::fs::fchown(
+        &folder,
+        Some(Uid::from_raw(account.uid)),
+        Some(Gid::from_raw(account.gid)),
+    )?;
+    rustix::fs::fchmod(&folder, rustix::fs::Mode::from_raw_mode(0o700))?;
+    Ok(gpu)
 }
 
 impl Program {
@@ -166,7 +298,41 @@ impl Program {
             path: PathBuf::from("/proc/self/exe"),
             arg0,
             args: all,
+            unset: Vec::new(),
             env: Vec::new(),
+        }
+    }
+
+    /// Gives the drawer the environment of the account it runs as, named
+    /// `name`, whose passwd entry names the home folder `home`. `HOME`,
+    /// `USER` and `LOGNAME` name that account, and the variables that name
+    /// the folders of the user who started vtium are left out. `gpu` is
+    /// the folder for the GPU driver's shader cache, which each driver
+    /// learns from its own variable: Mesa from `MESA_SHADER_CACHE_DIR` and
+    /// NVIDIA's driver from `__GL_SHADER_DISK_CACHE_PATH`. Without the
+    /// folder, both drivers' disk caches are off, so no driver tries to
+    /// write into a folder the account cannot write. vtium sets these only
+    /// for the drawer, and never in a session's environment.
+    ///
+    /// References:
+    /// - ADR-1304 D20: the drivers' variables, and the cache turned off
+    ///   where the folder cannot be made.
+    pub fn as_account(&mut self, name: &str, home: &Path, gpu: Option<&Path>) {
+        self.unset
+            .extend(OF_THE_BROKERS_USER.iter().map(OsString::from));
+        let mut set = |k: &str, v: &std::ffi::OsStr| self.env.push((k.into(), v.to_owned()));
+        set("HOME", home.as_os_str());
+        set("USER", name.as_ref());
+        set("LOGNAME", name.as_ref());
+        match gpu {
+            Some(folder) => {
+                set("MESA_SHADER_CACHE_DIR", folder.as_os_str());
+                set("__GL_SHADER_DISK_CACHE_PATH", folder.as_os_str());
+            }
+            None => {
+                set("MESA_SHADER_CACHE_DISABLE", "true".as_ref());
+                set("__GL_SHADER_DISK_CACHE", "0".as_ref());
+            }
         }
     }
 }
@@ -217,6 +383,9 @@ pub fn spawn(
     let mut command = Command::new(&program.path);
     command.arg0(&program.arg0).args(&program.args);
     for name in SYSTEMD_ONLY {
+        command.env_remove(name);
+    }
+    for name in &program.unset {
         command.env_remove(name);
     }
     command.envs(program.env.iter().map(|(k, v)| (k, v)));
@@ -624,6 +793,236 @@ mod tests {
             program.args,
             [OsString::from("drawer"), "3".into(), "--vt=tty3".into()]
         );
+    }
+
+    /// The user running the tests, as the drawer's account.
+    fn me() -> Account {
+        Account {
+            uid: rustix::process::getuid().as_raw(),
+            gid: rustix::process::getgid().as_raw(),
+            groups: None,
+        }
+    }
+
+    /// An empty folder of the test's own under the system's temporary
+    /// folder, removed when the guard drops.
+    struct Folder(PathBuf);
+
+    impl Folder {
+        fn new(name: &str) -> Folder {
+            let dir =
+                std::env::temp_dir().join(format!("vtium-broker-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Folder(dir)
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// The environment `program` gives the drawer over a broker whose own
+    /// environment is `broker`: what the drawer would see.
+    fn seen(program: &Program, broker: &[(&str, &str)]) -> Vec<(String, String)> {
+        let mut env: std::collections::BTreeMap<String, String> = broker
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        for name in &program.unset {
+            env.remove(&*name.to_string_lossy());
+        }
+        for (k, v) in &program.env {
+            env.insert(
+                k.to_string_lossy().into_owned(),
+                v.to_string_lossy().into_owned(),
+            );
+        }
+        env.into_iter().collect()
+    }
+
+    /// The drawer runs with the environment of its own account: its home
+    /// folder and its name, and none of the folders of the user who
+    /// started vtium, here root. Each GPU driver finds its shader cache in
+    /// the folder the broker made, and where the broker could not make
+    /// one, each driver's disk cache is off. What is not a user's folder,
+    /// such as the locale, stays.
+    ///
+    /// References:
+    /// - ADR-1304 D20: the drivers' variables, and the cache turned off
+    ///   where the folder cannot be made.
+    #[test]
+    fn the_drawer_runs_with_its_accounts_home_and_the_drivers_cache_folder() {
+        let root = [
+            ("HOME", "/root"),
+            ("USER", "root"),
+            ("LOGNAME", "root"),
+            ("LANG", "en_US.UTF-8"),
+            ("MAIL", "/var/mail/root"),
+            ("XDG_RUNTIME_DIR", "/run/user/0"),
+            ("XDG_CONFIG_HOME", "/root/.config"),
+            ("XDG_CACHE_HOME", "/root/.cache"),
+            ("XDG_DATA_HOME", "/root/.local/share"),
+            ("XDG_STATE_HOME", "/root/.local/state"),
+        ];
+        let pairs = |list: &[(&str, &str)]| -> Vec<(String, String)> {
+            list.iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect()
+        };
+        let mut program = Program::vtium("vtium".into(), 3, &[]);
+        program.as_account(
+            "vtium",
+            Path::new("/"),
+            Some(Path::new("/var/cache/vtium/gpu")),
+        );
+        assert_eq!(
+            seen(&program, &root),
+            pairs(&[
+                ("HOME", "/"),
+                ("LANG", "en_US.UTF-8"),
+                ("LOGNAME", "vtium"),
+                ("MESA_SHADER_CACHE_DIR", "/var/cache/vtium/gpu"),
+                ("USER", "vtium"),
+                ("__GL_SHADER_DISK_CACHE_PATH", "/var/cache/vtium/gpu"),
+            ])
+        );
+        let mut program = Program::vtium("vtium".into(), 3, &[]);
+        program.as_account("vtium", Path::new("/"), None);
+        assert_eq!(
+            seen(&program, &root),
+            pairs(&[
+                ("HOME", "/"),
+                ("LANG", "en_US.UTF-8"),
+                ("LOGNAME", "vtium"),
+                ("MESA_SHADER_CACHE_DISABLE", "true"),
+                ("USER", "vtium"),
+                ("__GL_SHADER_DISK_CACHE", "0"),
+            ])
+        );
+    }
+
+    /// The drawer that the broker starts sees the environment that
+    /// [`Program::as_account`] gives it: a shell run as the drawer writes
+    /// its environment to a file.
+    #[test]
+    fn a_started_drawer_sees_its_accounts_environment() {
+        use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
+        let folder = Folder::new("drawer-env");
+        let out = folder.0.join("env");
+        let mut program = Program {
+            path: PathBuf::from("/bin/sh"),
+            arg0: "sh".into(),
+            args: vec![
+                "-c".into(),
+                "env > \"$1\"".into(),
+                "sh".into(),
+                out.clone().into(),
+            ],
+            unset: Vec::new(),
+            env: Vec::new(),
+        };
+        program.as_account(
+            "vtium-test",
+            Path::new("/home-of-the-drawer"),
+            Some(Path::new("/cache-of-the-drawer")),
+        );
+        let (_ours, theirs) = socketpair(
+            AddressFamily::UNIX,
+            SocketType::STREAM,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .unwrap();
+        let started = spawn(&program, &me(), theirs, false).unwrap();
+        use std::os::fd::AsFd;
+        rustix::process::waitid(
+            rustix::process::WaitId::PidFd(started.pidfd.as_fd()),
+            rustix::process::WaitIdOptions::EXITED,
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        for want in [
+            "HOME=/home-of-the-drawer",
+            "USER=vtium-test",
+            "LOGNAME=vtium-test",
+            "MESA_SHADER_CACHE_DIR=/cache-of-the-drawer",
+            "__GL_SHADER_DISK_CACHE_PATH=/cache-of-the-drawer",
+        ] {
+            assert!(lines.contains(&want), "{want} in {lines:#?}");
+        }
+        for name in OF_THE_BROKERS_USER {
+            assert!(
+                !lines.iter().any(|l| l.starts_with(&format!("{name}="))),
+                "{name} in {lines:#?}"
+            );
+        }
+    }
+
+    /// The broker makes the folder for the GPU driver's shader cache inside
+    /// vtium's cache folder, which it makes first where it is missing. The
+    /// folder belongs to the account that draws, and only that account
+    /// can read or write it. A second start keeps what the folder holds.
+    /// A folder that is a symbolic link is not used.
+    ///
+    /// References:
+    /// - ADR-1304 D20: the folder, its owner and mode, and the symbolic link.
+    #[test]
+    fn the_shader_cache_folder_belongs_to_the_account_that_draws() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let folder = Folder::new("gpu-cache");
+        let root = folder.0.join("vtium");
+        let gpu = gpu_cache(&root, &me()).unwrap();
+        assert_eq!(gpu, root.join("gpu"));
+        let made = std::fs::symlink_metadata(&gpu).unwrap();
+        assert!(made.is_dir());
+        assert_eq!(made.permissions().mode() & 0o7777, 0o700);
+        assert_eq!((made.uid(), made.gid()), (me().uid, me().gid));
+        assert_eq!(
+            std::fs::metadata(&root).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
+        std::fs::write(gpu.join("entry"), "compiled").unwrap();
+        std::fs::set_permissions(&gpu, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(gpu_cache(&root, &me()).unwrap(), gpu);
+        assert!(gpu.join("entry").exists(), "the cache kept");
+        assert_eq!(
+            std::fs::metadata(&gpu).unwrap().permissions().mode() & 0o7777,
+            0o700
+        );
+        let linked = folder.0.join("linked");
+        std::fs::create_dir_all(&linked).unwrap();
+        std::os::unix::fs::symlink(&gpu, linked.join("gpu")).unwrap();
+        let e = gpu_cache(&linked, &me()).unwrap_err();
+        assert!(e.to_string().contains("symbolic link"), "{e}");
+    }
+
+    /// A `gpu` folder that another account owns holds what that account's
+    /// driver wrote, so the broker empties it before the account that
+    /// draws takes it. A test runs without root, so it stands for the
+    /// change of account with an account it cannot give the folder to:
+    /// the old entry is gone, and giving the folder away then fails.
+    #[test]
+    fn a_shader_cache_folder_of_another_account_is_emptied() {
+        let folder = Folder::new("gpu-cache-other");
+        let root = folder.0.join("vtium");
+        let gpu = gpu_cache(&root, &me()).unwrap();
+        std::fs::create_dir_all(gpu.join("ab")).unwrap();
+        std::fs::write(gpu.join("ab").join("entry"), "compiled").unwrap();
+        let other = Account {
+            uid: me().uid.wrapping_add(1),
+            ..me()
+        };
+        let given = gpu_cache(&root, &other);
+        assert!(!gpu.join("ab").exists(), "the other account's entries");
+        if rustix::process::geteuid().is_root() {
+            assert!(given.is_ok(), "{given:?}");
+        } else {
+            assert!(given.is_err(), "{given:?}");
+        }
     }
 
     /// The lookup finds an account every system has, with its own group

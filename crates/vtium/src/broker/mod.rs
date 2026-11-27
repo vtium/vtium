@@ -774,7 +774,22 @@ fn broker(args: &[OsString], account: &Account) -> io::Result<u8> {
     if let Err(e) = vtium::survive::notify::ready(&env) {
         log::warn!(target: "broker", "vtium cannot tell systemd that it is ready: {e}");
     }
-    let drawer = start::spawn(&Program::vtium(arg0, vt, args), account, theirs, true)?;
+    // The drawer runs with the environment of its own account, and with
+    // the folder of the GPU driver's shader cache, which the broker makes
+    // for that account at each start.
+    let mut program = Program::vtium(arg0, vt, args);
+    let cache = start::cache_root(&env);
+    let gpu = start::gpu_cache(&cache, account);
+    if let Err(e) = &gpu {
+        log::warn!(
+            target: "broker",
+            "vtium cannot make the folder {} for the GPU driver's shader cache: {e}. The drawing process runs with the driver's disk cache off, so the driver compiles its shaders again at each start.",
+            cache.join("gpu").display()
+        );
+    }
+    let home = start::home(ACCOUNT).unwrap_or_else(|| std::path::PathBuf::from("/"));
+    program.as_account(ACCOUNT, &home, gpu.as_deref().ok());
+    let drawer = start::spawn(&program, account, theirs, true)?;
     // The socket is empty, so these first orders fit in it.
     for (order, fd) in &kernel {
         if let Err(e) = link.order(order, Some(fd.as_fd())) {
@@ -1160,6 +1175,7 @@ mod tests {
             ]
             .map(OsString::from)
             .to_vec(),
+            unset: Vec::new(),
             env: vec![(MODE.into(), mode.into())],
         }
     }
