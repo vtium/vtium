@@ -227,7 +227,8 @@ pub fn layers(dir: &Path) -> Vec<(String, vtium_font::set::layer::Role)> {
 /// The density pictures are drawn at, in ADR-1200 D17's order:
 /// vtium.conf's `display-dpi` where it is set within the bounds the
 /// console believes; else the density of the first of `displays` whose
-/// EDID states its size; else 96, as the console assumes.
+/// EDID states its size, at the mode `conf` sets for it; else 96, as the
+/// console assumes.
 pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32, DpiFrom) {
     use vtium_platform::display::{DPI_ASSUMED, DPI_MAX, DPI_MIN};
     let set = conf
@@ -237,7 +238,7 @@ pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32
     if let Some(dpi) = set {
         return (dpi, DpiFrom::Conf);
     }
-    if let Some(dpi) = displays.iter().find_map(crate::display::Display::dpi) {
+    if let Some(dpi) = displays.iter().find_map(|d| d.dpi_at(d.runs_at(conf))) {
         return (dpi, DpiFrom::Edid);
     }
     let assumed = format!("{DPI_ASSUMED}").parse::<u32>().unwrap_or(96);
@@ -246,8 +247,8 @@ pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32
 
 /// The density of each of `displays` as the console converts points at
 /// it: `display-dpi` where `conf` sets it within the bounds the console
-/// believes, else the display's own, else 96. With no display connected,
-/// the one density [`density`] gives.
+/// believes, else the display's own at the mode `conf` sets for it, else
+/// 96. With no display connected, the one density [`density`] gives.
 ///
 /// References:
 /// - ADR-1200 D17: the density, and the lowest density among the
@@ -260,7 +261,7 @@ pub fn densities(conf: Option<&str>, displays: &[crate::display::Display]) -> Ve
     let assumed = density(None, &[]).0;
     displays
         .iter()
-        .map(|d| d.dpi().unwrap_or(assumed))
+        .map(|d| d.dpi_at(d.runs_at(conf)).unwrap_or(assumed))
         .collect()
 }
 
@@ -294,6 +295,7 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         frits,
         view,
         display: displays.first().map(|d| d.pixels),
+        displays,
         // the desk reads the draft's flow once the loop runs
         flow: flow::Flow::default(),
         color: color::enabled(&|name| std::env::var(name).ok()),
@@ -704,7 +706,14 @@ pub fn run(
             inputs.frits.clone(),
             paths.helper.clone(),
             locale(),
-            Some(inputs.display.unwrap_or(shot::ASSUMED_DISPLAY)),
+            Some(
+                inputs
+                    .displays
+                    .first()
+                    .map(|d| d.runs_at(inputs.conf.as_deref()))
+                    .or(inputs.display)
+                    .unwrap_or(shot::ASSUMED_DISPLAY),
+            ),
         ),
         finder: Some(finder(inputs.frits.clone(), paths.helper.clone())),
         describer: describer(paths.helper.clone()),

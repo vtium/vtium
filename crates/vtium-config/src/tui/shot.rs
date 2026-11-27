@@ -358,6 +358,41 @@ pub struct GridBack {
     pub fill: bool,
 }
 
+/// A vtium console's text area in pixels, as XTWINOPS 14 reports it, and
+/// the grid, columns by rows, that the console held when vtium-config
+/// asked. vtium reports the text area as the grid times its font's cell,
+/// so the text area is the displays' size cut down to whole cells, and
+/// the console's cell is the text area divided by the grid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextArea {
+    pub pixels: (u32, u32),
+    pub grid: (usize, usize),
+}
+
+impl TextArea {
+    /// The displays' size in pixels that the console fills. That is
+    /// `mode`, the size of the mode vtium.conf sets for the first display
+    /// or its preferred mode, where `mode` is what the text area shows cut
+    /// down to whole cells: at least the text area and less than one more
+    /// cell on each side. Otherwise the displays are not that mode, as when
+    /// the console runs at another mode or spans several displays, and the
+    /// text area itself is the size.
+    pub fn display(&self, mode: Option<(u32, u32)>) -> (u32, u32) {
+        let cell = |px: u32, n: usize| u32::try_from(n).ok().and_then(|n| px.checked_div(n));
+        let (Some(cw), Some(ch)) = (
+            cell(self.pixels.0, self.grid.0),
+            cell(self.pixels.1, self.grid.1),
+        ) else {
+            return self.pixels;
+        };
+        let within = |m: u32, px: u32, c: u32| m >= px && m < px.saturating_add(c.max(1));
+        match mode {
+            Some(m) if within(m.0, self.pixels.0, cw) && within(m.1, self.pixels.1, ch) => m,
+            _ => self.pixels,
+        }
+    }
+}
+
 /// A grid that `k` kept on the console: the grid, columns by rows, and
 /// the font set and the size in points that gave it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -939,9 +974,18 @@ fn draft_points(shared: &Shared) -> u32 {
         .unwrap_or(crate::preview::POINTS)
 }
 
-/// The display the picture shows, and whether it is assumed.
+/// The display a size's grid is counted on, and whether it is assumed.
+/// In a vtium console that reported its text area, the grid comes from
+/// that text area, so a size's trial asks for the grid that fills the
+/// console at the mode it runs at. Elsewhere it comes from the mode that
+/// the draft's `mode` lines set for the first display, else that
+/// display's preferred mode, else the assumed 640×480.
 fn display(shared: &Shared) -> ((u32, u32), bool) {
-    match shared.inputs.display {
+    let mode = shared.display_mode();
+    if let Some(area) = &shared.text_area {
+        return (area.display(mode), false);
+    }
+    match mode {
         Some(d) => (d, false),
         None => (ASSUMED_DISPLAY, true),
     }
@@ -1924,4 +1968,40 @@ fn use_look(head: String, look: String) -> super::model::Then {
         key: "look",
         value: Some(look),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A text area that the mode cuts down to whole cells gives that mode,
+    /// and any other text area gives itself. vtium draws the 7680×4320
+    /// display at a 18×36 cell as 426×120, a text area of 7668×4320.
+    #[test]
+    fn the_text_area_gives_the_mode_it_is_cut_from() {
+        let area = TextArea {
+            pixels: (7668, 4320),
+            grid: (426, 120),
+        };
+        assert_eq!(area.display(Some((7680, 4320))), (7680, 4320));
+        assert_eq!(
+            area.display(Some((7685, 4320))),
+            (7685, 4320),
+            "under a cell more"
+        );
+        assert_eq!(
+            area.display(Some((7686, 4320))),
+            (7668, 4320),
+            "a cell more"
+        );
+        assert_eq!(area.display(Some((7660, 4320))), (7668, 4320), "less");
+        assert_eq!(area.display(Some((5120, 1440))), (7668, 4320));
+        assert_eq!(area.display(Some((7680, 4356))), (7668, 4320));
+        assert_eq!(area.display(None), (7668, 4320));
+        let empty = TextArea {
+            pixels: (0, 0),
+            grid: (0, 0),
+        };
+        assert_eq!(empty.display(Some((640, 480))), (0, 0));
+    }
 }

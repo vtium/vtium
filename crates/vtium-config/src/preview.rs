@@ -146,7 +146,7 @@ pub fn command(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut d
     let points = size.or(configured).unwrap_or(POINTS);
     let displays = crate::display::displays(&paths.sys);
     let (dpi, _) = crate::tui::density(conf.as_deref(), &displays);
-    let display = displays.first().map(|d| d.pixels);
+    let display = displays.first().map(|d| d.runs_at(conf.as_deref()));
     let height = pixel_height(points, dpi);
     let pictures = std::io::stdout().is_terminal() && draws_pictures();
     let locale = crate::tui::locale();
