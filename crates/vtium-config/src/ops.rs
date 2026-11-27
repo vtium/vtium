@@ -259,6 +259,72 @@ pub fn heads_using(text: &str, look: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The heads vtium runs for `text`: the file's own heads, or the head
+/// `console` of vtium's built-in terminal where the file runs that
+/// terminal. A file with no flow runs it, and so does one that defines no
+/// head and no rule. vtium reads what survives of the sections, so a draft
+/// with errors elsewhere still answers.
+///
+/// References:
+/// - ADR-1401 D3: vtium runs the built-in default terminal when the file
+///   defines no head and no rule.
+pub fn heads_run(text: &str) -> Vec<vtium_settings::Head> {
+    let config = vtium_settings::sections(text.as_bytes())
+        .map_or_else(vtium_settings::Config::builtin, |r| r.parsed.config);
+    if config.uses_builtin() {
+        vtium_settings::Config::builtin().heads
+    } else {
+        config.heads
+    }
+}
+
+/// `text` with the keys `keys` of the head `name` set or unset, as `head
+/// set` changes them. Where `text` runs vtium's built-in terminal and
+/// `name` is that terminal's head, `console`, the file holds no section
+/// for the head yet, so the terminal's head and rules are written out
+/// first ([`with_builtin_terminal`]). The draft then goes on running the
+/// same terminal, with the head's new keys.
+pub fn head_keys(text: &str, name: &str, keys: &[(&str, Option<&str>)]) -> Result<String, Fail> {
+    let start = if vtium_settings::Config::builtin().head(name).is_some() {
+        with_builtin_terminal(text)?
+    } else {
+        text.to_owned()
+    };
+    section_keys(&start, Of::Head(name), keys)
+}
+
+/// `text` with vtium's built-in terminal written out as its head and
+/// rules, where `text` runs that terminal: a draft with no flow, which
+/// [`with_flow`] writes out, or one with sections that defines no head and
+/// no rule. The head alone, with no rule, would turn every display off,
+/// so the rules come with it. The draft's own lines, its `version` line
+/// and its looks among them, stay as they are. Any other draft is
+/// returned as it is.
+pub fn with_builtin_terminal(text: &str) -> Result<String, Fail> {
+    let Some(reading) = vtium_settings::sections(text.as_bytes()) else {
+        return Ok(with_flow(text));
+    };
+    if !reading.parsed.config.uses_builtin() {
+        return Ok(text.to_owned());
+    }
+    let mut out = text.to_owned();
+    let mut in_rules = false;
+    for line in shipped_flow().lines() {
+        if line.starts_with('[') {
+            in_rules = line == "[rules]";
+            if let Some(head) = line
+                .strip_prefix("[head ")
+                .and_then(|l| l.strip_suffix(']'))
+            {
+                out = head_add(&out, head, None)?;
+            }
+        } else if in_rules {
+            out = rule_add(&out, line, None)?;
+        }
+    }
+    Ok(out)
+}
+
 /// The rules of `text` whose target is `head`, by their numbers, every
 /// rule line counted as the writer numbers them.
 pub fn rules_to(text: &str, head: &str) -> Vec<usize> {
@@ -700,6 +766,46 @@ mod tests {
         assert!(vtium_settings::complete_route(&read.parsed.config, None).complete());
         // a draft with sections is left as it is
         assert_eq!(with_flow(&out), out);
+    }
+
+    // ADR-1401 D3: a draft with sections that defines no head and no rule
+    // runs the built-in terminal, so a change to its head `console` first
+    // writes the terminal's head and rules into the draft, which then runs
+    // the same heads and rules with the change
+    #[test]
+    fn a_change_to_the_built_in_head_writes_the_built_in_terminal_out_first() {
+        let text = "version = 1\nfont-name = monoid\n[look big]\nfont-size = 20\n";
+        assert_eq!(
+            heads_run(text)
+                .iter()
+                .map(|h| (h.name.as_str(), h.look.as_str()))
+                .collect::<Vec<_>>(),
+            [("console", "default")]
+        );
+        let out = head_keys(text, "console", &[("look", Some("big"))]).unwrap();
+        assert!(out.starts_with(text), "{out}");
+        assert_eq!(out.matches("version").count(), 1, "{out}");
+        let read = vtium_settings::sections(out.as_bytes()).unwrap();
+        let builtin = vtium_settings::Config::builtin();
+        let rules = |c: &vtium_settings::Config| -> Vec<String> {
+            c.rules
+                .iter()
+                .map(|r| format!("{:?} {:?} {:?}", r.kind, r.matcher, r.target))
+                .collect()
+        };
+        assert_eq!(rules(&read.parsed.config), rules(&builtin));
+        assert_eq!(
+            heads_run(&out)
+                .iter()
+                .map(|h| (h.name.as_str(), h.look.as_str()))
+                .collect::<Vec<_>>(),
+            [("console", "big")]
+        );
+        assert!(vtium_settings::complete_route(&read.parsed.config, None).complete());
+        // a draft with heads of its own is changed only where asked
+        let own = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
+        assert!(head_keys(own, "console", &[("look", Some("big"))]).is_err());
+        assert_eq!(with_builtin_terminal(own).unwrap(), own);
     }
 
     #[test]

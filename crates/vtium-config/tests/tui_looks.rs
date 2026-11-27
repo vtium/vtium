@@ -2798,6 +2798,56 @@ fn t_on_a_look_no_terminal_uses_offers_it_to_the_terminal() {
     );
 }
 
+/// On a draft that defines no head and no rule, vtium runs its built-in
+/// terminal, whose head `console` draws the look `default`. `t` on
+/// another look offers it to `console`, and `y` writes out the built-in
+/// terminal's head and rules with the look, so the draft goes on running
+/// the same terminal.
+///
+/// References:
+/// - ADR-1401 D3: vtium runs the built-in default terminal when the file
+///   defines no head and no rule.
+#[test]
+fn t_on_the_built_in_terminal_offers_the_look_to_its_head_console() {
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look nordic]\nfont-name = proof\nfont-size = 16\npalette = legacy\n";
+    let mut d = desk();
+    d.installed = conf.to_owned();
+    d.draft = conf.to_owned();
+    let mut c = Console::vtium(80, 25, true, "proof")
+        .takes("proof", (80, 25))
+        .takes("unifont", (80, 25))
+        .keys(&[TO_LOOKS, b"t", b"y"]);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(conf), Some(&mut d)).expect("the loop");
+    let config = vtium_settings::sections(d.draft.as_bytes())
+        .expect("sections")
+        .parsed
+        .config;
+    assert_eq!(
+        config
+            .heads
+            .iter()
+            .map(|h| (&h.name[..], &h.look[..]))
+            .collect::<Vec<_>>(),
+        [("console", "nordic")],
+        "{}",
+        d.draft
+    );
+    assert!(
+        vtium_settings::complete_route(&config, None).complete(),
+        "{}",
+        d.draft
+    );
+    let (mut app, _) = started_on(with_conf(conf), "proof");
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(
+            "No terminal uses the look nordic, and the console already shows its font set and color scheme. Use it for the terminal console? y sets it in the draft, and n or Esc leaves the draft as it is."
+        )
+    );
+}
+
 /// The screen as text at `cols` by `rows`, its rows joined by spaces and
 /// its runs of spaces cut to one, so a sentence the message line wraps
 /// reads whole.
