@@ -2622,7 +2622,7 @@ fn a_late_refusal_names_the_font_set_and_the_helpers_reason_and_what_to_do() {
     let (_lp, mut app, _dir) = late_seat("late-refusal-line");
     let at = app.heads.first().map(|h| h.font_size).unwrap();
     crate::getty::tests::logged();
-    let why = "the text font source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf is missing or cannot be read, so the built-in font draws the text in its place, and the cell comes from the configuration";
+    let why = "the text font source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf is not among the active fonts. The built-in font draws the text in its place, and the character cell comes from the configuration. To activate the font file, run vtium-config activate /usr/share/fonts/TTF/DejaVuSansMono.ttf --install";
     app.late_cell(
         "t",
         at + 2,
