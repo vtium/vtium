@@ -7,6 +7,43 @@
 mod tui_common;
 use tui_common::*;
 
+/// The size in pixels of a full 8K display, which the tests of large
+/// displays use.
+const EIGHT_K: (u32, u32) = (7680, 4320);
+
+/// The smaller mode that the tests' 8K display prefers, which the console
+/// does not run at.
+const PREFERRED: (u32, u32) = (5120, 1440);
+
+/// The cell, in pixels, that the stand-in console draws unifont in on the
+/// 8K display.
+const UNIFONT_CELL: (u32, u32) = (16, 24);
+
+/// The stand-in helper's cell for proof, in pixels, at every height.
+const PROOF_CELL: (u32, u32) = (8, 16);
+
+/// A cell that does not divide the 8K display's width, so vtium reports a
+/// text area narrower than the display.
+const ODD_CELL: (u32, u32) = (18, 36);
+
+/// The grid that `pixels` hold in cells of `cell`, as vtium divides its
+/// displays: whole cells on each side.
+fn cells(pixels: (u32, u32), cell: (u32, u32)) -> (usize, usize) {
+    let side = |px: u32, c: u32| usize::try_from(px / c).expect("a grid side");
+    (side(pixels.0, cell.0), side(pixels.1, cell.1))
+}
+
+/// The grid request vtium-config writes for `grid`, columns by rows, as the
+/// stand-in console logs it.
+fn grid_line((cols, rows): (usize, usize)) -> String {
+    format!("grid {rows};{cols}")
+}
+
+/// The vtium.conf line that sets DP-1's mode to the 8K display's size.
+fn eight_k_mode() -> String {
+    format!("mode=[DP-1]{}x{}@120\n", EIGHT_K.0, EIGHT_K.1)
+}
+
 /// The Looks view's preview draws a fixed screen of sample content,
 /// whatever the display's size, at the cell the look gets on that display;
 /// the line beside it still counts the real display's grid.
@@ -15,7 +52,7 @@ fn the_looks_preview_draws_a_fixed_screen_of_sample_content() {
     let mut c = outside().keys(&[TO_LOOKS, DOWN]);
     c.graphics = true;
     let mut wide = sized();
-    wide.display = Some((7680, 2160));
+    wide.display = Some(EIGHT_K);
     drive(&mut c, wide).expect("the loop");
     let shot = c.shots.last().expect("a picture");
     assert_eq!(shot.display, vtium_config::tui::shot::PREVIEW_SCREEN);
@@ -26,11 +63,8 @@ fn the_looks_preview_draws_a_fixed_screen_of_sample_content() {
     // the line beside it counts the real display's characters and lines
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-    let wide_grid = format!(
-        "the console will be {} characters wide and {} lines high",
-        7680 / cw,
-        2160 / ch
-    );
+    let (cols, rows) = cells(EIGHT_K, (shot.cell.width, shot.cell.height));
+    let wide_grid = format!("the console will be {cols} characters wide and {rows} lines high");
     assert!(text.contains(&wide_grid), "{wide_grid}: {screen}");
     // with VTIUM_CONFIG_PREVIEW_PPM=FILE, the picture as the glyph helper
     // draws it, for the maintainer's review
@@ -2118,19 +2152,20 @@ fn a_size_trial_put_back_leaves_the_console_filling_its_display() {
     );
 }
 
-/// A vtium console whose displays are 7680×4320. unifont fills them at
-/// 480×180, with a 16×24 cell. proof fills them at 480×180 too at the
-/// height the console starts at, and at 960×270 at 8 pixels, with the
-/// stand-in helper's 8×16 cell. The displays' list says that the first
-/// display prefers 5120×1440, a mode the console does not run at.
+/// A vtium console whose displays are [`EIGHT_K`]. unifont fills them in
+/// [`UNIFONT_CELL`]. proof fills them in that cell too at the height the
+/// console starts at, and in [`PROOF_CELL`] at 8 pixels. The displays'
+/// list says that the first display prefers [`PREFERRED`], a mode the
+/// console does not run at.
 fn eight_k() -> (Console, Inputs) {
-    let c = Console::vtium(480, 180, true, "unifont")
-        .takes("unifont", (480, 180))
-        .takes("proof", (480, 180))
-        .reaches("proof", 8, (960, 270))
-        .fills((7680, 4320));
+    let start = cells(EIGHT_K, UNIFONT_CELL);
+    let c = Console::vtium(start.0, start.1, true, "unifont")
+        .takes("unifont", start)
+        .takes("proof", start)
+        .reaches("proof", 8, cells(EIGHT_K, PROOF_CELL))
+        .fills(EIGHT_K);
     let mut i = with_conf(&window_ops_on());
-    i.display = Some((5120, 1440));
+    i.display = Some(PREFERRED);
     (c, i)
 }
 
@@ -2142,10 +2177,13 @@ fn eight_k() -> (Console, Inputs) {
 fn the_stand_in_console_reports_its_text_area_as_vtium_does() {
     let (c, _) = eight_k();
     let mut c = c.resizes();
+    let proof = cells(EIGHT_K, PROOF_CELL);
     c.write(b"\x1b[14t").expect("the query");
-    c.write(b"\x1b]50;proof\x1b\\\x1b[8;270;960t\x1b[14t")
-        .expect("the switch and the grid");
-    c.write(b"\x1b[8;100;900t\x1b[14t").expect("a smaller grid");
+    let switch = format!("\x1b]50;proof\x1b\\\x1b[8;{};{}t\x1b[14t", proof.1, proof.0);
+    c.write(switch.as_bytes()).expect("the switch and the grid");
+    let pinned = (proof.0 - 60, proof.1 - 70);
+    let smaller = format!("\x1b[8;{};{}t\x1b[14t", pinned.1, pinned.0);
+    c.write(smaller.as_bytes()).expect("a smaller grid");
     let replies: Vec<u8> = c
         .pending
         .iter()
@@ -2156,16 +2194,23 @@ fn the_stand_in_console_reports_its_text_area_as_vtium_does() {
         .flatten()
         .collect();
     let text = String::from_utf8_lossy(&replies);
-    assert_eq!(text.matches("\x1b[4;4320;7680t").count(), 2, "{text:?}");
-    assert_eq!(text.matches("\x1b[4;1600;7200t").count(), 1, "{text:?}");
-    assert_eq!((c.height, c.grid()), (8, (900, 100)), "{:?}", c.log);
+    let whole = format!("\x1b[4;{};{}t", EIGHT_K.1, EIGHT_K.0);
+    assert_eq!(text.matches(&whole).count(), 2, "{text:?}");
+    let px = |n: usize, c: u32| u32::try_from(n).expect("a side") * c;
+    let part = format!(
+        "\x1b[4;{};{}t",
+        px(pinned.1, PROOF_CELL.1),
+        px(pinned.0, PROOF_CELL.0)
+    );
+    assert_eq!(text.matches(&part).count(), 1, "{text:?}");
+    assert_eq!((c.height, c.grid()), (8, pinned), "{:?}", c.log);
 }
 
 /// In a vtium console, a size's live trial sizes its grid from the text
 /// area the console reports in pixels (XTWINOPS 14), divided by the look's
 /// cell, and not from the mode that the displays' list says the display
-/// prefers. On a console that runs at 7680×4320 while its display prefers
-/// 5120×1440, proof's 8×16 cell asks for 960×270, the grid that fills the
+/// prefers. On a console that runs at [`EIGHT_K`] while its display
+/// prefers [`PREFERRED`], proof's cell asks for the grid that fills the
 /// console, so the console draws no bars around it.
 ///
 /// References:
@@ -2181,51 +2226,49 @@ fn a_size_trial_asks_for_the_grid_the_consoles_text_area_holds() {
     vtium_config::tui::port::drive_with(&mut c, i, Some(&mut d)).expect("the loop");
     let tried = c.log.iter().position(|l| l == "set proof").expect("proof");
     let grid = c.log[tried..].iter().find(|l| l.starts_with("grid "));
-    assert_eq!(
-        grid.map(String::as_str),
-        Some("grid 270;960"),
-        "{:?}",
-        c.log
-    );
+    let want = grid_line(cells(EIGHT_K, PROOF_CELL));
+    assert_eq!(grid, Some(&want), "{:?}", c.log);
     assert!(
         String::from_utf8_lossy(&c.written).contains("\x1b[14t"),
         "vtium-config asks for the text area"
     );
 }
 
-/// An 8K display on DP-1: it prefers 5120×1440 and offers 7680×4320
+/// An 8K display on DP-1: it prefers [`PREFERRED`] and offers [`EIGHT_K`]
 /// too.
 fn eight_k_display() -> vtium_config::display::Display {
     vtium_config::display::Display {
-        pixels: (5120, 1440),
+        pixels: PREFERRED,
         mm: None,
         connector: "DP-1".to_owned(),
         card: None,
-        modes: vec![(5120, 1440), (7680, 4320)],
+        modes: vec![PREFERRED, EIGHT_K],
     }
 }
 
-/// A vtium console reports its text area cut down to whole cells: 426×120
-/// cells of 18×36 on the 7680×4320 display is 7668×4320. Where the
-/// draft's vtium.conf sets the display's mode to 7680×4320, which that
-/// text area is cut from, a size's trial counts its grid on the whole
-/// mode, as vtium lays the look out on it: 960 columns of proof's 8×16
-/// cell, where the text area alone holds 958.
+/// A vtium console reports its text area cut down to whole cells: in
+/// [`ODD_CELL`], the 8K display's 7680 pixels hold 426 columns, which
+/// vtium reports as 7668 pixels. Where the draft's vtium.conf sets the
+/// display's mode to [`EIGHT_K`], which that text area is cut from, a
+/// size's trial counts its grid on the whole mode, as vtium lays the look
+/// out on it: 960 columns of proof's cell, where the text area alone
+/// holds 958.
 ///
 /// References:
 /// - ADR-1201 D4, "Sizes, live on a vtium console": the grid request.
 #[test]
 fn a_size_trial_counts_the_grid_on_the_mode_the_text_area_is_cut_from() {
-    let conf = format!("mode=[DP-1]7680x4320@120\n{}", window_ops_on());
-    let c = Console::vtium(426, 120, true, "unifont")
-        .takes("unifont", (426, 120))
-        .takes("proof", (426, 120))
-        .reaches("proof", 8, (960, 270))
-        .fills((7680, 4320))
+    let conf = format!("{}{}", eight_k_mode(), window_ops_on());
+    let start = cells(EIGHT_K, ODD_CELL);
+    let c = Console::vtium(start.0, start.1, true, "unifont")
+        .takes("unifont", start)
+        .takes("proof", start)
+        .reaches("proof", 8, cells(EIGHT_K, PROOF_CELL))
+        .fills(EIGHT_K)
         .resizes()
         .keys(PICK_SIX);
     let mut i = with_conf(&conf);
-    i.display = Some((5120, 1440));
+    i.display = Some(PREFERRED);
     i.displays = vec![eight_k_display()];
     let mut d = desk();
     d.installed = conf.clone();
@@ -2234,12 +2277,8 @@ fn a_size_trial_counts_the_grid_on_the_mode_the_text_area_is_cut_from() {
     vtium_config::tui::port::drive_with(&mut c, i, Some(&mut d)).expect("the loop");
     let tried = c.log.iter().position(|l| l == "set proof").expect("proof");
     let grid = c.log[tried..].iter().find(|l| l.starts_with("grid "));
-    assert_eq!(
-        grid.map(String::as_str),
-        Some("grid 270;960"),
-        "{:?}",
-        c.log
-    );
+    let want = grid_line(cells(EIGHT_K, PROOF_CELL));
+    assert_eq!(grid, Some(&want), "{:?}", c.log);
 }
 
 /// Outside a vtium console, the Looks preview counts a size's grid on the
@@ -2253,19 +2292,15 @@ fn the_looks_preview_counts_the_grid_on_the_mode_the_draft_sets() {
     let mut c = outside().keys(&[TO_LOOKS, DOWN]);
     c.graphics = true;
     let mut i = sized();
-    i.conf = i.conf.map(|c| format!("mode=[DP-1]7680x4320@120\n{c}"));
-    i.display = Some((5120, 1440));
+    i.conf = i.conf.map(|c| format!("{}{c}", eight_k_mode()));
+    i.display = Some(PREFERRED);
     i.displays = vec![eight_k_display()];
     drive(&mut c, i).expect("the loop");
     let shot = c.shots.last().expect("a picture");
-    let (cw, ch) = (shot.cell.width, shot.cell.height);
+    let (cols, rows) = cells(EIGHT_K, (shot.cell.width, shot.cell.height));
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-    let grid = format!(
-        "the console will be {} characters wide and {} lines high",
-        7680 / cw,
-        4320 / ch
-    );
+    let grid = format!("the console will be {cols} characters wide and {rows} lines high");
     assert!(text.contains(&grid), "{grid}: {screen}");
 }
 

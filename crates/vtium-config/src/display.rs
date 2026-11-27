@@ -346,51 +346,58 @@ mod tests {
         assert_eq!(first_mode(""), None);
     }
 
+    /// The size in pixels of a full 8K display, which the tests of large
+    /// displays use.
+    const EIGHT_K: (u32, u32) = (7680, 4320);
+
+    /// The smaller mode that the tests' 8K display prefers.
+    const PREFERRED: (u32, u32) = (5120, 1440);
+
     /// An 8K display, DP-1 on the card at `pci-0000:03:00.0`, preferring
-    /// 5120×1440 and offering 7680×4320 too.
+    /// [`PREFERRED`] and offering [`EIGHT_K`] too.
     fn eight_k() -> Display {
         Display {
-            pixels: (5120, 1440),
+            pixels: PREFERRED,
             mm: None,
             connector: "DP-1".to_owned(),
             card: Some("pci-0000:03:00.0".to_owned()),
-            modes: vec![(5120, 1440), (7680, 4320), (1920, 1080)],
+            modes: vec![PREFERRED, EIGHT_K, (1920, 1080)],
         }
     }
 
     #[test]
     fn a_display_runs_at_the_mode_vtium_conf_sets_for_it() {
         let d = eight_k();
-        assert_eq!(d.runs_at(None), (5120, 1440), "no file: preferred");
-        assert_eq!(d.runs_at(Some("font-size=12\n")), (5120, 1440));
-        assert_eq!(d.runs_at(Some("mode=[DP-1]7680x4320@120\n")), (7680, 4320));
+        assert_eq!(d.runs_at(None), PREFERRED, "no file: preferred");
+        assert_eq!(d.runs_at(Some("font-size=12\n")), PREFERRED);
+        assert_eq!(d.runs_at(Some("mode=[DP-1]7680x4320@120\n")), EIGHT_K);
         assert_eq!(
             d.runs_at(Some("mode = 7680x4320\n")),
-            (7680, 4320),
+            EIGHT_K,
             "any display"
         );
         // a line for the card and the connector wins over one for the
         // connector, which wins over one for any display
         let three = "mode=1920x1080\nmode=[DP-1]7680x4320\nmode=pci-0000:03:00.0[DP-1]5120x1440\n";
-        assert_eq!(d.runs_at(Some(three)), (5120, 1440));
+        assert_eq!(d.runs_at(Some(three)), PREFERRED);
         let two = "mode=1920x1080\nmode=[DP-1]7680x4320\n";
-        assert_eq!(d.runs_at(Some(two)), (7680, 4320));
+        assert_eq!(d.runs_at(Some(two)), EIGHT_K);
         // a line for another connector or card does not apply
-        assert_eq!(d.runs_at(Some("mode=[HDMI-A-1]1920x1080\n")), (5120, 1440));
+        assert_eq!(d.runs_at(Some("mode=[HDMI-A-1]1920x1080\n")), PREFERRED);
         assert_eq!(
             d.runs_at(Some("mode=pci-0000:04:00.0[DP-1]1920x1080\n")),
-            (5120, 1440)
+            PREFERRED
         );
         // a size the display does not offer leaves it at its preferred mode
-        assert_eq!(d.runs_at(Some("mode=[DP-1]3840x2160\n")), (5120, 1440));
+        assert_eq!(d.runs_at(Some("mode=[DP-1]3840x2160\n")), PREFERRED);
         // a line in a section, or one vtium does not read, is no mode line
         assert_eq!(
             d.runs_at(Some("[head desk]\nmode=[DP-1]7680x4320\n")),
-            (5120, 1440)
+            PREFERRED
         );
-        assert_eq!(d.runs_at(Some("mode=[DP-1]7680x4320@fast\n")), (5120, 1440));
-        assert_eq!(d.runs_at(Some("mode=[]7680x4320\n")), (5120, 1440));
-        assert_eq!(d.runs_at(Some("mode=[DP-1]7680x0\n")), (5120, 1440));
+        assert_eq!(d.runs_at(Some("mode=[DP-1]7680x4320@fast\n")), PREFERRED);
+        assert_eq!(d.runs_at(Some("mode=[]7680x4320\n")), PREFERRED);
+        assert_eq!(d.runs_at(Some("mode=[DP-1]7680x0\n")), PREFERRED);
     }
 
     #[test]
@@ -402,7 +409,7 @@ mod tests {
                 ModeLine {
                     card: Some("gpu".to_owned()),
                     connector: Some("DP-1".to_owned()),
-                    size: (7680, 4320),
+                    size: EIGHT_K,
                 },
                 ModeLine {
                     card: None,
@@ -448,11 +455,11 @@ mod tests {
         assert_eq!(
             found,
             [Display {
-                pixels: (5120, 1440),
+                pixels: PREFERRED,
                 mm: None,
                 connector: "DP-1".to_owned(),
                 card: Some("pci-0000:03:00.0".to_owned()),
-                modes: vec![(5120, 1440), (7680, 4320), (1920, 1080)],
+                modes: vec![PREFERRED, EIGHT_K, (1920, 1080)],
             }]
         );
     }
