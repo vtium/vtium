@@ -4,6 +4,8 @@ This crate holds the messages between vtium's broker and its drawer, and the soc
 
 Every message is 128 bytes. The reader checks each field before it hands a message on. It refuses the whole message for an unknown kind, a field out of range, or a byte set past the fields. A wrong size or a descriptor where none belongs is refused too. The encoding is canonical: a message the reader accepts encodes back to the same bytes. Both ends share one `SOCK_SEQPACKET` socket, which keeps each message whole, and a descriptor travels with its message as `SCM_RIGHTS`.
 
+Only the broker sends descriptors. A refused request hands back the descriptors that came with it, still open, because closing a file can block. For example, the last close of a TCP socket with `SO_LINGER` set waits out its linger time. The broker closes them on a thread of its own, so a drawer cannot hang the broker's loop that way. On Linux 6.16 and later, the broker turns off `SO_PASSRIGHTS` on its end of the socket, and the kernel then refuses any descriptor the drawer sends.
+
 The crate forbids unsafe code and depends on std and rustix alone. The broker runs as root and parses what the drawer sends, so no message may panic it. The crate denies the lints that find such a panic: unchecked arithmetic, lossy casts, unchecked indexing, and `unwrap`, `expect`, `panic!`, `unreachable!` and `todo!`.
 
 | Path | What it is |

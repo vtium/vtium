@@ -1,23 +1,33 @@
 //! The drawer's start: the broker forks, the child drops root, and the
 //! child runs vtium's own binary again as the drawer.
 //!
-//! The broker resolves the account `vtium` before the fork, so the child
-//! allocates nothing and takes no lock. Between the fork and the exec the
-//! child puts its end of the socket on descriptor 3 and then makes these
-//! calls, in this order:
+//! The broker resolves the account `vtium` and opens `/dev/null` before
+//! the fork, so the child allocates nothing and takes no lock. Between the
+//! fork and the exec the child makes these calls, in this order:
 //!
-//! 1. It empties the capability bounding set, while it still holds the
+//! 1. It starts a session of its own with `setsid`, so it has no
+//!    controlling terminal. A root run by hand, from a root login or
+//!    through sudo, would otherwise leave the drawer in the root shell's
+//!    session. The drawer could then open `/dev/tty` and push keystrokes
+//!    into the root shell with `TIOCSTI`. When that terminal is a VT, the
+//!    kernel would also let the drawer make the VT calls that only the
+//!    broker makes.
+//! 2. It puts `/dev/null` on its standard input and its end of the socket
+//!    on descriptor 3, and marks every descriptor from 4 up close-on-exec.
+//!    Its standard output and standard error stay the broker's, so that
+//!    its log reaches the journal.
+//! 3. It empties the capability bounding set, while it still holds the
 //!    capability that this needs.
-//! 2. It sets its supplementary groups, then its real, effective and saved
+//! 4. It sets its supplementary groups, then its real, effective and saved
 //!    group ids, then its user ids, to the account's.
-//! 3. It reads the ids back, and stops the start when any differs.
-//! 4. It asks the kernel to send it `SIGKILL` when the broker dies. The
+//! 5. It reads the ids back, and stops the start when any differs.
+//! 6. It asks the kernel to send it `SIGKILL` when the broker dies. The
 //!    kernel clears that request at a change of credentials, so the child
-//!    makes it after step 2. When the broker is already gone, the child
+//!    makes it after step 4. When the broker is already gone, the child
 //!    stops the start.
-//! 5. It clears its ambient, effective, permitted and inheritable
+//! 7. It clears its ambient, effective, permitted and inheritable
 //!    capabilities.
-//! 6. It sets no-new-privileges, so no program it runs gains privilege.
+//! 8. It sets no-new-privileges, so no program it runs gains privilege.
 //!
 //! After the exec, the drawer makes itself not dumpable ([`begin`]),
 //! because the kernel makes a process dumpable again at an exec that
@@ -27,7 +37,8 @@
 //! References:
 //! - ADR-1400 D4, "The drawer's setup": the steps, the account, the death
 //!   signal after `setresuid` and not dumpable after the exec.
-//! - ADR-1400 D2: the helper's setup, whose order this follows.
+//! - ADR-1400 D2: the helper's setup, whose order this follows, `setsid`
+//!   and `/dev/null` first among them.
 
 use std::ffi::{CString, OsString};
 use std::io;
@@ -192,9 +203,17 @@ pub fn spawn(
     theirs: OwnedFd,
     root: bool,
 ) -> io::Result<Started> {
-    // above 3, so the child's move onto 3 is a real move that clears the
-    // close-on-exec flag, and close-on-exec until then
+    // Above 3, so the child's moves onto 0 and 3 are real moves that clear
+    // the close-on-exec flag, and close-on-exec until then.
     let theirs = rustix::io::fcntl_dupfd_cloexec(&theirs, 4)?;
+    let null = rustix::io::fcntl_dupfd_cloexec(
+        rustix::fs::open(
+            "/dev/null",
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )?,
+        4,
+    )?;
     let mut command = Command::new(&program.path);
     command.arg0(&program.arg0).args(&program.args);
     for name in SYSTEMD_ONLY {
@@ -208,7 +227,10 @@ pub fn spawn(
         .map(|g| g.iter().map(|&gid| Gid::from_raw(gid)).collect());
     let ids = (account.uid, account.gid);
     let parent = rustix::process::getpid();
-    let socket = theirs.as_raw_fd();
+    let mut system = System {
+        socket: theirs.as_raw_fd(),
+        null: null.as_raw_fd(),
+    };
     #[expect(
         unsafe_code,
         reason = "the drawer's descriptors and credentials can only be set between fork and exec"
@@ -216,16 +238,14 @@ pub fn spawn(
     // SAFETY: the hook runs in the forked child before exec, which has one
     // thread, and makes only raw system calls through rustix and libc,
     // which allocate nothing and take no lock. The account and its group
-    // list were resolved before the fork.
+    // list were resolved and `/dev/null` opened before the fork.
     unsafe {
-        command.pre_exec(move || {
-            onto_three(socket)?;
-            setup(&mut System, ids, groups.as_deref(), parent, root)
-        });
+        command.pre_exec(move || setup(&mut system, ids, groups.as_deref(), parent, root));
     }
     vtium_platform::cloexec_above_stdio()?;
     let child = command.spawn()?;
     drop(theirs);
+    drop(null);
     let pid = Pid::from_child(&child);
     // the child is not reaped before this, since nothing else waits on it
     let pidfd = rustix::process::pidfd_open(pid, PidfdFlags::empty())?;
@@ -233,19 +253,22 @@ pub fn spawn(
     Ok(Started { pid, pidfd })
 }
 
-/// Moves the socket onto descriptor 3, which clears its close-on-exec
-/// flag, and marks every descriptor from 4 up close-on-exec, so the
-/// drawer inherits only the standard streams and the socket.
-fn onto_three(socket: i32) -> io::Result<()> {
-    #[expect(
-        unsafe_code,
-        reason = "dup2(2) onto descriptor 3, which the drawer reads"
-    )]
-    // SAFETY: dup2 duplicates a descriptor this child holds onto 3,
-    // replacing whatever 3 held, and touches no memory.
-    let moved = unsafe { libc::dup2(socket, 3) };
-    if moved != 3 {
-        return Err(io::Error::last_os_error());
+/// Moves `null` onto descriptor 0 and the socket onto descriptor 3, which
+/// clears their close-on-exec flags, and marks every descriptor from 4 up
+/// close-on-exec, so the drawer inherits only `/dev/null` as its standard
+/// input, the broker's standard output and standard error, and the socket.
+fn descriptors(null: i32, socket: i32) -> io::Result<()> {
+    for (from, onto) in [(null, 0), (socket, 3)] {
+        #[expect(
+            unsafe_code,
+            reason = "dup2(2) onto the drawer's standard input and descriptor 3"
+        )]
+        // SAFETY: dup2 duplicates a descriptor this child holds onto
+        // `onto`, replacing whatever `onto` held, and touches no memory.
+        let moved = unsafe { libc::dup2(from, onto) };
+        if moved != onto {
+            return Err(io::Error::last_os_error());
+        }
     }
     #[expect(unsafe_code, reason = "close_range(2), which rustix does not wrap")]
     // SAFETY: with CLOSE_RANGE_CLOEXEC, close_range closes nothing and
@@ -266,6 +289,11 @@ fn onto_three(socket: i32) -> io::Result<()> {
 /// The calls the drawer's setup makes, so a test can follow their order
 /// and answer for the kernel. The real calls are [`System`]'s.
 pub(super) trait Calls {
+    /// Starts a session of its own, which has no controlling terminal.
+    fn new_session(&mut self) -> io::Result<()>;
+    /// Puts `/dev/null` on standard input and the socket on descriptor 3,
+    /// and marks the rest close-on-exec.
+    fn descriptors(&mut self) -> io::Result<()>;
     /// Empties the capability bounding set. Without the capability to,
     /// that fails only when `required`.
     fn drop_bounding_set(&mut self, required: bool) -> io::Result<()>;
@@ -289,6 +317,8 @@ pub(super) fn setup(
     parent: Pid,
     root: bool,
 ) -> io::Result<()> {
+    calls.new_session()?;
+    calls.descriptors()?;
     calls.drop_bounding_set(root)?;
     if let Some(groups) = groups {
         calls.set_groups(groups)?;
@@ -311,9 +341,13 @@ pub(super) fn setup(
     Ok(())
 }
 
-/// The real calls. Each is a raw system call, so it may run between fork
-/// and exec.
-struct System;
+/// The real calls, with the descriptors of `/dev/null` and of the
+/// drawer's end of the socket. Each is a raw system call, so it may run
+/// between fork and exec.
+struct System {
+    socket: i32,
+    null: i32,
+}
 
 /// The highest capability number the bounding set is emptied up to. A
 /// kernel that knows fewer answers EINVAL past its last, which ends the
@@ -321,6 +355,15 @@ struct System;
 const CAPABILITY_LAST: libc::c_ulong = 63;
 
 impl Calls for System {
+    fn new_session(&mut self) -> io::Result<()> {
+        rustix::process::setsid()?;
+        Ok(())
+    }
+
+    fn descriptors(&mut self) -> io::Result<()> {
+        descriptors(self.null, self.socket)
+    }
+
     fn drop_bounding_set(&mut self, required: bool) -> io::Result<()> {
         for capability in 0..=CAPABILITY_LAST {
             #[expect(unsafe_code, reason = "prctl(2) with PR_CAPBSET_DROP")]
@@ -438,6 +481,14 @@ mod tests {
     }
 
     impl Calls for Record {
+        fn new_session(&mut self) -> io::Result<()> {
+            self.steps.push("setsid");
+            Ok(())
+        }
+        fn descriptors(&mut self) -> io::Result<()> {
+            self.steps.push("descriptors");
+            Ok(())
+        }
         fn drop_bounding_set(&mut self, required: bool) -> io::Result<()> {
             self.steps.push(if required {
                 "bounding set, required"
@@ -496,10 +547,12 @@ mod tests {
         [Gid::from_raw(970), Gid::from_raw(971)]
     }
 
-    /// The setup makes its calls in the module's order: the bounding set
-    /// while root still can, the groups and ids, the read-back, the death
-    /// signal after `setresuid`, the check that the broker still lives,
-    /// then the capabilities and no-new-privileges last.
+    /// The setup makes its calls in the module's order: a session of its
+    /// own first, then `/dev/null` and the socket on their descriptors, the
+    /// bounding set while root still can, the groups and ids, the
+    /// read-back, the death signal after `setresuid`, the check that the
+    /// broker still lives, then the capabilities and no-new-privileges
+    /// last.
     #[test]
     fn the_drawers_setup_runs_in_order() {
         let mut calls = record(([970; 3], [970; 3]));
@@ -507,6 +560,8 @@ mod tests {
         assert_eq!(
             calls.steps,
             [
+                "setsid",
+                "descriptors",
                 "bounding set, required",
                 "setgroups",
                 "setresgid",
@@ -522,7 +577,10 @@ mod tests {
         // stay as it is
         let mut calls = record(([1000; 3], [1000; 3]));
         setup(&mut calls, (1000, 1000), None, broker(), false).unwrap();
-        assert_eq!(calls.steps[..2], ["bounding set", "setresgid"]);
+        assert_eq!(
+            calls.steps[..4],
+            ["setsid", "descriptors", "bounding set", "setresgid"]
+        );
     }
 
     /// An id that reads back other than the account's stops the setup at
