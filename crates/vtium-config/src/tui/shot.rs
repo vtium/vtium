@@ -344,6 +344,16 @@ pub struct SizeAsked {
     pub look: bool,
 }
 
+/// A grid request that waits for a font switch: the font set the console
+/// is to draw first, and the grid to ask for once that font set's switch
+/// has gone. A font switch moves the console's grid too, so a grid
+/// request sent before it would be undone.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GridAfter {
+    pub font: String,
+    pub grid: (usize, usize),
+}
+
 /// The grid request, `CSI 8 ; rows ; cols t`, which asks the console for a
 /// grid of `cols` by `rows`. vtium meets it by changing the font size, and
 /// only while `allow-window-ops` is on.
@@ -355,6 +365,34 @@ pub struct SizeAsked {
 ///   `allow-window-ops`.
 pub fn grid_request((cols, rows): (usize, usize)) -> Vec<u8> {
     format!("\x1b[8;{rows};{cols}t").into_bytes()
+}
+
+/// The grid request with both sides 0, `CSI 8 ; 0 ; 0 t`, which lets the
+/// console's grid fill its displays again at the height it draws at.
+/// vtium keeps the grid that a grid request asked for, across font
+/// switches too, until a zoom or this request. So a grid request alone
+/// cannot give the console back a grid that filled its displays: the next
+/// font set with a smaller cell would draw that many rows and columns in
+/// the middle of the screen.
+///
+/// References:
+/// - ADR-1000, the row `window.resize`: a side of 0 takes the length the
+///   displays hold, as xterm's ctlseqs says.
+pub const GRID_FILL: &[u8] = b"\x1b[8;0;0t";
+
+/// The bytes that give the console back the grid `to`. The grid request
+/// brings back the height that gave the grid. Where `to` is the grid the
+/// console had when vtium-config started, the request with both sides 0
+/// follows it, so the grid fills the displays again, as it did then.
+/// vtium-config takes that start grid for the one the console's displays
+/// held at its font, since vtium draws a console that way until a program
+/// asks for another grid.
+pub fn grid_back(shared: &Shared, to: (usize, usize)) -> Vec<u8> {
+    let mut bytes = grid_request(to);
+    if to == shared.start_grid {
+        bytes.extend_from_slice(GRID_FILL);
+    }
+    bytes
 }
 
 /// What a picture of the console shows: the font, its size in points, and
@@ -1406,9 +1444,8 @@ impl App {
         }
     }
 
-    /// Ends the live trial and switches the console back to the font it
-    /// drew before it, or for a trial of a size, asks the console for the
-    /// grid it had before.
+    /// Ends the live trial: the console gets back the font it drew before
+    /// the trial, and then the grid it had, where the trial changed them.
     pub(crate) fn put_back(&mut self) -> Vec<Effect> {
         let Some(t) = self.nav.trial.take() else {
             return Vec::new();
@@ -1416,16 +1453,39 @@ impl App {
         if let Some(look) = &t.look {
             return self.put_look_back(&t, look);
         }
-        if let Some(g) = t.grid {
+        self.shared.message = Some(match t.grid {
+            Some(g) => words::size_back(g.back, g.points),
+            None => words::trial_back(font_shown(&t.back)),
+        });
+        self.font_and_grid_back(&t)
+    }
+
+    /// The font, then the grid, that the trial `t` changed, given back.
+    /// The grid request follows the font's switch, because a font switch
+    /// changes the console's grid too. While the trial's own switch is in
+    /// flight, the switch back goes once the console answers it, and the
+    /// grid request waits for the switch back. A size whose cell the font
+    /// helper is still measuring is dropped.
+    fn font_and_grid_back(&mut self, t: &Trial) -> Vec<Effect> {
+        self.shared.size_asked = None;
+        let mut out = Vec::new();
+        if t.font != t.back {
+            self.shared.want = Some(t.back.clone());
+            out.extend(self.follow());
+            if let Some(g) = t.grid {
+                self.shared.grid_after_font = Some(GridAfter {
+                    font: t.back.clone(),
+                    grid: g.back,
+                });
+                out.extend(self.grid_after_font());
+            }
+        } else if let Some(g) = t.grid {
             // a console back at its starting grid needs nothing more when
             // the TUI leaves
             self.shared.grid_moved = g.back != self.shared.start_grid;
-            self.shared.message = Some(words::size_back(g.back, g.points));
-            return vec![Effect::Write(grid_request(g.back))];
+            out.push(Effect::Write(grid_back(&self.shared, g.back)));
         }
-        self.shared.message = Some(words::trial_back(font_shown(&t.back)));
-        self.shared.want = Some(t.back);
-        self.follow()
+        out
     }
 
     /// The bytes that give the console back the colors it showed before a
@@ -1493,18 +1553,7 @@ impl App {
             Some(_) => format!("{back} {}", words::look_unused(&look.name)),
             None => back,
         });
-        self.shared.size_asked = None;
-        if t.font != t.back {
-            self.shared.want = Some(t.back.clone());
-            out.extend(self.follow());
-            if t.grid.is_some() {
-                self.shared.grid_after_font = true;
-                out.extend(self.grid_after_font());
-            }
-        } else if let Some(g) = t.grid {
-            self.shared.grid_moved = g.back != self.shared.start_grid;
-            out.push(Effect::Write(grid_request(g.back)));
-        }
+        out.extend(self.font_and_grid_back(t));
         out
     }
 
@@ -1619,7 +1668,7 @@ impl App {
                 grid: to,
             });
             self.shared.grid_moved = true;
-            self.shared.grid_after_font = false;
+            self.shared.grid_after_font = None;
             return Some(vec![Effect::Write(grid_request(to))]);
         }
         if let Some(t) = self.nav.trial.as_mut().filter(|t| t.look.is_some()) {
@@ -1628,7 +1677,7 @@ impl App {
             }
             t.grid = Some(GridTrial { points, to, back });
             self.shared.grid_moved = true;
-            self.shared.grid_after_font = false;
+            self.shared.grid_after_font = None;
             return Some(vec![Effect::Write(grid_request(to))]);
         }
         if to == back {
@@ -1645,7 +1694,7 @@ impl App {
         });
         self.shared.grid_moved = true;
         // a trial of a size replaces the start grid that `u` asked for
-        self.shared.grid_after_font = false;
+        self.shared.grid_after_font = None;
         self.shared.message = Some(words::size_countdown(points, TRIAL_TICKS));
         Some(vec![Effect::Write(grid_request(to)), Effect::Wait(TICK)])
     }

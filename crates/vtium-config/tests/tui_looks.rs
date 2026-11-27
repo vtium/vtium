@@ -1880,7 +1880,8 @@ fn without_window_ops_the_tab_says_when_a_size_takes_effect() {
 /// Enter on a size in the look card's list tries it on the console: the
 /// font helper measures the font set's cell at that size, and the grid
 /// request asks for the grid that cell gives on the 640×480 display, 80×30
-/// for an 8×16 cell. Any key but `k` puts the grid of 80×25 back.
+/// for an 8×16 cell. Any key but `k` puts the grid of 80×25 back, and then
+/// lets the grid fill the display again.
 ///
 /// References:
 /// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
@@ -1893,10 +1894,38 @@ fn enter_on_a_size_tries_its_grid_on_the_console_and_a_key_puts_it_back() {
     let (c, draft) = run_on(&window_ops_on(), &keys);
     assert!(c.cells.contains(&("proof".to_owned(), 8)), "{:?}", c.cells);
     // the trial's grid, then the grid put back, which is the starting
-    // grid, so leaving sends no other
-    assert_eq!(grid_requests(&c.written), ["30;80", "25;80"]);
+    // grid, and the request that lets it fill the display, so leaving
+    // sends no other
+    assert_eq!(grid_requests(&c.written), ["30;80", "25;80", "0;0"]);
     // the pick is a change to the look like any other, kept for Save
     assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
+}
+
+/// A size tried in the font set the console already draws changes only
+/// the grid, and putting it back lets the grid fill the display again.
+/// Otherwise the grid stays pinned at the start grid's rows and columns,
+/// and the next font set tried draws in a small grid in the middle of the
+/// screen.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": any other key puts
+///   the console's grid back.
+#[test]
+fn putting_back_a_size_in_the_console_s_font_set_unpins_the_grid() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let proof = Console::vtium(80, 25, true, "proof")
+        .takes("proof", (80, 25))
+        .takes("unifont", (80, 25));
+    let (c, _) = run_with(proof, &window_ops_on(), &keys);
+    assert_eq!(c.switches(), Vec::<String>::new());
+    assert_eq!(grid_requests(&c.written), ["30;80", "25;80", "0;0"]);
+    assert_eq!(
+        (c.shown.as_str(), c.grid(), c.pinned),
+        ("proof", (80, 25), None),
+        "{:?}",
+        c.log
+    );
 }
 
 /// An install that turns `allow-window-ops` on does not change the
@@ -1980,7 +2009,7 @@ fn k_keeps_a_tried_size_and_quitting_gives_the_starting_grid_back() {
         find(rest, b"\x1b[8;25;80t").is_some(),
         "the starting grid given back"
     );
-    assert_eq!(grid_requests(&c.written), ["30;80", "25;80"]);
+    assert_eq!(grid_requests(&c.written), ["30;80", "25;80", "0;0"]);
 }
 
 /// Each grid request, `CSI 8 ; rows ; cols t`, in `bytes`, as its

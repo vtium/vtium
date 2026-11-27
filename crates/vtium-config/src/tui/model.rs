@@ -494,11 +494,11 @@ pub struct Shared {
     /// console's terminal that font set and size makes the grid the one
     /// leaving gives back.
     pub kept_grid: Option<super::shot::KeptGrid>,
-    /// `u` asked for [`Shared::start_grid`] while another font switch was
-    /// in flight, so the grid request waits until the start font's switch
-    /// goes: a font switch moves the console's grid too, and would undo a
-    /// grid request sent before it.
-    pub grid_after_font: bool,
+    /// A grid request that waits for a font switch to go: `u`'s start
+    /// grid after the start font, or the grid a trial puts back after the
+    /// font it puts back. A font switch moves the console's grid too, and
+    /// would undo a grid request sent before it.
+    pub grid_after_font: Option<super::shot::GridAfter>,
     /// The size whose cell the font helper is measuring for a trial of the
     /// size on the console.
     pub size_asked: Option<super::shot::SizeAsked>,
@@ -751,7 +751,7 @@ impl App {
                 unsaved: 0,
                 start_grid: (size.cols, size.rows),
                 grid_moved: false,
-                grid_after_font: false,
+                grid_after_font: None,
                 colors_saved: None,
                 kept_colors: None,
                 start_colors: None,
@@ -1151,37 +1151,43 @@ impl App {
         out
     }
 
-    /// The start grid that `u` asked for, once nothing but the start
-    /// font's switch is in flight. That switch's bytes are already
-    /// written, and the console reads its input in order, so the grid
-    /// request that follows them lands after the font has changed. A font
-    /// wanted since then, other than the start font, replaces what `u`
-    /// asked for, and the grid then goes back only when the TUI leaves.
+    /// The grid that waits for a font switch, once nothing but that font's
+    /// switch is in flight: `u`'s start grid, or the grid a trial puts
+    /// back. That switch's bytes are already written, and the console
+    /// reads its input in order, so the grid request that follows them
+    /// lands after the font has changed. A font wanted since then, other
+    /// than the one the grid waits for, replaces the wait, and the grid
+    /// then goes back only when the TUI leaves.
     pub(crate) fn grid_after_font(&mut self) -> Vec<Effect> {
-        if !self.shared.grid_after_font {
+        let Some(after) = &self.shared.grid_after_font else {
             return Vec::new();
-        }
-        let start = self.shared.start_font.as_ref();
-        let refused = start.is_some_and(|s| self.shared.refused.contains(s));
-        if self.shared.want.as_ref() != start && !refused {
-            self.shared.grid_after_font = false;
+        };
+        let font = Some(&after.font);
+        let refused = self.shared.refused.contains(&after.font);
+        if self.shared.want.as_ref() != font && !refused {
+            self.shared.grid_after_font = None;
             return Vec::new();
         }
         if self
             .shared
             .in_flight
             .as_ref()
-            .is_some_and(|f| Some(f) != start)
+            .is_some_and(|f| Some(f) != font)
         {
             return Vec::new();
         }
-        self.shared.grid_after_font = false;
+        let Some(after) = self.shared.grid_after_font.take() else {
+            return Vec::new();
+        };
         if !self.shared.grid_moved {
             return Vec::new();
         }
-        self.shared.grid_moved = false;
-        vec![Effect::Write(super::shot::grid_request(
-            self.shared.start_grid,
+        // a console back at its starting grid needs nothing more when the
+        // TUI leaves
+        self.shared.grid_moved = after.grid != self.shared.start_grid;
+        vec![Effect::Write(super::shot::grid_back(
+            &self.shared,
+            after.grid,
         ))]
     }
 
@@ -1301,7 +1307,7 @@ impl App {
         // the grid the console had at the start goes back after its font,
         // since a font switch can change the grid too
         let grid = if self.shared.grid_moved {
-            super::shot::grid_request(self.shared.start_grid)
+            super::shot::grid_back(&self.shared, self.shared.start_grid)
         } else {
             Vec::new()
         };
@@ -1474,9 +1480,22 @@ impl App {
                 // another switch is in flight, the start font's switch can
                 // only go once the console answers that one, so the grid
                 // request waits for it too
-                if self.shared.grid_moved {
-                    self.shared.grid_after_font = true;
-                    out.extend(self.grid_after_font());
+                match self.shared.start_font.clone() {
+                    Some(font) if self.shared.grid_moved => {
+                        self.shared.grid_after_font = Some(super::shot::GridAfter {
+                            font,
+                            grid: self.shared.start_grid,
+                        });
+                        out.extend(self.grid_after_font());
+                    }
+                    None if self.shared.grid_moved => {
+                        self.shared.grid_moved = false;
+                        out.push(Effect::Write(super::shot::grid_back(
+                            &self.shared,
+                            self.shared.start_grid,
+                        )));
+                    }
+                    _ => {}
                 }
                 out
             }
