@@ -1591,22 +1591,34 @@ impl App {
     }
 
     /// Enter on a size in the shared list of a look's card: in a vtium
-    /// console that lets programs resize its grid, tries the size on the
-    /// console as a timed trial. Where the console draws another font set,
-    /// [`App::try_size_in`] switches it to `font` first. The font helper
-    /// measures the cell of the font set `font` at the size, and
-    /// [`App::size_measured`] sends the grid request once the cell comes.
-    /// An automatic size has no grid
-    /// of its own, so it is not tried. Outside a vtium console the size
-    /// shows only in the preview. With `allow-window-ops` off the tab says
-    /// why: with the live trial on, the preview is the console's own text
-    /// at its current size, so the size takes effect when vtium starts
-    /// again; with it off, the size shows only in the preview.
+    /// console that lets programs resize its grid and has `allow-font-ops`
+    /// on, tries the size on the console as a timed trial. Where the
+    /// console draws another font set, [`App::try_size_in`] switches it to
+    /// `font` first. The font helper measures the cell of the font set
+    /// `font` at the size, and [`App::size_measured`] sends the grid
+    /// request once the cell comes. An automatic size has no grid of its
+    /// own, so it is not tried. Outside a vtium console the size shows only
+    /// in the preview. With `allow-window-ops` off the tab says why: with
+    /// the live trial on, the preview is the console's own text at its
+    /// current size, so the size takes effect when vtium starts again;
+    /// with it off, the size shows only in the preview.
+    ///
+    /// With `allow-window-ops` on and `allow-font-ops` off, the size is not
+    /// tried, and the tab says that trying it needs `allow-font-ops` too.
+    /// vtium meets a grid request with the zoom steps of the font it draws.
+    /// Without font operations vtium-config can neither switch the console
+    /// to `font` nor learn which font set the console draws, so a grid
+    /// measured in `font` could land on a font that does not reach it, and
+    /// the console would draw its old glyphs in a smaller grid. The
+    /// installed vtium.conf does not settle the console's font set either,
+    /// because an install since vtium started changes the file and not the
+    /// running console.
     ///
     /// References:
     /// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
-    ///   highlighted size as a timed trial, and the grid is the one the
-    ///   size gives on the display.
+    ///   highlighted size as a timed trial, the grid is the one the size
+    ///   gives on the display, and vtium meets the grid request with the
+    ///   zoom step of the font it draws.
     /// - ADR-1201 D4, its note of 2026-11-21: with the live trial on and
     ///   `allow-window-ops` off, the preview is the console's own text.
     pub(crate) fn try_size(&mut self, font: Option<String>, points: u32) -> Vec<Effect> {
@@ -1634,6 +1646,10 @@ impl App {
             );
             return Vec::new();
         }
+        if self.shared.trial_off().is_some() {
+            self.shared.message = Some(words::SIZE_NEEDS_FONT_OPS.to_owned());
+            return Vec::new();
+        }
         let Some(font) = font.or_else(|| self.shared.shown_font.clone()) else {
             return Vec::new();
         };
@@ -1643,7 +1659,7 @@ impl App {
             .want
             .clone()
             .or_else(|| self.shared.shown_font.clone());
-        if self.shared.live == Live::On && shown.as_deref() != Some(font.as_str()) {
+        if shown.as_deref() != Some(font.as_str()) {
             return self.try_size_in(font, shown.unwrap_or_default(), points);
         }
         let height = crate::specimen::pixel_height(points, self.shared.inputs.dpi.0);

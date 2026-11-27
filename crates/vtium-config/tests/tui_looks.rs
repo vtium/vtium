@@ -1877,6 +1877,61 @@ fn without_window_ops_the_tab_says_when_a_size_takes_effect() {
     assert!(seen.contains(words::WINDOW_OPS_NOTICE), "{seen}");
 }
 
+/// In a vtium console that lets programs resize its grid but has
+/// `allow-font-ops` off, Enter on a size tries nothing and sends no grid
+/// request. vtium meets a grid request with the zoom steps of the font it
+/// draws, and with font operations off vtium-config can neither switch the
+/// console to the look's font set nor learn which font set the console
+/// draws. A grid measured in the look's font set could then land on the
+/// console's own font, which may not reach it and would draw its old
+/// glyphs in a smaller grid in the middle of the screen. The message says
+/// that trying a size needs `allow-font-ops` too, and how to turn it on.
+/// `t` on the look, whose trial would ask for its size's grid too, says
+/// that the live trial is off and sends nothing either.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": vtium meets the grid
+///   request with the zoom step of the font it draws.
+#[test]
+fn without_font_ops_enter_on_a_size_tries_nothing_and_says_why() {
+    let ops_off = || {
+        Console::vtium(80, 25, false, "unifont")
+            .reaches("proof", 8, (80, 30))
+            .resizes()
+    };
+    let (c, _) = run_with(ops_off(), &window_ops_on(), &[TO_LOOKS, b"t"]);
+    assert_eq!(
+        grid_requests(&c.written),
+        Vec::<String>::new(),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(c.switches(), Vec::<String>::new(), "{:?}", c.log);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(seen.contains(words::TRIAL_OFF), "{seen}");
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let (c, draft) = run_with(ops_off(), &window_ops_on(), &keys);
+    assert_eq!(
+        grid_requests(&c.written),
+        Vec::<String>::new(),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(c.switches(), Vec::<String>::new(), "{:?}", c.log);
+    assert_eq!(
+        (c.shown.as_str(), c.grid(), c.pinned),
+        ("unifont", (80, 25), None),
+        "{:?}",
+        c.log
+    );
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(seen.contains(words::SIZE_NEEDS_FONT_OPS), "{seen}");
+    assert!(!seen.contains("Trying 6 pt"), "{seen}");
+    // the pick is still a change to the look, kept for Save
+    assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
+}
+
 /// Enter on a size in the look card's list tries it on the console: the
 /// font helper measures the font set's cell at that size, and the grid
 /// request asks for the grid that cell gives on the 640×480 display, 80×30

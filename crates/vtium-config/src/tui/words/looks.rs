@@ -469,6 +469,14 @@ pub const SIZE_AT_RESTART: &str = "The console does not let programs resize its 
 /// a description of the size.
 pub const SIZE_PICTURE_ONLY: &str = "The console does not let programs resize its grid, so the size shows only in the preview until you install it. Press w in the Looks tab to let programs resize the grid.";
 
+/// Enter on a size in a vtium console that lets programs resize its grid
+/// but has `allow-font-ops` off. vtium meets a grid request with the zoom
+/// steps of the font it draws, so vtium-config tries a size only after it
+/// switches the console to the look's font set, and that switch needs
+/// font operations. The running console reads `allow-font-ops` when vtium
+/// makes its head, so turning it on takes an install and a restart.
+pub const SIZE_NEEDS_FONT_OPS: &str = "Trying a size on the console needs allow-font-ops on, because vtium-config first switches the console to the look's font set. Turn allow-font-ops on in the Settings tab, then install and restart vtium and vtium-config.";
+
 /// The question `w` asks in the Looks tab.
 pub const WINDOW_OPS_QUESTION: &str = "Let programs resize the grid? vtium-config writes allow-window-ops = on into the draft. Every program in the console can then set its rows and columns, and the console changes its font size to fit. y lets them, n or Esc does not.";
 
