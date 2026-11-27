@@ -32,8 +32,9 @@
 //!   answer DA1 by the deadline at start.
 //!
 //! The askers are the parts of the TUI that query the terminal today: the
-//! four requests at start, the font switch in flight, and the switch that
-//! gives the start font back as the TUI leaves. When the tabs become
+//! requests at start, the font switch in flight, the switch that gives
+//! the start font back as the TUI leaves, and the question, after a
+//! resize, of how large a vtium console's text area is in pixels. When the tabs become
 //! modules of their own, a tab that queries the terminal becomes an asker
 //! too.
 //!
@@ -61,6 +62,9 @@ pub enum Query {
     /// kitty graphics' query, a one-pixel image sent with `a=q`, which
     /// `APC G ... ST` answers.
     Graphics,
+    /// XTWINOPS 14, `CSI 14 t`, which `CSI 4 ; HEIGHT ; WIDTH t` answers
+    /// with the text area's size in pixels.
+    TextArea,
     /// DA1, which `CSI ? ... c` answers. It ends every batch.
     Attributes,
 }
@@ -74,6 +78,7 @@ impl Query {
             Query::Graphics => {
                 format!("\x1b_Gi={QUERY_ID},s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\").into_bytes()
             }
+            Query::TextArea => b"\x1b[14t".to_vec(),
             Query::Attributes => DA1.to_vec(),
         }
     }
@@ -85,6 +90,7 @@ impl Query {
             (Query::Version, Reply::Version(_))
                 | (Query::Font, Reply::Font(_))
                 | (Query::Graphics, Reply::Graphics(_))
+                | (Query::TextArea, Reply::TextArea(_))
                 | (Query::Attributes, Reply::Attributes)
         )
     }
@@ -93,13 +99,16 @@ impl Query {
 /// The part of the TUI that asked a query.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Asker {
-    /// The four requests at start, which find out what the terminal is.
+    /// The requests at start, which find out what the terminal is.
     Start,
     /// A font switch sent while the TUI runs: the live trial's, or the one
     /// that puts the start font back after it.
     Switch,
     /// The switch that gives the start font back as the TUI leaves.
     Leave,
+    /// The question of a vtium console's text area in pixels after a
+    /// resize, which the live trial of a size divides by the look's cell.
+    TextArea,
 }
 
 /// What an asker hears about one of its queries.
@@ -242,6 +251,31 @@ mod tests {
                     .ask(Query::Graphics)
             ),
             b"\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c"
+        );
+    }
+
+    #[test]
+    fn the_text_area_s_reply_goes_to_its_asker_and_its_absence_is_heard() {
+        let mut q = Queue::default();
+        assert_eq!(
+            q.send(Batch::new(Asker::TextArea).ask(Query::TextArea)),
+            b"\x1b[14t\x1b[c"
+        );
+        assert_eq!(
+            q.answer(Reply::TextArea((7680, 2160))),
+            [(
+                Asker::TextArea,
+                Answer::Reply(Reply::TextArea((7680, 2160)))
+            )]
+        );
+        q.answer(Reply::Attributes);
+        q.send(Batch::new(Asker::TextArea).ask(Query::TextArea));
+        assert_eq!(
+            q.answer(Reply::Attributes),
+            [
+                (Asker::TextArea, Answer::Unanswered(Query::TextArea)),
+                (Asker::TextArea, Answer::Reply(Reply::Attributes))
+            ]
         );
     }
 

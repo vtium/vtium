@@ -109,6 +109,9 @@ pub enum Reply {
     Font(String),
     /// A kitty graphics reply, `APC G ... ; MESSAGE ST`: `true` for `OK`.
     Graphics(bool),
+    /// XTWINOPS 14's, `CSI 4 ; HEIGHT ; WIDTH t`: the text area's width
+    /// and height in pixels.
+    TextArea((u32, u32)),
     /// DA1's, `CSI ? ... c`.
     Attributes,
 }
@@ -440,6 +443,10 @@ fn csi(body: &[u8]) -> Front {
         (p, b'c') if p.first() == Some(&b'?') => {
             return Front::Took(end.saturating_add(3), Some(Input::Reply(Reply::Attributes)));
         }
+        (p, b't') => {
+            let reply = text_area(p).map(|wh| Input::Reply(Reply::TextArea(wh)));
+            return Front::Took(end.saturating_add(3), reply);
+        }
         (b"" | b"1", b) if arrow(b).is_some() => arrow(b),
         (b"", b'Z') => Some(Key::BackTab),
         (b"5", b'~') => Some(Key::PageUp),
@@ -449,6 +456,24 @@ fn csi(body: &[u8]) -> Front {
         _ => None,
     };
     Front::Took(end.saturating_add(3), key.map(Input::Key))
+}
+
+/// The width and height in XTWINOPS 14's reply, from its parameters
+/// `4;HEIGHT;WIDTH`; `None` for any other report.
+fn text_area(params: &[u8]) -> Option<(u32, u32)> {
+    let text = std::str::from_utf8(params).ok()?;
+    let mut parts = text.split(';');
+    if parts.next()? != "4" {
+        return None;
+    }
+    let side = |s: Option<&str>| {
+        s.filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))?
+            .parse::<u32>()
+            .ok()
+    };
+    let height = side(parts.next())?;
+    let width = side(parts.next())?;
+    parts.next().is_none().then_some((width, height))
 }
 
 /// What a mouse report's button number says: its low two bits and the
@@ -516,6 +541,25 @@ mod tests {
             .map(Input::Key)
         );
         assert_eq!(keys("é".as_bytes()), [Input::Key(Key::Char('é'))]);
+    }
+
+    #[test]
+    fn the_text_area_s_reply_decodes_width_first() {
+        assert_eq!(
+            keys(b"\x1b[4;2160;7680t"),
+            [Input::Reply(Reply::TextArea((7680, 2160)))]
+        );
+        // another report, or a text area's reply that does not read, is
+        // no reply the TUI asked for
+        for other in [
+            b"\x1b[8;24;80t".as_slice(),
+            b"\x1b[4;2160t",
+            b"\x1b[4;2160;7680;1t",
+            b"\x1b[4;;7680t",
+            b"\x1b[5;2160;7680t",
+        ] {
+            assert_eq!(keys(other), [], "{other:?}");
+        }
     }
 
     #[test]

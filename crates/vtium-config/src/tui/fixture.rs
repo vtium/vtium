@@ -192,6 +192,7 @@ pub fn inputs() -> Inputs {
         frits: PathBuf::from("/nonexistent/vtium/fonts"),
         view: View::Fonts,
         display: Some((640, 480)),
+        displays: Vec::new(),
         flow: flow(),
         color: true,
         desk: false,

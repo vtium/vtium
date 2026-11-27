@@ -2118,6 +2118,157 @@ fn a_size_trial_put_back_leaves_the_console_filling_its_display() {
     );
 }
 
+/// A vtium console whose displays are 7680×2160. unifont fills them at
+/// 480×90, with a 16×24 cell. proof fills them at 480×90 too at the
+/// height the console starts at, and at 960×135 at 8 pixels, with the
+/// stand-in helper's 8×16 cell. The displays' list says that the first
+/// display prefers 5120×1440, a mode the console does not run at.
+fn eight_k() -> (Console, Inputs) {
+    let c = Console::vtium(480, 90, true, "unifont")
+        .takes("unifont", (480, 90))
+        .takes("proof", (480, 90))
+        .reaches("proof", 8, (960, 135))
+        .fills((7680, 2160));
+    let mut i = with_conf(&window_ops_on());
+    i.display = Some((5120, 1440));
+    (c, i)
+}
+
+/// The stand-in console answers XTWINOPS 14 as vtium does: with the
+/// text area in pixels, the grid times the cell of the font it draws. A
+/// grid request gives the terminal the cell of the zoom step it reaches,
+/// and a pinned grid smaller than the displays gives a smaller text area.
+#[test]
+fn the_stand_in_console_reports_its_text_area_as_vtium_does() {
+    let (c, _) = eight_k();
+    let mut c = c.resizes();
+    c.write(b"\x1b[14t").expect("the query");
+    c.write(b"\x1b]50;proof\x1b\\\x1b[8;135;960t\x1b[14t")
+        .expect("the switch and the grid");
+    c.write(b"\x1b[8;100;900t\x1b[14t").expect("a smaller grid");
+    let replies: Vec<u8> = c
+        .pending
+        .iter()
+        .filter_map(|w| match w {
+            Wake::Bytes(b) => Some(b.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let text = String::from_utf8_lossy(&replies);
+    assert_eq!(text.matches("\x1b[4;2160;7680t").count(), 2, "{text:?}");
+    assert_eq!(text.matches("\x1b[4;1600;7200t").count(), 1, "{text:?}");
+    assert_eq!((c.height, c.grid()), (8, (900, 100)), "{:?}", c.log);
+}
+
+/// In a vtium console, a size's live trial sizes its grid from the text
+/// area the console reports in pixels (XTWINOPS 14), divided by the look's
+/// cell, and not from the mode that the displays' list says the display
+/// prefers. On a console that runs at 7680×2160 while its display prefers
+/// 5120×1440, proof's 8×16 cell asks for 960×135, the grid that fills the
+/// console, so the console draws no bars around it.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the size is tried on
+///   the console with a grid request for the grid the look's cell gives.
+#[test]
+fn a_size_trial_asks_for_the_grid_the_consoles_text_area_holds() {
+    let (c, i) = eight_k();
+    let mut d = desk();
+    d.installed = window_ops_on();
+    d.draft = window_ops_on();
+    let mut c = c.resizes().keys(PICK_SIX);
+    vtium_config::tui::port::drive_with(&mut c, i, Some(&mut d)).expect("the loop");
+    let tried = c.log.iter().position(|l| l == "set proof").expect("proof");
+    let grid = c.log[tried..].iter().find(|l| l.starts_with("grid "));
+    assert_eq!(
+        grid.map(String::as_str),
+        Some("grid 135;960"),
+        "{:?}",
+        c.log
+    );
+    assert!(
+        String::from_utf8_lossy(&c.written).contains("\x1b[14t"),
+        "vtium-config asks for the text area"
+    );
+}
+
+/// The maintainer's display, DP-3: it prefers 5120×1440 and offers
+/// 7680×2160 too.
+fn dp3() -> vtium_config::display::Display {
+    vtium_config::display::Display {
+        pixels: (5120, 1440),
+        mm: None,
+        connector: "DP-3".to_owned(),
+        card: None,
+        modes: vec![(5120, 1440), (7680, 2160)],
+    }
+}
+
+/// A vtium console reports its text area cut down to whole cells: 426×60
+/// cells of 18×36 on the 7680×2160 display is 7668×2160. Where the
+/// draft's vtium.conf sets the display's mode to 7680×2160, which that
+/// text area is cut from, a size's trial counts its grid on the whole
+/// mode, as vtium lays the look out on it: 960 columns of proof's 8×16
+/// cell, where the text area alone holds 958.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the grid request.
+#[test]
+fn a_size_trial_counts_the_grid_on_the_mode_the_text_area_is_cut_from() {
+    let conf = format!("mode=[DP-3]7680x2160@120\n{}", window_ops_on());
+    let c = Console::vtium(426, 60, true, "unifont")
+        .takes("unifont", (426, 60))
+        .takes("proof", (426, 60))
+        .reaches("proof", 8, (960, 135))
+        .fills((7680, 2160))
+        .resizes()
+        .keys(PICK_SIX);
+    let mut i = with_conf(&conf);
+    i.display = Some((5120, 1440));
+    i.displays = vec![dp3()];
+    let mut d = desk();
+    d.installed = conf.clone();
+    d.draft = conf.clone();
+    let mut c = c;
+    vtium_config::tui::port::drive_with(&mut c, i, Some(&mut d)).expect("the loop");
+    let tried = c.log.iter().position(|l| l == "set proof").expect("proof");
+    let grid = c.log[tried..].iter().find(|l| l.starts_with("grid "));
+    assert_eq!(
+        grid.map(String::as_str),
+        Some("grid 135;960"),
+        "{:?}",
+        c.log
+    );
+}
+
+/// Outside a vtium console, the Looks preview counts a size's grid on the
+/// mode that the draft's vtium.conf sets for the first display, and not
+/// on the mode the display prefers.
+///
+/// References:
+/// - ADR-1201 D4: the line beside the preview counts the display's grid.
+#[test]
+fn the_looks_preview_counts_the_grid_on_the_mode_the_draft_sets() {
+    let mut c = outside().keys(&[TO_LOOKS, DOWN]);
+    c.graphics = true;
+    let mut i = sized();
+    i.conf = i.conf.map(|c| format!("mode=[DP-3]7680x2160@120\n{c}"));
+    i.display = Some((5120, 1440));
+    i.displays = vec![dp3()];
+    drive(&mut c, i).expect("the loop");
+    let shot = c.shots.last().expect("a picture");
+    let (cw, ch) = (shot.cell.width, shot.cell.height);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    let grid = format!(
+        "the console will be {} characters wide and {} lines high",
+        7680 / cw,
+        2160 / ch
+    );
+    assert!(text.contains(&grid), "{grid}: {screen}");
+}
+
 /// After `k` keeps a size, the console's grid stays pinned at the kept
 /// grid until vtium-config leaves. A later look's trial in another font
 /// set gives the console back that kept grid when it ends, with the kept
