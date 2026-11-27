@@ -413,10 +413,15 @@ impl ImageHost {
         let Some(running) = &self.running else {
             return Err(Reply::Unreadable);
         };
+        // A helper can end before it reads anything, as one on a kernel
+        // that refuses its seccomp filter does. Whether its socket closes
+        // before this send or after it depends only on how the kernel
+        // schedules the two processes, so a failed send fails the request,
+        // as a socket found closed while a request is out does.
         if let Err(e) = send_packet(running.process.socket(), &packet, inline.as_ref()) {
             log::warn!("cannot send image request {id}: {e}");
             self.retire();
-            return Err(Reply::Unreadable);
+            return Err(Reply::Failed);
         }
         let mut kept = request.clone();
         if let Medium::Direct(bytes) = &mut kept.medium {

@@ -689,3 +689,83 @@ fn a_helpers_crash_counts_once_its_end_is_reported() {
     assert_eq!(host.crashes(), 1, "the reported failure counts");
     assert_eq!(started.get(), 3, "each exited helper is replaced");
 }
+
+/// A launch whose helper ends before it reads anything, as a helper on a
+/// kernel that refuses its seccomp filter does: the helper's end of the
+/// socket is closed by the time vtium sends the request.
+struct EndsAtStart;
+
+impl super::Launch for EndsAtStart {
+    fn account(
+        &mut self,
+        _: &super::Session,
+        _: bool,
+    ) -> (Result<Account, super::Refusal>, Option<(u32, u32)>) {
+        let account = Account {
+            uid: 1000,
+            gid: 1000,
+            groups: None,
+        };
+        (Ok(account), None)
+    }
+
+    fn can_start(&self) -> bool {
+        true
+    }
+
+    fn start(
+        &mut self,
+        _: &Account,
+        _: bool,
+        _: u64,
+        _: u64,
+    ) -> Result<Box<dyn super::Process>, String> {
+        use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
+        let (socket, peer) = socketpair(
+            AddressFamily::UNIX,
+            SocketType::SEQPACKET,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+        drop(peer);
+        Ok(Box::new(Ended { socket }))
+    }
+}
+
+#[derive(Debug)]
+struct Ended {
+    socket: std::os::fd::OwnedFd,
+}
+
+impl super::Process for Ended {
+    fn socket(&self) -> std::os::fd::BorrowedFd<'_> {
+        use std::os::fd::AsFd;
+        self.socket.as_fd()
+    }
+    fn pid(&self) -> Option<u32> {
+        None
+    }
+    fn exited(&self) -> bool {
+        false
+    }
+    fn kill(self: Box<Self>) {}
+    fn finish(self: Box<Self>) -> super::Finish {
+        super::Finish::Failed
+    }
+}
+
+/// A helper that ends before vtium's request goes out fails the request,
+/// as one that ends after it does: which of the two happens first depends
+/// only on how the kernel schedules the two processes.
+#[test]
+fn a_helper_that_ends_before_the_request_goes_out_fails_it() {
+    let mut host = super::ImageHost::starting_with(Box::new(EndsAtStart));
+    let session = super::Session {
+        child: None,
+        pty_owner: Ok(1000),
+    };
+    let sent = host.send(&request(Medium::Direct(vec![1, 2, 3])), &session);
+    assert!(matches!(sent, Err(Reply::Failed)), "{sent:?}");
+    assert_eq!(host.crashes(), 1, "the helper's end counts as a crash");
+}
