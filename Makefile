@@ -1263,11 +1263,14 @@ man-check: ## Fail when a man page in man/ is stale or mandoc -T lint finds a wa
 # tools/tier3/goldens (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
 # variant boots the machine tools/tier3/t3_scenario.py names; JOBS=N runs up to
 # N variants at once, and with JOBS above 1, T3_DEADLINE=S stops a variant
-# still running after S seconds. GL variants never run together.
+# still running after S seconds. The default, JOBS=auto, runs as many at once
+# as the host's cores and memory hold for the run's largest machine, which
+# tools/tier3/t3.py works out; JOBS=1 runs them one after another, as the
+# figures in tools/tier3/README.md want. GL variants never run together.
 T3_DIR      := tools/tier3
 T3_VM       := target/tier3/vm
 T3_PY       := python3 -I -B
-JOBS        ?= 1
+JOBS        ?= auto
 T3_DEADLINE ?= 1800
 # The guest images: a cache every vtium checkout shares, which
 # target/tier3/vm/images links to, and where tier3-image fetches the pristine
