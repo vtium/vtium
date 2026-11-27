@@ -1458,7 +1458,7 @@ gates: ## Run every gate of the gate line, up to JOBS=N at once (default half th
 BUILDS ?= all-features default
 
 .PHONY: ci-local
-ci-local: ## Run cargo test --workspace, with every feature and with the default build, in a container matching CI's Ubuntu 24.04 runner (needs podman or docker; BUILDS='all-features default', TEST_ARGS='-p CRATE ...')
+ci-local: ## Run the workspace's tests under cargo-nextest and its doctests, with every feature and with the default build, in a container matching CI's Ubuntu 24.04 runner (needs podman or docker; BUILDS='all-features default', TEST_ARGS='-p CRATE ...')
 	@tools/ci-local/run --builds '$(BUILDS)' $(TEST_ARGS)
 
 # The steering session runs this before it moves stage to a commit of

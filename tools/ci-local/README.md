@@ -1,11 +1,11 @@
 # ci-local
 
-`make ci-local` runs `cargo test --workspace --no-fail-fast`, with `--all-features` and without, in a container whose userland matches the `check` jobs of CI. Those jobs run on GitHub's `ubuntu-latest` runner, which is Ubuntu 24.04. There /bin/sh is dash, and bash and coreutils are older than on an up-to-date Arch machine, so a test can pass here and fail on CI. `make ci-local` finds such a test before a push does.
+`make ci-local` runs the workspace's tests the way the `check` jobs of CI run them, with `--all-features` and without, in a container whose userland matches those jobs. The tests run under [cargo-nextest](https://nexte.st/), a test runner that runs each test in a process of its own, as many at once as the machine has cores. The run is `cargo nextest run --workspace --no-fail-fast`, then `cargo test --doc --workspace` for the doctests, which nextest skips. Those jobs run on GitHub's `ubuntu-latest` runner, which is Ubuntu 24.04. There /bin/sh is dash, and bash and coreutils are older than on an up-to-date Arch machine, so a test can pass here and fail on CI. `make ci-local` finds such a test before a push does.
 
 ```sh
 make ci-local                                   # both builds, as CI runs them
 make ci-local BUILDS=default                    # one build
-make ci-local TEST_ARGS='-p vtium-clipboard'    # one crate, passed on to cargo test
+make ci-local TEST_ARGS='-p vtium-clipboard'    # one crate, passed on to cargo nextest and cargo test
 ```
 
 The last line of the output says `passed`, or names each failed test after the test binary that holds it, for each build. The full output of each build goes to a log in the cache, and the script prints its path.
@@ -24,7 +24,7 @@ docker.io/library/ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad77
 
 The tag `24.04` moves each time Ubuntu publishes a new image, so the same Containerfile would build a different userland from one week to the next. With the digest, a run that fails on Monday fails the same way on Friday, and the userland changes only in a commit that moves the pin. To move it, run `docker pull ubuntu:24.04`, then `docker inspect --format '{{index .RepoDigests 0}}' ubuntu:24.04`, and put the digest it prints in the Containerfile and here.
 
-The image adds the packages the `check` jobs install, and the packages of the runner image that the tests reach. It installs rustup 1.29.3, checked against its SHA-256, and the toolchain that `rust-toolchain.toml` pins. The image's tag carries the toolchain and a hash of the Containerfile, so a change to either builds a new image.
+The image adds the packages the `check` jobs install, and the packages of the runner image that the tests reach. It installs rustup 1.29.3, checked against its SHA-256, and the toolchain that `rust-toolchain.toml` pins. It also installs cargo-nextest at the version the Makefile's `NEXTEST_VERSION` names, the version CI installs, with `cargo install --locked`. The image's tag carries the toolchain, the cargo-nextest version and a hash of the Containerfile, so a change to any of them builds a new image.
 
 ## How the container matches the runner
 
@@ -43,4 +43,4 @@ Everything the runs keep is under `$XDG_CACHE_HOME/vtium/ci-local` (`~/.cache/vt
 
 ## How long it takes
 
-On the maintainer's machine, the first run takes about 10 minutes: half a minute to build the image, and about 9 minutes to compile and run both builds. A later run with nothing to compile takes about 8 minutes and 40 seconds, almost all of it running the tests.
+These times were measured before the tests ran under nextest, which runs them faster. On the maintainer's machine, the first run took about 10 minutes: half a minute to build the image, and about 9 minutes to compile and run both builds. The image now also compiles cargo-nextest once, which takes a few minutes more. A later run with nothing to compile took about 8 minutes and 40 seconds, almost all of it running the tests.
