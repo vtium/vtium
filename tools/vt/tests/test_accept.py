@@ -1090,6 +1090,29 @@ class Pages(Case):
                     self.assertLessEqual(w, 160, line)
                 self.assertLessEqual(rows, 17)
 
+    def run_page(self, name, **env):
+        p = subprocess.run(["bash", os.path.join(SECTIONS, name)], capture_output=True, timeout=WAIT_BOUND,
+                           stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"], **env})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stdout.decode()
+
+    def test_double_size_shows_powerline_only_in_a_font_set_with_a_powerline_font(self):
+        # A font set without a font for the Powerline range draws U+E0B0
+        # from the built-in unifont, whose Private Use Area holds unrelated
+        # letters, so the page cannot pass there.
+        powerline = ""
+        for frit, shown in (("glyph-fit-default", True), ("acceptance-outline", False),
+                            ("acceptance-bitmap", False), ("", False)):
+            with self.subTest(frit=frit):
+                out = self.run_page("58-double-size-scripts.sh", ACCEPT_FRIT=frit)
+                if shown:
+                    self.assertIn(powerline, out)
+                    self.assertNotIn("no Powerline font", out)
+                else:
+                    self.assertNotIn(powerline, out)
+                    self.assertIn("no Powerline font", out)
+                self.assertIn("\x1b#6😀", out)
+
     def test_every_page_is_a_file_of_its_own_numbered_in_order(self):
         names = self.page_files()
         self.assertEqual(len(set(n[:2] for n in names)), len(names), "two pages share a number")
