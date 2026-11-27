@@ -1544,6 +1544,19 @@ class Frits(Case):
         with open(path, "rb") as f:
             return hashlib.sha256(f.read()).hexdigest()
 
+    def test_frits_lists_the_font_sets_of_the_chosen_pages_and_starts_nothing(self):
+        # vt.sh asks --frits which font sets to check before it starts vtium:
+        # each name of a "# frits:" or "# font-switch:" line once, sorted.
+        write(os.path.join(self.pages, "30-switch.sh"),
+              "# look-for: big\n# wrong-looks-like: anything else\n# font-switch: large outline\nprintf 'big\\n'\n")
+        for only, want in (("", "absent\nlarge\noutline\nrefused\n"), ("20", ""), ("30", "large\noutline\n"),
+                           ("10, 20", "absent\noutline\nrefused\n")):
+            with self.subTest(only=only):
+                p = subprocess.run(["/bin/bash", ACCEPT_SH, "--frits"], env=self.env(ACCEPT_ONLY=only),
+                                   stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=WAIT_BOUND)
+                self.assertEqual((p.returncode, p.stdout, p.stderr), (0, want, ""))
+        self.assertFalse(os.path.exists(self.passes))
+
     def walk_all(self):
         # vtium's frits directory holds outline and absent, not refused
         d = self.walk(self.env(), frits=("unifont", "outline", "absent"))
