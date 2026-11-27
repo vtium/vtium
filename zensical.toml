@@ -85,6 +85,7 @@ nav = [
       { "Architecture" = "architecture.md" },
       { "The VT review" = "vt-review.md" },
       { "The Linux console's unverified rows" = "vt-review-linux.md" },
+      { "Steering the work" = "contributing/steering.md" },
       { "AGENTS.md" = "https://github.com/vtium/vtium/blob/main/AGENTS.md" },
       { "CONTRIBUTING.md" = "https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md" },
       { "The crates' interfaces" = ["api/index.md"] },
