@@ -181,10 +181,14 @@ blink_line() {
 # folder on the way out.
 # The vtium.conf has two looks: big, in the outline font set at 20 points,
 # which the head desk uses, and small, in the bitmap font set, with vtium's
-# own pointer pictures. The page prints its steps and waits for a key before
+# own pointer pictures. A page that needs more top-level settings in it,
+# such as allow-window-ops, sets the array looks_top to those lines before
+# it calls looks_tui. Each page sets its own, so the other pages' vtium.conf
+# stays as it is. The page prints its steps and waits for a key before
 # the TUI starts, so the steps can be read first. The TUI draws on the
 # alternate screen, so the steps show again when it quits. Away from a
 # review run, or off a terminal, the page cannot show.
+looks_top=()
 looks_tui() {
 	local stage=${ACCEPT_VTIUM_CONF:-} dir status
 	stage=${stage%/config/vtium.conf}
@@ -201,7 +205,7 @@ looks_tui() {
 	trap 'exit 143' TERM
 	mkdir -p "$dir/etc" "$dir/home"
 	cp -R "$stage/frits" "$dir/frits"
-	printf '%s\n' 'version = 1' "font-frits = $dir/frits" '[look big]' 'font-name = acceptance-outline' \
+	printf '%s\n' 'version = 1' "font-frits = $dir/frits" "${looks_top[@]}" '[look big]' 'font-name = acceptance-outline' \
 		'font-size = 20' '[look small]' 'font-name = acceptance-bitmap' \
 		'pointer-theme = /usr/share/vtium/pointers.svg' '[head desk]' 'look = big' '[rules]' \
 		'display * -> desk' >"$dir/etc/vtium.conf"
