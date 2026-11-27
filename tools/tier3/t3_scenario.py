@@ -274,7 +274,9 @@ SAME_AS_CAPTURE = {"gpu-1280x800": "2d-1280x800"}
 # info level, so its ACPI lines reach the console. QEMU offers S3,
 # so the guest suspends to RAM, which QMP reports. A variant naming
 # "features" runs vtium built with them (t3.build_features) in place of
-# the tree's minspec binary.
+# the tree's binary. power-suspend-off names none, so it runs the minspec
+# console, which suspends through /sys/power/state, even when another
+# variant in the run builds the tree's console with logind.
 S3 = ["-global", "ICH9-LPC.disable_s3=0"]
 VERBOSE = "kernel.printk = 7 4 1 7\n"
 POWER = {
@@ -291,7 +293,7 @@ VARIANTS.update({
     "power-reboot-hard": dict(POWER, power=["reboot-hard"], sysctl="kernel.ctrl-alt-del = 1\n"),
     "power-off": dict(POWER, power=["power-off"]),
     "power-suspend-off": dict(POWER, power=["suspend-sysfs", "power-off-after-s3"], qemu=S3,
-                              sysctl=VERBOSE),
+                              sysctl=VERBOSE, features=""),
     "power-suspend-logind": dict(POWER, power=["suspend", "power-off-after-s3"], qemu=S3,
                                  sysctl=VERBOSE, features="logind"),
 })
@@ -1096,8 +1098,13 @@ def build_disc(variant, work, impl):
     if "sysctl" in VARIANTS[variant]:
         with open(os.path.join(disc, "sysctl.conf"), "w") as f:
             f.write(VARIANTS[variant]["sysctl"])
+    # A console built for the variant alone goes on the disc, and setup
+    # installs it over the tree's. None means the tree's console is already
+    # that build (t3.build_features).
     if "features" in VARIANTS[variant]:
-        shutil.copy(impl["features"][VARIANTS[variant]["features"]], os.path.join(disc, "vtium"))
+        binary = impl["features"][VARIANTS[variant]["features"]]
+        if binary is not None:
+            shutil.copy(binary, os.path.join(disc, "vtium"))
     if VARIANTS[variant].get("fonts"):
         shutil.copytree(impl["fonts"], os.path.join(disc, "fonts"))
     if VARIANTS[variant].get("frits"):
