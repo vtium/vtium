@@ -7,6 +7,43 @@
 mod tui_common;
 use tui_common::*;
 
+/// The size in pixels of a full 8K display, which the tests of large
+/// displays use.
+const EIGHT_K: (u32, u32) = (7680, 4320);
+
+/// The smaller mode that the tests' 8K display prefers, which the console
+/// does not run at.
+const PREFERRED: (u32, u32) = (5120, 1440);
+
+/// The cell, in pixels, that the stand-in console draws unifont in on the
+/// 8K display.
+const UNIFONT_CELL: (u32, u32) = (16, 24);
+
+/// The stand-in helper's cell for proof, in pixels, at every height.
+const PROOF_CELL: (u32, u32) = (8, 16);
+
+/// A cell that does not divide the 8K display's width, so vtium reports a
+/// text area narrower than the display.
+const ODD_CELL: (u32, u32) = (18, 36);
+
+/// The grid that `pixels` hold in cells of `cell`, as vtium divides its
+/// displays: whole cells on each side.
+fn cells(pixels: (u32, u32), cell: (u32, u32)) -> (usize, usize) {
+    let side = |px: u32, c: u32| usize::try_from(px / c).expect("a grid side");
+    (side(pixels.0, cell.0), side(pixels.1, cell.1))
+}
+
+/// The grid request vtium-config writes for `grid`, columns by rows, as the
+/// stand-in console logs it.
+fn grid_line((cols, rows): (usize, usize)) -> String {
+    format!("grid {rows};{cols}")
+}
+
+/// The vtium.conf line that sets DP-1's mode to the 8K display's size.
+fn eight_k_mode() -> String {
+    format!("mode=[DP-1]{}x{}@120\n", EIGHT_K.0, EIGHT_K.1)
+}
+
 /// The Looks view's preview draws a fixed screen of sample content,
 /// whatever the display's size, at the cell the look gets on that display;
 /// the line beside it still counts the real display's grid.
@@ -15,7 +52,7 @@ fn the_looks_preview_draws_a_fixed_screen_of_sample_content() {
     let mut c = outside().keys(&[TO_LOOKS, DOWN]);
     c.graphics = true;
     let mut wide = sized();
-    wide.display = Some((7680, 2160));
+    wide.display = Some(EIGHT_K);
     drive(&mut c, wide).expect("the loop");
     let shot = c.shots.last().expect("a picture");
     assert_eq!(shot.display, vtium_config::tui::shot::PREVIEW_SCREEN);
@@ -26,11 +63,8 @@ fn the_looks_preview_draws_a_fixed_screen_of_sample_content() {
     // the line beside it counts the real display's characters and lines
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-    let wide_grid = format!(
-        "the console will be {} characters wide and {} lines high",
-        7680 / cw,
-        2160 / ch
-    );
+    let (cols, rows) = cells(EIGHT_K, (shot.cell.width, shot.cell.height));
+    let wide_grid = format!("the console will be {cols} characters wide and {rows} lines high");
     assert!(text.contains(&wide_grid), "{wide_grid}: {screen}");
     // with VTIUM_CONFIG_PREVIEW_PPM=FILE, the picture as the glyph helper
     // draws it, for the maintainer's review
@@ -1793,12 +1827,24 @@ fn window_ops_on() -> String {
 }
 
 /// The console of [`console`], driven with the stand-in desk on `conf`,
-/// with what it wrote and the draft it left.
+/// with what it wrote and the draft it left. The console takes grid
+/// requests where `conf` turns `allow-window-ops` on. Besides its grid at
+/// the console's height, the font set proof reaches 80×30 at 8 pixels, the
+/// grid that the stand-in helper's 8×16 cell gives on the 640×480 display,
+/// while unifont reaches only its own 80×25.
 fn run_on(conf: &str, keys: &[&[u8]]) -> (Console, String) {
+    run_with(console(), conf, keys)
+}
+
+/// The console `c`, driven as [`run_on`] drives [`console`].
+fn run_with(c: Console, conf: &str, keys: &[&[u8]]) -> (Console, String) {
     let mut d = desk();
     d.installed = conf.to_owned();
     d.draft = conf.to_owned();
-    let mut c = console().keys(keys);
+    let mut c = c.reaches("proof", 8, (80, 30)).keys(keys);
+    if conf.contains("\nallow-window-ops\n") {
+        c = c.resizes();
+    }
     vtium_config::tui::port::drive_with(&mut c, with_conf(conf), Some(&mut d)).expect("the loop");
     (c, d.draft)
 }
@@ -1865,10 +1911,66 @@ fn without_window_ops_the_tab_says_when_a_size_takes_effect() {
     assert!(seen.contains(words::WINDOW_OPS_NOTICE), "{seen}");
 }
 
+/// In a vtium console that lets programs resize its grid but has
+/// `allow-font-ops` off, Enter on a size tries nothing and sends no grid
+/// request. vtium meets a grid request with the zoom steps of the font it
+/// draws, and with font operations off vtium-config can neither switch the
+/// console to the look's font set nor learn which font set the console
+/// draws. A grid measured in the look's font set could then land on the
+/// console's own font, which may not reach it and would draw its old
+/// glyphs in a smaller grid in the middle of the screen. The message says
+/// that trying a size needs `allow-font-ops` too, and how to turn it on.
+/// `t` on the look, whose trial would ask for its size's grid too, says
+/// that the live trial is off and sends nothing either.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": vtium meets the grid
+///   request with the zoom step of the font it draws.
+#[test]
+fn without_font_ops_enter_on_a_size_tries_nothing_and_says_why() {
+    let ops_off = || {
+        Console::vtium(80, 25, false, "unifont")
+            .reaches("proof", 8, (80, 30))
+            .resizes()
+    };
+    let (c, _) = run_with(ops_off(), &window_ops_on(), &[TO_LOOKS, b"t"]);
+    assert_eq!(
+        grid_requests(&c.written),
+        Vec::<String>::new(),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(c.switches(), Vec::<String>::new(), "{:?}", c.log);
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(seen.contains(words::TRIAL_OFF), "{seen}");
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let (c, draft) = run_with(ops_off(), &window_ops_on(), &keys);
+    assert_eq!(
+        grid_requests(&c.written),
+        Vec::<String>::new(),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(c.switches(), Vec::<String>::new(), "{:?}", c.log);
+    assert_eq!(
+        (c.shown.as_str(), c.grid(), c.pinned),
+        ("unifont", (80, 25), None),
+        "{:?}",
+        c.log
+    );
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(seen.contains(words::SIZE_NEEDS_FONT_OPS), "{seen}");
+    assert!(!seen.contains("Trying 6 pt"), "{seen}");
+    // the pick is still a change to the look, kept for Save
+    assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
+}
+
 /// Enter on a size in the look card's list tries it on the console: the
 /// font helper measures the font set's cell at that size, and the grid
 /// request asks for the grid that cell gives on the 640×480 display, 80×30
-/// for an 8×16 cell. Any key but `k` puts the grid of 80×25 back.
+/// for an 8×16 cell. Any key but `k` puts the grid of 80×25 back, and then
+/// lets the grid fill the display again.
 ///
 /// References:
 /// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
@@ -1881,10 +1983,367 @@ fn enter_on_a_size_tries_its_grid_on_the_console_and_a_key_puts_it_back() {
     let (c, draft) = run_on(&window_ops_on(), &keys);
     assert!(c.cells.contains(&("proof".to_owned(), 8)), "{:?}", c.cells);
     // the trial's grid, then the grid put back, which is the starting
-    // grid, so leaving sends no other
-    assert_eq!(grid_requests(&c.written), ["30;80", "25;80"]);
+    // grid, and the request that lets it fill the display, so leaving
+    // sends no other
+    assert_eq!(grid_requests(&c.written), ["30;80", "25;80", "0;0"]);
     // the pick is a change to the look like any other, kept for Save
     assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
+}
+
+/// Enter on a size tries the look's font set at that size. The console
+/// draws unifont and the look proof's font set is proof, so vtium-config
+/// switches the console to proof first, and asks for proof's grid at 6 pt
+/// once the console draws proof. unifont alone cannot reach that grid.
+/// Any key but `k` then gives the console back its font and then its
+/// grid, and lets the grid fill the display again, so no grid that the
+/// trial asked for outlives it.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the preview shows the
+///   look at that size, and vtium meets the grid request with the zoom
+///   step of the font it draws.
+/// - ADR-1201 D4, "The live trial, on a key": any other key puts the
+///   console back as it was before the trial.
+#[test]
+fn enter_on_a_size_tries_the_look_s_font_set_at_that_size() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let (c, _) = run_on(&window_ops_on(), &keys);
+    let at = |needle: &[u8]| find(&c.written, needle);
+    let font = at(b"\x1b]50;proof").expect("the look's font set");
+    let grid = at(b"\x1b[8;30;80t").expect("the size's grid");
+    let back = at(b"\x1b]50;unifont").expect("the console's font given back");
+    let grid_back = at(b"\x1b[8;25;80t").expect("the console's grid given back");
+    assert!(
+        font < grid && grid < back && back < grid_back,
+        "{:?}",
+        c.log
+    );
+    // the console took the grid whole in proof, and the put-back leaves
+    // it filling the display in unifont
+    let tried = c.log.iter().position(|l| l == "set proof").expect("proof");
+    assert_eq!(
+        c.log.get(tried + 2).map(String::as_str),
+        Some("grid 30;80"),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(
+        (c.shown.as_str(), c.grid(), c.pinned),
+        ("unifont", (80, 25), None),
+        "{:?}",
+        c.log
+    );
+}
+
+/// After `k` keeps a size tried in the look's font set, and while such a
+/// trial still counts down, leaving vtium-config gives the console back
+/// its font and then its grid, and the grid fills the display again.
+///
+/// References:
+/// - ADR-1201 D4, "The live trial, on a key": a kept font and a kept
+///   look's grid stay on the console until the TUI leaves, which gives
+///   the start ones back.
+/// - ADR-1201 D4, "Giving the console back": leaving gives back the start
+///   font, then the start grid.
+#[test]
+fn leaving_after_a_size_trial_gives_the_console_its_font_and_grid_back() {
+    let kept: &[&[u8]] = &[b"k", ESC, ESC, b"q", b"n"];
+    // a signal leaves while the trial still counts down
+    let running: &[&[u8]] = &[b"!15"];
+    for (how, then) in [("kept", kept), ("running", running)] {
+        let mut keys = PICK_SIX.to_vec();
+        keys.extend_from_slice(then);
+        let (c, _) = run_on(&window_ops_on(), &keys);
+        let tried = find(&c.written, b"\x1b[8;30;80t").expect("the size's grid request");
+        let rest = &c.written[tried..];
+        let font = find(rest, b"\x1b]50;unifont").expect("the start font");
+        let grid = find(rest, b"\x1b[8;25;80t").expect("the start grid");
+        assert!(font < grid, "{how}: {:?}", c.log);
+        assert_eq!(
+            (c.shown.as_str(), c.grid(), c.pinned),
+            ("unifont", (80, 25), None),
+            "{how}: {:?}",
+            c.log
+        );
+    }
+}
+
+/// A size tried in the font set the console already draws changes only
+/// the grid, and putting it back lets the grid fill the display again.
+/// Otherwise the grid stays pinned at the start grid's rows and columns,
+/// and the next font set tried draws in a small grid in the middle of the
+/// screen.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": any other key puts
+///   the console's grid back.
+#[test]
+fn putting_back_a_size_in_the_console_s_font_set_unpins_the_grid() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let proof = Console::vtium(80, 25, true, "proof")
+        .takes("proof", (80, 25))
+        .takes("unifont", (80, 25));
+    let (c, _) = run_with(proof, &window_ops_on(), &keys);
+    assert_eq!(c.switches(), Vec::<String>::new());
+    assert_eq!(grid_requests(&c.written), ["30;80", "25;80", "0;0"]);
+    assert_eq!(
+        (c.shown.as_str(), c.grid(), c.pinned),
+        ("proof", (80, 25), None),
+        "{:?}",
+        c.log
+    );
+}
+
+/// A vtium console whose grid vtium-config cannot guess: 213 columns by
+/// 60 rows of unifont, as a wide display holds them. unifont can also
+/// draw at 8 pixels high, where it fills the display with 426×120. The
+/// look proof's font set has a larger cell, so proof fills the display
+/// with 64×20 at the height the console starts at, and switching the
+/// console to proof moves its grid. [`run_with`] gives proof the step at
+/// 8 pixels where it fills 80×30, the grid of the trial's 6 pt.
+fn wide() -> Console {
+    Console::vtium(213, 60, true, "unifont")
+        .takes("unifont", (213, 60))
+        .reaches("unifont", 8, (426, 120))
+        .takes("proof", (64, 20))
+}
+
+/// A size trial that ends while vtium-config keeps running gives the
+/// console back the grid it had before the trial: unifont's own 213×60
+/// at the height the console started at, filling the display with no
+/// grid pinned. The grid that proof gave the console between the font
+/// switch and the grid request is not the console's grid before the
+/// trial, so the put-back never asks for it. vtium-config's own screen
+/// follows the console back to 213×60.
+///
+/// References:
+/// - ADR-1201 D4, "The live trial, on a key": any other key puts the
+///   console back as it was before the trial.
+#[test]
+fn a_size_trial_put_back_leaves_the_console_filling_its_display() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let (c, _) = run_with(wide(), &window_ops_on(), &keys);
+    let tried = c.log.iter().position(|l| l == "set proof").expect("proof");
+    assert_eq!(
+        c.log.get(tried + 2).map(String::as_str),
+        Some("grid 30;80"),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(
+        c.seen_console,
+        Some(Drew {
+            font: "unifont".to_owned(),
+            height: 16,
+            grid: (213, 60),
+            pinned: None,
+        }),
+        "{:?}",
+        c.log
+    );
+    let seen = c.seen.expect("the screen");
+    assert_eq!(seen.lines().count(), 60, "{seen}");
+    assert!(
+        seen.lines().any(|l| l.chars().count() > 200),
+        "vtium-config draws across the console's 213 columns: {seen}"
+    );
+}
+
+/// A vtium console whose displays are [`EIGHT_K`]. unifont fills them in
+/// [`UNIFONT_CELL`]. proof fills them in that cell too at the height the
+/// console starts at, and in [`PROOF_CELL`] at 8 pixels. The displays'
+/// list says that the first display prefers [`PREFERRED`], a mode the
+/// console does not run at.
+fn eight_k() -> (Console, Inputs) {
+    let start = cells(EIGHT_K, UNIFONT_CELL);
+    let c = Console::vtium(start.0, start.1, true, "unifont")
+        .takes("unifont", start)
+        .takes("proof", start)
+        .reaches("proof", 8, cells(EIGHT_K, PROOF_CELL))
+        .fills(EIGHT_K);
+    let mut i = with_conf(&window_ops_on());
+    i.display = Some(PREFERRED);
+    (c, i)
+}
+
+/// The stand-in console answers XTWINOPS 14 as vtium does: with the
+/// text area in pixels, the grid times the cell of the font it draws. A
+/// grid request gives the terminal the cell of the zoom step it reaches,
+/// and a pinned grid smaller than the displays gives a smaller text area.
+#[test]
+fn the_stand_in_console_reports_its_text_area_as_vtium_does() {
+    let (c, _) = eight_k();
+    let mut c = c.resizes();
+    let proof = cells(EIGHT_K, PROOF_CELL);
+    c.write(b"\x1b[14t").expect("the query");
+    let switch = format!("\x1b]50;proof\x1b\\\x1b[8;{};{}t\x1b[14t", proof.1, proof.0);
+    c.write(switch.as_bytes()).expect("the switch and the grid");
+    let pinned = (proof.0 - 60, proof.1 - 70);
+    let smaller = format!("\x1b[8;{};{}t\x1b[14t", pinned.1, pinned.0);
+    c.write(smaller.as_bytes()).expect("a smaller grid");
+    let replies: Vec<u8> = c
+        .pending
+        .iter()
+        .filter_map(|w| match w {
+            Wake::Bytes(b) => Some(b.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let text = String::from_utf8_lossy(&replies);
+    let whole = format!("\x1b[4;{};{}t", EIGHT_K.1, EIGHT_K.0);
+    assert_eq!(text.matches(&whole).count(), 2, "{text:?}");
+    let px = |n: usize, c: u32| u32::try_from(n).expect("a side") * c;
+    let part = format!(
+        "\x1b[4;{};{}t",
+        px(pinned.1, PROOF_CELL.1),
+        px(pinned.0, PROOF_CELL.0)
+    );
+    assert_eq!(text.matches(&part).count(), 1, "{text:?}");
+    assert_eq!((c.height, c.grid()), (8, pinned), "{:?}", c.log);
+}
+
+/// In a vtium console, a size's live trial sizes its grid from the text
+/// area the console reports in pixels (XTWINOPS 14), divided by the look's
+/// cell, and not from the mode that the displays' list says the display
+/// prefers. On a console that runs at [`EIGHT_K`] while its display
+/// prefers [`PREFERRED`], proof's cell asks for the grid that fills the
+/// console, so the console draws no bars around it.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the size is tried on
+///   the console with a grid request for the grid the look's cell gives.
+#[test]
+fn a_size_trial_asks_for_the_grid_the_consoles_text_area_holds() {
+    let (c, i) = eight_k();
+    let mut d = desk();
+    d.installed = window_ops_on();
+    d.draft = window_ops_on();
+    let mut c = c.resizes().keys(PICK_SIX);
+    vtium_config::tui::port::drive_with(&mut c, i, Some(&mut d)).expect("the loop");
+    let tried = c.log.iter().position(|l| l == "set proof").expect("proof");
+    let grid = c.log[tried..].iter().find(|l| l.starts_with("grid "));
+    let want = grid_line(cells(EIGHT_K, PROOF_CELL));
+    assert_eq!(grid, Some(&want), "{:?}", c.log);
+    assert!(
+        String::from_utf8_lossy(&c.written).contains("\x1b[14t"),
+        "vtium-config asks for the text area"
+    );
+}
+
+/// An 8K display on DP-1: it prefers [`PREFERRED`] and offers [`EIGHT_K`]
+/// too.
+fn eight_k_display() -> vtium_config::display::Display {
+    vtium_config::display::Display {
+        pixels: PREFERRED,
+        mm: None,
+        connector: "DP-1".to_owned(),
+        card: None,
+        modes: vec![PREFERRED, EIGHT_K],
+    }
+}
+
+/// A vtium console reports its text area cut down to whole cells: in
+/// [`ODD_CELL`], the 8K display's 7680 pixels hold 426 columns, which
+/// vtium reports as 7668 pixels. Where the draft's vtium.conf sets the
+/// display's mode to [`EIGHT_K`], which that text area is cut from, a
+/// size's trial counts its grid on the whole mode, as vtium lays the look
+/// out on it: 960 columns of proof's cell, where the text area alone
+/// holds 958.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the grid request.
+#[test]
+fn a_size_trial_counts_the_grid_on_the_mode_the_text_area_is_cut_from() {
+    let conf = format!("{}{}", eight_k_mode(), window_ops_on());
+    let start = cells(EIGHT_K, ODD_CELL);
+    let c = Console::vtium(start.0, start.1, true, "unifont")
+        .takes("unifont", start)
+        .takes("proof", start)
+        .reaches("proof", 8, cells(EIGHT_K, PROOF_CELL))
+        .fills(EIGHT_K)
+        .resizes()
+        .keys(PICK_SIX);
+    let mut i = with_conf(&conf);
+    i.display = Some(PREFERRED);
+    i.displays = vec![eight_k_display()];
+    let mut d = desk();
+    d.installed = conf.clone();
+    d.draft = conf.clone();
+    let mut c = c;
+    vtium_config::tui::port::drive_with(&mut c, i, Some(&mut d)).expect("the loop");
+    let tried = c.log.iter().position(|l| l == "set proof").expect("proof");
+    let grid = c.log[tried..].iter().find(|l| l.starts_with("grid "));
+    let want = grid_line(cells(EIGHT_K, PROOF_CELL));
+    assert_eq!(grid, Some(&want), "{:?}", c.log);
+}
+
+/// Outside a vtium console, the Looks preview counts a size's grid on the
+/// mode that the draft's vtium.conf sets for the first display, and not
+/// on the mode the display prefers.
+///
+/// References:
+/// - ADR-1201 D4: the line beside the preview counts the display's grid.
+#[test]
+fn the_looks_preview_counts_the_grid_on_the_mode_the_draft_sets() {
+    let mut c = outside().keys(&[TO_LOOKS, DOWN]);
+    c.graphics = true;
+    let mut i = sized();
+    i.conf = i.conf.map(|c| format!("{}{c}", eight_k_mode()));
+    i.display = Some(PREFERRED);
+    i.displays = vec![eight_k_display()];
+    drive(&mut c, i).expect("the loop");
+    let shot = c.shots.last().expect("a picture");
+    let (cols, rows) = cells(EIGHT_K, (shot.cell.width, shot.cell.height));
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    let grid = format!("the console will be {cols} characters wide and {rows} lines high");
+    assert!(text.contains(&grid), "{grid}: {screen}");
+}
+
+/// After `k` keeps a size, the console's grid stays pinned at the kept
+/// grid until vtium-config leaves. A later look's trial in another font
+/// set gives the console back that kept grid when it ends, with the kept
+/// font set's height, and leaves the grid pinned there, not at the grid
+/// the trial's font set gave the console. Leaving then gives the console
+/// its start grid, filling the display.
+///
+/// References:
+/// - ADR-1201 D4, "The live trial, on a key": a kept look's grid stays on
+///   the console until the TUI leaves, which gives the start ones back.
+#[test]
+fn a_trial_after_a_kept_size_gives_back_the_kept_grid() {
+    let conf = "# mine\nfont-name=unifont\nallow-window-ops\nversion = 1\n[look proof]\nfont-name = proof\n[look small]\nfont-name = tiny5\nfont-size = 6\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n";
+    let mut keys = PICK_SIX.to_vec();
+    keys.extend_from_slice(&[b"k".as_slice(), ESC, ESC, DOWN, b"t", b"x"]);
+    let (c, _) = run_with(wide().takes("tiny5", (40, 20)), conf, &keys);
+    // the look small's trial asked for tiny5's grid at 6 pt
+    let small = c.log.iter().position(|l| l == "set tiny5").expect("tiny5");
+    assert!(
+        c.log[small..].iter().any(|l| l.starts_with("grid 80;160")),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(
+        c.seen_console,
+        Some(Drew {
+            font: "proof".to_owned(),
+            height: 8,
+            grid: (80, 30),
+            pinned: Some((80, 30)),
+        }),
+        "{:?}",
+        c.log
+    );
+    assert_eq!(
+        (c.shown.as_str(), c.height, c.grid(), c.pinned),
+        ("unifont", 16, (213, 60), None),
+        "{:?}",
+        c.log
+    );
 }
 
 /// An install that turns `allow-window-ops` on does not change the
@@ -1929,7 +2388,7 @@ fn putting_a_tried_size_back_says_the_look_still_holds_it() {
     let (c, _) = run_on(&window_ops_on(), &keys);
     let seen = flat(&c.seen.expect("the screen"));
     assert!(
-        seen.contains("The console's grid is back to 80×25. The look still holds 6 pt as a change to save. Pick another size to change it."),
+        seen.contains("The console is back to unifont at 80×25. The look still holds 6 pt as a change to save. Pick another size to change it."),
         "{seen}"
     );
 }
@@ -1968,7 +2427,7 @@ fn k_keeps_a_tried_size_and_quitting_gives_the_starting_grid_back() {
         find(rest, b"\x1b[8;25;80t").is_some(),
         "the starting grid given back"
     );
-    assert_eq!(grid_requests(&c.written), ["30;80", "25;80"]);
+    assert_eq!(grid_requests(&c.written), ["30;80", "25;80", "0;0"]);
 }
 
 /// Each grid request, `CSI 8 ; rows ; cols t`, in `bytes`, as its
@@ -2335,10 +2794,11 @@ fn the_console_s_text_under_the_size_list_follows_the_layout() {
 }
 
 /// `u` on the screen below the minimum size puts back the font and the
-/// grid the console had when vtium-config started. Here a size and then a
-/// font set were kept from their trials, and the font set leaves a grid of
-/// 30×8. `u` switches the console back to its start font first, then asks
-/// for the start grid, because the font switch changes the grid too.
+/// grid the console had when vtium-config started. Here a size in the
+/// look's font set proof and then the font set tiny5 were kept from their
+/// trials, and tiny5 leaves a grid of 30×8. `u` switches the console back
+/// to its start font first, then asks for the start grid, because the
+/// font switch changes the grid too.
 ///
 /// References:
 /// - ADR-1201 D3: `u` on the screen below the minimum size puts back the
@@ -2372,7 +2832,7 @@ fn u_below_the_minimum_puts_back_the_start_font_then_the_start_grid() {
         .takes("unifont", (80, 25))
         .keys(&keys);
     vtium_config::tui::port::drive_with(&mut c, with_conf(&conf), Some(&mut d)).expect("the loop");
-    assert_eq!(c.switches(), ["tiny5", "unifont"]);
+    assert_eq!(c.switches(), ["proof", "tiny5", "unifont"]);
     let switch = find(&c.written, b"\x1b]50;unifont").expect("the start font's switch");
     let grid = c
         .written
@@ -2794,6 +3254,84 @@ fn k_before_the_look_s_size_is_measured_keeps_the_size_with_no_second_trial() {
     assert_eq!(app.nav.trial, None);
     assert_eq!(app.shared.message, kept);
     assert!(app.shared.grid_moved, "leaving gives the start grid back");
+}
+
+/// A look's trial that starts after `k` kept another font set gives the
+/// console back the kept font set and then the grid it had before the
+/// look's size. The grid request waits for the kept font set's switch,
+/// not for the font vtium-config started with.
+///
+/// References:
+/// - ADR-1201 D4, "The live trial, on a key": any other key puts the
+///   console back as it was before the trial.
+#[test]
+fn a_look_s_trial_after_a_kept_font_set_gives_back_that_font_set_and_then_the_grid() {
+    let conf = nordic_conf("allow-window-ops\n", "look = nordic\n");
+    let (mut app, _) = started(with_conf(&conf));
+    let key =
+        |app: &mut vtium_config::tui::model::App, k: Key| app.event(Event::Input(Input::Key(k)));
+    let reply = |app: &mut vtium_config::tui::model::App, font: &str| {
+        let mut out = app.event(Event::Input(Input::Reply(Reply::Font(font.into()))));
+        out.extend(app.event(Event::Input(Input::Reply(Reply::Attributes))));
+        out
+    };
+    // a font set below the look, tried and kept
+    key(&mut app, Key::Char('3'));
+    for _ in 0..4 {
+        key(&mut app, Key::Down);
+    }
+    key(&mut app, Key::Char('t'));
+    let kept = app.shared.want.clone().expect("a font set tried");
+    assert_ne!(kept, "unifont");
+    reply(&mut app, &kept);
+    key(&mut app, Key::Char('k'));
+    // the look, tried at its size
+    for _ in 0..4 {
+        key(&mut app, Key::Up);
+    }
+    key(&mut app, Key::Char('t'));
+    assert_eq!(
+        app.shared.want.as_deref(),
+        Some("proof"),
+        "{:?}",
+        app.shared.message
+    );
+    reply(&mut app, "proof");
+    let celled = app.event(Event::Celled {
+        font: "proof".into(),
+        height: 21,
+        cell: Ok((
+            Cell {
+                width: 10,
+                height: 21,
+            },
+            21,
+        )),
+    });
+    assert!(
+        celled
+            .iter()
+            .any(|e| matches!(e, Effect::Write(b) if b.starts_with(b"\x1b[8;"))),
+        "{celled:?}"
+    );
+    // any other key puts the look back
+    let mut out = key(&mut app, Key::Char('x'));
+    out.extend(reply(&mut app, &kept));
+    let bytes: Vec<u8> = out
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Write(b) => Some(b.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let font = find(&bytes, format!("\x1b]50;{kept}").as_bytes()).expect("the kept font set");
+    let grid = find(&bytes, b"\x1b[8;25;80t").expect("the grid before the look's size");
+    assert!(font < grid, "{:?}", String::from_utf8_lossy(&bytes));
+    assert!(
+        !app.shared.grid_moved,
+        "the console is back at its start grid"
+    );
 }
 
 /// `t` on a look that no terminal uses, whose font set and color scheme

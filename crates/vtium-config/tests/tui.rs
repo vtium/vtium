@@ -117,7 +117,7 @@ fn status_with_a_font_set_waiting(cols: u16) -> String {
 }
 
 #[test]
-fn the_four_requests_go_first_in_their_order() {
+fn the_requests_at_start_go_first_in_their_order() {
     let mut c = console().keys(&[b"q"]);
     run(&mut c);
     assert!(
@@ -127,7 +127,7 @@ fn the_four_requests_go_first_in_their_order() {
     );
     assert_eq!(
         model::probe(),
-        b"\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c"
+        b"\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[14t\x1b[c"
     );
 }
 
@@ -679,7 +679,7 @@ fn the_deadline_at_start_settles_the_four_requests() {
     use vtium_config::tui::input::{Input, Reply};
     use vtium_config::tui::model::{App, Event, Live};
     let (mut app, _) = App::new(inputs(), 80, 25);
-    assert!(app.awaiting(), "the four requests are outstanding");
+    assert!(app.awaiting(), "the requests at start are outstanding");
     app.event(Event::Input(Input::Reply(Reply::Version(
         "vtium(test)".into(),
     ))));
@@ -1451,14 +1451,8 @@ fn display_dpi_outside_the_console_s_bounds_is_not_used() {
     // the first display that states its size
     use vtium_config::display::Display;
     let displays = [
-        Display {
-            pixels: (1024, 768),
-            mm: None,
-        },
-        Display {
-            pixels: (2560, 1440),
-            mm: Some((600, 340)),
-        },
+        Display::of((1024, 768), None),
+        Display::of((2560, 1440), Some((600, 340))),
     ];
     assert_eq!(density(None, &displays), (108, DpiFrom::Edid));
     assert_eq!(

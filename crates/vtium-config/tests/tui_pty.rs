@@ -261,12 +261,12 @@ impl Console {
     }
 }
 
-/// The kitty graphics query of the four requests at start.
-const GRAPHICS_QUERY: &str = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\";
+/// The kitty graphics query and XTWINOPS 14 of the requests at start.
+const GRAPHICS_QUERY: &str = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[14t";
 
 /// Checks that DA1 ends each batch of queries in `written`, and that
 /// `written` holds `batches` OSC 50 queries: each query is followed by
-/// DA1, or at start by kitty's graphics query and then DA1.
+/// DA1, or at start by kitty's graphics query, XTWINOPS 14 and then DA1.
 fn each_batch_ends_with_da1(written: &[u8], batches: usize) {
     let text = String::from_utf8_lossy(written);
     let after: Vec<&str> = text.split("\x1b]50;?\x1b\\").skip(1).collect();
@@ -455,11 +455,11 @@ fn the_console_reads_a_sequence_cut_between_two_reads_as_one() {
 }
 
 #[test]
-fn the_tui_starts_on_the_alternate_screen_with_the_four_requests() {
+fn the_tui_starts_on_the_alternate_screen_with_the_requests_at_start() {
     let (mut c, child, slave) = started("start", Kind::Vtium { ops: true }, 80, 25);
     let written = c.written();
-    // the four requests, then mouse reporting for the Flow view it opens on
-    let start = b"\x1b[?1049h\x1b[?25l\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c\x1b[?1000h\x1b[?1006h";
+    // the requests at start, then mouse reporting for the Flow view it opens on
+    let start = b"\x1b[?1049h\x1b[?25l\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[14t\x1b[c\x1b[?1000h\x1b[?1006h";
     assert!(
         written.starts_with(start),
         "{:?}",

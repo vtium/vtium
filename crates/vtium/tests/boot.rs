@@ -6289,6 +6289,167 @@ fn a_late_outline_cell_is_drawn_from_the_next_frame() {
     );
 }
 
+// ctlseqs, XTWINOPS 8: a program switches the console to the outline frit
+// `t` with OSC 50, then asks for 10 rows of 45 columns. The built-in font
+// is 8 pixels wide, so the 320-pixel display holds only 40 of its columns.
+// The frit's cell is narrower at the small heights that hold 10 rows, so
+// the display holds 45 of its columns there. vtium measures each height
+// it tries with the frit's own cell there, asked of the font helper, and
+// the grid is exactly the one asked for, with no line saying the display
+// cannot hold it. vtium once measured those heights as wide as the
+// built-in font, capped the grid at 40 columns, and drew them in the
+// frit's narrower cell, with empty bars at the display's sides.
+//
+// References:
+// - ADR-1200 D17: an outline frit draws in the helper's cell at each
+//   height.
+// covers: window.resize
+#[test]
+fn a_text_area_request_measures_an_outline_frits_cell_at_each_height() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
+    let (_dir, fonts, _kinds, _go) = outline_frit("window-narrow", false);
+    logged();
+    let h = osc50(
+        &["--font-size=22", "--allow-window-ops"],
+        "\\033]50;t\\007\\033[8;10;45t",
+        fonts,
+    );
+    let lines = logged();
+    assert_eq!(h.app.font_name(), "t");
+    assert_eq!(h.app.grid(), (45, 10), "the grid asked for: {lines:?}");
+    let cell = h.app.cells();
+    assert!(
+        cell.first().is_some_and(|c| c.0 * 45 <= W && c.1 * 10 <= H),
+        "the display holds the grid in the cell it draws: {cell:?}"
+    );
+    let capped: Vec<&String> = lines.iter().filter(|l| l.contains("cannot hold")).collect();
+    assert_eq!(
+        capped,
+        Vec::<&String>::new(),
+        "no line says the grid is capped"
+    );
+}
+
+// ctlseqs, XTWINOPS 8, on a full 8K display, 7680×4320: the program switches to
+// the outline frit `t` with OSC 50, then asks for 300 rows of 1097 or 1280
+// columns, which a cell 7 or 6 pixels wide gives on that display. The
+// built-in font's 8 pixels give only 960 columns. vtium measures the
+// frit's own cell at each height it tries, so no bound below what the
+// display holds caps the grid: the grid and the terminal's own screen are
+// exactly the size asked for, and no line says the display cannot hold
+// it.
+//
+// References:
+// - ADR-1200 D17: an outline frit draws in the helper's cell at each
+//   height.
+#[test]
+fn a_text_area_request_on_an_8k_display_takes_every_column_asked_for() {
+    // The largest display class vtium is tested for: a full 8K display.
+    const EIGHT_K: (u32, u32) = (7680, 4320);
+    const ROWS: usize = 300;
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
+    for cols in [1097, 1280] {
+        let (_dir, fonts, _kinds, _go) = outline_frit(&format!("window-wide-{cols}"), false);
+        logged();
+        let command = format!("printf '\\033]50;t\\007\\033[8;{ROWS};{cols}tdone'; read x");
+        let args = [
+            "--font-size=22",
+            "--allow-window-ops",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            &command,
+        ];
+        let mut h = Harness::fonts(&args, Memory::sized(EIGHT_K.0, EIGHT_K.1), fonts);
+        assert!(
+            h.until(BOUND, |a| a
+                .screen_text()
+                .iter()
+                .any(|l| l.contains("done"))),
+            "{cols}: the session wrote its request"
+        );
+        let lines = logged();
+        assert_eq!(h.app.grid(), (cols, ROWS), "the grid asked for: {lines:?}");
+        let screen = h.app.term().map(|t| t.terminal.screen());
+        assert_eq!(
+            screen.map(|s| (s.cols(), s.rows())),
+            Some((cols, ROWS)),
+            "{cols}: the terminal's own screen is the grid"
+        );
+        let cell = h.app.cells();
+        assert!(
+            cell.first().is_some_and(
+                |c| c.0 as usize * cols <= EIGHT_K.0 as usize && c.1 * ROWS as u32 <= EIGHT_K.1
+            ),
+            "{cols}: the display holds the grid in the cell it draws: {cell:?}"
+        );
+        let capped: Vec<&String> = lines.iter().filter(|l| l.contains("cannot hold")).collect();
+        assert_eq!(
+            capped,
+            Vec::<&String>::new(),
+            "{cols}: no line says the grid is capped"
+        );
+    }
+}
+
+// ctlseqs, XTWINOPS 8, with a font helper that has yet to answer: the
+// console starts drawing the outline frit `t` at 22 pixels, and the held
+// helper gives no cell in time, so the console draws as wide as the
+// built-in font, 40 columns of 7 rows. The program asks for 10 rows of 45
+// columns at once. vtium cannot measure the frit's grid until the helper
+// answers, so the console keeps its grid and holds the program's output
+// after the request. Once the helper answers, vtium carries the search
+// on, the grid is exactly the one asked for, and the B after the request
+// is drawn.
+//
+// References:
+// - ADR-1200 D17: an answer that comes after the wait is taken when it
+//   comes.
+#[test]
+fn a_text_area_request_waits_for_an_outline_frits_late_cell() {
+    let (_dir, fonts, _kinds, go) = outline_frit("window-narrow-late", true);
+    logged();
+    let args = [
+        "--font-name=t",
+        "--font-size=22",
+        "--allow-window-ops",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'A\\033[8;10;45tB'; read x",
+    ];
+    let mut h = Harness::fonts(&args, Memory::default(), fonts);
+    // A, then the 9 bytes of the request.
+    let taken = |app: &App| {
+        app.term()
+            .is_some_and(|t| t.parsed >= 10 && !t.terminal.grid_requested())
+    };
+    assert!(h.until(BOUND, taken), "vtium takes the request");
+    let shows_b = |app: &App| app.screen_text().iter().any(|l| l.contains('B'));
+    let waits = (h.app.grid(), shows_b(&h.app));
+    assert_eq!(waits, ((40, 7), false), "the request waits for the helper");
+    // opening the FIFO to write lets the stand-in's answers go
+    let _go = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&go)
+        .expect("the go FIFO");
+    assert!(
+        h.until(BOUND, |app| app.grid() == (45, 10) && shows_b(app)),
+        "the grid {:?} and the screen {:?}",
+        h.app.grid(),
+        h.app.screen_text()
+    );
+    let lines = logged();
+    let capped: Vec<&String> = lines.iter().filter(|l| l.contains("cannot hold")).collect();
+    assert_eq!(
+        capped,
+        Vec::<&String>::new(),
+        "no line says the grid is capped"
+    );
+}
+
 // ADR-1200 D17 and the operator's decision on #145, 2026-10-28: a bitmap
 // frit asks for its fonts' own cell, and may wait, only at the first frame
 // and at an OSC 50 switch. Once that ask failed, the failure holds at every

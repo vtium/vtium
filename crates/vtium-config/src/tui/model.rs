@@ -16,7 +16,7 @@
 //! - ADR-1205 D1: the six tabs and their order.
 //! - ADR-1403 D7: the Flow view draws the configuration as paths.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -38,22 +38,27 @@ pub const WAIT: Duration = crate::switch::WAIT;
 /// terminal checks and does not keep.
 pub const QUERY_ID: u32 = 31;
 
-/// The requests the TUI writes at start: XTVERSION, the OSC 50 query and
-/// kitty's graphics query, in that order. [`Queue::send`] adds DA1, the
-/// fourth. The answers tell the TUI whether the terminal is a vtium
-/// console and which font it draws.
+/// The requests the TUI writes at start: XTVERSION, the OSC 50 query,
+/// kitty's graphics query and XTWINOPS 14, in that order. [`Queue::send`]
+/// adds DA1, the last. The answers tell the TUI whether the terminal is a
+/// vtium console, which font it draws, and how large a vtium console's
+/// text area is in pixels, which a size's live trial divides by the
+/// look's cell.
 ///
 /// References:
-/// - ADR-1201 D4, "Finding out what the terminal is": the four requests
-///   at start and what their answers decide.
+/// - ADR-1201 D4, "Finding out what the terminal is": the requests at
+///   start and what their answers decide.
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the trial's grid
+///   request, which the text area sizes.
 fn start_batch() -> Batch {
     Batch::new(Asker::Start)
         .ask(Query::Version)
         .ask(Query::Font)
         .ask(Query::Graphics)
+        .ask(Query::TextArea)
 }
 
-/// The bytes of the four requests at start, DA1 last.
+/// The bytes of the requests at start, DA1 last.
 pub fn probe() -> Vec<u8> {
     Queue::default().send(start_batch())
 }
@@ -125,9 +130,14 @@ pub struct Inputs {
     /// The view the TUI opens at: the fonts, or the new-frit view for
     /// `vtium config new`.
     pub view: View,
-    /// The first display's size in pixels, which a size's grid is counted
-    /// on, where a display is connected.
+    /// The first display's preferred mode in pixels, where a display is
+    /// connected. A size's grid is counted on it where [`Inputs::displays`]
+    /// lists no display, as in the tests.
     pub display: Option<(u32, u32)>,
+    /// Each connected display, with its connector, its card and the modes
+    /// it offers, so a size's grid is counted on the mode the draft's
+    /// `mode` lines set for the first display.
+    pub displays: Vec<crate::display::Display>,
     /// Each frit installed in the frits' directory, by its name, as its
     /// bytes: what a new frit of that name replaces, and what a removal
     /// removes.
@@ -375,6 +385,7 @@ struct Answers {
     version: Option<String>,
     font: Option<String>,
     graphics: bool,
+    text_area: Option<(u32, u32)>,
 }
 
 /// What every tab reads, and no tab changes itself: what the TUI started
@@ -490,21 +501,31 @@ pub struct Shared {
     ///   configured choice.
     pub start_colors: Option<vtium_term::Palette>,
     /// The grid that `k` kept from a trial of a size, with the font set
-    /// and the size in points that give it. An install that gives the
-    /// console's terminal that font set and size makes the grid the one
-    /// leaving gives back.
+    /// and the size in points that give it, while the console still holds
+    /// it: `u` gives the console its start grid back and drops it. A later
+    /// trial gives the console this grid back when it ends. An install
+    /// that gives the console's terminal that font set and size makes the
+    /// grid the one leaving gives back.
     pub kept_grid: Option<super::shot::KeptGrid>,
-    /// `u` asked for [`Shared::start_grid`] while another font switch was
-    /// in flight, so the grid request waits until the start font's switch
-    /// goes: a font switch moves the console's grid too, and would undo a
-    /// grid request sent before it.
-    pub grid_after_font: bool,
+    /// A grid request that waits for a font switch to go: `u`'s start
+    /// grid after the start font, or the grid a trial puts back after the
+    /// font it puts back. A font switch moves the console's grid too, and
+    /// would undo a grid request sent before it.
+    pub grid_after_font: Option<super::shot::GridAfter>,
     /// The size whose cell the font helper is measuring for a trial of the
     /// size on the console.
     pub size_asked: Option<super::shot::SizeAsked>,
     /// The installed vtium.conf's `allow-window-ops` when vtium-config
     /// started, which [`Shared::window_ops`] reports.
     running_window_ops: bool,
+    /// The vtium console's text area in pixels, as vtium last reported it
+    /// while vtium-config had pinned no grid, with the grid it held then.
+    /// A size's grid is counted on it in a vtium console.
+    pub text_area: Option<super::shot::TextArea>,
+    /// The console's grid at each question of its text area that is not
+    /// settled yet, oldest first, so each reply pairs with the grid it
+    /// measures.
+    text_area_asked: VecDeque<(usize, usize)>,
 }
 
 /// The terminal's grid, and its cell in pixels where it reports its size
@@ -518,6 +539,25 @@ pub struct Size {
 }
 
 impl Shared {
+    /// Whether leaving still has to give the console its start grid back
+    /// once a put-back has given it the grid `back`: a grid that `k` kept
+    /// stays pinned, and any other grid than the start grid may stand at
+    /// another height than the one the console started at.
+    pub fn grid_moved_to(&self, back: super::shot::GridBack) -> bool {
+        !back.fill || back.grid != self.start_grid
+    }
+
+    /// The start grid, which fills the console's displays at its font.
+    /// vtium-config takes the grid the console had when vtium-config
+    /// started for one that filled the displays, since vtium draws a
+    /// console that way until a program asks for another grid.
+    pub fn start_back(&self) -> super::shot::GridBack {
+        super::shot::GridBack {
+            grid: self.start_grid,
+            fill: true,
+        }
+    }
+
     /// The installed vtium.conf's value of `key`.
     pub fn configured(&self, key: &str) -> Option<String> {
         self.inputs.conf.as_deref().and_then(|c| setting(c, key))
@@ -543,6 +583,16 @@ impl Shared {
     /// The draft's value of `key`, else the installed file's.
     pub fn drafted(&self, key: &str) -> Option<String> {
         self.conf_text().and_then(|c| setting(c, key))
+    }
+
+    /// The size in pixels of the mode the first display runs at under
+    /// the draft's `mode` lines, else its preferred mode; `None` where no
+    /// display is connected.
+    pub fn display_mode(&self) -> Option<(u32, u32)> {
+        match self.inputs.displays.first() {
+            Some(d) => Some(d.runs_at(self.conf_text())),
+            None => self.inputs.display,
+        }
     }
 
     /// Whether the draft gives `key` another value than the installed
@@ -692,7 +742,7 @@ impl App {
     }
 
     /// The TUI at its start in a terminal of `size`, and what it does
-    /// first: the four requests, and the wait for their answers.
+    /// first: the requests at start, and the wait for their answers.
     pub fn start(inputs: Inputs, size: Size) -> (App, Vec<Effect>) {
         let view = inputs.view;
         let flow = super::tabs::flow::Flow::new(&inputs.flow);
@@ -751,13 +801,15 @@ impl App {
                 unsaved: 0,
                 start_grid: (size.cols, size.rows),
                 grid_moved: false,
-                grid_after_font: false,
+                grid_after_font: None,
                 colors_saved: None,
                 kept_colors: None,
                 start_colors: None,
                 kept_grid: None,
                 size_asked: None,
                 running_window_ops,
+                text_area: None,
+                text_area_asked: VecDeque::new(),
             },
             size,
             fonts: super::tabs::fonts::Fonts::default(),
@@ -999,7 +1051,7 @@ impl App {
             Event::Input(Input::Key(key)) => self.key(key),
             Event::Resize(size) => {
                 self.size = size;
-                Vec::new()
+                self.ask_text_area()
             }
             // a signal saves the unsaved changes before the TUI leaves
             // (ADR-1403 D7, What carries over)
@@ -1071,6 +1123,10 @@ impl App {
                     }
                     Vec::new()
                 }
+                Asker::TextArea => {
+                    self.text_area_answer(&answer);
+                    Vec::new()
+                }
             });
         }
         if let Some(status) = self.shared.leaving
@@ -1082,7 +1138,7 @@ impl App {
         out
     }
 
-    /// What the four requests at start hear back, until DA1's reply
+    /// What the requests at start hear back, until DA1's reply
     /// settles what the terminal is.
     fn start_answer(&mut self, answer: Answer) -> Vec<Effect> {
         if self.shared.live != Live::Asking {
@@ -1092,11 +1148,12 @@ impl App {
             Answer::Reply(Reply::Version(v)) => self.shared.answers.version = Some(v),
             Answer::Reply(Reply::Font(f)) => self.shared.answers.font = Some(f),
             Answer::Reply(Reply::Graphics(ok)) => self.shared.answers.graphics |= ok,
+            Answer::Reply(Reply::TextArea(px)) => self.shared.answers.text_area = Some(px),
+            Answer::Unanswered(_) => {}
             Answer::Reply(Reply::Attributes) => {
                 self.decide();
                 return self.started();
             }
-            Answer::Unanswered(_) => {}
         }
         Vec::new()
     }
@@ -1146,43 +1203,46 @@ impl App {
         }
         out.extend(self.follow());
         out.extend(self.grid_after_font());
-        // a look's trial tries its size once the console draws its font
-        out.extend(self.look_size());
+        // a trial tries its size once the console draws its font
+        out.extend(self.trial_size());
         out
     }
 
-    /// The start grid that `u` asked for, once nothing but the start
-    /// font's switch is in flight. That switch's bytes are already
-    /// written, and the console reads its input in order, so the grid
-    /// request that follows them lands after the font has changed. A font
-    /// wanted since then, other than the start font, replaces what `u`
-    /// asked for, and the grid then goes back only when the TUI leaves.
+    /// The grid that waits for a font switch, once nothing but that font's
+    /// switch is in flight: `u`'s start grid, or the grid a trial puts
+    /// back. That switch's bytes are already written, and the console
+    /// reads its input in order, so the grid request that follows them
+    /// lands after the font has changed. A font wanted since then, other
+    /// than the one the grid waits for, replaces the wait, and the grid
+    /// then goes back only when the TUI leaves.
     pub(crate) fn grid_after_font(&mut self) -> Vec<Effect> {
-        if !self.shared.grid_after_font {
+        let Some(after) = &self.shared.grid_after_font else {
             return Vec::new();
-        }
-        let start = self.shared.start_font.as_ref();
-        let refused = start.is_some_and(|s| self.shared.refused.contains(s));
-        if self.shared.want.as_ref() != start && !refused {
-            self.shared.grid_after_font = false;
+        };
+        let font = Some(&after.font);
+        let refused = self.shared.refused.contains(&after.font);
+        if self.shared.want.as_ref() != font && !refused {
+            self.shared.grid_after_font = None;
             return Vec::new();
         }
         if self
             .shared
             .in_flight
             .as_ref()
-            .is_some_and(|f| Some(f) != start)
+            .is_some_and(|f| Some(f) != font)
         {
             return Vec::new();
         }
-        self.shared.grid_after_font = false;
+        let Some(after) = self.shared.grid_after_font.take() else {
+            return Vec::new();
+        };
         if !self.shared.grid_moved {
             return Vec::new();
         }
-        self.shared.grid_moved = false;
-        vec![Effect::Write(super::shot::grid_request(
-            self.shared.start_grid,
-        ))]
+        // a console back at its starting grid needs nothing more when the
+        // TUI leaves
+        self.shared.grid_moved = self.shared.grid_moved_to(after.grid);
+        vec![Effect::Write(super::shot::grid_back(after.grid))]
     }
 
     /// What follows once the terminal is known: the sources each frit that
@@ -1208,6 +1268,55 @@ impl App {
         out
     }
 
+    /// Asks a vtium console again for its text area in pixels (XTWINOPS
+    /// 14) after a resize, since a display that comes or goes resizes the
+    /// console. The requests at start ask first. A size's live trial
+    /// divides the text area by the look's cell, as vtium lays the look
+    /// out on the displays, so the trial asks for the grid that fills the
+    /// console at the mode it runs at, whatever mode the display prefers.
+    /// A text area that a grid request of vtium-config pinned does not
+    /// show the displays' size, so vtium-config asks only while it has
+    /// pinned no grid and runs no trial.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "Sizes, live on a vtium console": the trial's grid
+    ///   request, which vtium meets with the zoom step that fills it.
+    fn ask_text_area(&mut self) -> Vec<Effect> {
+        if !matches!(self.shared.live, Live::On | Live::OpsOff)
+            || self.shared.grid_moved
+            || self.nav.trial.is_some()
+            || self.shared.leaving.is_some()
+        {
+            return Vec::new();
+        }
+        let batch = Batch::new(Asker::TextArea).ask(Query::TextArea);
+        self.shared
+            .text_area_asked
+            .push_back((self.size.cols, self.size.rows));
+        vec![Effect::Write(self.shared.replies.send(batch))]
+    }
+
+    /// What the question of the text area hears back: the text area in
+    /// pixels, kept with the grid the console held when vtium-config
+    /// asked, or that the console left the question unanswered, which
+    /// keeps the text area vtium-config knew before.
+    fn text_area_answer(&mut self, answer: &Answer) {
+        match answer {
+            Answer::Reply(Reply::TextArea(pixels)) => {
+                if let Some(grid) = self.shared.text_area_asked.pop_front() {
+                    self.shared.text_area = Some(super::shot::TextArea {
+                        pixels: *pixels,
+                        grid,
+                    });
+                }
+            }
+            Answer::Unanswered(Query::TextArea) => {
+                self.shared.text_area_asked.pop_front();
+            }
+            _ => {}
+        }
+    }
+
     /// Settles what the terminal is, from the answers that came.
     fn decide(&mut self) {
         let vtium = self
@@ -1217,6 +1326,17 @@ impl App {
             .as_deref()
             .is_some_and(|v| v.starts_with("vtium("));
         self.shared.graphics = self.shared.answers.graphics;
+        // another terminal's text area is its window's, which says nothing
+        // of the console's displays
+        self.shared.text_area = self
+            .shared
+            .answers
+            .text_area
+            .filter(|_| vtium)
+            .map(|pixels| super::shot::TextArea {
+                pixels,
+                grid: self.shared.start_grid,
+            });
         self.shared.live = match (vtium, self.shared.answers.font.take()) {
             (true, Some(font)) => {
                 self.shared.start_font = Some(font.clone());
@@ -1301,7 +1421,7 @@ impl App {
         // the grid the console had at the start goes back after its font,
         // since a font switch can change the grid too
         let grid = if self.shared.grid_moved {
-            super::shot::grid_request(self.shared.start_grid)
+            super::shot::grid_back(self.shared.start_back())
         } else {
             Vec::new()
         };
@@ -1474,9 +1594,25 @@ impl App {
                 // another switch is in flight, the start font's switch can
                 // only go once the console answers that one, so the grid
                 // request waits for it too
+                // the start grid replaces a grid that `k` kept
                 if self.shared.grid_moved {
-                    self.shared.grid_after_font = true;
-                    out.extend(self.grid_after_font());
+                    self.shared.kept_grid = None;
+                }
+                match self.shared.start_font.clone() {
+                    Some(font) if self.shared.grid_moved => {
+                        self.shared.grid_after_font = Some(super::shot::GridAfter {
+                            font,
+                            grid: self.shared.start_back(),
+                        });
+                        out.extend(self.grid_after_font());
+                    }
+                    None if self.shared.grid_moved => {
+                        self.shared.grid_moved = false;
+                        out.push(Effect::Write(super::shot::grid_back(
+                            self.shared.start_back(),
+                        )));
+                    }
+                    _ => {}
                 }
                 out
             }
@@ -1635,6 +1771,53 @@ mod tests {
         app
     }
 
+    /// A vtium console's text area comes with the requests at start, and
+    /// vtium-config asks again after a resize while it pins no grid, so a
+    /// display that came or went changes the grid a size's trial counts.
+    /// Another terminal's text area is its window's, which vtium-config
+    /// does not keep.
+    #[test]
+    fn the_text_area_comes_at_start_and_again_after_a_resize() {
+        let start = |version: &str| {
+            let (mut app, _) = App::new(super::super::fixture::inputs(), 80, 25);
+            for reply in [
+                Reply::Version(version.into()),
+                Reply::Font("unifont".into()),
+                Reply::TextArea((640, 400)),
+                Reply::Attributes,
+            ] {
+                app.event(Event::Input(Input::Reply(reply)));
+            }
+            app
+        };
+        let other = start("xterm(390)");
+        assert_eq!(other.shared.text_area, None);
+        let mut app = start("vtium(test)");
+        let area = |pixels, grid| Some(super::super::shot::TextArea { pixels, grid });
+        assert_eq!(app.shared.text_area, area((640, 400), (80, 25)));
+        let resized = Size {
+            cols: 100,
+            rows: 30,
+            cell_px: None,
+        };
+        let asked = app.event(Event::Resize(resized));
+        assert_eq!(asked, [Effect::Write(b"\x1b[14t\x1b[c".to_vec())]);
+        app.event(Event::Input(Input::Reply(Reply::TextArea((800, 480)))));
+        app.event(Event::Input(Input::Reply(Reply::Attributes)));
+        assert_eq!(app.shared.text_area, area((800, 480), (100, 30)));
+        assert!(!app.awaiting());
+        // a console that leaves the question unanswered keeps the last
+        app.event(Event::Resize(Size {
+            cols: 90,
+            ..resized
+        }));
+        app.event(Event::Input(Input::Reply(Reply::Attributes)));
+        assert_eq!(app.shared.text_area, area((800, 480), (100, 30)));
+        // a grid that vtium-config pinned does not show the displays' size
+        app.shared.grid_moved = true;
+        assert_eq!(app.event(Event::Resize(resized)), []);
+    }
+
     fn installs(out: &[Effect]) -> usize {
         out.iter()
             .filter(|e| matches!(e, Effect::Install(_)))
@@ -1699,6 +1882,11 @@ mod tests {
         }
         // a size kept from an earlier trial
         app.shared.grid_moved = true;
+        app.shared.kept_grid = Some(super::super::shot::KeptGrid {
+            font: "unifont".into(),
+            points: 6,
+            grid: (80, 30),
+        });
         // tiny5 is the fourth font set below the Looks tab's one look; t
         // tries it and k keeps it before the console answers the switch
         for key in [
@@ -1740,6 +1928,9 @@ mod tests {
             assert!(!more.contains("\x1b[8;"), "{more:?}");
         }
         assert!(!app.shared.grid_moved);
+        // the console no longer holds the kept grid, so a later trial
+        // gives the console back a grid that fills its displays
+        assert_eq!(app.shared.kept_grid, None);
     }
 
     /// A font tried after `u`, once the terminal is large again, replaces

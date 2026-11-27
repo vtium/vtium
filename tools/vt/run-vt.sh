@@ -69,7 +69,10 @@
 # --configdir naming that directory. vtium reads a vtium.conf only when root
 # owns it and no one else can write it or a directory above it (ADR-1403
 # D3), which a file in the checkout never is, so the run reads the copy and
-# never the system's /etc/vtium/vtium.conf. With --login, --shell or
+# never the system's /etc/vtium/vtium.conf. The one exception is the
+# machine's display modes: the run carries the mode= and use-original-mode
+# lines of /etc/vtium/vtium.conf into the copy, so vtium runs each display at
+# the mode the machine sets (see mode_lines below). With --login, --shell or
 # --guide, --config=FILE names a vtium.conf that takes the place of the
 # review's for this run, under the same rules, such as
 # config/login-picture.conf, which names a login picture, or a conf beside a
@@ -88,7 +91,8 @@
 # /sys/class/tty/tty0/active, "shells" and "locale.conf" in place of
 # /etc/shells and /etc/locale.conf, "run-user" in place of /run/user, and
 # "debugfs-dri" in place of /sys/kernel/debug/dri, "run-vtium-vt" in place of
-# /run/vtium-vt, and "terminfo" in place of /usr/share/terminfo.
+# /run/vtium-vt, "terminfo" in place of /usr/share/terminfo, and
+# "etc-vtium.conf" in place of /etc/vtium/vtium.conf.
 # Each is run from there by its full path, so no system command is reached,
 # and the run goes through without root. As root the variable is refused.
 set -euo pipefail
@@ -154,6 +158,8 @@ vt=${vt:-3}
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 # shellcheck source=tools/vt/common.sh
 . "$here/common.sh"
+# shellcheck source=tools/vt/mode.inc
+. "$here/mode.inc"
 checkout=$(readlink -m "$here/../..")
 standins=${VTIUM_VT_STANDINS:-}
 if [ -n "$standins" ]; then
@@ -176,6 +182,7 @@ if [ -n "$standins" ]; then
 	hold_sock=$standins/run-vtium/tty$vt/hold
 	system_frits=$standins/vtium-fonts
 	system_terminfo=$standins/terminfo
+	machine_conf=$standins/etc-vtium.conf
 	# The tests run without root, so the staged files stay theirs.
 	own=()
 else
@@ -195,6 +202,7 @@ else
 	hold_sock=/run/vtium/tty$vt/hold
 	system_frits=/etc/vtium/fonts
 	system_terminfo=/usr/share/terminfo
+	machine_conf=/etc/vtium/vtium.conf
 	own=(-o root -g root)
 fi
 # The units that may hold the VT and that the run borrows it from: vtium as
@@ -510,6 +518,67 @@ config_copy=$fetched
 # private while the run lasts.
 config_mode=0644
 [ -z "$config" ] || config_mode=$(printf '%04o' $((8#$fmode & 8#0644)))
+# The display modes vtium is given, and where they come from, for the
+# acceptance pass's record (accept.sh). The mode lines vtium's options give
+# replace a file's, and a file's mode line turns the options'
+# use-original-mode off, so options that set a mode keep their own and the
+# run carries nothing. A run's own vtium.conf that sets a mode keeps it too.
+# Otherwise the run carries the display-mode lines of the machine's
+# vtium.conf into the staged copy, above the run's own lines, so that vtium
+# runs each display at the mode the machine sets. Without them, vtium would
+# run each display at its preferred mode, which on a display with no EDID
+# can be a size the machine never runs at. The machine's file is read only
+# when vtium would read it: owned by root (by the caller in the tests) and
+# writable by no one else. Nothing but its display-mode lines reaches the run.
+mode_lines=()
+mode_from=
+pinned=
+for o in "${extra[@]}"; do
+	case $o in
+	--mode=*) mode_lines+=("mode=${o#--mode=}") pinned=1 ;;
+	--use-original-mode) mode_lines+=(use-original-mode) pinned=1 ;;
+	--no-use-original-mode) mode_lines+=(no-use-original-mode) ;;
+	esac
+done
+if [ -n "$pinned" ]; then
+	mode_from="vtium's command line"
+else
+	mode_lines=()
+	mapfile -t own_modes < <(vt_mode_lines "$config_copy")
+	if [ ${#own_modes[@]} -gt 0 ]; then
+		mode_lines=("${own_modes[@]}") mode_from=$config_src
+		echo "run-vt: vtium runs each display at the mode $config_src sets: ${own_modes[*]}"
+	elif [ -e "$machine_conf" ]; then
+		machine_file=$(readlink -f -- "$machine_conf")
+		machine_owner=0
+		[ -z "$standins" ] || machine_owner=$uid
+		if ! fetch "$machine_file" || [ "$fkind" != file ]; then
+			echo "run-vt: $user cannot read $machine_conf, so each display runs at its preferred mode"
+		elif [[ $ftype != regular* ]] || [ "$fowner" -ne "$machine_owner" ]; then
+			echo "run-vt: vtium ignores $machine_conf, which is not a file of root's, so each display runs at its preferred mode"
+		elif (( (8#$fmode & 8#022) != 0 )); then
+			echo "run-vt: vtium ignores $machine_conf, which is writable by group or others (mode $fmode), so each display runs at its preferred mode"
+		else
+			while IFS= read -r l; do
+				if vt_mode_value "$l"; then
+					mode_lines+=("$l")
+				else
+					echo "run-vt: vtium does not take the line '$l' of $machine_conf as a display mode, so the run leaves the line out"
+				fi
+			done < <(vt_mode_lines "$fetched")
+		fi
+		if [ ${#mode_lines[@]} -gt 0 ]; then
+			mode_from="the machine's vtium.conf, $machine_conf"
+			echo "run-vt: vtium runs each display at the mode $machine_conf sets: ${mode_lines[*]}"
+			{
+				printf '%s\n' "# The display modes of the machine's vtium.conf, $machine_conf, which run-vt.sh carries into the run's configuration."
+				printf '%s\n' "${mode_lines[@]}"
+				cat -- "$config_copy"
+			} >"$read_dir/staged.conf" || die "cannot write the run's configuration with the machine's display modes"
+			config_copy=$read_dir/staged.conf
+		fi
+	fi
+fi
 # vtium names itself TERM=xterm-vtium; the run compiles that entry from the
 # checkout, as the package does, for the sessions it starts itself.
 terminfo_src=$checkout/crates/vtium/install/xterm-vtium.ti
@@ -841,6 +910,9 @@ accept=(ACCEPT_LABEL="vtium $label" ACCEPT_VT="$vt" ACCEPT_BINARY="$bin" ACCEPT_
 # the config this run gives vtium, the copy --configdir names, and from the
 # blink options given to vtium, the last of each winning as it does in vtium.
 accept+=(ACCEPT_VTIUM_CONF="$stage/config/vtium.conf")
+# The display-mode lines vtium is given and where they come from, one word
+# each, so the pass records the mode each display runs at (accept.sh).
+accept+=(ACCEPT_MODES="${mode_lines[*]}" ACCEPT_MODE_FROM="$mode_from")
 for o in "${extra[@]}"; do
 	case $o in
 	--blink-text=*) accept+=(ACCEPT_BLINK_TEXT="${o#*=}") ;;

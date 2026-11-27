@@ -16,7 +16,8 @@
 //! XTPOPCOLORS save and restore it. The grid request `CSI 8 ; rows ; cols
 //! t` changes the grid, which is how vtium meets a new font size, and the
 //! console meets it only while the vtium.conf it last started from turns
-//! `allow-window-ops` on, as vtium does. After every key the runner can
+//! `allow-window-ops` on, as vtium does. A side of 0 takes the length the
+//! display holds in the console's cell, as ctlseqs defines it. After every key the runner can
 //! read the font set the console was asked for, the font it really draws,
 //! its cell, its palette by name, and its grid.
 //!
@@ -79,6 +80,9 @@ pub struct Console {
     pub saved: Vec<[Rgb; 16]>,
     /// The grid, columns by rows.
     pub grid: (usize, usize),
+    /// The display's size in pixels, which the grid at the built-in
+    /// font's 8×16 cell fills when vtium starts.
+    pub display: (usize, usize),
     /// Whether the console meets the grid request: the installed
     /// vtium.conf's `allow-window-ops` when vtium last started.
     pub window_ops: bool,
@@ -114,6 +118,7 @@ impl Console {
             colors: named("legacy"),
             saved: Vec::new(),
             grid,
+            display: (grid.0 * 8, grid.1 * 16),
             window_ops: false,
             font_ops: true,
             received: Vec::new(),
@@ -248,9 +253,19 @@ impl Console {
                 let end = csi.find('t').unwrap_or(csi.len());
                 let (params, after) = csi.split_at(end);
                 let mut n = params.split(';').filter_map(|p| p.parse::<usize>().ok());
+                // a side of 0 takes the length the display holds
+                let fill = |side: usize, px: usize, cell: u32| match side {
+                    0 => px
+                        .checked_div(usize::try_from(cell).unwrap_or(1))
+                        .unwrap_or(side),
+                    n => n,
+                };
                 // vtium ignores the request while allow-window-ops is off
                 if let (Some(rows), Some(cols), true) = (n.next(), n.next(), self.window_ops) {
-                    self.grid = (cols, rows);
+                    self.grid = (
+                        fill(cols, self.display.0, self.cell.width),
+                        fill(rows, self.display.1, self.cell.height),
+                    );
                 }
                 rest = after.get(1..).unwrap_or_default();
             } else {
