@@ -293,8 +293,8 @@ impl Sessions {
             cell_height: grid.cell_height,
         };
         let running = match self.store.take(head, console.console) {
-            Some(master) => match adopt(master, size) {
-                Ok(running) => {
+            Some(master) => match adopt(master, size, console) {
+                Some(running) => {
                     // The line vtium in one process logs for the same
                     // event, so the log reads the same whether vtium
                     // splits or not.
@@ -306,7 +306,7 @@ impl Sessions {
                 }
                 // The session ended while no vtium ran, so the console
                 // starts a new one, as vtium in one process restarts it.
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                None => {
                     log::info!(
                         "head {head}: console {}: its session ended while vtium was away",
                         console.console
@@ -314,7 +314,6 @@ impl Sessions {
                     self.store.forget(head, console.console);
                     self.start(console, size, display, truecolor)
                 }
-                Err(e) => Err(e),
             },
             None => self.start(console, size, display, truecolor),
         }
@@ -514,20 +513,32 @@ impl Sessions {
     }
 }
 
-/// Takes back `master`, kept through a restart, as vtium in one process
-/// does: it watches the process that leads the pty's session, sets the
-/// pty to the console's grid, and sends `SIGWINCH` when the pty already
-/// has that size, so the program redraws.
-fn adopt(master: OwnedFd, size: Size) -> io::Result<Running> {
-    let pidfd = pty::leader(master.as_fd()).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::NotFound, "the session on the pty has ended")
-    })?;
-    if pty::size(master.as_fd())? == size {
-        pty::winch(master.as_fd())?;
-    } else {
-        pty::set_size(master.as_fd(), size)?;
+/// Takes back `master`, kept through a restart, for `console`, as vtium
+/// in one process does: it watches the process that leads the pty's
+/// session, sets the pty to the console's grid, and sends `SIGWINCH` when
+/// the pty already has that size, so the program redraws. Gives `None`
+/// when the session has ended.
+///
+/// A resize or a redraw that fails leaves the session with its console,
+/// with a warning, as vtium in one process keeps it. The `SIGWINCH` fails,
+/// for example, when the process group in the pty's foreground has just
+/// ended. Were the take-back to fail there, the session would run on with
+/// no console, and the next open of the console would start a second
+/// session under the same name.
+fn adopt(master: OwnedFd, size: Size, console: &ConsoleRef) -> Option<Running> {
+    let pidfd = pty::leader(master.as_fd())?;
+    let redrawn = match pty::size(master.as_fd()) {
+        Ok(held) if held == size => pty::winch(master.as_fd()),
+        _ => pty::set_size(master.as_fd(), size),
+    };
+    if let Err(e) = redrawn {
+        log::warn!(
+            "head {}: console {}: cannot size the recovered session: {e}",
+            console.head.as_str(),
+            console.console
+        );
     }
-    Ok(Running {
+    Some(Running {
         master,
         child: None,
         pidfd,
@@ -1230,6 +1241,60 @@ pub(super) mod tests {
             "the console did not get the kept session"
         );
         s.close(&console("left", 3));
+        let mut child = earlier.child;
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    /// A kept session whose redraw fails still goes back to its console,
+    /// as vtium in one process keeps it, so it never runs on unseen
+    /// beside a new session under the same name. The earlier session's
+    /// program puts a process group of its own in the foreground, and
+    /// that group's only process then exits, so the `SIGWINCH` that asks
+    /// for the redraw finds nobody to signal. The earlier session already
+    /// has the console's grid, which is when the root process sends that
+    /// signal.
+    #[test]
+    fn a_kept_session_whose_redraw_fails_still_goes_back_to_its_console() {
+        let mut command = std::process::Command::new("python3");
+        command.args([
+            "-c",
+            "import os, signal\n\
+             signal.signal(signal.SIGTTOU, signal.SIG_IGN)\n\
+             pid = os.fork()\n\
+             if pid == 0:\n    \
+                 os.setpgid(0, 0)\n    \
+                 os.tcsetpgrp(0, os.getpgrp())\n    \
+                 os._exit(0)\n\
+             os.waitpid(pid, 0)\n\
+             print('ready', flush=True)\n\
+             signal.pause()\n",
+        ]);
+        let size = Size {
+            cols: GRID.cols,
+            rows: GRID.rows,
+            cell_width: GRID.cell_width,
+            cell_height: GRID.cell_height,
+        };
+        let earlier = pty::open_session(command, size, Erase::Delete).unwrap();
+        read_until(&earlier.master, "ready");
+        assert!(
+            pty::winch(earlier.master.as_fd()).is_err(),
+            "the earlier session's foreground group still has a process"
+        );
+        let (mut s, _) = sessions_kept(
+            conf("echo NEW; sleep 1000", "exit 0", WIDE),
+            vec![(name("left", 1), earlier.master.try_clone().unwrap())],
+        );
+        let master = s
+            .open(&console("left", 1), &GRID, Display::Kms, true)
+            .unwrap();
+        assert_eq!(
+            rustix::termios::tcgetsid(&master).unwrap(),
+            rustix::termios::tcgetsid(&earlier.master).unwrap(),
+            "the console did not get the kept session"
+        );
+        s.close(&console("left", 1));
         let mut child = earlier.child;
         let _ = child.kill();
         let _ = child.wait();
