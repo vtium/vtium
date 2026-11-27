@@ -1263,6 +1263,27 @@ fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
     assert_eq!(app.shared.live, Live::NotVtium);
 }
 
+/// The wait for the terminal's answers at start begins only after the
+/// desk has opened the draft. Opening the draft runs `vtium check-config`,
+/// which can take longer than the wait on a loaded machine, so the TUI's
+/// own work never uses up the time the terminal has to answer. The queries
+/// go before the draft opens, so the terminal answers them meanwhile.
+#[test]
+fn the_wait_for_the_answers_at_start_begins_once_the_draft_is_open() {
+    use vtium_config::tui::desk::Op;
+    use vtium_config::tui::model::{App, Effect};
+    let mut with_desk = inputs();
+    with_desk.desk = true;
+    let (_, first) = App::new(with_desk, 80, 25);
+    let open = first.iter().position(|e| *e == Effect::Desk(Op::Open));
+    let wait = first.iter().position(|e| *e == Effect::Wait(model::WAIT));
+    assert!(matches!(first.first(), Some(Effect::Write(_))), "{first:?}");
+    assert!(
+        matches!((open, wait), (Some(open), Some(wait)) if open < wait),
+        "{first:?}"
+    );
+}
+
 #[test]
 fn a_failed_command_s_words_show_on_the_message_line() {
     let mut c = console().keys(&font_name_tiny5(&[b"i", b"y"]));

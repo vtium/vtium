@@ -776,13 +776,16 @@ impl App {
             .take()
             .or_else(|| app.shared.inputs.colors_note.clone());
         app.lists_settle();
-        let mut first = vec![
-            Effect::Write(app.shared.replies.send(start_batch())),
-            Effect::Wait(WAIT),
-        ];
+        // The queries go first, so the terminal answers them while the
+        // desk opens the draft, which runs `vtium check-config` and can
+        // take seconds on a loaded machine. The wait for the answers
+        // starts only after that, so the TUI's own work never uses up
+        // the time a terminal has to answer.
+        let mut first = vec![Effect::Write(app.shared.replies.send(start_batch()))];
         if app.shared.inputs.desk {
             first.push(Effect::Desk(Op::Open));
         }
+        first.push(Effect::Wait(WAIT));
         first.extend(app.mouse_for_view());
         (app, first)
     }
