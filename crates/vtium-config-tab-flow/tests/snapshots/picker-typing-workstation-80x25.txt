@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────
+ Flow › Display                                                                 
+                                                                                
+ THIS MONITOR   each monitor lists what matches it now                          
+   ○ edid:AAA:0x0001:LARGE00001   DP-8                                          
+   ○ edid:BBB:0x0002:SMALL00001   HDMI-A-2                                      
+   ○ Other…                       AAA:_                                         
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+────────────────────────────────────────────────────────────────────────────────
+ [Esc] Cancel  [Enter] Keep  [Backspace] Delete                   [Ctrl+C] Quit 

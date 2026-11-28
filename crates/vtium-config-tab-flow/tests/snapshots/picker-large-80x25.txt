@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────
+ Flow › Display                                                                 
+                                                                                
+ THIS MONITOR   each monitor lists what matches it now                          
+   ○ edid:AAA:0x0001:PANEL0001   DP-1                                           
+   ○ edid:AAA:0x0002:PANEL0002   DP-2                                           
+   ○ edid:AAA:0x0003:PANEL0003   DP-3                                           
+   ○ edid:AAA:0x0004:PANEL0004   DP-4                                           
+   ○ edid:BBB:0x000b:PANEL0101   DP-1                                           
+   ○ edid:BBB:0x000c:PANEL0102   DP-2                                           
+   ○ edid:BBB:0x000d:PANEL0103   DP-3                                           
+   ○ edid:BBB:0x000e:PANEL0104   DP-4                                           
+   ○ edid:AAA:0x0015:PANEL0201   DP-1                                           
+   ○ edid:AAA:0x0016:PANEL0202   DP-2                                           
+   ○ edid:AAA:0x0017:PANEL0203   DP-3                                           
+   ○ edid:AAA:0x0018:PANEL0204   DP-4                                           
+   ○ edid:BBB:0x001f:PANEL0301   DP-1                                           
+   ○ edid:BBB:0x0020:PANEL0302   DP-2                                           
+   ○ edid:BBB:0x0021:PANEL0303   DP-3                                           
+   ○ edid:BBB:0x0022:PANEL0304   DP-4                                           
+   ○ edid:AAA:0x0029:PANEL0401   DP-1                                           
+   ○ edid:AAA:0x002a:PANEL0402   DP-2                                           
+────────────────────────────────────────────────────────────────────────────────
+ [Enter] Pick  [Esc] Back  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [.] More      [q] Quit 

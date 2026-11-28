@@ -26,6 +26,7 @@ use vtium_config_core::flow::Flow;
 use vtium_config_core::ui::Shared;
 
 use self::layout::{Boxed, Ctx, Layout, Obj};
+use crate::edit::plan::{self, Revising};
 use crate::parts::{self, Part};
 use crate::paths::{self, Doc, Own, Path};
 
@@ -34,7 +35,12 @@ use crate::paths::{self, Doc, Own, Path};
 #[derive(Clone, Debug)]
 pub struct Model {
     pub flow: Flow,
+    /// The configuration as CONFIGURATION shows it: without the path NEW
+    /// PATH is revising.
     pub doc: Doc,
+    /// The whole configuration the draft holds, the path being revised
+    /// included.
+    pub full: Doc,
     pub default: bool,
     /// vtium-config can follow devices as they come and go, through udev.
     pub hotplug: bool,
@@ -46,19 +52,22 @@ pub struct Model {
 
 impl Model {
     /// The page's model from the shared state: the open document's
-    /// vtium.conf and the devices present.
-    pub fn of(shared: &Shared) -> Model {
+    /// vtium.conf and the devices present, with `revising`, the path NEW
+    /// PATH is revising, left out of CONFIGURATION.
+    pub fn of(shared: &Shared, revising: Option<&Revising>) -> Model {
         let flow =
             vtium_config_core::flowmodel::build(shared.document().text(), &shared.present, None);
-        let doc = paths::read(&flow);
+        let full = paths::read(&flow);
+        let doc = plan::shown(&full, revising);
         let own = Own::of(&flow);
         Model {
             fresh: parts::enumerate(&flow, &own, &doc),
             own,
-            default: paths::is_default(&doc),
+            default: paths::is_default(&full),
             hotplug: shared.present.udev,
             flow,
             doc,
+            full,
         }
     }
 
@@ -105,6 +114,9 @@ pub struct State {
     /// The parts PARTS shows: a part whose device left stays, not
     /// connected, for as long as the tab lives.
     pub parts: Vec<Part>,
+    /// The path NEW PATH holds for revising, which CONFIGURATION leaves
+    /// out while the draft still has it.
+    pub revising: Option<Revising>,
 }
 
 /// A row count as the layout's signed offsets hold it.
