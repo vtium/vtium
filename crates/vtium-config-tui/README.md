@@ -18,7 +18,11 @@ The terminal's bytes are untrusted input, and no key, click or reply can panic t
 | `src/port/` | The loop, `drive_on`, and the `Port` it runs against (`mod.rs`), the real terminal (`tty.rs`), and what wakes the loop (`wake.rs`). |
 | `src/live/` | The live console. It asks the terminal what it is at start and hands each reply to whoever asked (`mod.rs`, `queue.rs`). It runs the live trial and its countdown (`trial.rs`, `sheet.rs`), and gives the console its font back on leaving (`leave.rs`). It reads the machine for the Actions menu's items (`machine.rs`), and holds the words it puts on the screen (`words.rs`). |
 | `src/sheets/` | The sheets over a tab, as a stack the navigation state keeps: F1's help (`about.rs`), Ctrl+F's Find (`find.rs`), the Problems list (`problems.rs`), File › New… (`new.rs`) and Manage configurations… (`manage.rs`), with opening a configuration from File › Open › (`open.rs`). Each sheet answers a key with what it asks for, which update carries out. |
-| `src/save/`, `src/changes/`, `src/history/`, `src/editor/`, `src/revert/`, `src/player/` | Empty until the cards that fill them: the sheets over a tab, Save, Show changes, History, Edit as text, Revert to saved, and the macro player. |
+| `src/changes/` | Show changes, a sheet over the whole viewer: the document's hunks against the installed file, or the whole file, with the font set changes and the active fonts after the hunks (`mod.rs`), and how its lines are laid out and drawn (`draw.rs`). |
+| `src/editor/` | Edit as text: the person's editor on a copy of the document while the TUI steps aside, the check on return, and the question to edit again. |
+| `src/history/` | File › History: the versions installed before (`mod.rs`), a version's sheet with View changes and Use this version (`sheet.rs`), and its read-only view (`view.rs`). |
+| `src/revert/` | File › Revert to saved…: the question that counts what is lost, and the change that drops it as one step. |
+| `src/save/`, `src/player/` | Empty until the cards that fill them: Save and the macro player. |
 
 ## Bounds
 
@@ -31,7 +35,7 @@ The terminal's bytes are untrusted input, and no key, click or reply can panic t
 
 ## Tests
 
-`cargo nextest run -p vtium-config-tui` runs the crate's tests. `tests/app.rs` drives the App with two stand-in tabs from `tests/common/`. It runs over vtium-config-core's two fixtures, the screen map's machine and a large machine, at 100×30 and at 80×25. It has a test for each row of the key table that the shell owns. It also runs the loop on a pty of its own. There it checks that mouse reporting is on while the TUI runs, and off after `q` and while it steps aside. The screens are text snapshots under `tests/snapshots/`, each with a grid of the attributes every cell keeps without color; `VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config-tui --test app` writes them again. `tests/guard.rs` reads the manifests and the sources of the shell and of every `crates/vtium-config-tab-*` crate. It fails on a tab crate that names another tab or the shell, and on a shell that names a tab. `tests/live.rs` drives the App against a stand-in terminal that answers as a vtium console, as one with `allow-font-ops` off, or as another terminal. It checks that replies reach their askers in order, the live trial, the font given back on leaving, and the Actions menu's items.
+`cargo nextest run -p vtium-config-tui` runs the crate's tests. `tests/app.rs` drives the App with two stand-in tabs from `tests/common/`. It runs over vtium-config-core's two fixtures, the screen map's machine and a large machine, at 100×30 and at 80×25. It has a test for each row of the key table that the shell owns. It also runs the loop on a pty of its own. There it checks that mouse reporting is on while the TUI runs, and off after `q` and while it steps aside. The screens are text snapshots under `tests/snapshots/`, each with a grid of the attributes every cell keeps without color; `VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config-tui --test app` writes them again. `tests/guard.rs` reads the manifests and the sources of the shell and of every `crates/vtium-config-tab-*` crate. It fails on a tab crate that names another tab or the shell, and on a shell that names a tab. `tests/live.rs` drives the App against a stand-in terminal that answers as a vtium console, as one with `allow-font-ops` off, or as another terminal. It checks that replies reach their askers in order, the live trial, the font given back on leaving, and the Actions menu's items. `tests/changes.rs` checks Show changes against ADR-1403 D11's figure, line for line, and runs Edit as text with scripts as the editor and as `vtium check-config`. `tests/history.rs` checks History, Use this version and its undo, and Revert to saved.
 
 References:
 - ADR-1206 D2: the model, the message, the one update and the view, replies in order to whoever asked, and DA1 at the end of every batch.
@@ -40,4 +44,6 @@ References:
 - ADR-1206 D4: who may call whom, the frame and the guard test.
 - ADR-1206 D9: the shell and each tab are crates, joined by traits.
 - ADR-1403 D11: the frame, the menus, the Alt letters, the action bar, the mouse, quitting, undo and redo, F1, Find, the Problems list, New… and managing configurations.
+- ADR-1403 D11, "Show changes and Edit as text" and "One flow for every change": Show changes, Edit as text, History and Revert to saved.
+- ADR-1403 D8, "`vtium config edit`, the way visudo edits sudoers": the editor and the check that Edit as text runs.
 - ADR-1513 D4: the TUI's crates.
