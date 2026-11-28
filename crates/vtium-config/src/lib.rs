@@ -31,22 +31,28 @@ pub mod discover;
 pub mod display;
 pub mod draft;
 pub mod drafts;
+pub mod flow;
 pub mod flowcli;
 pub mod flowmodel;
+pub mod fontlist;
 pub mod help;
 pub mod kitty;
 pub mod library;
 pub mod ops;
+pub mod options;
 pub mod outcome;
+pub mod places;
 pub mod preview;
 pub mod report;
 #[cfg(test)]
 mod scratch;
+pub mod shell;
 pub mod specimen;
 pub mod store;
 pub mod switch;
 pub mod tui;
 pub mod vts;
+pub mod words;
 
 // The font helper's modules, which vtium-font-helper holds, at the paths
 // they had in this crate.

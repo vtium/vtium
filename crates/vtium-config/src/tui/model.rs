@@ -28,7 +28,12 @@ use super::edit::Change as DraftChange;
 use super::flow::Flow;
 use super::input::{Button, Input, Key, Mouse, Reply};
 use super::replies::{Answer, Asker, Batch, Query, Queue};
+
+// The fonts the TUI lists, which the configuration's modules use too, at
+// the paths they had in this module.
 use crate::draft::Plan;
+#[doc(inline)]
+pub use crate::fontlist::{Font, FontState};
 
 /// How long the TUI waits for the terminal's answers at start, and for
 /// the console's font to come back when it leaves: `set`'s wait.
@@ -77,24 +82,6 @@ fn switch_batch(asker: Asker, before: &[u8], name: &str, after: &[u8]) -> Batch 
         .write(format!("\x1b]50;{name}\x1b\\").as_bytes())
         .write(after)
         .ask(Query::Font)
-}
-
-/// A font the TUI lists.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Font {
-    pub name: String,
-    pub state: FontState,
-}
-
-/// What a font's state is, as the TUI reads it without parsing a font.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FontState {
-    /// A frit that reads.
-    Reads,
-    /// One of the console's built-in fonts.
-    BuiltIn,
-    /// A frit that does not read, and why.
-    Refused(String),
 }
 
 /// Where the density pictures are drawn at came from (ADR-1200 D17's

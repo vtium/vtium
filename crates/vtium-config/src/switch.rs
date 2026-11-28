@@ -184,7 +184,7 @@ pub type Frits = Result<PathBuf, String>;
 pub fn frits_dir(configdir: &Path) -> Frits {
     let key = vtium_settings::keys::FONT_FRITS.name;
     let file = configdir.join("vtium.conf");
-    let set = crate::tui::read_conf(&file)?.and_then(|text| vtium_settings::setting(&text, key));
+    let set = crate::places::read_conf(&file)?.and_then(|text| vtium_settings::setting(&text, key));
     let Some(value) = set else {
         return Ok(PathBuf::from(vtium_settings::keys::FRITS));
     };

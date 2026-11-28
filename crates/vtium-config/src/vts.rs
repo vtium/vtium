@@ -546,7 +546,7 @@ pub fn message(name: &str, outcome: &Outcome) -> String {
         Applied::Failed => format!(
             "Installed draft {name}, but systemctl could not start or restart vtium on every VT. Run vtium console status to see where vtium runs."
         ),
-        Applied::Nothing | Applied::Declined => crate::tui::words::installed(name),
+        Applied::Nothing | Applied::Declined => crate::words::installed(name),
     };
     for (vt, heads) in &outcome.refused {
         text.push_str(&format!(

@@ -33,8 +33,8 @@ use vtium_settings::batch::{self as active, Batch, Entry};
 use crate::apply::{Route, Targets};
 use crate::drafts::{Session, Unrouted, run_child};
 use crate::outcome::Fail;
+use crate::places::Paths;
 use crate::store::Store;
-use crate::tui::Paths;
 
 /// One change a draft makes to the active resources.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
