@@ -165,7 +165,7 @@ fn font(known: &Known, shared: &Shared, item: Item) -> Vec<FactLine> {
                             kind.push_str(g.name());
                         }
                         out.push(fact(words::KIND, kind));
-                        out.push(fact(words::COVERS, words::covers(&face.scripts)));
+                        out.push(fact(words::COVERAGE, words::covers(&face.scripts)));
                         let strikes: Vec<String> = face
                             .strikes
                             .iter()
