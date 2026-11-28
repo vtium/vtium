@@ -69,21 +69,8 @@ ratatui-widgets = { version = "=0.3.2", default-features = false, features = ["s
 # A pty for `set`'s and the banner's tests; vtium-platform already builds
 # this version with these features.
 rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "process", "pty", "termios", "thread"] }
-# The tests read gzipped fonts back with the PSF loader.
-vtium-font = { workspace = true, features = ["psf", "gzip"] }
-# The xz encoder, for the tests' fixtures only.
-lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz", "encoder"] }
-# The compressors and readers the tests write and check their fixtures
-# with: gzip's and zlib's deflate, bzip2 and zstd for the compressed
-# fonts, skrifa and HarfRust to read and shape a font as the helper does,
-# roxmltree to read an SVG pointer file, and libc's system call numbers
-# for the seccomp filters' tests; the versions vtium-font-helper builds.
-miniz_oxide = "0.8.9"
-bzip2 = "=0.6.1"
-ruzstd = "=0.9.1"
-skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
-harfrust = { version = "=0.12.0", default-features = false, features = ["std"] }
-roxmltree = "=0.21.1"
+# libc's system call numbers, for the seccomp filters' tests in
+# tests/serve.rs; the version vtium-font-helper builds.
 libc = "=0.2.191"
 # The pointer file's size bound, which tests/pointer_file.rs builds its
 # files against.

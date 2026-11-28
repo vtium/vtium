@@ -16,8 +16,8 @@ use parser::Parser;
 use rustix::process::{
     Pid, PidfdFlags, Signal, WaitId, WaitIdOptions, pidfd_open, pidfd_send_signal, waitid,
 };
-use vtium_config::child::Request;
-use vtium_config::glyphs::Glyphs;
+use vtium_font_helper::child::Request;
+use vtium_font_helper::glyphs::Glyphs;
 
 fn stand_in(script: &str) -> Parser {
     Parser::with_program(Path::new("/bin/sh"), &["-c", script])

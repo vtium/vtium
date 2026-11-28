@@ -23,12 +23,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use vtium_config::frit::Hinting;
-use vtium_config::outline::{OutlineRequest, baseline, cell_width, rasterise, size};
-use vtium_config::serve::{ASK, FRAME_GLYPHS, FritText, Paths, ServeRequest, serve};
 use vtium_font::set::{Set, SetFace};
 use vtium_font::spacing::Band;
 use vtium_font::{Cell, Face, Glyph, REACH_ROWS, Style};
+use vtium_font_helper::frit::Hinting;
+use vtium_font_helper::outline::{OutlineRequest, baseline, cell_width, rasterise, size};
+use vtium_font_helper::serve::{ASK, FRAME_GLYPHS, FritText, Paths, ServeRequest, serve};
 
 /// A subset of DejaVu Sans Mono 2.37: printable ASCII, the capitals below
 /// and the combining marks they decompose to (`tests/fixtures/README.md`).
@@ -139,7 +139,7 @@ fn uncut(path: &Path, text: u32, width: u32, key: &[char]) -> Vec<u8> {
         cells: vec![(width, 3 * text)],
         cover: scalars.iter().map(|&c| (c, c)).collect(),
         clusters: if key.len() > 1 {
-            vec![vtium_config::shaping::ask(&scalars)]
+            vec![vtium_font_helper::shaping::ask(&scalars)]
         } else {
             Vec::new()
         },

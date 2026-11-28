@@ -89,6 +89,8 @@ seccompiler = "=0.5.0"
 libc = "=0.2.191"
 
 [dev-dependencies]
+# The tests read gzipped fonts back with the PSF loader.
+vtium-font = { workspace = true, features = ["psf", "gzip"] }
 # The xz encoder, for the tests' fixtures only.
 lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz", "encoder"] }
 # The TrueType test font writer the tests build their outline fonts with,

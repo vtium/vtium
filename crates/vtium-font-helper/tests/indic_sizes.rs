@@ -3,7 +3,7 @@
 //! It reads the Noto fonts that tier 2 pins from tier 2's font cache,
 //! `$XDG_CACHE_HOME/vtium/tier2/fonts` (`make tier2-fonts` fetches them), so
 //! it is ignored by default. Run it with
-//! `cargo test -p vtium-config --test indic_sizes -- --ignored --nocapture`.
+//! `cargo test -p vtium-font-helper --test indic_sizes -- --ignored --nocapture`.
 //!
 //! For each cluster of tier 2's `frit-indic` screen, it prints the glyph's
 //! ink as the helper draws it through the frit at 32 pixels of text with
@@ -18,13 +18,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use vtium_config::frit::Hinting;
-use vtium_config::outline::{OutlineRequest, Placed, baseline, rasterise, size};
-use vtium_config::serve::{Engine, FritText, OwnCell, Paths};
-use vtium_config::shaping::{Ask, kind};
 use vtium_font::set::{Set, SetFace};
 use vtium_font::spacing::{Band, SpacedCell};
 use vtium_font::{Cell, Face, Style};
+use vtium_font_helper::frit::Hinting;
+use vtium_font_helper::outline::{OutlineRequest, Placed, baseline, rasterise, size};
+use vtium_font_helper::serve::{Engine, FritText, OwnCell, Paths};
+use vtium_font_helper::shaping::{Ask, kind};
 
 const TEXT: u32 = 32;
 const SPACING: u32 = 40;

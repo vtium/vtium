@@ -26,9 +26,9 @@
 //! cell. A font whose full block lies far outside its line has these
 //! glyphs placed as text is placed.
 
-use vtium_config::frit::Hinting;
-use vtium_config::outline::{Outline, OutlineRequest, Placed, rasterise};
 use vtium_font::Style;
+use vtium_font_helper::frit::Hinting;
+use vtium_font_helper::outline::{Outline, OutlineRequest, Placed, rasterise};
 use vtium_testfont::ttf;
 
 const FULL: u32 = 0x2588;

@@ -13,7 +13,7 @@
     reason = "a test fails by panicking"
 )]
 
-use vtium_config::pointer_svg::draw;
+use vtium_font_helper::pointer_svg::draw;
 use vtium_render::POINTER_SVG_BYTES_MAX;
 use vtium_term::PointerShape;
 

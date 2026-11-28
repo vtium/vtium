@@ -200,16 +200,16 @@ kmscon's name, which a test in crates/vtium/src/termcap.rs writes into the
 table. They come under vtium's and kmscon's notices above and need no other.
 
 DejaVu Sans Mono's subsets, the test fixtures
-crates/vtium-config/tests/fixtures/DejaVuSansMono-W-M-0.ttf,
-DejaVuSansMono-lam-shadda-fatha.ttf and DejaVuSansMono-ascii.ttf beside it:
-subsets of DejaVu Sans Mono 2.37, whose glyphs are Copyright (c) 2003 by
-Bitstream, Inc. under the Bitstream Vera Fonts licence, with DejaVu's changes
-in the public domain. The licence's text is
-crates/vtium-config/tests/fixtures/DejaVuSansMono-LICENSE.txt, and the
-fixtures' README says how each subset was made. Copies of the subsets that
-the font helper's unit tests read, with the licence, are in
-crates/vtium-font-helper/tests/fixtures/. The tests read them; vtium installs
-none of them.
+crates/vtium-font-helper/tests/fixtures/DejaVuSansMono-W-M-0.ttf,
+DejaVuSansMono-lam-shadda-fatha.ttf, DejaVuSansMono-ascii.ttf,
+DejaVuSansMono-accents.ttf and DejaVuSansMono-marks.ttf beside it: subsets of
+DejaVu Sans Mono 2.37, whose glyphs are Copyright (c) 2003 by Bitstream, Inc.
+under the Bitstream Vera Fonts licence, with DejaVu's changes in the public
+domain. The licence's text is
+crates/vtium-font-helper/tests/fixtures/DejaVuSansMono-LICENSE.txt, and the
+fixtures' README says how each subset was made. Copies of the first three
+subsets, with the licence, are in crates/vtium-config/tests/fixtures/. The
+tests read them; vtium installs none of them.
 
 Noto Naskh Arabic's subset, the test fixture
 crates/vtium-config/tests/fixtures/NotoNaskhArabic-beh-fatha.ttf: a subset of

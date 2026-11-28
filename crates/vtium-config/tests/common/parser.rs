@@ -7,7 +7,9 @@
 //! Nothing in the shipped binary starts the child (`serve` parses in its
 //! own sandbox), so the parent's side lives with the tests.
 
-// Three test crates include this file and each calls some of its methods.
+// Two test crates, tests/outline.rs and tests/shaping.rs, include this file,
+// and each calls some of its methods. vtium-font-helper's tests/parser.rs
+// includes its own copy.
 #![allow(dead_code)]
 
 use std::ffi::OsString;

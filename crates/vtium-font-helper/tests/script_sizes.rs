@@ -9,9 +9,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use vtium_config::serve::{Engine, FritText, Made, Paths};
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Font, Glyph, Psf, Script, Style, Unifont, Variant, Width};
+use vtium_font_helper::serve::{Engine, FritText, Made, Paths};
 
 /// A directory of a test's own, removed when the test ends.
 struct Scratch(PathBuf);

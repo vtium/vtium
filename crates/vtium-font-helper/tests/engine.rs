@@ -10,9 +10,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use vtium_config::serve::{Engine, FritText, OwnCell, Paths};
 use vtium_font::set::{PixelFormat, Set, SetFace};
 use vtium_font::{Cell, Face, Format, Psf, Style, Width};
+use vtium_font_helper::serve::{Engine, FritText, OwnCell, Paths};
 
 /// A PSF2 font, `width` by `height`, glyph `g` drawn as its number's bits
 /// in every row, its table mapping `table`'s codepoints.
@@ -614,7 +614,7 @@ fn color_glyphs_fill_a_bitmap_fonts_cell() {
 /// The frits' directory vtium-config ships: a folder for each category of
 /// the catalog, and the layers in `layers/`.
 fn catalog() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("frits")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../vtium-config/frits")
 }
 
 /// The file of the shipped frit `frit`, in whichever category folder holds
@@ -638,7 +638,7 @@ fn shipped_own(frit: &str) -> String {
 /// console hands it to the helper.
 fn shipped(frit: &str) -> String {
     let layers = catalog().join("layers");
-    vtium_config::frit::Frit::load_in(&shipped_file(frit), &layers)
+    vtium_font_helper::frit::Frit::load_in(&shipped_file(frit), &layers)
         .unwrap_or_else(|e| panic!("{frit}: {e}"))
         .text
 }
@@ -1157,16 +1157,16 @@ fn a_coverage_query_names_the_installed_font_that_covers_the_most() {
     assert!(engine.coverage().binary_search(&0x2764).is_ok());
     assert!(engine.coverage().binary_search(&0x10fffd).is_err());
     let dirs = [w.path("fonts")];
-    let found = vtium_config::sources::font_covering(&['\u{2764}', '\u{231a}'], &dirs);
+    let found = vtium_font_helper::sources::font_covering(&['\u{2764}', '\u{231a}'], &dirs);
     assert!(
         matches!(found.as_deref(), Some("Test Color" | "Test Text")),
         "{found:?}"
     );
     assert_eq!(
-        vtium_config::sources::font_covering(&['\u{10fffd}'], &dirs),
+        vtium_font_helper::sources::font_covering(&['\u{10fffd}'], &dirs),
         None
     );
-    assert_eq!(vtium_config::sources::font_covering(&[], &dirs), None);
+    assert_eq!(vtium_font_helper::sources::font_covering(&[], &dirs), None);
 }
 
 // ADR-1401 D7: an installed font whose family name holds a control
@@ -1185,7 +1185,7 @@ fn a_family_name_that_does_not_print_as_itself_is_never_named() {
         fs::write(w.path("fonts/Evil-Regular.ttf"), font.build()).expect("font");
         let dirs = [w.path("fonts")];
         assert_eq!(
-            vtium_config::sources::font_covering(&['A'], &dirs),
+            vtium_font_helper::sources::font_covering(&['A'], &dirs),
             None,
             "{evil:?}"
         );
@@ -1193,7 +1193,7 @@ fn a_family_name_that_does_not_print_as_itself_is_never_named() {
         clean.family = "Clean Mono".to_owned();
         fs::write(w.path("fonts/Clean-Regular.ttf"), clean.build()).expect("font");
         assert_eq!(
-            vtium_config::sources::font_covering(&['A'], &dirs).as_deref(),
+            vtium_font_helper::sources::font_covering(&['A'], &dirs).as_deref(),
             Some("Clean Mono"),
             "{evil:?}"
         );
