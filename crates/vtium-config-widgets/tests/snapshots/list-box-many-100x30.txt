@@ -1,0 +1,30 @@
+ Looks                                                                                              
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ card line 2    ┌ ↑ 230 more ────────────┐                                                          
+ card line 3    │ ○ choice 230           │                                                          
+ card line 4    │ ○ choice 231           │                                                          
+ card line 5    │ ○ choice 232           │                                                          
+ card line 6    │ ○ choice 233           │                                                          
+ card line 7    │ ○ choice 234           │                                                          
+ card line 8    │ ○ choice 235           │                                                          
+ card line 9    │ ○ choice 236           │                                                          
+ card line 10   │ ○ choice 237           │                                                          
+ card line 11   │ ○ choice 238           │                                                          
+ card line 12   │ ○ choice 239           │                                                          
+ card line 13   │ ○ choice 240           │                                                          
+ card line 14   │ ○ choice 241           │                                                          
+ card line 15   │ ○ choice 242           │                                                          
+ card line 16   │ ○ choice 243           │                                                          
+ card line 17   │ ○ choice 244           │                                                          
+ card line 18   │ ○ choice 245           │                                                          
+ card line 19   │ ○ choice 246           │                                                          
+ card line 20   │ ○ choice 247           │                                                          
+ card line 21   │ ○ choice 248           │                                                          
+ card line 22   │ ○ choice 249           │                                                          
+ card line 23   │ ● choice 250           │                                                          
+ card line 24   └ ↓ 249 more ─[?] Search─┘                                                          
+ Font set       choice 250 ▾                                                                        
+ card line 26                                                                                       
+ card line 27                                                                                       
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Enter] Keep  [Esc] Close                                                                          
