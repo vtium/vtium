@@ -16,10 +16,10 @@
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use vtium_config::child::PARSER_MEMORY;
-use vtium_config::frit::Hinting;
-use vtium_config::names::sound;
-use vtium_config::outline::{Outline, OutlineRequest, cell_width, rasterise};
+use vtium_font_helper::child::PARSER_MEMORY;
+use vtium_font_helper::frit::Hinting;
+use vtium_font_helper::names::sound;
+use vtium_font_helper::outline::{Outline, OutlineRequest, cell_width, rasterise};
 use vtium_testfont::ttf::{self, Glyph};
 
 /// How long the parent waits for a case. Each case answers in well under

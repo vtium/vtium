@@ -5,7 +5,7 @@
 //! measurement, run by hand in a release build:
 //!
 //! ```text
-//! cargo test --release -p vtium-config --test doubled_timing -- --ignored --nocapture
+//! cargo test --release -p vtium-font-helper --test doubled_timing -- --ignored --nocapture
 //! ```
 #![expect(
     clippy::unwrap_used,
@@ -15,9 +15,9 @@
 
 use std::time::{Duration, Instant};
 
-use vtium_config::serve::{Engine, FritText, Paths};
 use vtium_font::spacing::SpacedCell;
 use vtium_font::{Cell, Doubled, Variant};
+use vtium_font_helper::serve::{Engine, FritText, Paths};
 
 const FONT: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),

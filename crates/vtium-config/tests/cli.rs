@@ -1,7 +1,7 @@
 //! vtium-config's command line, run as the invoking user: its usage
 //! errors, the store's commands gone, and the parser's child. The source
 //! forms and decoders are judged through the helper's engine
-//! (`tests/engine.rs`).
+//! (vtium-font-helper's `tests/engine.rs`).
 
 #[path = "common/home.rs"]
 mod home;

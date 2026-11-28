@@ -11,15 +11,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use vtium_config::frit::Hinting;
-use vtium_config::outline::{OutlineRequest, baseline, own_box, rasterise, size};
-use vtium_config::serve::{
-    ASK, Engine, FILL, FRAME_DONE, FRAME_GLYPHS, FritText, Paths, ServeRequest, script_baseline,
-    serve,
-};
 use vtium_font::set::{Set, SetFace};
 use vtium_font::spacing::Band;
 use vtium_font::{Cell, Format, Glyph, Origin, SCRIPT_SCALE, Script, Style, Variant};
+use vtium_font_helper::frit::Hinting;
+use vtium_font_helper::outline::{OutlineRequest, baseline, own_box, rasterise, size};
+use vtium_font_helper::serve::{
+    ASK, Engine, FILL, FRAME_DONE, FRAME_GLYPHS, FritText, Paths, ServeRequest, script_baseline,
+    serve,
+};
 use vtium_testfont::ttf;
 
 /// A directory of a test's own, removed when the test ends.
@@ -581,7 +581,7 @@ fn strike_lines(engine: &Engine, cell: Cell, v: Variant) -> vtium_font::Decorati
 // covers: sgr.script
 #[test]
 fn an_outline_script_strike_reports_lines_found_at_the_script_size() {
-    use vtium_config::outline::decorations;
+    use vtium_font_helper::outline::decorations;
     let path = dejavu();
     let font: Arc<[u8]> = std::fs::read(&path).expect("the fixture").into();
     let e = engine(&format!("source=outline:{path}\n"));

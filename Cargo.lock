@@ -1703,20 +1703,13 @@ dependencies = [
 name = "vtium-config"
 version = "0.1.0-alpha.12"
 dependencies = [
- "bzip2",
- "harfrust",
  "insta",
  "libc",
- "lzma-rust2",
- "miniz_oxide",
  "proptest",
  "proptest-state-machine",
  "ratatui-core",
  "ratatui-widgets",
- "roxmltree",
  "rustix",
- "ruzstd",
- "skrifa",
  "vtium-config-core",
  "vtium-config-widgets",
  "vtium-devices",

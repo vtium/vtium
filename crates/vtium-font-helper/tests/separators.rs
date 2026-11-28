@@ -13,10 +13,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use vtium_config::serve::{Engine, FritText, OwnCell, Paths};
 use vtium_font::set::{Set, SetFace};
 use vtium_font::spacing::{Band, SpacedCell};
 use vtium_font::{Cell, Doubled, Face, Glyph, Style, Variant};
+use vtium_font_helper::serve::{Engine, FritText, OwnCell, Paths};
 use vtium_testfont::ttf;
 
 const DEJAVU: &str = concat!(
