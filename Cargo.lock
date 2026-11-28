@@ -1718,6 +1718,7 @@ dependencies = [
  "rustix",
  "ruzstd",
  "skrifa",
+ "vtium-config-widgets",
  "vtium-devices",
  "vtium-font",
  "vtium-font-helper",
@@ -1727,6 +1728,15 @@ dependencies = [
  "vtium-term",
  "vtium-testfont",
  "vtium-testscript",
+]
+
+[[package]]
+name = "vtium-config-widgets"
+version = "0.1.0-alpha.12"
+dependencies = [
+ "ratatui-core",
+ "vtium-font",
+ "vtium-term",
 ]
 
 [[package]]

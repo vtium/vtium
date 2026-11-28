@@ -19,7 +19,7 @@ use std::path::Path;
 use crate::serve::FritText;
 use crate::specimen::{PICTURE_MAX, Sample, Summary, pixel_height};
 use crate::tui::Paths;
-use crate::tui::input::Reply;
+use vtium_config_widgets::input::Reply;
 
 /// The size a font is previewed at when nothing names one.
 pub const POINTS: u32 = 12;

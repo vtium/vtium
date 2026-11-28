@@ -30,9 +30,6 @@
 //! - ADR-1205 D1: the six tabs and their order.
 //! - ADR-1403 D7: the Flow view and the paths it draws.
 
-pub mod backend;
-pub mod canvas;
-pub mod color;
 mod console;
 pub mod contract;
 mod contract_text;
@@ -48,9 +45,7 @@ mod flowedit;
 pub mod flowlayout;
 pub mod flowview;
 pub mod fonts_found;
-pub mod input;
 pub mod layout;
-pub mod listbox;
 pub mod model;
 pub mod nav;
 pub mod parts;
@@ -62,6 +57,10 @@ pub mod shot;
 pub mod tabs;
 pub mod view;
 pub mod words;
+
+// The TUI's toolkit, which vtium-config-widgets holds, at the paths it had
+// in this module.
+pub use vtium_config_widgets::{backend, canvas, color, input, listbox};
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
