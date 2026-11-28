@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help           workstation ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ CONFIGURATION   policy open: a keyboard no rule names types into the active terminal               
+ DISPLAYS                     TERMINALS                                  INPUTS                     
+ ┏━━━━━━━━━━━━━━━━━━┓         ┌──────────────────────────────┐                                      
+ ┃ All displays     ┃━━━━━━━━▶│ desk                         │◄┄┄┄┄┄┄┄┄┄┄roaming inputs             
+ ┃ every display, … ┃         │ look big · every VT          │                                      
+ ┗━━━━━━━━━━━━━━━━━━┛         └──────────────────────────────┘                                      
+                                                                                                    
+                              ┌──────────────────────────────┐           ┌────────────────────────┐ 
+                              │ panel                        │◄─┬────────│ pci-0:3.3              │ 
+                              │ default look · every VT      │  ┆        │ not connected          │ 
+                              └──────────────────────────────┘  ┆        └────────────────────────┘ 
+                                                                └┄┄┄┄┄┄┄┄roaming inputs             
+                                                                                                    
+                              ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐           ┌────────────────────────┐ 
+ ROAMING                      ┆ Active terminal              ┆◄┄┄┄┄┄┄┄┄┄┄│ every keyboard         │ 
+ These inputs type into the   ┆ the terminal on screen       ┆           │ every input of that t… │ 
+ active terminal.             └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘           └────────────────────────┘ 
+ Every connected device is in a path.                                                               
+ ────────────────────────────────────────────────────────────────────────────────────────────────── 
+ NEW PATH     Pick an input and a display, then [a] adds the path.                                  
+ ╔═════════════════╗          ╔══════════════════════════════╗           ╔═════════════════╗        
+ ║ Display         ║          ║ Terminal                     ║           ║ Input           ║        
+ ║ Choose… [Enter] ║          ║ new: terminal-1              ║           ║ Choose… [Enter] ║        
+ ╚═════════════════╝          ╚══════════════════════════════╝           ╚═════════════════╝        
+                                                                                                    
+ ────────────────────────────────────────────────────────────────────────────────────────────────── 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Space] Pick  [Enter] Open  [a] Add path  [Ctrl+S] Save  [.] More             [F10] Menu  [q] Quit 

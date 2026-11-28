@@ -1,0 +1,1 @@
+//! The Flow tab's editing, which rebuild-tab-flow-2 builds: a terminal's card and its list box, NEW PATH's terminal card, adding a path and revising one, the part makers and their pickers, and a part's label.

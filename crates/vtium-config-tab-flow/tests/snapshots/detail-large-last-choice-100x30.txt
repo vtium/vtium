@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help                   lab ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Flow › Keyboard 07                                                                                 
+                                                                                                    
+ INPUT PART  Keyboard 07                                                                            
+   Label     none, [Enter] adds one     shown in vtium-config                                       
+                                                                                                    
+ CHOOSE WHICH INPUTS THIS PART MATCHES  from the widest to the narrowest; [Enter] picks one         
+   ○ Keyboard 10 (by id)   id 046d:c30a                                                             
+   ○ Keyboard 11 (by id)   id 046d:c30b                                                             
+   ○ Keyboard 12 (by id)   id 046d:c30c                                                             
+   ○ Keyboard 13 (by id)   id 046d:c30d                                                             
+   ○ Keyboard 14 (by id)   id 046d:c30e                                                             
+   ○ Keyboard 15 (by id)   id 046d:c30f                                                             
+   ○ Keyboard 16 (by id)   id 046d:c310                                                             
+   ○ Keyboard 17 (by id)   id 046d:c311                                                             
+   ○ Keyboard 18 (by id)   id 046d:c312                                                             
+   ○ Keyboard 19 (by id)   id 046d:c313                                                             
+   ○ Keyboard 20 (by id)   id 046d:c314                                                             
+   ○ Keyboard 21 (by id)   id 046d:c315                                                             
+   ○ Keyboard 22 (by id)   id 046d:c316                                                             
+   ○ Keyboard 23 (by id)   id 046d:c317                                                             
+   ○ Keyboard 24 (by id)   id 046d:c318                                                             
+   ○ Keyboard 25 (by id)   id 046d:c319                                                             
+   ○ Keyboard 26 (by id)   id 046d:c31a                                                             
+   ○ Keyboard 27 (by id)   id 046d:c31b                                                             
+   ○ Keyboard 28 (by id)   id 046d:c31c                                                             
+   ○ Keyboard 29 (by id)   id 046d:c31d                                                             
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Enter] Pick  [Esc] Back  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [F1] Help  [.] More               [q] Quit 

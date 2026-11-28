@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help         padnoir
+────────────────────────────────────────────────────────────────────────────────
+ CONFIGURATION   policy open: a keyboard no rule names types into the active t… 
+ DISPLAYS               TERMINALS                                INPUTS         
+ ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐         ┌────────────┐ 
+ ┃ eDP-1        ┃━━━━━━▶│ console                      │◄─┬──────│ AT Transl… │ 
+ ┃ by its conn… ┃       │ look My-Look · every VT      │  ┆      │ id 0001:0… │ 
+ ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘  ┆      └────────────┘ 
+                                                          └┄┄┄┄┄┄roaming inputs 
+                                                                                
+                        ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐         ┌────────────┐ 
+ ROAMING                ┆ Active terminal              ┆◄┄┄┄┄┄┄┄┄│ All mice … │ 
+ These inputs type      ┆ the terminal on screen       ┆         │ mice, tou… │ 
+ into the active        └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘         └────────────┘ 
+ terminal.                                                                      
+ 1 keyboard is in no path yet.                                                  
+ ────────────────────────────────────────────────────────────────────────────── 
+ NEW PATH     Pick an input and a display, then [a] adds the path.              
+ ╔═════════╗            ╔══════════════════════════════╗         ╔═════════╗    
+ ║ Display ║            ║ Terminal                     ║         ║ Input   ║    
+ ║ [Enter] ║            ║ new: terminal-1              ║         ║ [Enter] ║    
+ ╚═════════╝            ╚══════════════════════════════╝         ╚═════════╝    
+                                                                                
+────────────────────────────────────────────────────────────────────────────────
+ [Space] Pick  [Enter] Open  [Ctrl+S] Save  [.] More       [F10] Menu  [q] Quit 
