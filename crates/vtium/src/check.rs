@@ -44,8 +44,8 @@ pub use conf::{
 use conf::{Helpers, same_file};
 #[cfg(feature = "split")]
 pub use drawer::Reader;
-pub use frits::{DraftFrits, with_frit_name};
-use frits::{font_name_frit, frit_layers, named_frit};
+pub use frits::{CONSOLE_FONT_FOLDERS, DraftFrits, with_frit_name};
+use frits::{font_name_frit, font_name_not_found, frit_layers, named_frit};
 use notes::{counts, warnings_of};
 pub use notes::{notes, semantics, warnings};
 
@@ -94,6 +94,10 @@ pub struct Host {
     /// The root under which systemd's unit links say which VTs vtium is
     /// enabled on: `/`, or a scratch directory in a test.
     pub systemd_root: PathBuf,
+    /// The folders where the font helper finds a kbd console font by its
+    /// name, which a `font-name` that names no font set is looked up in:
+    /// [`CONSOLE_FONT_FOLDERS`], or scratch folders in a test.
+    pub console_fonts: Vec<PathBuf>,
     /// The batch file, the list of active fonts, color schemes, effects and
     /// pointer themes:
     /// [`vtium_settings::batch::BATCH_FILE`], or a scratch file in a test.
@@ -111,6 +115,7 @@ impl Host {
             frits: font::frits(config),
             frit_trust: font::trust(),
             systemd_root: PathBuf::from("/"),
+            console_fonts: CONSOLE_FONT_FOLDERS.iter().map(PathBuf::from).collect(),
             batch: PathBuf::from(vtium_settings::batch::BATCH_FILE),
         }
     }
@@ -242,6 +247,7 @@ fn outcome_with(
         sources,
         gate: Some(&gate),
         draft: loaded.draft_frits.clone(),
+        console_fonts: host.console_fonts.clone(),
         ..Settings::of(&loaded.config, &host.frits, host.frit_trust.clone())
     };
     // a candidate that is the installed file is checked as the start
@@ -270,6 +276,15 @@ fn outcome_with(
         &settings.trust,
         &settings.draft,
     );
+    // a top-level font-name that gives no font vtium loads, which a start
+    // reads only from a file it trusts or from the command line
+    let not_found = font_name_not_found(&loaded.config, &settings).filter(|_| {
+        !(heads.refused
+            && matches!(
+                loaded.config.origin(&keys::FONT_NAME),
+                Some(Origin::File { .. })
+            ))
+    });
     let font_name = named_frit(&loaded.config, settings.frits, &settings.draft);
     let layers = font_name
         .as_ref()
@@ -328,6 +343,7 @@ fn outcome_with(
         palette_findings(top_palette, path, &heads.palettes, &folders, &gate);
     let stderr: Vec<String> = stderr
         .into_iter()
+        .chain(not_found)
         .chain(refused)
         .chain(layers)
         .chain(needs.warnings)
