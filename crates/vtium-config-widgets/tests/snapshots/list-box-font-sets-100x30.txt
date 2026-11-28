@@ -1,0 +1,30 @@
+ Looks                                                                                              
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ card line 2                                                                                        
+ card line 3                                                                                        
+ card line 4                                                                                        
+ Font set       cullet-mono ▾                                                                       
+ card line 6    ┌──────────────────────────────────────────┐                                        
+ card line 7    │ ○ the font set vtium.conf sets (unifont) │                                        
+ card line 8    │ ● cullet-mono                            │                                        
+ card line 9    │ ○ jetbrains                              │                                        
+ card line 10   │ ○ terminus                               │                                        
+ card line 11   │ ○ unifont                                │                                        
+ card line 12   └──────────────────────────────────────────┘                                        
+ card line 13                                                                                       
+ card line 14                                                                                       
+ card line 15                                                                                       
+ card line 16                                                                                       
+ card line 17                                                                                       
+ card line 18                                                                                       
+ card line 19                                                                                       
+ card line 20                                                                                       
+ card line 21                                                                                       
+ card line 22                                                                                       
+ card line 23                                                                                       
+ card line 24                                                                                       
+ card line 25                                                                                       
+ card line 26                                                                                       
+ card line 27                                                                                       
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Enter] Keep  [Esc] Close                                                                          

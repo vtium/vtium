@@ -1,0 +1,25 @@
+ Looks                                                                          
+────────────────────────────────────────────────────────────────────────────────
+ card line 2    ┌ ↑ 235 more ────────────┐                                      
+ card line 3    │ ○ choice 235           │                                      
+ card line 4    │ ○ choice 236           │                                      
+ card line 5    │ ○ choice 237           │                                      
+ card line 6    │ ○ choice 238           │                                      
+ card line 7    │ ○ choice 239           │                                      
+ card line 8    │ ○ choice 240           │                                      
+ card line 9    │ ○ choice 241           │                                      
+ card line 10   │ ○ choice 242           │                                      
+ card line 11   │ ○ choice 243           │                                      
+ card line 12   │ ○ choice 244           │                                      
+ card line 13   │ ○ choice 245           │                                      
+ card line 14   │ ○ choice 246           │                                      
+ card line 15   │ ○ choice 247           │                                      
+ card line 16   │ ○ choice 248           │                                      
+ card line 17   │ ○ choice 249           │                                      
+ card line 18   │ ● choice 250           │                                      
+ card line 19   └ ↓ 249 more ─[?] Search─┘                                      
+ Font set       choice 250 ▾                                                    
+ card line 21                                                                   
+ card line 22                                                                   
+────────────────────────────────────────────────────────────────────────────────
+ [Enter] Keep  [Esc] Close                                                      
