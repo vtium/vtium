@@ -18,7 +18,8 @@ The terminal's bytes are untrusted input, and no key, click or reply can panic t
 | `src/port/` | The loop, `drive_on`, and the `Port` it runs against (`mod.rs`), the real terminal (`tty.rs`), and what wakes the loop (`wake.rs`). |
 | `src/live/` | The live console. It asks the terminal what it is at start and hands each reply to whoever asked (`mod.rs`, `queue.rs`). It runs the live trial and its countdown (`trial.rs`, `sheet.rs`), and gives the console its font back on leaving (`leave.rs`). It reads the machine for the Actions menu's items (`machine.rs`), and holds the words it puts on the screen (`words.rs`). |
 | `src/sheets/` | The sheets over a tab, as a stack the navigation state keeps: F1's help (`about.rs`), Ctrl+F's Find (`find.rs`), the Problems list (`problems.rs`), File › New… (`new.rs`) and Manage configurations… (`manage.rs`), with opening a configuration from File › Open › (`open.rs`). Each sheet answers a key with what it asks for, which update carries out. |
-| `src/save/`, `src/changes/`, `src/history/`, `src/editor/`, `src/revert/`, `src/player/` | Empty until the cards that fill them: the sheets over a tab, Save, Show changes, History, Edit as text, Revert to saved, and the macro player. |
+| `src/save/` | Save, as a sheet over the tab: the review of what saving changes (`review.rs`), the screen for a file changed on disk with Update, Overwrite and Revert (`changed.rs`), and settling the lines both sides changed (`settle.rs`). The loop runs the privileged step, `vtium-config apply` through sudo, while the TUI steps aside (`privileged.rs`). |
+| `src/changes/`, `src/history/`, `src/editor/`, `src/revert/`, `src/player/` | Empty until the cards that fill them: Show changes, History, Edit as text, Revert to saved, and the macro player. |
 
 ## Bounds
 

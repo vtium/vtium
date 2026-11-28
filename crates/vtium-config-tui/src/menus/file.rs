@@ -54,10 +54,7 @@ pub fn lines(cx: &Context<'_>) -> Vec<Line> {
         stepping(undo_item, "ctrl-z.view"),
         stepping(redo_item, "ctrl-y.view"),
         Line::Separator,
-        Line::Choice(Choice::acting(
-            Item::new("Save…").letter('s').shortcut("Ctrl+S"),
-            "ctrl-s.view",
-        )),
+        save_item(cx),
         acting(cx, Item::new("Show changes").letter('c'), "v.view.flow"),
         Line::Choice(Choice::acting(
             Item::new("Edit as text…").letter('e'),
@@ -76,6 +73,26 @@ pub fn lines(cx: &Context<'_>) -> Vec<Line> {
         )),
     ]
 }
+
+/// Save…, greyed out with "nothing to save" while the document has no
+/// change that is not saved.
+///
+/// References:
+/// - ADR-1403 D11, "The menus": an item with nothing to act on is greyed
+///   out with its reason.
+fn save_item(cx: &Context<'_>) -> Line {
+    let mut choice = Choice::acting(
+        Item::new("Save…").letter('s').shortcut("Ctrl+S"),
+        "ctrl-s.view",
+    );
+    if cx.shared.document().count() == 0 {
+        choice.item = choice.item.greyed(NOTHING_TO_SAVE);
+    }
+    Line::Choice(choice)
+}
+
+/// Save… with nothing changed since the last save.
+pub const NOTHING_TO_SAVE: &str = "nothing to save";
 
 /// File › Open's lines: each configuration, the open one marked, and
 /// Manage configurations… last.

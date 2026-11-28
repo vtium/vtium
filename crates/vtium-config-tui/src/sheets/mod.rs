@@ -49,6 +49,8 @@ pub enum Sheet {
     Problems(Problems),
     New(New),
     Manage(Manage),
+    /// Save's review, or its screens for a file changed on disk.
+    Save(Box<crate::save::Save>),
 }
 
 /// What a key or a click on a sheet asks for.
@@ -95,6 +97,7 @@ impl Sheet {
             Sheet::Problems(_) => "any.problems",
             Sheet::New(_) => new::NODE,
             Sheet::Manage(m) => m.node(),
+            Sheet::Save(s) => s.node(),
         }
     }
 
@@ -103,6 +106,7 @@ impl Sheet {
     pub fn bar(&self) -> Bar {
         match self {
             Sheet::New(n) => n.bar(),
+            Sheet::Save(s) => s.bar(),
             _ => Bar::from_rows(contract::buttons(self.node())),
         }
     }
@@ -116,6 +120,7 @@ impl Sheet {
             Sheet::Problems(p) => p.key(key, id),
             Sheet::New(n) => n.key(key),
             Sheet::Manage(m) => m.key(key, id),
+            Sheet::Save(s) => s.key(key, id),
         }
     }
 
@@ -132,7 +137,7 @@ impl Sheet {
             Sheet::Find(f) => f.click(line),
             Sheet::Problems(p) => p.click(line, rows),
             Sheet::Manage(m) => m.click(line, rows),
-            Sheet::About(_) | Sheet::New(_) => Act::Stay,
+            Sheet::About(_) | Sheet::New(_) | Sheet::Save(_) => Act::Stay,
         }
     }
 
@@ -144,6 +149,7 @@ impl Sheet {
             Sheet::Problems(_) => problems::TITLE,
             Sheet::New(_) => new::TITLE,
             Sheet::Manage(_) => manage::TITLE,
+            Sheet::Save(_) => crate::save::TITLE,
         }
     }
 
@@ -182,6 +188,7 @@ impl Sheet {
             Sheet::Problems(p) => Placed::sheet(p.area(viewer), problems::TITLE),
             Sheet::New(n) => Placed::sheet(n.area(viewer), new::TITLE),
             Sheet::Manage(m) => Placed::sheet(m.area(viewer), manage::TITLE),
+            Sheet::Save(s) => Placed::sheet(s.area(viewer), crate::save::TITLE),
         }
     }
 
@@ -196,6 +203,7 @@ impl Sheet {
             Sheet::Problems(p) => p.draw(buf, placed.inner, color),
             Sheet::New(n) => n.draw(buf, placed.inner, color),
             Sheet::Manage(m) => m.draw(buf, placed.inner, color),
+            Sheet::Save(s) => s.draw(buf, placed.inner, color),
         }
     }
 }
@@ -263,7 +271,15 @@ fn window(len: usize, rows: usize, at: Option<usize>) -> usize {
 
 /// Writes `text` at the start of row `y` of `area`, cut to the area's
 /// width, in `role`'s style, and returns the column after it.
-fn put(buf: &mut Buffer, area: Rect, x: u16, y: u16, text: &str, role: Role, color: bool) -> u16 {
+pub(crate) fn put(
+    buf: &mut Buffer,
+    area: Rect,
+    x: u16,
+    y: u16,
+    text: &str,
+    role: Role,
+    color: bool,
+) -> u16 {
     if y >= area.height || x >= area.width {
         return x;
     }
@@ -290,7 +306,7 @@ fn bar_row(buf: &mut Buffer, area: Rect, y: u16, role: Role, color: bool) {
 }
 
 /// `text` cut to `width` characters, ending with `…` where it was cut.
-fn cut(text: &str, width: usize) -> String {
+pub(crate) fn cut(text: &str, width: usize) -> String {
     if text.chars().count() <= width {
         return text.to_owned();
     }

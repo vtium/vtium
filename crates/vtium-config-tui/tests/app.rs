@@ -105,6 +105,8 @@ fn updown_layer_menu_moves_past_separators_and_greyed_items() {
     press(&mut app, plain(Code::Down));
     assert_eq!(at(&app), Some(1), "Open");
     press(&mut app, plain(Code::Down));
+    assert_eq!(at(&app), Some(6), "Save…, past the greyed Undo and Redo");
+    press(&mut app, plain(Code::Down));
     assert_eq!(at(&app), Some(11), "History, past the greyed items");
     press(&mut app, plain(Code::Down));
     assert_eq!(at(&app), Some(13), "Quit");
@@ -127,6 +129,8 @@ fn leftright_layer_menu_opens_a_submenu_or_the_menu_beside() {
     );
     press(&mut app, plain(Code::Left));
     assert_eq!(app.node(), "any.menu.file", "Left closes it");
+    // Save…, History, then Quit
+    press(&mut app, plain(Code::Down));
     press(&mut app, plain(Code::Down));
     press(&mut app, plain(Code::Down));
     press(&mut app, plain(Code::Right));
@@ -142,11 +146,11 @@ fn leftright_layer_menu_opens_a_submenu_or_the_menu_beside() {
 #[test]
 fn letters_layer_menu_file_choose_their_items_and_a_greyed_one_does_nothing() {
     let (mut app, ..) = common::app(Machine::Map, MAP);
-    keys(&mut app, &["Alt-F", "s"]);
+    keys(&mut app, &["Alt-F", "u"]);
     assert_eq!(
         app.node(),
         "any.menu.file",
-        "Save is greyed, so s does nothing"
+        "Undo is greyed with nothing to undo, so u does nothing"
     );
     assert_eq!(message(&app), None);
     let effects = press(&mut app, Key::char('q'));
@@ -582,10 +586,14 @@ fn period_view_opens_more_with_what_the_bar_leaves_out_and_an_item_does_what_its
 }
 
 #[test]
-fn ctrl_s_is_not_built_yet_and_says_so() {
+fn ctrl_s_view_hands_the_loop_the_read_that_save_s_review_starts_from() {
     let (mut app, ..) = common::app(Machine::Map, MAP);
-    keys(&mut app, &["Ctrl-S"]);
-    assert_eq!(message(&app).as_deref(), Some("Save is not built yet."));
+    assert_eq!(
+        keys(&mut app, &["Ctrl-S"]),
+        vec![vtium_config_core::ui::Effect::Desk(
+            vtium_config_core::ui::Op::Prepare
+        )]
+    );
 }
 
 #[test]
@@ -594,7 +602,6 @@ fn the_file_menu_greys_each_item_not_built_yet() {
     press(&mut app, alt('f'));
     let screen = text(&app);
     for item in [
-        "Save… · not built yet",
         "Show changes · not built yet",
         "Edit as text… · not built yet",
         "Revert to saved… · not built yet",

@@ -68,6 +68,8 @@ pub enum Event {
     FontReady(Result<crate::live::machine::Ready, String>),
     /// The install of the readied font ended, or why it failed.
     FontInstalled(Result<(), String>),
+    /// What the loop read or did for Save.
+    Save(crate::save::Came),
 }
 
 /// The TUI's model.
