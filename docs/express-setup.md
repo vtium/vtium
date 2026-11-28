@@ -85,7 +85,7 @@ EOF
 
 ## Activate the fonts
 
-vtium renders only the active fonts, which `/etc/vtium/batch.conf` lists. A fresh install activates vtium's own fonts, Cullet Mono and GNU Unifont among them. This command activates JetBrains Mono, Monoid, the emoji and the icons too:
+vtium renders only the active fonts, which `/etc/vtium/batch.conf` lists. A fresh install activates vtium's own fonts, Cullet Mono and GNU Unifont among them. If you used `vtium config` before this guide, first run `vtium config revert`, so that your draft starts from the file you just wrote. Otherwise the install refuses the draft, because the installed file changed after the draft was made from it. This command activates JetBrains Mono, Monoid, the emoji and the icons too:
 
 ```
 $ vtium config activate /usr/share/fonts/TTF/JetBrainsMono-*.ttf /usr/share/fonts/TTF/Monoid-*.ttf /usr/share/fonts/noto/NotoColorEmoji.ttf /usr/share/fonts/TTF/SymbolsNerdFontMono-Regular.ttf --install
