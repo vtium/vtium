@@ -70,6 +70,9 @@ pub enum Event {
     FontInstalled(Result<(), String>),
     /// What the loop read or did for Save.
     Save(crate::save::Came),
+    /// The person's editor exited: the copy's text and what the check
+    /// found in it, or why the editor could not run.
+    Edited(Result<crate::editor::Edited, String>),
 }
 
 /// The TUI's model.

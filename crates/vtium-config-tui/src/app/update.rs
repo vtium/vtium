@@ -8,7 +8,10 @@
 //! to the loop.
 //!
 //! [`route`] says who acts on each row of the key table: the open tab, the
-//! shell, or nobody yet. A later card builds a row of the shell's by
+//! shell, or nobody yet. The shell's handlers of Show changes, Edit as
+//! text, History and Revert to saved route to their modules,
+//! [`crate::changes`], [`crate::editor`], [`crate::history`] and
+//! [`crate::revert`]. A later card builds a row of the shell's by
 //! giving it a [`Route`] here and its handler in `App::shell`; the File
 //! menu's item for that row then stops being greyed out.
 //!
@@ -79,6 +82,24 @@ pub enum Route {
     /// Save's keys: the review, the screen for a file changed on disk, and
     /// settling the lines both sides changed.
     Save(crate::save::Press),
+    /// File › Show changes, `v` in the Flow tab, or a click on the count
+    /// not saved; carrying a line of vtium.conf, the whole file at it.
+    Changes,
+    /// File › Edit as text…, `e` in Show changes, or a yes to edit again:
+    /// the loop runs the person's editor.
+    Edit,
+    /// File › Revert to saved…, or `r` in the Flow tab: asks first.
+    Revert,
+    /// The yes to Revert's question.
+    Reverted,
+    /// `o` in the Flow tab: File open on History's submenu.
+    HistoryMenu,
+    /// An entry of File › History ›: the version's sheet.
+    Version,
+    /// View changes on the version's sheet.
+    ViewVersion,
+    /// Use this version on the version's sheet.
+    UseVersion,
     /// The row is the shell's, and does nothing where it acts, as Ctrl+Z
     /// while a value is typed.
     Nothing,
@@ -98,14 +119,17 @@ pub fn route(id: &str) -> Route {
         live::INSTALL_FONT => Route::InstallFont,
         // the Flow view's letters for the File menu's items
         "n.view.flow" => Route::New,
-        "r.view.flow" => Route::Unbuilt("Revert to saved…"),
-        "v.view.flow" => Route::Unbuilt("Show changes"),
-        "o.view.flow" | "enter.layer.menu.history" => Route::Unbuilt("History"),
-        "e.layer.changes" => Route::Unbuilt("Edit as text…"),
+        crate::revert::OPEN => Route::Revert,
+        crate::revert::YES => Route::Reverted,
+        // the count not saved opens Show changes too
+        crate::changes::OPEN | "click-facts.view" => Route::Changes,
+        crate::history::MENU => Route::HistoryMenu,
+        crate::history::PICK => Route::Version,
+        crate::history::VIEW => Route::ViewVersion,
+        crate::history::USE => Route::UseVersion,
+        "e.layer.changes" | crate::editor::AGAIN => Route::Edit,
         "enter.layer.menu.open" => Route::Open,
         "alt-p.view" => Route::Problems,
-        // the count not saved, which opens Show changes
-        "click-facts.view" => Route::Unbuilt("Show changes"),
         crate::sheets::manage::DELETE => Route::Delete,
         "q.typing" => Route::Tab,
         "ctrl-s.layer.save" => Route::Save(Press::Save),
@@ -234,6 +258,10 @@ impl App {
                 Vec::new()
             }
             Event::Save(came) => save::came(came, &mut self.shared, &mut self.nav),
+            Event::Edited(done) => {
+                self.edited(done);
+                Vec::new()
+            }
         }
     }
 
@@ -353,6 +381,53 @@ impl App {
                 Vec::new()
             }
             Route::Save(press) => save::press(press, &mut self.shared, &mut self.nav),
+            Route::Changes => {
+                self.show_changes(&action);
+                Vec::new()
+            }
+            Route::Edit => {
+                let document = self.shared.document();
+                vec![Effect::Editor {
+                    name: document.name().to_owned(),
+                    text: document.text().to_owned(),
+                }]
+            }
+            Route::Revert => {
+                match crate::revert::ask(self.shared.document()) {
+                    crate::revert::Ask::Question(q) => {
+                        self.nav.ask(q, Action::of(crate::revert::YES));
+                    }
+                    crate::revert::Ask::Nothing(said) => self.shared.say(said.to_owned()),
+                }
+                Vec::new()
+            }
+            Route::Reverted => {
+                let (change, said) = crate::revert::revert(self.shared.document());
+                self.document_change(change, said);
+                Vec::new()
+            }
+            Route::HistoryMenu => {
+                self.history_menu();
+                Vec::new()
+            }
+            Route::Version => {
+                self.version(&action);
+                Vec::new()
+            }
+            Route::ViewVersion => {
+                if let Some(view) = crate::history::view::of_top(self.nav.sheets(), &self.shared) {
+                    self.nav.open_sheet(Sheet::Changes(view));
+                }
+                Vec::new()
+            }
+            Route::UseVersion => {
+                if let Some(Sheet::Version(v)) = self.nav.sheets().last() {
+                    let (change, said) = crate::history::use_version(v.version());
+                    self.nav.close_sheet();
+                    self.document_change(change, said);
+                }
+                Vec::new()
+            }
             Route::Nothing => Vec::new(),
             Route::Unbuilt(what) => {
                 self.shared.say(format!("{what} is not built yet."));
@@ -390,9 +465,16 @@ impl App {
         match change {
             Change::Document(change) => {
                 let _ = self.shared.change(change);
+                self.refresh();
             }
-            Change::Undo => self.shared.undo(),
-            Change::Redo => self.shared.redo(),
+            Change::Undo => {
+                self.shared.undo();
+                self.refresh();
+            }
+            Change::Redo => {
+                self.shared.redo();
+                self.refresh();
+            }
             Change::Say(message) => self.shared.message = Some(message),
             Change::Quiet => self.shared.message = None,
             Change::Try(font) => return trial::try_font(&mut self.shared, &mut self.live, font),
@@ -524,7 +606,7 @@ impl App {
         } else if let Some(sheet) = top {
             match sheet.full_text() {
                 Some((title, text)) => sheets::About::text(title, &text),
-                None => sheets::About::keys(sheet.title(), under),
+                None => sheets::About::keys(&sheet.title(), under),
             }
         } else {
             let name = tab.map_or("", |t| t.name());
@@ -658,6 +740,86 @@ impl App {
                 self.shared.say(said);
                 Vec::new()
             }
+        }
+    }
+}
+
+/// The shell's handlers of Show changes, Edit as text, History and Revert
+/// to saved; the screens and their words are in [`crate::changes`],
+/// [`crate::editor`], [`crate::history`] and [`crate::revert`].
+impl App {
+    /// Reads every open Show changes again after a change to the document,
+    /// so its diff follows each change, undo and redo.
+    fn refresh(&mut self) {
+        crate::changes::refresh(self.nav.sheets_mut(), &self.shared);
+    }
+
+    /// Makes `change` on the document, as one step, and says `said` once
+    /// it is made; a refusal says why instead.
+    fn document_change(&mut self, change: vtium_config_core::document::Change, said: String) {
+        if self.shared.change(change).is_ok() {
+            self.shared.say(said);
+        }
+        self.refresh();
+    }
+
+    /// Opens Show changes over what is open, or, for `action` carrying a
+    /// line of vtium.conf, its whole file at that line.
+    fn show_changes(&mut self, action: &Action) {
+        let changes = crate::changes::Changes::of_document(&self.shared);
+        let changes = match action.carries {
+            vtium_config_core::ui::Carries::Item(line) => changes.at_line(line),
+            _ => changes,
+        };
+        self.nav.open_sheet(Sheet::Changes(changes));
+    }
+
+    /// The editor exited: the text goes into the document as one change,
+    /// and a failed check asks whether to edit again.
+    fn edited(&mut self, done: Result<crate::editor::Edited, String>) {
+        match crate::editor::back(self.shared.document(), done) {
+            crate::editor::Back::Say(said) => self.shared.say(said),
+            crate::editor::Back::Change {
+                change,
+                said,
+                again,
+            } => {
+                self.document_change(change, said);
+                if let Some(question) = again {
+                    self.nav.ask_on(
+                        crate::editor::QUESTION,
+                        question,
+                        Action::of(crate::editor::AGAIN),
+                    );
+                }
+            }
+        }
+    }
+
+    /// `o` in the Flow tab: File open on History's submenu.
+    fn history_menu(&mut self) {
+        let tab_node = self.nav.tab_node(&self.tabs);
+        let cx = menus::Context {
+            shared: &self.shared,
+            node: tab_node,
+        };
+        let lines = menus::file::lines(&cx);
+        let open = crate::history::menu(&lines, &|which| menus::submenu(which, &cx));
+        self.nav.show_menu(open);
+    }
+
+    /// File › History ›'s entry that `action` carries, by its place among
+    /// the versions: the version's sheet.
+    fn version(&mut self, action: &Action) {
+        let vtium_config_core::ui::Carries::Item(item) = action.carries else {
+            return;
+        };
+        match crate::history::pick(&self.shared, item) {
+            Ok(Some(version)) => self
+                .nav
+                .open_sheet(Sheet::Version(crate::history::Sheet::new(version))),
+            Ok(None) => {}
+            Err(why) => self.shared.say(why),
         }
     }
 }
