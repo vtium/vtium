@@ -37,8 +37,10 @@ use crate::live::{self, leave, trial, words};
 use crate::menus::{self, Line, Submenu, actions};
 use crate::nav::menus::Which;
 use crate::nav::{Here, Step, pressed};
+use crate::save::{self, Press};
 use crate::sheets::{self, Act, Sheet};
 use crate::view;
+use vtium_config_core::versions::merge::Side;
 use vtium_config_widgets::keys::{Code, Key};
 
 /// Who acts on a row of the key table.
@@ -74,6 +76,9 @@ pub enum Route {
     /// A yes to the Manage sheet's question: deletes the configuration it
     /// named.
     Delete,
+    /// Save's keys: the review, the screen for a file changed on disk, and
+    /// settling the lines both sides changed.
+    Save(crate::save::Press),
     /// The row is the shell's, and does nothing where it acts, as Ctrl+Z
     /// while a value is typed.
     Nothing,
@@ -103,7 +108,15 @@ pub fn route(id: &str) -> Route {
         "click-facts.view" => Route::Unbuilt("Show changes"),
         crate::sheets::manage::DELETE => Route::Delete,
         "q.typing" => Route::Tab,
-        _ if id.starts_with("ctrl-s.") => Route::Unbuilt("Save"),
+        "ctrl-s.layer.save" => Route::Save(Press::Save),
+        save::ANYWAY => Route::Save(Press::Anyway),
+        "u.layer.save-changed" => Route::Save(Press::Update),
+        "o.layer.save-changed" => Route::Save(Press::Overwrite),
+        "r.layer.save-changed" => Route::Save(Press::Revert),
+        save::REVERTED => Route::Save(Press::Reverted),
+        "m.layer.save-settle" => Route::Save(Press::Settle(Side::Mine)),
+        "i.layer.save-settle" => Route::Save(Press::Settle(Side::Installed)),
+        _ if id.starts_with("ctrl-s.") => Route::Save(Press::Open),
         // F1 does nothing while a value is typed, in a menu, over its own
         // help, and on the Help tab, whose topics are in view
         "f1.typing" | "f1.layer.menu" | "f1.layer.about" | "f1.view.help" => Route::Nothing,
@@ -220,6 +233,7 @@ impl App {
                 self.font_installed(done);
                 Vec::new()
             }
+            Event::Save(came) => save::came(came, &mut self.shared, &mut self.nav),
         }
     }
 
@@ -339,6 +353,7 @@ impl App {
                 self.delete();
                 Vec::new()
             }
+            Route::Save(press) => save::press(press, &mut self.shared, &mut self.nav),
             Route::Nothing => Vec::new(),
             Route::Unbuilt(what) => {
                 self.shared.say(format!("{what} is not built yet."));

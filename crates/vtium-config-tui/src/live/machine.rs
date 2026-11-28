@@ -6,7 +6,7 @@
 //!
 //! [`Machine`] is the seam. [`System`] is this machine: sysfs and udev's
 //! database for the devices, and `vtium-config apply` through sudo for the
-//! font, the command that a save runs. [`Nowhere`] reads and installs
+//! font and for Save ([`crate::save::privileged`]). [`Nowhere`] reads and installs
 //! nothing, for a loop that has no machine to act on.
 //!
 //! References:
@@ -21,6 +21,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use vtium_config_core::apply::{self, Placement, SystemFont};
+use vtium_config_core::document::Installed;
+use vtium_config_core::draft::Plan;
 use vtium_config_core::flowmodel::Present;
 use vtium_config_core::places::Paths;
 use vtium_platform::listing::Roots;
@@ -36,7 +38,8 @@ pub struct Ready {
     pub command: String,
 }
 
-/// What the loop reads and does on the machine for the Actions menu.
+/// What the loop reads and does on the machine for the Actions menu and
+/// for Save.
 pub trait Machine {
     /// The devices connected now, or `None` where this machine's devices
     /// cannot be read.
@@ -51,6 +54,20 @@ pub trait Machine {
     /// terminal the loop has handed back, so sudo can ask for the
     /// password. `Err` says why the font was not installed.
     fn install_font(&mut self) -> Result<(), String>;
+
+    /// What is installed now, vtium.conf and the font sets, which Save's
+    /// review reads again before it opens. `Err` says why it cannot.
+    fn installed(&mut self) -> Result<Installed, String> {
+        Err(crate::save::words::NO_MACHINE.to_owned())
+    }
+
+    /// Saves the configuration `name` through the privileged step, on the
+    /// terminal the loop has handed back, so sudo can ask for the
+    /// password. `plan.no_route` is the person's yes to saving a file
+    /// with no complete route. `Err` says why nothing was saved.
+    fn save(&mut self, _name: &str, _plan: &Plan) -> Result<crate::save::Saved, String> {
+        Err(crate::save::words::NO_MACHINE.to_owned())
+    }
 }
 
 /// A machine with nothing to read or install.
@@ -148,5 +165,13 @@ impl Machine for System {
         } else {
             Err(format!("{shown} ended with {status}."))
         }
+    }
+
+    fn installed(&mut self) -> Result<Installed, String> {
+        crate::save::privileged::installed(&self.paths)
+    }
+
+    fn save(&mut self, name: &str, plan: &Plan) -> Result<crate::save::Saved, String> {
+        crate::save::privileged::save(&self.paths, name, plan)
     }
 }
