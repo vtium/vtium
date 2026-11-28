@@ -4,9 +4,9 @@ This crate holds vtium-config's Flow tab. The tab draws the open configuration a
 
 The tab implements the `Tab` trait of vtium-config-widgets over the shared state, the action and the commands of vtium-config-core, and the shell holds it as a trait object. It draws only into the area of the screen the frame gives it, and it reads the shared state without changing it. Every change it asks for is a command that the shell applies. The tab depends on no other tab's crate and not on the shell's.
 
-Besides the page, the tab opens three screens over it: a part's detail, with its label and the choices that narrow what it matches; a display or an input of a path, read-only; and the list of the inputs that are neither keyboards nor pointers. A terminal's card, NEW PATH's editing, the part makers and labels are the editing that `src/edit/` holds.
+Besides the page, the tab opens three screens over it. The first is a part's detail, with its label and the choices that narrow what it matches. The second shows a display or an input of a path, read-only. The third lists the inputs that are neither keyboards nor pointers. A terminal's card, NEW PATH's editing, the part makers and labels are the editing that `src/edit/` holds.
 
-The page draws in the console's sixteen colors through the color roles, and under `NO_COLOR` or on a monochrome console each state of a box keeps its words or its glyph: `in no path`, `not connected`, `✓` for a picked part, a double border for a template, a dashed border in NEW PATH, and a heavy border for the highlighted box.
+The page draws in the console's sixteen colors through the color roles. Under `NO_COLOR` or on a monochrome console, each state of a box keeps its words or its glyph. These are `in no path`, `not connected`, `✓` for a picked part, a double border for a template, a dashed border in NEW PATH, and a heavy border for the highlighted box.
 
 The crate forbids unsafe code and denies the lints that find a panic: unchecked indexing, and `unwrap`, `expect`, `panic!`, `unreachable!` and `todo!`. A vtium.conf and the devices present are untrusted input.
 
@@ -29,7 +29,7 @@ The crate forbids unsafe code and denies the lints that find a panic: unchecked 
 | The rows of the other inputs' list | the viewer's rows less three | The list ends with a line that counts the inputs it leaves out |
 | A message | one line at 80 columns | `words.rs`'s test fails; a longer text goes behind F1 |
 
-`cargo nextest run -p vtium-config-tab-flow` runs the crate's tests. They draw each screen at 100×30 and 80×25 on the screen map's machine, on the large machine and on the mock-up catalog's six example pages, and press every key of the tab's nodes on both machines. The text of each screen is kept under `tests/snapshots/`, and `VTIUM_CONFIG_BLESS=1` writes the snapshots again.
+`cargo nextest run -p vtium-config-tab-flow` runs the crate's tests. They draw each screen at 100×30 and 80×25 on the screen map's machine, on the large machine and on the mock-up catalog's six example pages. They also press every key of the tab's nodes on both machines. The text of each screen is kept under `tests/snapshots/`, and `VTIUM_CONFIG_BLESS=1` writes the snapshots again.
 
 References:
 - ADR-1206 D9: each tab is a crate that implements the `Tab` trait, and the shell holds the tabs as trait objects.
