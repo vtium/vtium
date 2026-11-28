@@ -85,7 +85,7 @@ pub fn layout(app: &App) -> Layout {
         open_menu,
         facts: Facts {
             name: document.name(),
-            mode: None,
+            mode: app.macro_mode(),
             not_saved: Count::opening(document.count()),
             problems: Count::opening(crate::sheets::problems::gather(shared).len()),
         },
