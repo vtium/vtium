@@ -1,0 +1,12 @@
+id	search
+fonts	family, file
+effects	name
+looks	name
+looks-resources	name
+settings	key, description
+settings.section	key, description
+help	topic
+flow.card.list	choice
+looks.look.list	choice
+settings.section.list	choice
+looks.new-frit.list	choice
