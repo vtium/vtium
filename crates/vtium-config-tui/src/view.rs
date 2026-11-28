@@ -184,6 +184,7 @@ pub fn draw(app: &App, frame: &mut Frame<'_>) {
     let color = app.color();
     let buf = frame.buffer_mut();
     shown.frame.draw(buf, message.as_ref(), color);
+    crate::live::sheet::draw(app, buf, regions.viewer, color);
     if let (Some(search), Some(area)) = (nav.search(), regions.search) {
         search::row::draw(search, buf, area, color);
     }

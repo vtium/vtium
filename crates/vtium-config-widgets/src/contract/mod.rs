@@ -69,9 +69,11 @@ impl Row {
 
     /// Whether the row is a button of the action bar: a labelled row
     /// whose key does not move the highlight, go to a tab or type, since
-    /// those stay off the bar, and is not a click.
+    /// those stay off the bar, and is not a click. The live trial's
+    /// countdown moves nothing, so its `k`, which keeps the font, is a
+    /// button there.
     pub fn on_bar(&self) -> bool {
-        self.labelled() && !off_bar(first_key(self.key))
+        self.labelled() && (self.state == "trial" || !off_bar(first_key(self.key)))
     }
 }
 
