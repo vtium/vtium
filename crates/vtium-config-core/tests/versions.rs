@@ -8,8 +8,12 @@ use std::path::PathBuf;
 
 use vtium_config_core::batch;
 use vtium_config_core::document::{
-    Base, Content, Document, Documents, Edit, FontSetEdit, InMemory, Installed, Version,
+    Base, Change, Content, Desk, Document, Documents, Edit, FontSetEdit, InMemory, Installed,
+    OnDisk, Version,
 };
+use vtium_config_core::drafts::Session;
+use vtium_config_core::places::Paths;
+use vtium_config_core::store::Store;
 use vtium_config_core::versions::base::{Disk, disk, recover, take};
 use vtium_config_core::versions::diff::{Hunk, Line, Mark, diff, whole_file, words};
 use vtium_config_core::versions::merge::{Side, merge, update};
@@ -451,4 +455,60 @@ fn a_hunk_shows_two_lines_of_context_on_each_side() {
             .collect::<Vec<_>>(),
         [["b = 2", "c = 3", "d = 4", "d = 40", "e = 5", "f = 6"]]
     );
+}
+
+/// A machine under the test's own folder with `installed` as vtium.conf
+/// and an empty store, as the real desk reads it.
+fn machine(test: &str, installed: &str) -> (Paths, Store) {
+    let root = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("versions-{test}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let etc = root.join("etc");
+    std::fs::create_dir_all(&etc).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::write(etc.join("vtium.conf"), installed).unwrap_or_else(|e| panic!("{e}"));
+    let paths = Paths {
+        configdir: etc,
+        frits: Err("no font sets on this machine".to_owned()),
+        drafts: root.join("bundles"),
+        sudo: "sudo".into(),
+        vtium: "vtium".into(),
+        helper: vtium_config_core::specimen::Helper::at(root.join("no-helper")),
+        sys: root.join("sys"),
+    };
+    let store = Store {
+        config: root.join("config"),
+        state: root.join("state"),
+    };
+    (paths, store)
+}
+
+#[test]
+fn a_draft_whose_installed_file_changed_on_disk_opens_with_the_bases_text() {
+    let (paths, store) = machine("base-text", BASE);
+    let session = Session {
+        store: store.clone(),
+        paths: &paths,
+    };
+    let document = OnDisk::open(&session).expect("opened");
+    let name = document.name().to_owned();
+    let mut docs = Documents::new(document, Box::new(OnDisk::new(store.clone())));
+    docs.change(Change::new("font-size = 11", Edit::Text(MINE.to_owned())))
+        .expect("changed");
+    std::fs::write(session.installed_path(), ON_DISK).unwrap_or_else(|e| panic!("{e}"));
+    // vtium-config starts again: the draft's base is the file it was made
+    // from, whose text the store keeps
+    let document = OnDisk::open(&session).expect("opened again");
+    assert_eq!(document.name(), name);
+    assert_eq!(document.content().base, Base::of(Some(BASE)));
+    let read = OnDisk::new(store)
+        .read(&name)
+        .expect("read")
+        .expect("there");
+    assert_eq!(&read, document.content());
+    let Disk::Changed(changed) = disk(document.content(), Some(ON_DISK)) else {
+        panic!("the file changed on disk");
+    };
+    let merged = changed.merge().expect("the base's text to merge from");
+    let both = "version = 1\nosd=minimal\n[look My-Look]\npalette = vga\nfont-size = 11\n";
+    assert_eq!(merged.text().as_deref(), Some(both));
 }

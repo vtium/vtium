@@ -237,6 +237,56 @@ fn switching_documents_keeps_each_ones_history() {
     assert_eq!(docs.history().made(), 1, "padnoir's history comes back");
 }
 
+#[test]
+fn refresh_counts_the_document_against_the_installed_file_read_again() {
+    let mut docs = open();
+    docs.change(eleven()).expect("the size changes");
+    // someone changes the installed file on disk: the top-level size and
+    // the font set mono
+    let on_disk = INSTALLED.replace("font-size=12\n", "font-size=14\n");
+    let installed = Installed {
+        text: Some(on_disk.clone()),
+        frits: BTreeMap::from([("mono".to_owned(), b"source=builtin:spleen\n".to_vec())]),
+    };
+    // Update brings the change in, so the draft differs from the file read
+    // again by the look's size alone
+    let merged = docs
+        .document()
+        .text()
+        .replace("font-size=12\n", "font-size=14\n");
+    docs.change(Change::new(
+        "Update",
+        Edit::All(vec![
+            Edit::Text(merged),
+            Edit::Base(Base::of(Some(&on_disk))),
+        ]),
+    ))
+    .expect("updated");
+    assert_eq!(docs.document().count(), 2, "counted against the old file");
+    let made = docs.history().made();
+    let draft = drafted(&docs);
+    docs.refresh(installed.clone());
+    assert_eq!(docs.document().installed(), &installed);
+    assert_eq!(docs.document().count(), 1);
+    assert_eq!(docs.document().count(), docs.document().review().count());
+    assert_eq!(docs.history().made(), made, "a refresh is no step");
+    assert_eq!(drafted(&docs), draft, "a refresh writes nothing");
+    // the font sets are counted against the ones read again too
+    docs.change(Change::new(
+        "keep mono",
+        Edit::FontSet {
+            frit: "mono".to_owned(),
+            edit: FontSetEdit::Keep("source=builtin:unifont\n".to_owned()),
+        },
+    ))
+    .expect("mono is kept");
+    assert_eq!(
+        docs.document().count(),
+        2,
+        "mono differs from the one on disk"
+    );
+}
+
 #[cfg(feature = "fixture")]
 mod fixtures {
     use vtium_config_core::fixture::{large, padnoir};
