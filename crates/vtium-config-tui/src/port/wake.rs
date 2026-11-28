@@ -1,6 +1,6 @@
 //! What wakes the loop, and the wait for it: the terminal's bytes, a
-//! resize, a signal the loop holds, or the end of a wait the update asked
-//! for.
+//! resize, a signal the loop holds, the end of a wait the update asked
+//! for, or the end of the macro player's pause between steps.
 //!
 //! References:
 //! - ADR-1206 D2: the loop turns every wake into a message.
@@ -26,6 +26,8 @@ pub enum Wake {
     Signal(i32),
     /// The wait the update asked for ended.
     Timeout,
+    /// The macro player's pause between steps ended.
+    Step,
 }
 
 /// What the loop's sources leave for the wait to return.

@@ -1,0 +1,22 @@
+# ADR-1208 D2's first macro, as the scenario tests play it: the console
+# draws Cullet Mono at 11 pt, and the change is saved. A test never runs
+# live, so the macro has no Set Live line. The look's card has no Ctrl+S
+# row in the key table, so Escape goes back to the looks before Save.
+Alt+L
+Expect At looks
+Click "console"
+Enter
+Click "Font set"
+Enter
+Click "cullet-mono"
+Enter
+Click "Size"
+Enter
+Click "11 pt"
+Enter
+Expect "cullet-mono"
+Expect "11 pt"
+Escape
+Ctrl+S
+Enter
+Expect Saved

@@ -37,6 +37,8 @@ pub struct Tty {
     saved: Termios,
     events: Loop<Woken>,
     deadline: Option<Instant>,
+    /// When the macro player's pause ends.
+    step: Option<Instant>,
     /// The port's entry in [`RESTORE`].
     id: u64,
 }
@@ -132,6 +134,7 @@ impl Tty {
             saved,
             events,
             deadline: None,
+            step: None,
             id,
         };
         tty.write(ENTER)?;
@@ -182,8 +185,31 @@ impl Port for Tty {
 
     fn wait(&mut self) -> io::Result<Vec<Wake>> {
         let mut woken = Woken::default();
-        wait_on(&mut self.events, &mut self.deadline, &mut woken)?;
+        // the player's pause and the update's wait share the one wait,
+        // and whichever ends first ends it
+        let step_first = match (self.step, self.deadline) {
+            (Some(step), Some(deadline)) => step < deadline,
+            (Some(_), None) => true,
+            _ => false,
+        };
+        if step_first {
+            wait_on(&mut self.events, &mut self.step, &mut woken)?;
+            if self.step.is_none() {
+                for wake in &mut woken.wakes {
+                    if *wake == Wake::Timeout {
+                        *wake = Wake::Step;
+                    }
+                }
+            }
+        } else {
+            wait_on(&mut self.events, &mut self.deadline, &mut woken)?;
+        }
         Ok(woken.wakes)
+    }
+
+    fn arm_step(&mut self, after: Duration) -> bool {
+        self.step = now().checked_add(after);
+        true
     }
 
     fn step_aside(&mut self, aside: &mut dyn FnMut() -> io::Result<()>) -> io::Result<()> {

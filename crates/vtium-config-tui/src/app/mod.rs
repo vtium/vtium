@@ -74,6 +74,9 @@ pub enum Event {
     /// The person's editor exited: the copy's text and what the check
     /// found in it, or why the editor could not run.
     Edited(Result<crate::editor::Edited, String>),
+    /// A line for the message row from the macro player: where a macro
+    /// stopped, ended or failed, with the failure report behind F1.
+    Said(vtium_config_core::ui::Message),
 }
 
 /// The TUI's model.

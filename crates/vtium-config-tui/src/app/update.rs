@@ -258,6 +258,10 @@ impl App {
                 Vec::new()
             }
             Event::Save(came) => save::came(came, &mut self.shared, &mut self.nav),
+            Event::Said(said) => {
+                self.shared.message = Some(said);
+                Vec::new()
+            }
             Event::Edited(done) => {
                 self.edited(done);
                 Vec::new()
