@@ -217,7 +217,9 @@ impl Nav {
                 self.question = None;
                 Step::Nothing
             }
-            "question.view" | "question.layer.list" => {
+            // `?` opens the search row wherever the node's `search`
+            // column names fields, and does nothing elsewhere
+            _ if id.starts_with("question.") => {
                 self.open_search(here);
                 Step::Nothing
             }

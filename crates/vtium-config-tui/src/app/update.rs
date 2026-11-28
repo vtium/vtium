@@ -97,6 +97,7 @@ const SHELL: &[&str] = &[
     "n.question",
     "esc.question",
     "other.question",
+    "question.",
 ];
 
 /// Whether the shell acts on the row `id` today: the File menu greys out

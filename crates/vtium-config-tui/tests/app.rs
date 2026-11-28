@@ -549,7 +549,13 @@ fn question_view_opens_the_search_only_where_the_node_names_fields() {
     assert!(text(&app).contains("? cul_"), "{}", text(&app));
     keys(&mut app, &["Esc"]);
     assert_eq!(app.node(), "fonts");
-    keys(&mut app, &["Alt-L", "?"]);
+    keys(&mut app, &["Enter", "?"]);
+    assert_eq!(
+        app.node(),
+        "fonts.font",
+        "a font's detail names no fields to search"
+    );
+    keys(&mut app, &["Esc", "Alt-L", "?"]);
     assert_eq!(app.node(), "looks", "Looks names no fields to search");
 }
 
