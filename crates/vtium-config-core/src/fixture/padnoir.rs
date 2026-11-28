@@ -98,5 +98,7 @@ pub fn shared() -> Shared {
             when: VERSION_WHEN,
             text: VERSION.to_owned(),
         });
-    super::machine(NAME, DRAFT, INSTALLED, frits(), desk, present())
+    let mut shared = super::machine(NAME, DRAFT, INSTALLED, frits(), desk, present());
+    shared.found = super::found::padnoir();
+    shared
 }

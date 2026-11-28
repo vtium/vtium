@@ -160,5 +160,7 @@ pub fn shared() -> Shared {
             text: format!("# version {number}\n{installed}"),
         });
     }
-    super::machine(NAME, &open, &installed, frits(), desk, present())
+    let mut shared = super::machine(NAME, &open, &installed, frits(), desk, present());
+    shared.found = super::found::large();
+    shared
 }
