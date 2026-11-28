@@ -218,7 +218,7 @@ The query reports the name of the font on screen: the name of a font set or of a
 .IP
 When off, vtium ignores OSC 50, queries included.
 .IP
-The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when \fBbatch.conf\fR lists it and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See Active fonts <https://vtium.github.io/vtium/fonts/#active-fonts>.
+The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when it is active, because \fBbatch.conf\fR or a list in \fB/usr/share/vtium/batch.d\fR or \fB/etc/vtium/batch.d\fR names it, and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See Active fonts <https://vtium.github.io/vtium/fonts/#active-fonts>.
 .IP
 vtium reads a font set only when root owns it and no other user can change it or a folder above it.
 .IP

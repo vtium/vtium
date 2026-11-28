@@ -1518,7 +1518,7 @@ pub const ALLOW_FONT_OPS: Key = Key {
            [docs] `vtium-config use-frit NAME` switches the font with the same sequence.\n\n\
            [docs] The query reports the name of the font on screen: the name of a font set or of a built-in font. A font that `font-name` gives as a file's path or as a font family is reported by that path or by the family's name. A program can send the reported name back to return to that font.\n\n\
            When off, vtium ignores OSC 50, queries included.\n\n\
-           [docs] The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when `batch.conf` lists it and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See [Active fonts](fonts.md#active-fonts).\n\n\
+           [docs] The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when it is active, because `batch.conf` or a list in `/usr/share/vtium/batch.d` or `/etc/vtium/batch.d` names it, and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See [Active fonts](fonts.md#active-fonts).\n\n\
            [docs] vtium reads a font set only when root owns it and no other user can change it or a folder above it.",
 };
 

@@ -139,6 +139,22 @@ const BATCH: Bound = Bound {
     cite: "vtium's own: about a thousand paths of 60 bytes, far more than the fonts, color maps, shaders, palettes and pointer themes a console uses, read whole at each start like vtium.conf",
 };
 
+const LISTS: Bound = Bound {
+    name: "LISTS_MAX",
+    value: 64,
+    what: "Entries whose names end in `.conf` that vtium takes from each folder of lists of active resources, `/usr/share/vtium/batch.d` and `/etc/vtium/batch.d`, counted in the byte order of the names whatever their type",
+    past: "Each entry past it activates nothing and turns no list off, and `vtium check-config` names it",
+    cite: "ADR-1205 D4, as amended on 2026-11-27",
+};
+
+const MERGED_BATCH: Bound = Bound {
+    name: "MERGED_BATCH_MAX",
+    value: 1024 * 1024,
+    what: "Bytes of the paths the merged batch holds, batch.conf's and every list's together, counted as the font helper counts its request of active fonts",
+    past: "The list that would pass it is left out, with every list after it, and `vtium check-config` names each one",
+    cite: "ADR-1205 D4, as amended on 2026-11-27: it bounds the request that carries the active fonts to the font helper, and the memory the console and the font helper spend on the merged batch",
+};
+
 const PALETTE_FILE: Bound = Bound {
     name: "PALETTE_FILE_MAX",
     value: 16 * 1024,
@@ -157,7 +173,7 @@ const CUBE_FILE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 16] = [
+pub(crate) const BOUNDS: [Bound; 18] = [
     FILE,
     LINE,
     NAME,
@@ -172,6 +188,8 @@ pub(crate) const BOUNDS: [Bound; 16] = [
     VTLOOK_FILE,
     VTLOOK_SECTIONS,
     BATCH,
+    LISTS,
+    MERGED_BATCH,
     PALETTE_FILE,
     CUBE_FILE,
 ];
@@ -236,6 +254,26 @@ pub const VTLOOK_SECTIONS_MAX: usize = VTLOOK_SECTIONS.value as usize;
 /// References:
 /// - ADR-1205 D4: the batch file, and the list of a fresh install that vtium uses in its place.
 pub const BATCH_MAX: usize = BATCH.value as usize;
+
+/// Entries vtium takes from each folder of lists of active resources,
+/// in the byte order of their names; each entry past them activates
+/// nothing and turns no list off.
+///
+/// References:
+/// - ADR-1205 D4, as amended on 2026-11-27: at most 64 entries from each folder, a named constant beside the batch file's size limit.
+pub const LISTS_MAX: usize = LISTS.value as usize;
+
+/// Bytes of the paths the merged batch holds, counted as the font helper
+/// counts its request of active fonts: the length of each path. It bounds
+/// that request, which carries every active path to the font helper at
+/// each login, and the memory the console and the font helper spend
+/// holding the merged batch. batch.conf alone stays far below it, at most
+/// [`BATCH_MAX`] bytes; the lists of up to 128 files could each add as
+/// much again.
+///
+/// References:
+/// - ADR-1205 D4, as amended on 2026-11-27: the merged batch's bound of 1 MiB, and what it protects.
+pub const MERGED_BATCH_MAX: usize = MERGED_BATCH.value as usize;
 
 /// Bytes of a palette file, a color scheme.
 ///
