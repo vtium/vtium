@@ -29,6 +29,7 @@ vtium-config-tui = { path = "crates/vtium-config-tui" }
 vtium-config-tab-flow = { path = "crates/vtium-config-tab-flow" }
 vtium-config-tab-effects = { path = "crates/vtium-config-tab-effects" }
 vtium-config-tab-looks = { path = "crates/vtium-config-tab-looks" }
+vtium-config-tab-fonts = { path = "crates/vtium-config-tab-fonts" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -98,6 +99,12 @@ opt-level = 2
 # two machines, so the tab is built at the same level as the toolkit it
 # draws with.
 [profile.dev.package.vtium-config-tab-looks]
+opt-level = 2
+
+# The Fonts tab's screen tests draw the list of 3,000 fonts at two sizes
+# on two machines, so the tab is built at the same level as the toolkit it
+# draws with.
+[profile.dev.package.vtium-config-tab-fonts]
 opt-level = 2
 
 [profile.release]
