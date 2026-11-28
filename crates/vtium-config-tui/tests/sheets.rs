@@ -538,6 +538,11 @@ fn manage_never_deletes_the_open_configuration_and_never_touches_etc() {
             assert_eq!(app.node(), "any.question.confirm");
             assert!(text(&app).contains("/etc is untouched"), "{}", text(&app));
             press(&mut app, Key::char('y'));
+            assert_eq!(
+                message(&app).as_deref(),
+                Some("Deleting a configuration is not built yet."),
+                "the yes reaches the shell"
+            );
         }
         assert_eq!(app.shared().document().name(), open);
         assert_eq!(app.shared().document().installed(), &installed);

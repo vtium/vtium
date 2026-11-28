@@ -355,10 +355,9 @@ impl App {
         self.nav.open_sheet(Sheet::About(about));
     }
 
-    /// Ctrl+F: closes a menu, then opens Find over what is open, with
-    /// every tab's items read once.
+    /// Ctrl+F: opens Find over what is open, with every tab's items read
+    /// once. Opening a sheet closes a menu first.
     fn find(&mut self) {
-        self.nav.close_menu();
         let found = self
             .tabs
             .iter()

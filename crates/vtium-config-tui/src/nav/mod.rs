@@ -146,11 +146,6 @@ impl Nav {
         self.sheets.pop();
     }
 
-    /// Closes the open menu.
-    pub fn close_menu(&mut self) {
-        self.menu = None;
-    }
-
     /// Closes every sheet, the search row and the levels open over the tab
     /// at `index`, and goes to that tab, as Find's Enter does.
     pub fn go_clear(&mut self, index: usize, tabs: usize) {
