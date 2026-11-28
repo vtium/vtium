@@ -6,7 +6,9 @@
 //! `d`, asks once and names what is lost. The open configuration cannot
 //! be deleted, so the TUI always has one open, and the sheet says why.
 //! Nothing here touches /etc: the configurations are drafts in the
-//! person's own store.
+//! person's own store. Rename and Delete go through the desk the drafts
+//! are written through, and the sheet lists the configurations again after
+//! each, with what the step did under the list.
 //!
 //! References:
 //! - ADR-1403 D11, "Managing configurations": the sheet, its buttons,
@@ -17,8 +19,9 @@
 
 use ratatui_core::buffer::Buffer;
 use ratatui_core::layout::Rect;
+use vtium_config_core::document::desk::words as desk;
 use vtium_config_core::store;
-use vtium_config_core::ui::Action;
+use vtium_config_core::ui::{Action, Shared};
 use vtium_config_widgets::keys::{Code, Key};
 use vtium_config_widgets::roles::Role;
 
@@ -29,13 +32,6 @@ pub const TITLE: &str = "Manage configurations";
 
 /// The row a yes to Delete's question hands the shell.
 pub const DELETE: &str = "delete.layer.manage";
-
-/// What a rename says while the desk the drafts are written through has
-/// no way to rename one.
-pub const NOT_BUILT_RENAME: &str = "Renaming a configuration is not built yet.";
-
-/// What a delete says while the desk has no way to delete one.
-pub const NOT_BUILT_DELETE: &str = "Deleting a configuration is not built yet.";
 
 /// One configuration as the sheet lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,6 +104,52 @@ impl Manage {
         self.note = Some(note);
     }
 
+    /// Renames the configuration `from` to `to` in `shared`, the open one
+    /// too, and lists the configurations again with `to` highlighted. What
+    /// it did, or why it could not, goes under the list.
+    pub fn rename(&mut self, shared: &mut Shared, from: &str, to: &str) {
+        match shared.documents.rename(from, to) {
+            Ok(()) => {
+                self.reload(shared, to);
+                self.note = Some(words::renamed(from, to));
+            }
+            Err(why) => self.note = Some(why),
+        }
+    }
+
+    /// A yes to Delete's question: deletes the configuration it named from
+    /// `shared`, never the open one, and lists the configurations again.
+    /// What it did, or why it could not, goes under the list.
+    pub fn delete(&mut self, shared: &mut Shared) {
+        let Some(name) = self.asked.take() else {
+            return;
+        };
+        match shared.documents.remove(&name) {
+            Ok(()) => {
+                let at = self
+                    .kept
+                    .get(self.at.saturating_add(1))
+                    .map(|k| k.name.clone());
+                self.reload(shared, at.as_deref().unwrap_or_default());
+                self.note = Some(words::deleted(&name));
+            }
+            Err(why) => self.note = Some(why),
+        }
+    }
+
+    /// Lists the configurations of `shared` again, with `at` highlighted,
+    /// or the last one where no configuration has that name.
+    fn reload(&mut self, shared: &Shared, at: &str) {
+        let fresh = Manage::new(super::open::states(shared), shared.document().name());
+        self.at = fresh
+            .kept
+            .iter()
+            .position(|k| k.name == at)
+            .unwrap_or_else(|| fresh.kept.len().saturating_sub(1));
+        self.kept = fresh.kept;
+        self.open = fresh.open;
+    }
+
     /// Acts on `key`, which chose the row `id` of the sheet's node.
     pub fn key(&mut self, key: &Key, id: &str) -> Act {
         self.note = None;
@@ -127,7 +169,7 @@ impl Manage {
                     self.typing = None;
                     Act::Stay
                 }
-                "enter.typing" => self.rename(),
+                "enter.typing" => self.typed_name(),
                 _ => Act::Pass,
             };
         }
@@ -153,7 +195,7 @@ impl Manage {
                 Act::Stay
             }
             DELETE | "d.layer.manage" if kept.name == self.open => {
-                self.note = Some(words::open_now(&kept.name));
+                self.note = Some(desk::open_now(&kept.name));
                 Act::Stay
             }
             DELETE | "d.layer.manage" => {
@@ -170,7 +212,7 @@ impl Manage {
     }
 
     /// Enter on the new name: the rename, or why the name cannot be one.
-    fn rename(&mut self) -> Act {
+    fn typed_name(&mut self) -> Act {
         let (Some(to), Some(from)) = (self.typing.clone(), self.highlighted()) else {
             return Act::Stay;
         };
@@ -184,7 +226,7 @@ impl Manage {
             return Act::Stay;
         }
         if self.kept.iter().any(|k| k.name == to) {
-            self.note = Some(words::taken(&to));
+            self.note = Some(desk::taken(&to));
             return Act::Stay;
         }
         self.typing = None;
@@ -295,12 +337,12 @@ mod words {
         "They live in ~/.config/vtium/drafts. /etc/vtium/vtium.conf holds what is saved.";
     pub const BAD_NAME: &str = "A name has 1 to 64 letters, digits, '.', '_', '+' or '-', and cannot start with '.' or '-'.";
 
-    pub fn open_now(name: &str) -> String {
-        format!("{name} is open, so it cannot be deleted; open another first.")
+    pub fn renamed(from: &str, to: &str) -> String {
+        format!("Renamed {from} to {to}.")
     }
 
-    pub fn taken(name: &str) -> String {
-        format!("{name} is taken: another configuration has that name.")
+    pub fn deleted(name: &str) -> String {
+        format!("Deleted {name}. /etc/vtium/vtium.conf is untouched.")
     }
 
     /// Delete's one question, naming what is lost and what stays, in one

@@ -336,9 +336,8 @@ impl App {
                 Vec::new()
             }
             Route::Problems => {
-                let problems = crate::sheets::problems::gather(&self.shared);
                 self.nav
-                    .open_sheet(Sheet::Problems(sheets::Problems::new(problems)));
+                    .open_sheet(Sheet::Problems(sheets::Problems::of(&self.shared)));
                 Vec::new()
             }
             Route::New => {
@@ -593,13 +592,8 @@ impl App {
     /// A yes to the Manage sheet's question: deletes the configuration it
     /// named, never the open one.
     fn delete(&mut self) {
-        let open = self.shared.document().name().to_owned();
-        let asked = match self.nav.sheets().last() {
-            Some(Sheet::Manage(m)) => m.asked().map(str::to_owned),
-            _ => None,
-        };
-        if asked.is_some_and(|name| name != open) {
-            self.shared.say(sheets::manage::NOT_BUILT_DELETE.to_owned());
+        if let Some(Sheet::Manage(m)) = self.nav.sheet_mut() {
+            m.delete(&mut self.shared);
         }
     }
 
@@ -651,8 +645,10 @@ impl App {
                 }
                 Vec::new()
             }
-            Act::Rename { .. } => {
-                self.shared.say(sheets::manage::NOT_BUILT_RENAME.to_owned());
+            Act::Rename { from, to } => {
+                if let Some(Sheet::Manage(m)) = self.nav.sheet_mut() {
+                    m.rename(&mut self.shared, &from, &to);
+                }
                 Vec::new()
             }
             Act::New { name, start } => {
