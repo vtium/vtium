@@ -437,10 +437,10 @@ fn a_draft_file_past_its_bound_is_refused() {
 
 /// A frit that vtium.conf's font-name names, at its top level or in a
 /// look's section, is never removed, so a hand-made or stale draft cannot
-/// take the font a console draws; and nothing is removed. The console's
-/// check refuses the removal of a look's frit, with that look's line, and
-/// apply's own words refuse the top level's, which the console would read
-/// as a font family once no frit has that name.
+/// take the font a console draws; and nothing is removed. apply refuses
+/// the removal in its own words, which name the setting, and the look and
+/// its line, before the console's check, which would refuse it only as a
+/// font-name that names no font.
 #[test]
 fn a_frit_a_font_name_of_vtium_conf_names_is_not_removed() {
     // font-frits names the fixture's frits' directory, so the console's
@@ -465,12 +465,13 @@ fn a_frit_a_font_name_of_vtium_conf_names_is_not_removed() {
         ("tiny", "font-name in vtium.conf uses it"),
         (
             "desk",
-            "vtium check-config refused the draft:\nthe installed vtium.conf line 5: vtium check-config refused",
+            "desk.vtfrit is not removed: `font-name` in `[look big]`, vtium.conf line 5, uses it",
         ),
     ] {
         let (status, out, err) = f.apply(&f.draft(&removal(name)));
         assert_eq!(status, 1, "{name}: {out}{err}");
         assert!(err.contains(says), "{name}: {err}");
+        assert!(!err.contains("check-config"), "{name}: {err}");
         assert!(fonts.join(format!("{name}.vtfrit")).exists(), "{name} kept");
         assert!(!fonts.join(format!("{name}.vtfrit.bak")).exists(), "{name}");
     }

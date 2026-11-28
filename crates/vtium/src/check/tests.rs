@@ -162,6 +162,7 @@ fn check_config_says_what_it_finds_of_the_batch_file() {
         frits: PathBuf::from("/nonexistent/vtium/frits"),
         frit_trust: font::trust().below(&dir),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: batch.clone(),
     };
     let f = file.display().to_string();
@@ -1309,7 +1310,7 @@ fn heads_fixture(name: &str, text: &str, mode: u32) -> (Scratch, PathBuf, Trust)
 }
 
 /// vtium.conf's caps with `head_cap` and the default total, and frits
-/// nowhere.
+/// and console fonts nowhere.
 fn caps(head_cap: u32) -> Settings<'static> {
     Settings {
         head_cap,
@@ -1320,6 +1321,7 @@ fn caps(head_cap: u32) -> Settings<'static> {
         sources: None,
         gate: None,
         draft: DraftFrits::default(),
+        console_fonts: vec![PathBuf::from("/nonexistent/vtium/consolefonts")],
     }
 }
 
@@ -2007,7 +2009,8 @@ fn a_missing_strike_is_named_with_its_sources_version_and_page() {
 }
 
 // ADR-1401 D7, ADR-1403 D5: a look whose font-name names a frit not
-// installed is a warning about the file, and an installed one is none
+// installed, and no kbd console font or built-in font, is a warning
+// about the file, and an installed one is none
 // covers: platform.heads.rules
 #[test]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
@@ -2029,7 +2032,7 @@ fn a_look_naming_a_missing_frit_counts_against_the_file() {
     assert_eq!(
         missing.counted,
         [format!(
-            "{f}:3: Look \"big\" uses the font set \"desk\", but \"{dir}\" has no \"desk\".vtfrit. vtium then looks for a kbd font named \"desk\", and uses its built-in font if there is none. Put the font set in \"{dir}\", or change the look's `font-name`."
+            "{f}:3: Look \"big\" uses the font \"desk\", and this machine has no font of that name, so vtium draws that look in its built-in font. vtium looked for the font set file \"desk.vtfrit\" in \"{dir}\" and the category folders inside it, and for a kbd console font named \"desk\" in \"/nonexistent/vtium/consolefonts\". Correct the name, or put the font set file \"desk.vtfrit\" in \"{dir}\"."
         )]
     );
     assert_eq!(installed.counted, [] as [String; 0]);
@@ -2884,6 +2887,7 @@ fn check_config_reads_the_systemd_links_of_its_host() {
         frits: PathBuf::from("/nonexistent/vtium/frits"),
         frit_trust: font::trust(),
         systemd_root: root.clone(),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let off = "Head terminal-1 runs only on VT 12, and vtium is not enabled on VT 12";
@@ -2938,11 +2942,12 @@ fn the_drafts_font_sets_count_in_place_of_the_installed_ones() {
         frits: frits.clone(),
         frit_trust: font::trust().below(&dir),
         systemd_root: dir.join("root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let missing = |name: &str, line: usize| {
         format!(
-            "{f}:{line}: Look \"{}\" uses the font set \"{name}\", but \"{}\" has no \"{name}\".vtfrit. vtium then looks for a kbd font named \"{name}\", and uses its built-in font if there is none. Put the font set in \"{}\", or change the look's `font-name`.",
+            "{f}:{line}: Look \"{}\" uses the font \"{name}\", and this machine has no font of that name, so vtium draws that look in its built-in font. vtium looked for the font set file \"{name}.vtfrit\" in \"{}\" and the category folders inside it. Correct the name, or put the font set file \"{name}.vtfrit\" in \"{}\".",
             if name == "desk" { "big" } else { "small" },
             frits.display(),
             frits.display()
@@ -3066,6 +3071,7 @@ fn an_old_key_binding_name_is_a_note_and_the_check_passes() {
         frits: PathBuf::from("/nonexistent/vtium/frits"),
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", f.as_str()]
@@ -3103,6 +3109,7 @@ fn the_installed_head_file_and_the_udev_socket_are_the_hosts() {
         frits: PathBuf::from("/nonexistent/vtium/frits"),
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let out = outcome_on(&[], &host);
@@ -3180,6 +3187,7 @@ fn the_installed_file_named_as_the_candidate_is_checked_as_installed() {
         frits: PathBuf::from("/nonexistent/vtium/frits"),
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     for named in [&file, &link] {
@@ -3215,6 +3223,7 @@ fn each_font_set_is_asked_each_question_once() {
         frits: frits.clone(),
         frit_trust: font::trust().below(file.parent().unwrap()),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let (covered, lacked) = (std::cell::Cell::new(0), std::cell::Cell::new(0));
@@ -3268,6 +3277,7 @@ fn a_font_file_line_is_said_once_for_a_set_the_top_level_and_looks_share() {
         frits: frits.clone(),
         frit_trust: font::trust().below(file.parent().unwrap()),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
@@ -3318,6 +3328,7 @@ fn a_missing_font_is_a_warning_and_an_older_one_a_note() {
         frits: frits.clone(),
         frit_trust: font::trust().below(file.parent().unwrap()),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
@@ -3430,6 +3441,7 @@ fn only_missing_fonts_exit_with_their_own_status() {
             frits: frits.clone(),
             frit_trust: font::trust().below(file.parent().unwrap()),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            console_fonts: Vec::new(),
             batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
@@ -3472,6 +3484,205 @@ fn only_missing_fonts_exit_with_their_own_status() {
     assert_eq!(status("refused", &both, refused), (0, 0));
 }
 
+// A font-name that names no font set, no kbd console font and no
+// built-in font is a warning, at the top level and in a look: vtium
+// then draws its built-in font. The warning names the value, where it
+// is set, the folders the check looked in, and the package that installs
+// a font set of vtium's catalog. It counts as any other problem, so the
+// status is 1. A name that is a kbd console font in one of the console
+// font folders, or a built-in font, is no warning, since vtium loads it.
+#[test]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn a_font_name_that_names_no_font_is_a_warning() {
+    let check = |name: &str, text: &str, args: &[&str]| {
+        let (dir, file, _) = heads_fixture(name, text, 0o644);
+        let frits = dir.join("frits");
+        let kbd = dir.join("consolefonts");
+        std::fs::create_dir_all(&frits).unwrap();
+        std::fs::create_dir_all(&kbd).unwrap();
+        std::fs::write(kbd.join("mine.psfu.gz"), b"x").unwrap();
+        let host = Host {
+            conf_file: file.with_file_name("absent.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: frits.clone(),
+            frit_trust: font::trust().below(&dir),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            console_fonts: vec![kbd.clone(), dir.join("gone")],
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
+        };
+        let all: Vec<OsString> = [SUBCOMMAND, "--no-devices"]
+            .iter()
+            .copied()
+            .chain(args.iter().copied())
+            .chain([file.to_str().unwrap()])
+            .map(OsString::from)
+            .collect();
+        let out = outcome_with(
+            &config::load(&all, &mut config::read_bytes),
+            &host,
+            None,
+            None,
+        );
+        let looked = format!(
+            "vtium looked for the font set file \"{{name}}.vtfrit\" in {:?} and the category folders inside it, and for a kbd console font named \"{{name}}\" in {:?} and {:?}.",
+            frits.to_string_lossy(),
+            kbd.to_string_lossy(),
+            dir.join("gone").to_string_lossy(),
+        );
+        let out_stderr: Vec<String> = out
+            .stderr
+            .iter()
+            .map(|l| l.replace(&file.display().to_string(), "FILE"))
+            .map(|l| l.replace(&frits.display().to_string(), "FRITS"))
+            .collect();
+        let looked = looked.replace(&frits.display().to_string(), "FRITS");
+        (out.status, out_stderr, looked, dir)
+    };
+    let heads = "version = 1\n[head a]\n[rules]\ndisplay * -> a\n";
+    let top = |name: &str| format!("font-name={name}\n{heads}");
+    let look = |name: &str| {
+        format!(
+            "version = 1\n[look big]\nfont-name = {name}\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n"
+        )
+    };
+    let fill = |looked: &str, name: &str| looked.replace("{name}", name);
+
+    // the top level, set in the file
+    let (status, stderr, looked, _dir) = check("name-top", &top("nosuchfont"), &[]);
+    assert_eq!(status, 1);
+    assert_eq!(
+        stderr,
+        [format!(
+            "FILE:1: vtium.conf's top-level `font-name` names the font \"nosuchfont\", and this machine has no font of that name, so vtium draws its built-in font. {} Correct the name, or put the font set file \"nosuchfont.vtfrit\" in \"FRITS\".",
+            fill(&looked, "nosuchfont")
+        )]
+    );
+    // the top level, set on the command line
+    let (status, stderr, looked, _dir) = check("name-arg", heads, &["--font-name=nosuchfont"]);
+    assert_eq!(status, 1);
+    assert_eq!(
+        stderr,
+        [format!(
+            "argument 3: `--font-name` on the command line names the font \"nosuchfont\", and this machine has no font of that name, so vtium draws its built-in font. {} Correct the name, or put the font set file \"nosuchfont.vtfrit\" in \"FRITS\".",
+            fill(&looked, "nosuchfont")
+        )]
+    );
+    // a look
+    let (status, stderr, looked, _dir) = check("name-look", &look("nosuchfont"), &[]);
+    assert_eq!(status, 1);
+    assert_eq!(
+        stderr,
+        [format!(
+            "FILE:3: Look \"big\" uses the font \"nosuchfont\", and this machine has no font of that name, so vtium draws that look in its built-in font. {} Correct the name, or put the font set file \"nosuchfont.vtfrit\" in \"FRITS\".",
+            fill(&looked, "nosuchfont")
+        )]
+    );
+    // a font set of the catalog that vtium-fonts installs
+    let (_, stderr, looked, _dir) = check("name-catalog", &top("monoid"), &[]);
+    assert_eq!(
+        stderr,
+        [format!(
+            "FILE:1: vtium.conf's top-level `font-name` names the font \"monoid\", and this machine has no font of that name, so vtium draws its built-in font. {} The font set \"monoid\" is part of vtium's catalog: install the vtium-fonts package to add it.",
+            fill(&looked, "monoid")
+        )]
+    );
+    // a font set of the catalog that every console package installs
+    let (_, stderr, looked, _dir) = check("name-console", &look("terminus"), &[]);
+    assert_eq!(
+        stderr,
+        [format!(
+            "FILE:3: Look \"big\" uses the font \"terminus\", and this machine has no font of that name, so vtium draws that look in its built-in font. {} Every vtium console package, such as vtium or vtium-minspec, installs the font set \"terminus\": reinstall the one this machine uses to put it back.",
+            fill(&looked, "terminus")
+        )]
+    );
+    // a kbd console font, by its name with or without its suffixes, a
+    // built-in font and an installed font set are fonts vtium loads
+    for name in ["mine", "mine.psfu", "mine.psfu.gz", "unifont", "unscii-8"] {
+        assert_eq!(check("kbd-top", &top(name), &[]).0, 0, "{name}");
+        assert_eq!(check("kbd-look", &look(name), &[]).0, 0, "{name}");
+    }
+    let (status, _, _, dir) = check("frit-top", &top("desk"), &[]);
+    assert_eq!(status, 1);
+    std::fs::write(dir.join("frits/desk.vtfrit"), "source=builtin:unifont\n").unwrap();
+    let file = dir.join("heads.conf");
+    let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
+        .iter()
+        .map(OsString::from)
+        .collect();
+    let host = Host {
+        conf_file: file.with_file_name("absent.conf"),
+        udev_control: file.clone(),
+        roots: nowhere(),
+        frits: dir.join("frits"),
+        frit_trust: font::trust().below(&dir),
+        systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
+        batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
+    };
+    let out = outcome_with(
+        &config::load(&args, &mut config::read_bytes),
+        &host,
+        None,
+        None,
+    );
+    assert_eq!((out.status, out.stderr), (0, Vec::<String>::new()));
+    // a path is a font file's, which this check leaves to the start
+    assert_eq!(check("path", &top("/nonexistent/f.ttf"), &[]).0, 0);
+}
+
+// The console font folders the check looks in are the ones the font
+// helper searches for a kbd console font by its name.
+#[test]
+fn the_console_font_folders_are_the_font_helpers() {
+    let helpers: Vec<PathBuf> = vtium_config::sources::KBD_DIRS
+        .iter()
+        .map(|d| Path::new(d).join("consolefonts"))
+        .collect();
+    let checks: Vec<PathBuf> = super::frits::CONSOLE_FONT_FOLDERS
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    assert_eq!(checks, helpers);
+}
+
+// The catalog's font sets, which the warning on a font-name that names
+// no font names the package of, are the font sets in vtium-config's
+// frits folder, and the sets every console package ships are the
+// Makefile's CONSOLE_FRITS.
+#[test]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn the_catalog_the_check_names_is_the_trees() {
+    let root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+    let mut tree = Vec::new();
+    for category in font::CATEGORIES {
+        for entry in
+            std::fs::read_dir(root.join("crates/vtium-config/frits").join(category)).unwrap()
+        {
+            let name = entry.unwrap().file_name().into_string().unwrap();
+            if let Some(set) = name.strip_suffix(".vtfrit") {
+                tree.push(set.to_owned());
+            }
+        }
+    }
+    tree.sort();
+    let mut listed: Vec<String> = super::frits::CONSOLE_PACKAGE_SETS
+        .iter()
+        .chain(super::frits::FONTS_PACKAGE_SETS.iter())
+        .map(|s| (*s).to_owned())
+        .collect();
+    listed.sort();
+    assert_eq!(listed, tree);
+    let makefile = std::fs::read_to_string(root.join("Makefile")).unwrap();
+    let console: Vec<&str> = makefile
+        .lines()
+        .find_map(|l| l.strip_prefix("CONSOLE_FRITS := "))
+        .unwrap()
+        .split_whitespace()
+        .collect();
+    assert_eq!(console, super::frits::CONSOLE_PACKAGE_SETS);
+}
+
 // heads.md: each file docs/heads holds checks with exit status 0, the
 // frits its looks name installed, away from any machine, but off.conf
 // covers: platform.heads.rules
@@ -3489,6 +3700,7 @@ fn each_documented_head_file_checks_with_exit_0() {
         frits: frits.clone(),
         frit_trust: font::trust().below(anchor.parent().unwrap()),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let mut files: Vec<PathBuf> = std::fs::read_dir(docs)
@@ -3693,6 +3905,7 @@ fn the_devices_present_give_hardware_findings_outside_the_status() {
         frits: PathBuf::from("/nonexistent/vtium/frits"),
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let out = outcome_on(&[file.to_str().unwrap()], &host);
@@ -3790,6 +4003,7 @@ fn check_config_reports_a_look_s_pointer_theme_on_the_look_s_line() {
         frits: PathBuf::from("/nonexistent/vtium/frits"),
         frit_trust: font::trust().below(&dir),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: dir.join("batch.conf"),
     };
     let f = file.display().to_string();
@@ -4083,6 +4297,7 @@ fn check_config_reports_the_vtlooks_vtium_conf_names() {
         frits: PathBuf::from("/nonexistent/vtium/frits"),
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", f.as_str()]
@@ -4180,6 +4395,7 @@ fn a_top_level_vtlook_that_is_no_name_is_reported_once_where_it_is_given() {
         frits: PathBuf::from("/nonexistent/vtium/frits"),
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let check = |args: &[&str]| {
@@ -4240,6 +4456,7 @@ fn a_vtium_conf_the_drawing_process_cannot_read_is_warned_of() {
         frits: PathBuf::from("/nonexistent/vtium/frits"),
         frit_trust: font::trust(),
         systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        console_fonts: Vec::new(),
         batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
     };
     let vtium = Reader {

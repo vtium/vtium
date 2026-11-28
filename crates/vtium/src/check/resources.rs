@@ -758,6 +758,7 @@ mod tests {
             sources: None,
             gate: Some(&gate),
             draft: DraftFrits::default(),
+            console_fonts: Vec::new(),
         };
         let prefix = format!("{}:", file.display());
         font_files(&file, &settings)

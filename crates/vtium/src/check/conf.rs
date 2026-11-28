@@ -2,11 +2,11 @@
 //! rules and the devices.
 
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use vtium_settings::{
     Against, AtStart, Config as Heads, Identity, Lockout, Match, Note, Parsed, Problem, Read,
-    Rejected, Remark, Runs, Stating, Token, Trust, Untrusted, at,
+    Rejected, Remark, Runs, Stating, Token, Trust, Untrusted, Warning, at,
 };
 
 use crate::config::{Config, keys};
@@ -15,7 +15,7 @@ use crate::font;
 use crate::helper;
 use crate::notice::check_config;
 
-use super::frits::{DraftFrits, look_frits};
+use super::frits::{CONSOLE_FONT_FOLDERS, DraftFrits, font_found, look_frits};
 #[cfg(feature = "images")]
 use super::notes::look_login_images;
 use super::{Machine, VtsEnabled};
@@ -141,6 +141,9 @@ pub struct Settings<'a> {
     /// The font sets the draft adds, replaces and removes, which a look's
     /// frit is looked up with.
     pub draft: DraftFrits,
+    /// The folders where the font helper finds a kbd console font by its
+    /// name, which a `font-name` that names no font set is looked up in.
+    pub console_fonts: Vec<PathBuf>,
 }
 
 /// How the check asks the glyph helper of a font set for the lines of its
@@ -179,8 +182,8 @@ impl std::fmt::Debug for Squeeze<'_> {
 }
 
 impl Settings<'_> {
-    /// The caps `config` sets, and the frits in `frits`, read under
-    /// `trust`.
+    /// The caps `config` sets, the frits in `frits`, read under `trust`,
+    /// and the system's console font folders.
     pub fn of<'a>(config: &Config, frits: &'a Path, trust: Trust) -> Settings<'a> {
         let number = |key, unset: u32| {
             config
@@ -199,6 +202,7 @@ impl Settings<'_> {
             sources: None,
             gate: None,
             draft: DraftFrits::default(),
+            console_fonts: CONSOLE_FONT_FOLDERS.iter().map(PathBuf::from).collect(),
         }
     }
 }
@@ -329,7 +333,8 @@ fn errors(out: &mut HeadCheck, path: &Path, rejected: &Rejected) {
 
 /// What survives of the file, which a start `runs`: its warnings, counted,
 /// with those measured against `settings`, a head's `consoles` past a cap
-/// and a profile naming a missing frit (ADR-1401 D7, D10); and its notes:
+/// and a look whose `font-name` gives no font vtium loads (ADR-1401 D7,
+/// D10); and its notes:
 /// each rule that needs a udev daemon where none runs, each
 /// `connector-path:` rule, and the remarks on what runs, with what the
 /// devices present find (D3, D4, D5, D9). A start that runs the shipped
@@ -342,14 +347,19 @@ fn findings(
     settings: &Settings,
     runs: Runs,
 ) {
-    let has_frit = |name: &str| settings.draft.find(settings.frits, name).is_some();
+    let has_frit = |name: &str| font_found(name, settings);
     let against = Against {
         head_cap: settings.head_cap,
         total: settings.total,
         frits: settings.frits,
         has_frit: &has_frit,
     };
-    for w in &vtium_settings::warnings(parsed, &against) {
+    // look_frits words its own warning on a look's font that vtium does
+    // not find, with the folders it looked in and the package to install
+    for w in vtium_settings::warnings(parsed, &against)
+        .iter()
+        .filter(|w| !matches!(w, Warning::MissingFrit { .. }))
+    {
         out.counted.push(at(path, Some(w.line()), w).to_string());
     }
     look_frits(out, path, parsed, settings);
