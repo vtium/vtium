@@ -94,12 +94,13 @@ ops-off any.changes(undo) +unsaved	F1	ops-off any.about(undo) +unsaved
 ops-off any.changes(undo) +unsaved	Shrink	ops-off any.too-small(undo) +unsaved	
 ops-off any.changes(undo) +unsaved	e	ops-off any.changes(undo) +unsaved	change, editor
 ops-off any.changes(undo) +unsaved	q	ops-off left	exit 0
-ops-off any.filter	1	ops-off any.filter	
-ops-off any.filter	2	ops-off any.filter	
-ops-off any.filter	3	ops-off any.filter	
-ops-off any.filter	4	ops-off any.filter	
-ops-off any.filter	5	ops-off any.filter	
-ops-off any.filter	6	ops-off any.filter	
+ops-off any.filter	1	ops-off fonts(=Show:)	
+ops-off any.filter	2	ops-off effects(=Show:)	
+ops-off any.filter	3	ops-off looks(Looks)	
+ops-off any.filter	4	ops-off flow	
+ops-off any.filter	4	ops-off flow(DISPLAYS)	
+ops-off any.filter	5	ops-off settings(Settings)	
+ops-off any.filter	6	ops-off help(Help)	
 ops-off any.filter	?	ops-off any.search	
 ops-off any.filter	Alt-A	ops-off any.menu.actions(item 1)	
 ops-off any.filter	Alt-F	ops-off any.menu.file(item 0)	
@@ -108,30 +109,31 @@ ops-off any.filter	Click button	ops-off any.search
 ops-off any.filter	Ctrl-C	ops-off left	exit 0
 ops-off any.filter	Ctrl-F	ops-off any.find	
 ops-off any.filter	Esc	ops-off effects(=Show:)	
-ops-off any.filter	Esc	ops-off flow(DISPLAYS)	
 ops-off any.filter	Esc	ops-off fonts(=Show:)	
 ops-off any.filter	Esc	ops-off help(Help)	
-ops-off any.filter	Esc	ops-off looks(Looks)	
-ops-off any.filter	Esc	ops-off settings(Settings)	
+ops-off any.filter	Esc	ops-off looks(^Font)	
+ops-off any.filter	Esc	ops-off settings.section(Font)	
 ops-off any.filter	F1	ops-off any.about	
 ops-off any.filter	F10	ops-off any.menu.file(item 0)	
-ops-off any.filter	Shift-Tab	ops-off any.filter	
+ops-off any.filter	Shift-Tab	ops-off effects(=Show:)	
+ops-off any.filter	Shift-Tab	ops-off fonts(=Show:)	
+ops-off any.filter	Shift-Tab	ops-off help(Help)	
+ops-off any.filter	Shift-Tab	ops-off settings(Settings)	
 ops-off any.filter	Shrink	ops-off any.too-small	
-ops-off any.filter	Tab	ops-off any.filter	
-ops-off any.filter	d	ops-off any.filter	devices
+ops-off any.filter	Tab	ops-off effects(=Show:)	
+ops-off any.filter	Tab	ops-off flow	
+ops-off any.filter	Tab	ops-off fonts(=Show:)	
+ops-off any.filter	Tab	ops-off looks(Looks)	
 ops-off any.filter	n	ops-off any.filter(undo) +unsaved	change
-ops-off any.filter	n	ops-off any.new	
-ops-off any.filter	o	ops-off any.menu.file.history(item 11 › 0)	
 ops-off any.filter	q	ops-off left	exit 0
 ops-off any.filter	r	ops-off any.question.confirm(yes r.view.looks)	
-ops-off any.filter	v	ops-off any.changes	
 ops-off any.filter	w	ops-off any.question.confirm(yes window-ops.view.looks)	
-ops-off any.filter +unsaved	1	ops-off any.filter +unsaved	
-ops-off any.filter +unsaved	2	ops-off any.filter +unsaved	
-ops-off any.filter +unsaved	3	ops-off any.filter +unsaved	
-ops-off any.filter +unsaved	4	ops-off any.filter +unsaved	
-ops-off any.filter +unsaved	5	ops-off any.filter +unsaved	
-ops-off any.filter +unsaved	6	ops-off any.filter +unsaved	
+ops-off any.filter +unsaved	1	ops-off fonts(=Show:) +unsaved	
+ops-off any.filter +unsaved	2	ops-off effects(=Show:) +unsaved	
+ops-off any.filter +unsaved	3	ops-off looks(Looks) +unsaved	
+ops-off any.filter +unsaved	4	ops-off flow(DISPLAYS) +unsaved	
+ops-off any.filter +unsaved	5	ops-off settings(Settings) +unsaved	
+ops-off any.filter +unsaved	6	ops-off help(Help) +unsaved	
 ops-off any.filter +unsaved	?	ops-off any.search +unsaved	
 ops-off any.filter +unsaved	Alt-A	ops-off any.menu.actions(item 1) +unsaved	
 ops-off any.filter +unsaved	Alt-F	ops-off any.menu.file(item 0) +unsaved	
@@ -140,30 +142,31 @@ ops-off any.filter +unsaved	Click button	ops-off any.search +unsaved
 ops-off any.filter +unsaved	Ctrl-C	ops-off left	exit 0
 ops-off any.filter +unsaved	Ctrl-F	ops-off any.find +unsaved	
 ops-off any.filter +unsaved	Ctrl-S	ops-off any.save +unsaved	prepare
-ops-off any.filter +unsaved	Enter	ops-off any.filter(undo) +unsaved	change
+ops-off any.filter +unsaved	Ctrl-Y	ops-off any.filter(undo) +unsaved	change
 ops-off any.filter +unsaved	Esc	ops-off effects(=Show:) +unsaved	
-ops-off any.filter +unsaved	Esc	ops-off flow(DISPLAYS) +unsaved	
 ops-off any.filter +unsaved	Esc	ops-off fonts(=Show:) +unsaved	
 ops-off any.filter +unsaved	Esc	ops-off help(Help) +unsaved	
 ops-off any.filter +unsaved	Esc	ops-off looks-resources(Color) +unsaved	
-ops-off any.filter +unsaved	Esc	ops-off settings.section.list(Text) +unsaved	
+ops-off any.filter +unsaved	Esc	ops-off settings.section(Text) +unsaved	
 ops-off any.filter +unsaved	F1	ops-off any.about +unsaved	
 ops-off any.filter +unsaved	F10	ops-off any.menu.file(item 0) +unsaved	
-ops-off any.filter +unsaved	Shift-Tab	ops-off any.filter +unsaved	
+ops-off any.filter +unsaved	Shift-Tab	ops-off effects(=Show:) +unsaved	
+ops-off any.filter +unsaved	Shift-Tab	ops-off fonts(=Show:) +unsaved	
+ops-off any.filter +unsaved	Shift-Tab	ops-off help(Help) +unsaved	
+ops-off any.filter +unsaved	Shift-Tab	ops-off settings(Settings) +unsaved	
 ops-off any.filter +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off any.filter +unsaved	Tab	ops-off any.filter +unsaved	
-ops-off any.filter +unsaved	d	ops-off any.filter +unsaved	devices
-ops-off any.filter +unsaved	n	ops-off any.new +unsaved	
-ops-off any.filter +unsaved	o	ops-off any.menu.file.history(item 11 › 0) +unsaved	
+ops-off any.filter +unsaved	Tab	ops-off effects(=Show:) +unsaved	
+ops-off any.filter +unsaved	Tab	ops-off flow(DISPLAYS) +unsaved	
+ops-off any.filter +unsaved	Tab	ops-off fonts(=Show:) +unsaved	
+ops-off any.filter +unsaved	Tab	ops-off looks(Looks) +unsaved	
 ops-off any.filter +unsaved	q	ops-off left	exit 0
-ops-off any.filter +unsaved	r	ops-off any.question.confirm(yes y.question.revert) +unsaved	
-ops-off any.filter +unsaved	v	ops-off any.changes +unsaved	
-ops-off any.filter(undo)	1	ops-off any.filter(undo)	
-ops-off any.filter(undo)	2	ops-off any.filter(undo)	
-ops-off any.filter(undo)	3	ops-off any.filter(undo)	
-ops-off any.filter(undo)	4	ops-off any.filter(undo)	
-ops-off any.filter(undo)	5	ops-off any.filter(undo)	
-ops-off any.filter(undo)	6	ops-off any.filter(undo)	
+ops-off any.filter(undo)	1	ops-off fonts(=Show:; undo)	
+ops-off any.filter(undo)	2	ops-off effects(=Show:; undo)	
+ops-off any.filter(undo)	3	ops-off looks(Looks; undo)	
+ops-off any.filter(undo)	4	ops-off flow(DISPLAYS; undo)	
+ops-off any.filter(undo)	4	ops-off flow(undo)	
+ops-off any.filter(undo)	5	ops-off settings(Settings; undo)	
+ops-off any.filter(undo)	6	ops-off help(Help; undo)	
 ops-off any.filter(undo)	?	ops-off any.search(undo)	
 ops-off any.filter(undo)	Alt-A	ops-off any.menu.actions(item 1; undo)	
 ops-off any.filter(undo)	Alt-F	ops-off any.menu.file(item 0; undo)	
@@ -173,30 +176,32 @@ ops-off any.filter(undo)	Ctrl-C	ops-off left	exit 0
 ops-off any.filter(undo)	Ctrl-F	ops-off any.find(undo)	
 ops-off any.filter(undo)	Ctrl-Z	ops-off any.filter +unsaved	change
 ops-off any.filter(undo)	Esc	ops-off effects(=Show:; undo)	
-ops-off any.filter(undo)	Esc	ops-off flow(DISPLAYS; undo)	
 ops-off any.filter(undo)	Esc	ops-off fonts(=Show:; undo)	
 ops-off any.filter(undo)	Esc	ops-off help(Help; undo)	
-ops-off any.filter(undo)	Esc	ops-off looks(Looks; undo)	
-ops-off any.filter(undo)	Esc	ops-off settings(Settings; undo)	
+ops-off any.filter(undo)	Esc	ops-off looks(^Font; undo)	
+ops-off any.filter(undo)	Esc	ops-off settings.section(Font; undo)	
 ops-off any.filter(undo)	F1	ops-off any.about(undo)	
 ops-off any.filter(undo)	F10	ops-off any.menu.file(item 0; undo)	
-ops-off any.filter(undo)	Shift-Tab	ops-off any.filter(undo)	
+ops-off any.filter(undo)	Shift-Tab	ops-off effects(=Show:; undo)	
+ops-off any.filter(undo)	Shift-Tab	ops-off fonts(=Show:; undo)	
+ops-off any.filter(undo)	Shift-Tab	ops-off help(Help; undo)	
+ops-off any.filter(undo)	Shift-Tab	ops-off settings(Settings; undo)	
 ops-off any.filter(undo)	Shrink	ops-off any.too-small(undo)	
-ops-off any.filter(undo)	Tab	ops-off any.filter(undo)	
-ops-off any.filter(undo)	d	ops-off any.filter(undo)	devices
+ops-off any.filter(undo)	Tab	ops-off effects(=Show:; undo)	
+ops-off any.filter(undo)	Tab	ops-off flow(undo)	
+ops-off any.filter(undo)	Tab	ops-off fonts(=Show:; undo)	
+ops-off any.filter(undo)	Tab	ops-off looks(Looks; undo)	
 ops-off any.filter(undo)	n	ops-off any.filter(undo) +unsaved	change
-ops-off any.filter(undo)	n	ops-off any.new(undo)	
-ops-off any.filter(undo)	o	ops-off any.menu.file.history(item 11 › 0; undo)	
 ops-off any.filter(undo)	q	ops-off left	exit 0
 ops-off any.filter(undo)	r	ops-off any.question.confirm(yes r.view.looks; undo)	
-ops-off any.filter(undo)	v	ops-off any.changes(undo)	
 ops-off any.filter(undo)	w	ops-off any.question.confirm(yes window-ops.view.looks; undo)	
-ops-off any.filter(undo) +unsaved	1	ops-off any.filter(undo) +unsaved	
-ops-off any.filter(undo) +unsaved	2	ops-off any.filter(undo) +unsaved	
-ops-off any.filter(undo) +unsaved	3	ops-off any.filter(undo) +unsaved	
-ops-off any.filter(undo) +unsaved	4	ops-off any.filter(undo) +unsaved	
-ops-off any.filter(undo) +unsaved	5	ops-off any.filter(undo) +unsaved	
-ops-off any.filter(undo) +unsaved	6	ops-off any.filter(undo) +unsaved	
+ops-off any.filter(undo) +unsaved	1	ops-off fonts(=Show:; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	2	ops-off effects(=Show:; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	3	ops-off looks(Looks; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	4	ops-off flow(DISPLAYS; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	4	ops-off flow(NEW; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	5	ops-off settings(Settings; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	6	ops-off help(Help; undo) +unsaved	
 ops-off any.filter(undo) +unsaved	?	ops-off any.search(undo) +unsaved	
 ops-off any.filter(undo) +unsaved	Alt-A	ops-off any.menu.actions(item 1; undo) +unsaved	
 ops-off any.filter(undo) +unsaved	Alt-F	ops-off any.menu.file(item 0; undo) +unsaved	
@@ -205,24 +210,23 @@ ops-off any.filter(undo) +unsaved	Click button	ops-off any.search(undo) +unsaved
 ops-off any.filter(undo) +unsaved	Ctrl-C	ops-off left	exit 0
 ops-off any.filter(undo) +unsaved	Ctrl-F	ops-off any.find(undo) +unsaved	
 ops-off any.filter(undo) +unsaved	Ctrl-S	ops-off any.save(undo) +unsaved	prepare
+ops-off any.filter(undo) +unsaved	Ctrl-Z	ops-off any.filter	change
 ops-off any.filter(undo) +unsaved	Ctrl-Z	ops-off any.filter +unsaved	change
 ops-off any.filter(undo) +unsaved	Esc	ops-off effects(=Show:; undo) +unsaved	
-ops-off any.filter(undo) +unsaved	Esc	ops-off flow(DISPLAYS; undo) +unsaved	
 ops-off any.filter(undo) +unsaved	Esc	ops-off fonts(=Show:; undo) +unsaved	
 ops-off any.filter(undo) +unsaved	Esc	ops-off help(Help; undo) +unsaved	
-ops-off any.filter(undo) +unsaved	Esc	ops-off looks.look.list(=●; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	Esc	ops-off looks.look.typing(new-look; undo) +unsaved	
 ops-off any.filter(undo) +unsaved	Esc	ops-off settings.section(Text; undo) +unsaved	
 ops-off any.filter(undo) +unsaved	F1	ops-off any.about(undo) +unsaved	
 ops-off any.filter(undo) +unsaved	F10	ops-off any.menu.file(item 0; undo) +unsaved	
-ops-off any.filter(undo) +unsaved	Shift-Tab	ops-off any.filter(undo) +unsaved	
+ops-off any.filter(undo) +unsaved	Shift-Tab	ops-off fonts(=Show:; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	Shift-Tab	ops-off help(Help; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	Shift-Tab	ops-off settings(Settings; undo) +unsaved	
 ops-off any.filter(undo) +unsaved	Shrink	ops-off any.too-small(undo) +unsaved	
-ops-off any.filter(undo) +unsaved	Tab	ops-off any.filter(undo) +unsaved	
-ops-off any.filter(undo) +unsaved	d	ops-off any.filter(undo) +unsaved	devices
-ops-off any.filter(undo) +unsaved	n	ops-off any.new(undo) +unsaved	
-ops-off any.filter(undo) +unsaved	o	ops-off any.menu.file.history(item 11 › 0; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	Tab	ops-off effects(=Show:; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	Tab	ops-off fonts(=Show:; undo) +unsaved	
+ops-off any.filter(undo) +unsaved	Tab	ops-off looks(Looks; undo) +unsaved	
 ops-off any.filter(undo) +unsaved	q	ops-off left	exit 0
-ops-off any.filter(undo) +unsaved	r	ops-off any.question.confirm(yes y.question.revert; undo) +unsaved	
-ops-off any.filter(undo) +unsaved	v	ops-off any.changes(undo) +unsaved	
 ops-off any.find	Backspace	ops-off flow	
 ops-off any.find	Ctrl-C	ops-off left	exit 0
 ops-off any.find	Esc	ops-off flow	
@@ -2994,64 +2998,60 @@ ops-off any.save(undo) +unsaved	F1	ops-off any.about(undo) +unsaved
 ops-off any.save(undo) +unsaved	Shrink	ops-off any.too-small(undo) +unsaved	
 ops-off any.save(undo) +unsaved	q	ops-off left	exit 0
 ops-off any.search	Backspace	ops-off effects(=Show:)	
-ops-off any.search	Backspace	ops-off flow(DISPLAYS)	
 ops-off any.search	Backspace	ops-off fonts(=Show:)	
 ops-off any.search	Backspace	ops-off help(Help)	
-ops-off any.search	Backspace	ops-off looks(Looks)	
-ops-off any.search	Backspace	ops-off settings(Settings)	
+ops-off any.search	Backspace	ops-off looks(^Font)	
+ops-off any.search	Backspace	ops-off settings.section(Font)	
 ops-off any.search	Click button	ops-off any.filter	
 ops-off any.search	Ctrl-C	ops-off left	exit 0
 ops-off any.search	Enter	ops-off any.filter	
 ops-off any.search	Esc	ops-off effects(=Show:)	
-ops-off any.search	Esc	ops-off flow(DISPLAYS)	
 ops-off any.search	Esc	ops-off fonts(=Show:)	
 ops-off any.search	Esc	ops-off help(Help)	
-ops-off any.search	Esc	ops-off looks(Looks)	
-ops-off any.search	Esc	ops-off settings(Settings)	
+ops-off any.search	Esc	ops-off looks(^Font)	
+ops-off any.search	Esc	ops-off settings.section(Font)	
 ops-off any.search	Shrink	ops-off any.too-small	
 ops-off any.search +unsaved	Backspace	ops-off effects(=Show:) +unsaved	
-ops-off any.search +unsaved	Backspace	ops-off flow(DISPLAYS) +unsaved	
 ops-off any.search +unsaved	Backspace	ops-off fonts(=Show:) +unsaved	
 ops-off any.search +unsaved	Backspace	ops-off help(Help) +unsaved	
 ops-off any.search +unsaved	Backspace	ops-off looks-resources(Color) +unsaved	
 ops-off any.search +unsaved	Backspace	ops-off settings.section.list(Text) +unsaved	
 ops-off any.search +unsaved	Click button	ops-off any.filter +unsaved	
+ops-off any.search +unsaved	Click button	ops-off settings.section.list(Text) +unsaved	
 ops-off any.search +unsaved	Ctrl-C	ops-off left	exit 0
 ops-off any.search +unsaved	Enter	ops-off any.filter +unsaved	
+ops-off any.search +unsaved	Enter	ops-off settings.section.list(Text) +unsaved	
 ops-off any.search +unsaved	Esc	ops-off effects(=Show:) +unsaved	
-ops-off any.search +unsaved	Esc	ops-off flow(DISPLAYS) +unsaved	
 ops-off any.search +unsaved	Esc	ops-off fonts(=Show:) +unsaved	
 ops-off any.search +unsaved	Esc	ops-off help(Help) +unsaved	
 ops-off any.search +unsaved	Esc	ops-off looks-resources(Color) +unsaved	
 ops-off any.search +unsaved	Esc	ops-off settings.section.list(Text) +unsaved	
 ops-off any.search +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off any.search(undo)	Backspace	ops-off effects(=Show:; undo)	
-ops-off any.search(undo)	Backspace	ops-off flow(DISPLAYS; undo)	
 ops-off any.search(undo)	Backspace	ops-off fonts(=Show:; undo)	
 ops-off any.search(undo)	Backspace	ops-off help(Help; undo)	
-ops-off any.search(undo)	Backspace	ops-off looks(Looks; undo)	
-ops-off any.search(undo)	Backspace	ops-off settings(Settings; undo)	
+ops-off any.search(undo)	Backspace	ops-off looks(^Font; undo)	
+ops-off any.search(undo)	Backspace	ops-off settings.section(Font; undo)	
 ops-off any.search(undo)	Click button	ops-off any.filter(undo)	
 ops-off any.search(undo)	Ctrl-C	ops-off left	exit 0
 ops-off any.search(undo)	Enter	ops-off any.filter(undo)	
 ops-off any.search(undo)	Esc	ops-off effects(=Show:; undo)	
-ops-off any.search(undo)	Esc	ops-off flow(DISPLAYS; undo)	
 ops-off any.search(undo)	Esc	ops-off fonts(=Show:; undo)	
 ops-off any.search(undo)	Esc	ops-off help(Help; undo)	
-ops-off any.search(undo)	Esc	ops-off looks(Looks; undo)	
-ops-off any.search(undo)	Esc	ops-off settings(Settings; undo)	
+ops-off any.search(undo)	Esc	ops-off looks(^Font; undo)	
+ops-off any.search(undo)	Esc	ops-off settings.section(Font; undo)	
 ops-off any.search(undo)	Shrink	ops-off any.too-small(undo)	
 ops-off any.search(undo) +unsaved	Backspace	ops-off effects(=Show:; undo) +unsaved	
-ops-off any.search(undo) +unsaved	Backspace	ops-off flow(DISPLAYS; undo) +unsaved	
 ops-off any.search(undo) +unsaved	Backspace	ops-off fonts(=Show:; undo) +unsaved	
 ops-off any.search(undo) +unsaved	Backspace	ops-off help(Help; undo) +unsaved	
 ops-off any.search(undo) +unsaved	Backspace	ops-off looks.look.list(=●; undo) +unsaved	
 ops-off any.search(undo) +unsaved	Backspace	ops-off settings.section(Text; undo) +unsaved	
 ops-off any.search(undo) +unsaved	Click button	ops-off any.filter(undo) +unsaved	
+ops-off any.search(undo) +unsaved	Click button	ops-off looks.look.list(=●; undo) +unsaved	
 ops-off any.search(undo) +unsaved	Ctrl-C	ops-off left	exit 0
 ops-off any.search(undo) +unsaved	Enter	ops-off any.filter(undo) +unsaved	
+ops-off any.search(undo) +unsaved	Enter	ops-off looks.look.list(=●; undo) +unsaved	
 ops-off any.search(undo) +unsaved	Esc	ops-off effects(=Show:; undo) +unsaved	
-ops-off any.search(undo) +unsaved	Esc	ops-off flow(DISPLAYS; undo) +unsaved	
 ops-off any.search(undo) +unsaved	Esc	ops-off fonts(=Show:; undo) +unsaved	
 ops-off any.search(undo) +unsaved	Esc	ops-off help(Help; undo) +unsaved	
 ops-off any.search(undo) +unsaved	Esc	ops-off looks.look.list(=●; undo) +unsaved	

@@ -94,12 +94,13 @@ other any.changes(undo) +unsaved	F1	other any.about(undo) +unsaved
 other any.changes(undo) +unsaved	Shrink	other any.too-small(undo) +unsaved	
 other any.changes(undo) +unsaved	e	other any.changes(undo) +unsaved	change, editor
 other any.changes(undo) +unsaved	q	other left	exit 0
-other any.filter	1	other any.filter	
-other any.filter	2	other any.filter	
-other any.filter	3	other any.filter	
-other any.filter	4	other any.filter	
-other any.filter	5	other any.filter	
-other any.filter	6	other any.filter	
+other any.filter	1	other fonts(=Show:)	
+other any.filter	2	other effects(=Show:)	
+other any.filter	3	other looks(Looks)	
+other any.filter	4	other flow	
+other any.filter	4	other flow(DISPLAYS)	
+other any.filter	5	other settings(Settings)	
+other any.filter	6	other help(Help)	
 other any.filter	?	other any.search	
 other any.filter	Alt-A	other any.menu.actions(item 1)	
 other any.filter	Alt-F	other any.menu.file(item 0)	
@@ -108,30 +109,31 @@ other any.filter	Click button	other any.search
 other any.filter	Ctrl-C	other left	exit 0
 other any.filter	Ctrl-F	other any.find	
 other any.filter	Esc	other effects(=Show:)	
-other any.filter	Esc	other flow(DISPLAYS)	
 other any.filter	Esc	other fonts(=Show:)	
 other any.filter	Esc	other help(Help)	
-other any.filter	Esc	other looks(Looks)	
-other any.filter	Esc	other settings(Settings)	
+other any.filter	Esc	other looks(^Font)	
+other any.filter	Esc	other settings.section(Font)	
 other any.filter	F1	other any.about	
 other any.filter	F10	other any.menu.file(item 0)	
-other any.filter	Shift-Tab	other any.filter	
+other any.filter	Shift-Tab	other effects(=Show:)	
+other any.filter	Shift-Tab	other fonts(=Show:)	
+other any.filter	Shift-Tab	other help(Help)	
+other any.filter	Shift-Tab	other settings(Settings)	
 other any.filter	Shrink	other any.too-small	
-other any.filter	Tab	other any.filter	
-other any.filter	d	other any.filter	devices
+other any.filter	Tab	other effects(=Show:)	
+other any.filter	Tab	other flow	
+other any.filter	Tab	other fonts(=Show:)	
+other any.filter	Tab	other looks(Looks)	
 other any.filter	n	other any.filter(undo) +unsaved	change
-other any.filter	n	other any.new	
-other any.filter	o	other any.menu.file.history(item 11 › 0)	
 other any.filter	q	other left	exit 0
 other any.filter	r	other any.question.confirm(yes r.view.looks)	
-other any.filter	v	other any.changes	
 other any.filter	w	other any.question.confirm(yes window-ops.view.looks)	
-other any.filter +unsaved	1	other any.filter +unsaved	
-other any.filter +unsaved	2	other any.filter +unsaved	
-other any.filter +unsaved	3	other any.filter +unsaved	
-other any.filter +unsaved	4	other any.filter +unsaved	
-other any.filter +unsaved	5	other any.filter +unsaved	
-other any.filter +unsaved	6	other any.filter +unsaved	
+other any.filter +unsaved	1	other fonts(=Show:) +unsaved	
+other any.filter +unsaved	2	other effects(=Show:) +unsaved	
+other any.filter +unsaved	3	other looks(Looks) +unsaved	
+other any.filter +unsaved	4	other flow(DISPLAYS) +unsaved	
+other any.filter +unsaved	5	other settings(Settings) +unsaved	
+other any.filter +unsaved	6	other help(Help) +unsaved	
 other any.filter +unsaved	?	other any.search +unsaved	
 other any.filter +unsaved	Alt-A	other any.menu.actions(item 1) +unsaved	
 other any.filter +unsaved	Alt-F	other any.menu.file(item 0) +unsaved	
@@ -140,30 +142,31 @@ other any.filter +unsaved	Click button	other any.search +unsaved
 other any.filter +unsaved	Ctrl-C	other left	exit 0
 other any.filter +unsaved	Ctrl-F	other any.find +unsaved	
 other any.filter +unsaved	Ctrl-S	other any.save +unsaved	prepare
-other any.filter +unsaved	Enter	other any.filter(undo) +unsaved	change
+other any.filter +unsaved	Ctrl-Y	other any.filter(undo) +unsaved	change
 other any.filter +unsaved	Esc	other effects(=Show:) +unsaved	
-other any.filter +unsaved	Esc	other flow(DISPLAYS) +unsaved	
 other any.filter +unsaved	Esc	other fonts(=Show:) +unsaved	
 other any.filter +unsaved	Esc	other help(Help) +unsaved	
 other any.filter +unsaved	Esc	other looks-resources(Color) +unsaved	
-other any.filter +unsaved	Esc	other settings.section.list(Text) +unsaved	
+other any.filter +unsaved	Esc	other settings.section(Text) +unsaved	
 other any.filter +unsaved	F1	other any.about +unsaved	
 other any.filter +unsaved	F10	other any.menu.file(item 0) +unsaved	
-other any.filter +unsaved	Shift-Tab	other any.filter +unsaved	
+other any.filter +unsaved	Shift-Tab	other effects(=Show:) +unsaved	
+other any.filter +unsaved	Shift-Tab	other fonts(=Show:) +unsaved	
+other any.filter +unsaved	Shift-Tab	other help(Help) +unsaved	
+other any.filter +unsaved	Shift-Tab	other settings(Settings) +unsaved	
 other any.filter +unsaved	Shrink	other any.too-small +unsaved	
-other any.filter +unsaved	Tab	other any.filter +unsaved	
-other any.filter +unsaved	d	other any.filter +unsaved	devices
-other any.filter +unsaved	n	other any.new +unsaved	
-other any.filter +unsaved	o	other any.menu.file.history(item 11 › 0) +unsaved	
+other any.filter +unsaved	Tab	other effects(=Show:) +unsaved	
+other any.filter +unsaved	Tab	other flow(DISPLAYS) +unsaved	
+other any.filter +unsaved	Tab	other fonts(=Show:) +unsaved	
+other any.filter +unsaved	Tab	other looks(Looks) +unsaved	
 other any.filter +unsaved	q	other left	exit 0
-other any.filter +unsaved	r	other any.question.confirm(yes y.question.revert) +unsaved	
-other any.filter +unsaved	v	other any.changes +unsaved	
-other any.filter(undo)	1	other any.filter(undo)	
-other any.filter(undo)	2	other any.filter(undo)	
-other any.filter(undo)	3	other any.filter(undo)	
-other any.filter(undo)	4	other any.filter(undo)	
-other any.filter(undo)	5	other any.filter(undo)	
-other any.filter(undo)	6	other any.filter(undo)	
+other any.filter(undo)	1	other fonts(=Show:; undo)	
+other any.filter(undo)	2	other effects(=Show:; undo)	
+other any.filter(undo)	3	other looks(Looks; undo)	
+other any.filter(undo)	4	other flow(DISPLAYS; undo)	
+other any.filter(undo)	4	other flow(undo)	
+other any.filter(undo)	5	other settings(Settings; undo)	
+other any.filter(undo)	6	other help(Help; undo)	
 other any.filter(undo)	?	other any.search(undo)	
 other any.filter(undo)	Alt-A	other any.menu.actions(item 1; undo)	
 other any.filter(undo)	Alt-F	other any.menu.file(item 0; undo)	
@@ -173,30 +176,32 @@ other any.filter(undo)	Ctrl-C	other left	exit 0
 other any.filter(undo)	Ctrl-F	other any.find(undo)	
 other any.filter(undo)	Ctrl-Z	other any.filter +unsaved	change
 other any.filter(undo)	Esc	other effects(=Show:; undo)	
-other any.filter(undo)	Esc	other flow(DISPLAYS; undo)	
 other any.filter(undo)	Esc	other fonts(=Show:; undo)	
 other any.filter(undo)	Esc	other help(Help; undo)	
-other any.filter(undo)	Esc	other looks(Looks; undo)	
-other any.filter(undo)	Esc	other settings(Settings; undo)	
+other any.filter(undo)	Esc	other looks(^Font; undo)	
+other any.filter(undo)	Esc	other settings.section(Font; undo)	
 other any.filter(undo)	F1	other any.about(undo)	
 other any.filter(undo)	F10	other any.menu.file(item 0; undo)	
-other any.filter(undo)	Shift-Tab	other any.filter(undo)	
+other any.filter(undo)	Shift-Tab	other effects(=Show:; undo)	
+other any.filter(undo)	Shift-Tab	other fonts(=Show:; undo)	
+other any.filter(undo)	Shift-Tab	other help(Help; undo)	
+other any.filter(undo)	Shift-Tab	other settings(Settings; undo)	
 other any.filter(undo)	Shrink	other any.too-small(undo)	
-other any.filter(undo)	Tab	other any.filter(undo)	
-other any.filter(undo)	d	other any.filter(undo)	devices
+other any.filter(undo)	Tab	other effects(=Show:; undo)	
+other any.filter(undo)	Tab	other flow(undo)	
+other any.filter(undo)	Tab	other fonts(=Show:; undo)	
+other any.filter(undo)	Tab	other looks(Looks; undo)	
 other any.filter(undo)	n	other any.filter(undo) +unsaved	change
-other any.filter(undo)	n	other any.new(undo)	
-other any.filter(undo)	o	other any.menu.file.history(item 11 › 0; undo)	
 other any.filter(undo)	q	other left	exit 0
 other any.filter(undo)	r	other any.question.confirm(yes r.view.looks; undo)	
-other any.filter(undo)	v	other any.changes(undo)	
 other any.filter(undo)	w	other any.question.confirm(yes window-ops.view.looks; undo)	
-other any.filter(undo) +unsaved	1	other any.filter(undo) +unsaved	
-other any.filter(undo) +unsaved	2	other any.filter(undo) +unsaved	
-other any.filter(undo) +unsaved	3	other any.filter(undo) +unsaved	
-other any.filter(undo) +unsaved	4	other any.filter(undo) +unsaved	
-other any.filter(undo) +unsaved	5	other any.filter(undo) +unsaved	
-other any.filter(undo) +unsaved	6	other any.filter(undo) +unsaved	
+other any.filter(undo) +unsaved	1	other fonts(=Show:; undo) +unsaved	
+other any.filter(undo) +unsaved	2	other effects(=Show:; undo) +unsaved	
+other any.filter(undo) +unsaved	3	other looks(Looks; undo) +unsaved	
+other any.filter(undo) +unsaved	4	other flow(DISPLAYS; undo) +unsaved	
+other any.filter(undo) +unsaved	4	other flow(NEW; undo) +unsaved	
+other any.filter(undo) +unsaved	5	other settings(Settings; undo) +unsaved	
+other any.filter(undo) +unsaved	6	other help(Help; undo) +unsaved	
 other any.filter(undo) +unsaved	?	other any.search(undo) +unsaved	
 other any.filter(undo) +unsaved	Alt-A	other any.menu.actions(item 1; undo) +unsaved	
 other any.filter(undo) +unsaved	Alt-F	other any.menu.file(item 0; undo) +unsaved	
@@ -205,24 +210,23 @@ other any.filter(undo) +unsaved	Click button	other any.search(undo) +unsaved
 other any.filter(undo) +unsaved	Ctrl-C	other left	exit 0
 other any.filter(undo) +unsaved	Ctrl-F	other any.find(undo) +unsaved	
 other any.filter(undo) +unsaved	Ctrl-S	other any.save(undo) +unsaved	prepare
+other any.filter(undo) +unsaved	Ctrl-Z	other any.filter	change
 other any.filter(undo) +unsaved	Ctrl-Z	other any.filter +unsaved	change
 other any.filter(undo) +unsaved	Esc	other effects(=Show:; undo) +unsaved	
-other any.filter(undo) +unsaved	Esc	other flow(DISPLAYS; undo) +unsaved	
 other any.filter(undo) +unsaved	Esc	other fonts(=Show:; undo) +unsaved	
 other any.filter(undo) +unsaved	Esc	other help(Help; undo) +unsaved	
-other any.filter(undo) +unsaved	Esc	other looks.look.list(=●; undo) +unsaved	
+other any.filter(undo) +unsaved	Esc	other looks.look.typing(new-look; undo) +unsaved	
 other any.filter(undo) +unsaved	Esc	other settings.section(Text; undo) +unsaved	
 other any.filter(undo) +unsaved	F1	other any.about(undo) +unsaved	
 other any.filter(undo) +unsaved	F10	other any.menu.file(item 0; undo) +unsaved	
-other any.filter(undo) +unsaved	Shift-Tab	other any.filter(undo) +unsaved	
+other any.filter(undo) +unsaved	Shift-Tab	other fonts(=Show:; undo) +unsaved	
+other any.filter(undo) +unsaved	Shift-Tab	other help(Help; undo) +unsaved	
+other any.filter(undo) +unsaved	Shift-Tab	other settings(Settings; undo) +unsaved	
 other any.filter(undo) +unsaved	Shrink	other any.too-small(undo) +unsaved	
-other any.filter(undo) +unsaved	Tab	other any.filter(undo) +unsaved	
-other any.filter(undo) +unsaved	d	other any.filter(undo) +unsaved	devices
-other any.filter(undo) +unsaved	n	other any.new(undo) +unsaved	
-other any.filter(undo) +unsaved	o	other any.menu.file.history(item 11 › 0; undo) +unsaved	
+other any.filter(undo) +unsaved	Tab	other effects(=Show:; undo) +unsaved	
+other any.filter(undo) +unsaved	Tab	other fonts(=Show:; undo) +unsaved	
+other any.filter(undo) +unsaved	Tab	other looks(Looks; undo) +unsaved	
 other any.filter(undo) +unsaved	q	other left	exit 0
-other any.filter(undo) +unsaved	r	other any.question.confirm(yes y.question.revert; undo) +unsaved	
-other any.filter(undo) +unsaved	v	other any.changes(undo) +unsaved	
 other any.find	Backspace	other flow	
 other any.find	Ctrl-C	other left	exit 0
 other any.find	Esc	other flow	
@@ -2994,64 +2998,60 @@ other any.save(undo) +unsaved	F1	other any.about(undo) +unsaved
 other any.save(undo) +unsaved	Shrink	other any.too-small(undo) +unsaved	
 other any.save(undo) +unsaved	q	other left	exit 0
 other any.search	Backspace	other effects(=Show:)	
-other any.search	Backspace	other flow(DISPLAYS)	
 other any.search	Backspace	other fonts(=Show:)	
 other any.search	Backspace	other help(Help)	
-other any.search	Backspace	other looks(Looks)	
-other any.search	Backspace	other settings(Settings)	
+other any.search	Backspace	other looks(^Font)	
+other any.search	Backspace	other settings.section(Font)	
 other any.search	Click button	other any.filter	
 other any.search	Ctrl-C	other left	exit 0
 other any.search	Enter	other any.filter	
 other any.search	Esc	other effects(=Show:)	
-other any.search	Esc	other flow(DISPLAYS)	
 other any.search	Esc	other fonts(=Show:)	
 other any.search	Esc	other help(Help)	
-other any.search	Esc	other looks(Looks)	
-other any.search	Esc	other settings(Settings)	
+other any.search	Esc	other looks(^Font)	
+other any.search	Esc	other settings.section(Font)	
 other any.search	Shrink	other any.too-small	
 other any.search +unsaved	Backspace	other effects(=Show:) +unsaved	
-other any.search +unsaved	Backspace	other flow(DISPLAYS) +unsaved	
 other any.search +unsaved	Backspace	other fonts(=Show:) +unsaved	
 other any.search +unsaved	Backspace	other help(Help) +unsaved	
 other any.search +unsaved	Backspace	other looks-resources(Color) +unsaved	
 other any.search +unsaved	Backspace	other settings.section.list(Text) +unsaved	
 other any.search +unsaved	Click button	other any.filter +unsaved	
+other any.search +unsaved	Click button	other settings.section.list(Text) +unsaved	
 other any.search +unsaved	Ctrl-C	other left	exit 0
 other any.search +unsaved	Enter	other any.filter +unsaved	
+other any.search +unsaved	Enter	other settings.section.list(Text) +unsaved	
 other any.search +unsaved	Esc	other effects(=Show:) +unsaved	
-other any.search +unsaved	Esc	other flow(DISPLAYS) +unsaved	
 other any.search +unsaved	Esc	other fonts(=Show:) +unsaved	
 other any.search +unsaved	Esc	other help(Help) +unsaved	
 other any.search +unsaved	Esc	other looks-resources(Color) +unsaved	
 other any.search +unsaved	Esc	other settings.section.list(Text) +unsaved	
 other any.search +unsaved	Shrink	other any.too-small +unsaved	
 other any.search(undo)	Backspace	other effects(=Show:; undo)	
-other any.search(undo)	Backspace	other flow(DISPLAYS; undo)	
 other any.search(undo)	Backspace	other fonts(=Show:; undo)	
 other any.search(undo)	Backspace	other help(Help; undo)	
-other any.search(undo)	Backspace	other looks(Looks; undo)	
-other any.search(undo)	Backspace	other settings(Settings; undo)	
+other any.search(undo)	Backspace	other looks(^Font; undo)	
+other any.search(undo)	Backspace	other settings.section(Font; undo)	
 other any.search(undo)	Click button	other any.filter(undo)	
 other any.search(undo)	Ctrl-C	other left	exit 0
 other any.search(undo)	Enter	other any.filter(undo)	
 other any.search(undo)	Esc	other effects(=Show:; undo)	
-other any.search(undo)	Esc	other flow(DISPLAYS; undo)	
 other any.search(undo)	Esc	other fonts(=Show:; undo)	
 other any.search(undo)	Esc	other help(Help; undo)	
-other any.search(undo)	Esc	other looks(Looks; undo)	
-other any.search(undo)	Esc	other settings(Settings; undo)	
+other any.search(undo)	Esc	other looks(^Font; undo)	
+other any.search(undo)	Esc	other settings.section(Font; undo)	
 other any.search(undo)	Shrink	other any.too-small(undo)	
 other any.search(undo) +unsaved	Backspace	other effects(=Show:; undo) +unsaved	
-other any.search(undo) +unsaved	Backspace	other flow(DISPLAYS; undo) +unsaved	
 other any.search(undo) +unsaved	Backspace	other fonts(=Show:; undo) +unsaved	
 other any.search(undo) +unsaved	Backspace	other help(Help; undo) +unsaved	
 other any.search(undo) +unsaved	Backspace	other looks.look.list(=●; undo) +unsaved	
 other any.search(undo) +unsaved	Backspace	other settings.section(Text; undo) +unsaved	
 other any.search(undo) +unsaved	Click button	other any.filter(undo) +unsaved	
+other any.search(undo) +unsaved	Click button	other looks.look.list(=●; undo) +unsaved	
 other any.search(undo) +unsaved	Ctrl-C	other left	exit 0
 other any.search(undo) +unsaved	Enter	other any.filter(undo) +unsaved	
+other any.search(undo) +unsaved	Enter	other looks.look.list(=●; undo) +unsaved	
 other any.search(undo) +unsaved	Esc	other effects(=Show:; undo) +unsaved	
-other any.search(undo) +unsaved	Esc	other flow(DISPLAYS; undo) +unsaved	
 other any.search(undo) +unsaved	Esc	other fonts(=Show:; undo) +unsaved	
 other any.search(undo) +unsaved	Esc	other help(Help; undo) +unsaved	
 other any.search(undo) +unsaved	Esc	other looks.look.list(=●; undo) +unsaved	

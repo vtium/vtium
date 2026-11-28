@@ -94,12 +94,13 @@ vtium any.changes(undo) +unsaved	F1	vtium any.about(undo) +unsaved
 vtium any.changes(undo) +unsaved	Shrink	vtium any.too-small(undo) +unsaved	
 vtium any.changes(undo) +unsaved	e	vtium any.changes(undo) +unsaved	change, editor
 vtium any.changes(undo) +unsaved	q	vtium left	exit 0
-vtium any.filter	1	vtium any.filter	
-vtium any.filter	2	vtium any.filter	
-vtium any.filter	3	vtium any.filter	
-vtium any.filter	4	vtium any.filter	
-vtium any.filter	5	vtium any.filter	
-vtium any.filter	6	vtium any.filter	
+vtium any.filter	1	vtium fonts(=Show:)	
+vtium any.filter	2	vtium effects(=Show:)	
+vtium any.filter	3	vtium looks(Looks)	
+vtium any.filter	4	vtium flow	
+vtium any.filter	4	vtium flow(DISPLAYS)	
+vtium any.filter	5	vtium settings(Settings)	
+vtium any.filter	6	vtium help(Help)	
 vtium any.filter	?	vtium any.search	
 vtium any.filter	Alt-A	vtium any.menu.actions(item 0)	
 vtium any.filter	Alt-A	vtium any.menu.actions(item 1)	
@@ -109,31 +110,32 @@ vtium any.filter	Click button	vtium any.search
 vtium any.filter	Ctrl-C	vtium left	exit 0
 vtium any.filter	Ctrl-F	vtium any.find	
 vtium any.filter	Esc	vtium effects(=Show:)	
-vtium any.filter	Esc	vtium flow(DISPLAYS)	
 vtium any.filter	Esc	vtium fonts(=Show:)	
 vtium any.filter	Esc	vtium help(Help)	
-vtium any.filter	Esc	vtium looks(Looks)	
-vtium any.filter	Esc	vtium settings(Settings)	
+vtium any.filter	Esc	vtium looks(^Font)	
+vtium any.filter	Esc	vtium settings.section(Font)	
 vtium any.filter	F1	vtium any.about	
 vtium any.filter	F10	vtium any.menu.file(item 0)	
-vtium any.filter	Shift-Tab	vtium any.filter	
+vtium any.filter	Shift-Tab	vtium effects(=Show:)	
+vtium any.filter	Shift-Tab	vtium fonts(=Show:)	
+vtium any.filter	Shift-Tab	vtium help(Help)	
+vtium any.filter	Shift-Tab	vtium settings(Settings)	
 vtium any.filter	Shrink	vtium any.too-small	
-vtium any.filter	Tab	vtium any.filter	
-vtium any.filter	d	vtium any.filter	devices
+vtium any.filter	Tab	vtium effects(=Show:)	
+vtium any.filter	Tab	vtium flow	
+vtium any.filter	Tab	vtium fonts(=Show:)	
+vtium any.filter	Tab	vtium looks(Looks)	
 vtium any.filter	n	vtium any.filter(undo) +unsaved	change
-vtium any.filter	n	vtium any.new	
-vtium any.filter	o	vtium any.menu.file.history(item 11 › 0)	
 vtium any.filter	q	vtium left	exit 0
 vtium any.filter	r	vtium any.question.confirm(yes r.view.looks)	
 vtium any.filter	t	vtium any.trial	switch
-vtium any.filter	v	vtium any.changes	
 vtium any.filter	w	vtium any.question.confirm(yes window-ops.view.looks)	
-vtium any.filter +unsaved	1	vtium any.filter +unsaved	
-vtium any.filter +unsaved	2	vtium any.filter +unsaved	
-vtium any.filter +unsaved	3	vtium any.filter +unsaved	
-vtium any.filter +unsaved	4	vtium any.filter +unsaved	
-vtium any.filter +unsaved	5	vtium any.filter +unsaved	
-vtium any.filter +unsaved	6	vtium any.filter +unsaved	
+vtium any.filter +unsaved	1	vtium fonts(=Show:) +unsaved	
+vtium any.filter +unsaved	2	vtium effects(=Show:) +unsaved	
+vtium any.filter +unsaved	3	vtium looks(Looks) +unsaved	
+vtium any.filter +unsaved	4	vtium flow(DISPLAYS) +unsaved	
+vtium any.filter +unsaved	5	vtium settings(Settings) +unsaved	
+vtium any.filter +unsaved	6	vtium help(Help) +unsaved	
 vtium any.filter +unsaved	?	vtium any.search +unsaved	
 vtium any.filter +unsaved	Alt-A	vtium any.menu.actions(item 0) +unsaved	
 vtium any.filter +unsaved	Alt-A	vtium any.menu.actions(item 1) +unsaved	
@@ -143,30 +145,31 @@ vtium any.filter +unsaved	Click button	vtium any.search +unsaved
 vtium any.filter +unsaved	Ctrl-C	vtium left	exit 0
 vtium any.filter +unsaved	Ctrl-F	vtium any.find +unsaved	
 vtium any.filter +unsaved	Ctrl-S	vtium any.save +unsaved	prepare
-vtium any.filter +unsaved	Enter	vtium any.filter(undo) +unsaved	change
+vtium any.filter +unsaved	Ctrl-Y	vtium any.filter(undo) +unsaved	change
 vtium any.filter +unsaved	Esc	vtium effects(=Show:) +unsaved	
-vtium any.filter +unsaved	Esc	vtium flow(DISPLAYS) +unsaved	
 vtium any.filter +unsaved	Esc	vtium fonts(=Show:) +unsaved	
 vtium any.filter +unsaved	Esc	vtium help(Help) +unsaved	
 vtium any.filter +unsaved	Esc	vtium looks-resources(Color) +unsaved	
-vtium any.filter +unsaved	Esc	vtium settings.section.list(Text) +unsaved	
+vtium any.filter +unsaved	Esc	vtium settings.section(Text) +unsaved	
 vtium any.filter +unsaved	F1	vtium any.about +unsaved	
 vtium any.filter +unsaved	F10	vtium any.menu.file(item 0) +unsaved	
-vtium any.filter +unsaved	Shift-Tab	vtium any.filter +unsaved	
+vtium any.filter +unsaved	Shift-Tab	vtium effects(=Show:) +unsaved	
+vtium any.filter +unsaved	Shift-Tab	vtium fonts(=Show:) +unsaved	
+vtium any.filter +unsaved	Shift-Tab	vtium help(Help) +unsaved	
+vtium any.filter +unsaved	Shift-Tab	vtium settings(Settings) +unsaved	
 vtium any.filter +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium any.filter +unsaved	Tab	vtium any.filter +unsaved	
-vtium any.filter +unsaved	d	vtium any.filter +unsaved	devices
-vtium any.filter +unsaved	n	vtium any.new +unsaved	
-vtium any.filter +unsaved	o	vtium any.menu.file.history(item 11 › 0) +unsaved	
+vtium any.filter +unsaved	Tab	vtium effects(=Show:) +unsaved	
+vtium any.filter +unsaved	Tab	vtium flow(DISPLAYS) +unsaved	
+vtium any.filter +unsaved	Tab	vtium fonts(=Show:) +unsaved	
+vtium any.filter +unsaved	Tab	vtium looks(Looks) +unsaved	
 vtium any.filter +unsaved	q	vtium left	exit 0
-vtium any.filter +unsaved	r	vtium any.question.confirm(yes y.question.revert) +unsaved	
-vtium any.filter +unsaved	v	vtium any.changes +unsaved	
-vtium any.filter(undo)	1	vtium any.filter(undo)	
-vtium any.filter(undo)	2	vtium any.filter(undo)	
-vtium any.filter(undo)	3	vtium any.filter(undo)	
-vtium any.filter(undo)	4	vtium any.filter(undo)	
-vtium any.filter(undo)	5	vtium any.filter(undo)	
-vtium any.filter(undo)	6	vtium any.filter(undo)	
+vtium any.filter(undo)	1	vtium fonts(=Show:; undo)	
+vtium any.filter(undo)	2	vtium effects(=Show:; undo)	
+vtium any.filter(undo)	3	vtium looks(Looks; undo)	
+vtium any.filter(undo)	4	vtium flow(DISPLAYS; undo)	
+vtium any.filter(undo)	4	vtium flow(undo)	
+vtium any.filter(undo)	5	vtium settings(Settings; undo)	
+vtium any.filter(undo)	6	vtium help(Help; undo)	
 vtium any.filter(undo)	?	vtium any.search(undo)	
 vtium any.filter(undo)	Alt-A	vtium any.menu.actions(item 0; undo)	
 vtium any.filter(undo)	Alt-A	vtium any.menu.actions(item 1; undo)	
@@ -177,31 +180,33 @@ vtium any.filter(undo)	Ctrl-C	vtium left	exit 0
 vtium any.filter(undo)	Ctrl-F	vtium any.find(undo)	
 vtium any.filter(undo)	Ctrl-Z	vtium any.filter +unsaved	change
 vtium any.filter(undo)	Esc	vtium effects(=Show:; undo)	
-vtium any.filter(undo)	Esc	vtium flow(DISPLAYS; undo)	
 vtium any.filter(undo)	Esc	vtium fonts(=Show:; undo)	
 vtium any.filter(undo)	Esc	vtium help(Help; undo)	
-vtium any.filter(undo)	Esc	vtium looks(Looks; undo)	
-vtium any.filter(undo)	Esc	vtium settings(Settings; undo)	
+vtium any.filter(undo)	Esc	vtium looks(^Font; undo)	
+vtium any.filter(undo)	Esc	vtium settings.section(Font; undo)	
 vtium any.filter(undo)	F1	vtium any.about(undo)	
 vtium any.filter(undo)	F10	vtium any.menu.file(item 0; undo)	
-vtium any.filter(undo)	Shift-Tab	vtium any.filter(undo)	
+vtium any.filter(undo)	Shift-Tab	vtium effects(=Show:; undo)	
+vtium any.filter(undo)	Shift-Tab	vtium fonts(=Show:; undo)	
+vtium any.filter(undo)	Shift-Tab	vtium help(Help; undo)	
+vtium any.filter(undo)	Shift-Tab	vtium settings(Settings; undo)	
 vtium any.filter(undo)	Shrink	vtium any.too-small(undo)	
-vtium any.filter(undo)	Tab	vtium any.filter(undo)	
-vtium any.filter(undo)	d	vtium any.filter(undo)	devices
+vtium any.filter(undo)	Tab	vtium effects(=Show:; undo)	
+vtium any.filter(undo)	Tab	vtium flow(undo)	
+vtium any.filter(undo)	Tab	vtium fonts(=Show:; undo)	
+vtium any.filter(undo)	Tab	vtium looks(Looks; undo)	
 vtium any.filter(undo)	n	vtium any.filter(undo) +unsaved	change
-vtium any.filter(undo)	n	vtium any.new(undo)	
-vtium any.filter(undo)	o	vtium any.menu.file.history(item 11 › 0; undo)	
 vtium any.filter(undo)	q	vtium left	exit 0
 vtium any.filter(undo)	r	vtium any.question.confirm(yes r.view.looks; undo)	
 vtium any.filter(undo)	t	vtium any.trial(undo)	switch
-vtium any.filter(undo)	v	vtium any.changes(undo)	
 vtium any.filter(undo)	w	vtium any.question.confirm(yes window-ops.view.looks; undo)	
-vtium any.filter(undo) +unsaved	1	vtium any.filter(undo) +unsaved	
-vtium any.filter(undo) +unsaved	2	vtium any.filter(undo) +unsaved	
-vtium any.filter(undo) +unsaved	3	vtium any.filter(undo) +unsaved	
-vtium any.filter(undo) +unsaved	4	vtium any.filter(undo) +unsaved	
-vtium any.filter(undo) +unsaved	5	vtium any.filter(undo) +unsaved	
-vtium any.filter(undo) +unsaved	6	vtium any.filter(undo) +unsaved	
+vtium any.filter(undo) +unsaved	1	vtium fonts(=Show:; undo) +unsaved	
+vtium any.filter(undo) +unsaved	2	vtium effects(=Show:; undo) +unsaved	
+vtium any.filter(undo) +unsaved	3	vtium looks(Looks; undo) +unsaved	
+vtium any.filter(undo) +unsaved	4	vtium flow(DISPLAYS; undo) +unsaved	
+vtium any.filter(undo) +unsaved	4	vtium flow(NEW; undo) +unsaved	
+vtium any.filter(undo) +unsaved	5	vtium settings(Settings; undo) +unsaved	
+vtium any.filter(undo) +unsaved	6	vtium help(Help; undo) +unsaved	
 vtium any.filter(undo) +unsaved	?	vtium any.search(undo) +unsaved	
 vtium any.filter(undo) +unsaved	Alt-A	vtium any.menu.actions(item 0; undo) +unsaved	
 vtium any.filter(undo) +unsaved	Alt-A	vtium any.menu.actions(item 1; undo) +unsaved	
@@ -211,24 +216,23 @@ vtium any.filter(undo) +unsaved	Click button	vtium any.search(undo) +unsaved
 vtium any.filter(undo) +unsaved	Ctrl-C	vtium left	exit 0
 vtium any.filter(undo) +unsaved	Ctrl-F	vtium any.find(undo) +unsaved	
 vtium any.filter(undo) +unsaved	Ctrl-S	vtium any.save(undo) +unsaved	prepare
+vtium any.filter(undo) +unsaved	Ctrl-Z	vtium any.filter	change
 vtium any.filter(undo) +unsaved	Ctrl-Z	vtium any.filter +unsaved	change
 vtium any.filter(undo) +unsaved	Esc	vtium effects(=Show:; undo) +unsaved	
-vtium any.filter(undo) +unsaved	Esc	vtium flow(DISPLAYS; undo) +unsaved	
 vtium any.filter(undo) +unsaved	Esc	vtium fonts(=Show:; undo) +unsaved	
 vtium any.filter(undo) +unsaved	Esc	vtium help(Help; undo) +unsaved	
-vtium any.filter(undo) +unsaved	Esc	vtium looks.look.list(=●; undo) +unsaved	
+vtium any.filter(undo) +unsaved	Esc	vtium looks.look.typing(new-look; undo) +unsaved	
 vtium any.filter(undo) +unsaved	Esc	vtium settings.section(Text; undo) +unsaved	
 vtium any.filter(undo) +unsaved	F1	vtium any.about(undo) +unsaved	
 vtium any.filter(undo) +unsaved	F10	vtium any.menu.file(item 0; undo) +unsaved	
-vtium any.filter(undo) +unsaved	Shift-Tab	vtium any.filter(undo) +unsaved	
+vtium any.filter(undo) +unsaved	Shift-Tab	vtium fonts(=Show:; undo) +unsaved	
+vtium any.filter(undo) +unsaved	Shift-Tab	vtium help(Help; undo) +unsaved	
+vtium any.filter(undo) +unsaved	Shift-Tab	vtium settings(Settings; undo) +unsaved	
 vtium any.filter(undo) +unsaved	Shrink	vtium any.too-small(undo) +unsaved	
-vtium any.filter(undo) +unsaved	Tab	vtium any.filter(undo) +unsaved	
-vtium any.filter(undo) +unsaved	d	vtium any.filter(undo) +unsaved	devices
-vtium any.filter(undo) +unsaved	n	vtium any.new(undo) +unsaved	
-vtium any.filter(undo) +unsaved	o	vtium any.menu.file.history(item 11 › 0; undo) +unsaved	
+vtium any.filter(undo) +unsaved	Tab	vtium effects(=Show:; undo) +unsaved	
+vtium any.filter(undo) +unsaved	Tab	vtium fonts(=Show:; undo) +unsaved	
+vtium any.filter(undo) +unsaved	Tab	vtium looks(Looks; undo) +unsaved	
 vtium any.filter(undo) +unsaved	q	vtium left	exit 0
-vtium any.filter(undo) +unsaved	r	vtium any.question.confirm(yes y.question.revert; undo) +unsaved	
-vtium any.filter(undo) +unsaved	v	vtium any.changes(undo) +unsaved	
 vtium any.find	Backspace	vtium flow	
 vtium any.find	Ctrl-C	vtium left	exit 0
 vtium any.find	Esc	vtium flow	
@@ -2438,64 +2442,60 @@ vtium any.save(undo) +unsaved	F1	vtium any.about(undo) +unsaved
 vtium any.save(undo) +unsaved	Shrink	vtium any.too-small(undo) +unsaved	
 vtium any.save(undo) +unsaved	q	vtium left	exit 0
 vtium any.search	Backspace	vtium effects(=Show:)	
-vtium any.search	Backspace	vtium flow(DISPLAYS)	
 vtium any.search	Backspace	vtium fonts(=Show:)	
 vtium any.search	Backspace	vtium help(Help)	
-vtium any.search	Backspace	vtium looks(Looks)	
-vtium any.search	Backspace	vtium settings(Settings)	
+vtium any.search	Backspace	vtium looks(^Font)	
+vtium any.search	Backspace	vtium settings.section(Font)	
 vtium any.search	Click button	vtium any.filter	
 vtium any.search	Ctrl-C	vtium left	exit 0
 vtium any.search	Enter	vtium any.filter	
 vtium any.search	Esc	vtium effects(=Show:)	
-vtium any.search	Esc	vtium flow(DISPLAYS)	
 vtium any.search	Esc	vtium fonts(=Show:)	
 vtium any.search	Esc	vtium help(Help)	
-vtium any.search	Esc	vtium looks(Looks)	
-vtium any.search	Esc	vtium settings(Settings)	
+vtium any.search	Esc	vtium looks(^Font)	
+vtium any.search	Esc	vtium settings.section(Font)	
 vtium any.search	Shrink	vtium any.too-small	
 vtium any.search +unsaved	Backspace	vtium effects(=Show:) +unsaved	
-vtium any.search +unsaved	Backspace	vtium flow(DISPLAYS) +unsaved	
 vtium any.search +unsaved	Backspace	vtium fonts(=Show:) +unsaved	
 vtium any.search +unsaved	Backspace	vtium help(Help) +unsaved	
 vtium any.search +unsaved	Backspace	vtium looks-resources(Color) +unsaved	
 vtium any.search +unsaved	Backspace	vtium settings.section.list(Text) +unsaved	
 vtium any.search +unsaved	Click button	vtium any.filter +unsaved	
+vtium any.search +unsaved	Click button	vtium settings.section.list(Text) +unsaved	
 vtium any.search +unsaved	Ctrl-C	vtium left	exit 0
 vtium any.search +unsaved	Enter	vtium any.filter +unsaved	
+vtium any.search +unsaved	Enter	vtium settings.section.list(Text) +unsaved	
 vtium any.search +unsaved	Esc	vtium effects(=Show:) +unsaved	
-vtium any.search +unsaved	Esc	vtium flow(DISPLAYS) +unsaved	
 vtium any.search +unsaved	Esc	vtium fonts(=Show:) +unsaved	
 vtium any.search +unsaved	Esc	vtium help(Help) +unsaved	
 vtium any.search +unsaved	Esc	vtium looks-resources(Color) +unsaved	
 vtium any.search +unsaved	Esc	vtium settings.section.list(Text) +unsaved	
 vtium any.search +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium any.search(undo)	Backspace	vtium effects(=Show:; undo)	
-vtium any.search(undo)	Backspace	vtium flow(DISPLAYS; undo)	
 vtium any.search(undo)	Backspace	vtium fonts(=Show:; undo)	
 vtium any.search(undo)	Backspace	vtium help(Help; undo)	
-vtium any.search(undo)	Backspace	vtium looks(Looks; undo)	
-vtium any.search(undo)	Backspace	vtium settings(Settings; undo)	
+vtium any.search(undo)	Backspace	vtium looks(^Font; undo)	
+vtium any.search(undo)	Backspace	vtium settings.section(Font; undo)	
 vtium any.search(undo)	Click button	vtium any.filter(undo)	
 vtium any.search(undo)	Ctrl-C	vtium left	exit 0
 vtium any.search(undo)	Enter	vtium any.filter(undo)	
 vtium any.search(undo)	Esc	vtium effects(=Show:; undo)	
-vtium any.search(undo)	Esc	vtium flow(DISPLAYS; undo)	
 vtium any.search(undo)	Esc	vtium fonts(=Show:; undo)	
 vtium any.search(undo)	Esc	vtium help(Help; undo)	
-vtium any.search(undo)	Esc	vtium looks(Looks; undo)	
-vtium any.search(undo)	Esc	vtium settings(Settings; undo)	
+vtium any.search(undo)	Esc	vtium looks(^Font; undo)	
+vtium any.search(undo)	Esc	vtium settings.section(Font; undo)	
 vtium any.search(undo)	Shrink	vtium any.too-small(undo)	
 vtium any.search(undo) +unsaved	Backspace	vtium effects(=Show:; undo) +unsaved	
-vtium any.search(undo) +unsaved	Backspace	vtium flow(DISPLAYS; undo) +unsaved	
 vtium any.search(undo) +unsaved	Backspace	vtium fonts(=Show:; undo) +unsaved	
 vtium any.search(undo) +unsaved	Backspace	vtium help(Help; undo) +unsaved	
 vtium any.search(undo) +unsaved	Backspace	vtium looks.look.list(=●; undo) +unsaved	
 vtium any.search(undo) +unsaved	Backspace	vtium settings.section(Text; undo) +unsaved	
 vtium any.search(undo) +unsaved	Click button	vtium any.filter(undo) +unsaved	
+vtium any.search(undo) +unsaved	Click button	vtium looks.look.list(=●; undo) +unsaved	
 vtium any.search(undo) +unsaved	Ctrl-C	vtium left	exit 0
 vtium any.search(undo) +unsaved	Enter	vtium any.filter(undo) +unsaved	
+vtium any.search(undo) +unsaved	Enter	vtium looks.look.list(=●; undo) +unsaved	
 vtium any.search(undo) +unsaved	Esc	vtium effects(=Show:; undo) +unsaved	
-vtium any.search(undo) +unsaved	Esc	vtium flow(DISPLAYS; undo) +unsaved	
 vtium any.search(undo) +unsaved	Esc	vtium fonts(=Show:; undo) +unsaved	
 vtium any.search(undo) +unsaved	Esc	vtium help(Help; undo) +unsaved	
 vtium any.search(undo) +unsaved	Esc	vtium looks.look.list(=●; undo) +unsaved	
