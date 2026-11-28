@@ -1,0 +1,49 @@
+[package]
+name = "vtium-config-tui"
+description = "The shell of vtium-config's TUI: the App that holds the six tabs, the one navigation module, the update loop, the frame around the open tab, and the File and Actions menus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The Tab trait the shell holds the tabs through, the compiled interface
+# tree and key table, the key decoder, the frame, the menus, the search
+# row and the Backend that turns ratatui's cells into bytes.
+vtium-config-widgets.workspace = true
+# The shared state, the action and the commands that the Tab trait names,
+# and the one open document whose change function records each undo step.
+vtium-config-core.workspace = true
+# The macros that the player drives the TUI with (the module `player`,
+# which rebuild-macro-player fills).
+vtium-config-macro = { path = "../vtium-config-macro" }
+# The console's key encoding, by which the player turns a macro's key
+# into the bytes a terminal sends (the module `player`).
+vtium-term.workspace = true
+# The layout, buffer of cells and Terminal the frame is drawn through.
+# Only its `std` feature, and no backend crate, as vtium-config-widgets
+# builds it.
+ratatui-core = { version = "=0.1.2", default-features = false, features = ["std"] }
+# The lists, paragraphs and Clear the later cards' sheets draw with; the
+# version vtium-config builds.
+ratatui-widgets = { version = "=0.3.2", default-features = false, features = ["std"] }
+# The terminal's raw mode (`make_raw`, which clears IXON and ISIG so that
+# Ctrl+S and Ctrl+Z arrive as keys), its size and its reads; the version
+# and features vtium-config builds.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "process", "termios"] }
+# The event loop that holds the signals and reads the terminal, as the
+# old TUI's loop holds them; the crate vtium-config-core already links.
+vtium-platform.workspace = true
+
+[dev-dependencies]
+# The screen map's machine and the large machine that the shell's tests
+# drive the App over.
+vtium-config-core = { workspace = true, features = ["fixture"] }
+# A pty for the port's test of mouse reporting; the version vtium-platform
+# already builds.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "process", "pty", "termios"] }

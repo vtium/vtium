@@ -25,6 +25,7 @@ vtium-config-widgets = { path = "crates/vtium-config-widgets" }
 vtium-config-core = { path = "crates/vtium-config-core" }
 vtium-config-tab-help = { path = "crates/vtium-config-tab-help" }
 vtium-config-tab-settings = { path = "crates/vtium-config-tab-settings" }
+vtium-config-tui = { path = "crates/vtium-config-tui" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -69,6 +70,12 @@ opt-level = 2
 # machines, so the tab is built at the same level as the toolkit it draws
 # with.
 [profile.dev.package.vtium-config-tab-settings]
+opt-level = 2
+
+# The shell's tests drive the App through every tab and menu with both
+# fixtures at two screen sizes, and draw each screen; built at the same
+# level as the crates it draws through.
+[profile.dev.package.vtium-config-tui]
 opt-level = 2
 
 [profile.release]
