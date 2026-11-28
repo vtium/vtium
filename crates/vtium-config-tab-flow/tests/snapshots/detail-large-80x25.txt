@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────
+ Flow › Keyboard 07                                                             
+                                                                                
+ INPUT PART  Keyboard 07                                                        
+   Label     none, [Enter] adds one     shown in vtium-config                   
+                                                                                
+ CHOOSE WHICH INPUTS THIS PART MATCHES  from the widest to the narrowest; [Ent… 
+   ○ All keyboards         every keyboard, connected now or later               
+   ○ inputs on USB 0       every input on that port                             
+   ○ Keyboard 00 (by id)   id 046d:c300                                         
+   ○ Keyboard 01 (by id)   id 046d:c301                                         
+   ○ Keyboard 02 (by id)   id 046d:c302                                         
+   ○ Keyboard 03 (by id)   id 046d:c303                                         
+   ○ Keyboard 04 (by id)   id 046d:c304                                         
+   ○ Keyboard 05 (by id)   id 046d:c305                                         
+   ○ Keyboard 06 (by id)   id 046d:c306                                         
+   ○ Keyboard 07 (by id)   id 046d:c307                                         
+   ○ Keyboard 08 (by id)   id 046d:c308                                         
+   ○ Keyboard 09 (by id)   id 046d:c309                                         
+   ○ Keyboard 10 (by id)   id 046d:c30a                                         
+   ○ Keyboard 11 (by id)   id 046d:c30b                                         
+   ○ Keyboard 12 (by id)   id 046d:c30c                                         
+────────────────────────────────────────────────────────────────────────────────
+ [Esc] Back, keep changes  [Enter] Label  [Ctrl+Z] Undo  [.] More      [q] Quit 

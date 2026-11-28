@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help           workstation ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Flow › other inputs                                                                                
+                                                                                                    
+ OTHER INPUTS   neither keyboards nor pointers, so none types into a terminal                       
+   Power Button    no rule names it                                                                 
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Esc] Back  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [F1] Help  [Ctrl+F] Find  [?] Search            [q] Quit 

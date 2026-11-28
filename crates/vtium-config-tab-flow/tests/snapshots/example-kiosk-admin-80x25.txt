@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help           kiosk
+────────────────────────────────────────────────────────────────────────────────
+ CONFIGURATION   policy closed: vtium ignores a keyboard no rule names          
+ DISPLAYS               TERMINALS                                INPUTS         
+ ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐         ┌────────────┐ 
+ ┃ DP-1         ┃━━━━━━▶│ kiosk                        │◄────────│ keyboards… │ 
+ ┃ KIOSK00001 … ┃       │ default look · every VT      │         │ every inp… │ 
+ ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘         └────────────┘ 
+                                                                                
+ ┌──────────────┐       ┌──────────────────────────────┐         ┌────────────┐ 
+ │ HDMI-A-1     │──────►│ admin                        │◄────────│ keyboards… │ 
+ │ ADMIN00001 … │       │ default look · every VT      │         │ every inp… │ 
+ └──────────────┘       └──────────────────────────────┘         └────────────┘ 
+ Every connected device is in a path.                                           
+ ────────────────────────────────────────────────────────────────────────────── 
+ NEW PATH     Pick an input and a display, then [a] adds the path.              
+ ╔═════════╗            ╔══════════════════════════════╗         ╔═════════╗    
+ ║ Display ║            ║ Terminal                     ║         ║ Input   ║    
+ ║ [Enter] ║            ║ new: terminal-1              ║         ║ [Enter] ║    
+ ╚═════════╝            ╚══════════════════════════════╝         ╚═════════╝    
+                                                                                
+ ────────────────────────────────────────────────────────────────────────────── 
+ PARTS                                                                          
+────────────────────────────────────────────────────────────────────────────────
+ [Space] Pick  [Enter] Open  [Ctrl+S] Save  [.] More       [F10] Menu  [q] Quit 

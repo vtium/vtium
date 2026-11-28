@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help                             padnoir
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ┌──────────────────┐         ┌──────────────────────────────┐           ┌────────────────────────┐ 
+ │ eDP-1            │────────►│ work                         │◄─┬────────│ AT Translated Set 2 k… │ 
+ │ by its connector │         │ default look · VT 2          │  ┆        │ id 0001:0001           │ 
+ └──────────────────┘         └──────────────────────────────┘  ┆        └────────────────────────┘ 
+                                                                └┄┄┄┄┄┄┄┄roaming inputs             
+                                                                                                    
+                              ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐           ┌────────────────────────┐ 
+ ROAMING                      ┆ Active terminal              ┆◄┄┄┄┄┄┄┄┄┄┄│ All mice and touchpads │ 
+ These inputs type into the   ┆ the terminal on screen       ┆           │ mice, touchpads, trac… │ 
+ active terminal.             └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘           └────────────────────────┘ 
+ 1 keyboard is in no path yet.                                                                      
+ ────────────────────────────────────────────────────────────────────────────────────────────────── 
+ NEW PATH     Pick an input and a display, then [a] adds the path.                                  
+ ╔═════════════════╗          ╔══════════════════════════════╗           ╔═════════════════╗        
+ ║ Display         ║          ║ Terminal                     ║           ║ Input           ║        
+ ║ Choose… [Enter] ║          ║ new: terminal-1              ║           ║ Choose… [Enter] ║        
+ ╚═════════════════╝          ╚══════════════════════════════╝           ╚═════════════════╝        
+                                                                                                    
+ ────────────────────────────────────────────────────────────────────────────────────────────────── 
+ PARTS                                                                                              
+ DISPLAYS                                                                                           
+ ╔══════════════════════╗  ┏━━━━━━━━━━━━━━━━━━━━━━━━━┓                                              
+ ║ Display              ║  ┃ eDP-1                   ┃                                              
+ ║ Add display… [Enter] ║  ┃ in the terminal console ┃                                              
+ ╚══════════════════════╝  ┗━━━━━━━━━━━━━━━━━━━━━━━━━┛                                              
+ eDP-1 is already in the terminal console on VT 1: one path for each VT.                            
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Space] Pick  [Enter] Open  [a] Add path  [Ctrl+S] Save  [.] More             [F10] Menu  [q] Quit 

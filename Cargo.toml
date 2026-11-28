@@ -26,6 +26,7 @@ vtium-config-core = { path = "crates/vtium-config-core" }
 vtium-config-tab-help = { path = "crates/vtium-config-tab-help" }
 vtium-config-tab-settings = { path = "crates/vtium-config-tab-settings" }
 vtium-config-tui = { path = "crates/vtium-config-tui" }
+vtium-config-tab-flow = { path = "crates/vtium-config-tab-flow" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -76,6 +77,13 @@ opt-level = 2
 # fixtures at two screen sizes, and draw each screen; built at the same
 # level as the crates it draws through.
 [profile.dev.package.vtium-config-tui]
+opt-level = 2
+
+# The Flow tab's screen tests lay the large machine's page out and draw
+# it at each size, and its tests press every key of the tab's nodes on
+# both machines, so the tab is built at the same level as the crates it
+# draws through.
+[profile.dev.package.vtium-config-tab-flow]
 opt-level = 2
 
 [profile.release]

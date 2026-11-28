@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help             lab
+────────────────────────────────────────────────────────────────────────────────
+ Flow › other inputs                                                            
+                                                                                
+ OTHER INPUTS   neither keyboards nor pointers, so none types into a terminal   
+   Power Button 00    rule 101: * -> ignore                                     
+   Power Button 01    rule 101: * -> ignore                                     
+   Power Button 02    rule 101: * -> ignore                                     
+   Power Button 03    rule 101: * -> ignore                                     
+   Power Button 04    rule 101: * -> ignore                                     
+   Power Button 05    rule 101: * -> ignore                                     
+   Power Button 06    rule 101: * -> ignore                                     
+   Power Button 07    rule 101: * -> ignore                                     
+   Power Button 08    rule 101: * -> ignore                                     
+   Power Button 09    rule 101: * -> ignore                                     
+   Power Button 10    rule 101: * -> ignore                                     
+   Power Button 11    rule 101: * -> ignore                                     
+   Power Button 12    rule 101: * -> ignore                                     
+   Power Button 13    rule 101: * -> ignore                                     
+   Power Button 14    rule 101: * -> ignore                                     
+   Power Button 15    rule 101: * -> ignore                                     
+   Power Button 16    rule 101: * -> ignore                                     
+   … and 23 more                                                                
+────────────────────────────────────────────────────────────────────────────────
+ [Esc] Back  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [F1] Help  [.] More         [q] Quit 
