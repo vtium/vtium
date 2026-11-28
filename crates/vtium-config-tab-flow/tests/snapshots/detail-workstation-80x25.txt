@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────
+ Flow › DP-8                                                                    
+                                                                                
+ DISPLAY PART  DP-8                                                             
+   Label     none, [Enter] adds one     shown on the display when you identify… 
+                                                                                
+ CHOOSE WHICH DISPLAYS THIS PART MATCHES  from the widest to the narrowest; [E… 
+   ○ All displays   every display, connected now or later                       
+   ○ DP-8           by its connector                                            
+   ○ HDMI-A-2       by its connector                                            
+   ○ DP-8           LARGE00001 · by EDID                                        
+   ○ HDMI-A-2       SMALL00001 · by EDID                                        
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+────────────────────────────────────────────────────────────────────────────────
+ [Esc] Back, keep changes  [Enter] Label  [Ctrl+Z] Undo  [.] More      [q] Quit 

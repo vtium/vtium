@@ -23,6 +23,7 @@ vtium-broker-protocol = { path = "crates/vtium-broker-protocol" }
 vtium-font-helper = { path = "crates/vtium-font-helper" }
 vtium-config-widgets = { path = "crates/vtium-config-widgets" }
 vtium-config-core = { path = "crates/vtium-config-core" }
+vtium-config-tab-flow = { path = "crates/vtium-config-tab-flow" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -56,6 +57,13 @@ opt-level = 2
 # configuration's modules, which vtium-config-core holds, so it is built at
 # the same level too.
 [profile.dev.package.vtium-config-core]
+opt-level = 2
+
+# The Flow tab's screen tests lay the large machine's page out and draw
+# it at each size, and its tests press every key of the tab's nodes on
+# both machines, so the tab is built at the same level as the crates it
+# draws through.
+[profile.dev.package.vtium-config-tab-flow]
 opt-level = 2
 
 [profile.release]

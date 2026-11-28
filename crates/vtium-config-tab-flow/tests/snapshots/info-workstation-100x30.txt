@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help           workstation ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Flow › All displays                                                                                
+                                                                                                    
+ DISPLAY  All displays   every display, connected now or later                                      
+   Matched by      *                                                                                
+   Where it goes   in the terminal desk, every VT                                                   
+                                                                                                    
+ What a path joins changes only when you revise it: [e].                                            
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Esc] Back  [e] Revise  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [F1] Help  [Ctrl+F] Find  [.] More  [q] Quit 

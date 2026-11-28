@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help         padnoir
+────────────────────────────────────────────────────────────────────────────────
+ CONFIGURATION   policy open: a keyboard no rule names types into the active t… 
+ DISPLAYS               TERMINALS                                INPUTS         
+ vtium's built-in default: all displays show the console, and every input type… 
+ ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐                        
+ ┃ All displays ┃━━━━━━▶│ console                      │◄┄┄┄┄┄┄┄┄roaming inputs 
+ ┃ every displ… ┃       │ default look · every VT      │                        
+ ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘                        
+                                                                                
+                        ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐         ┌────────────┐ 
+ ROAMING                ┆ Active terminal              ┆◄┄┬┄┄┄┄┄┄│ All keybo… │ 
+ These inputs type      ┆ the terminal on screen       ┆  ┆      │ every key… │ 
+ into the active        └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘  ┆      └────────────┘ 
+ terminal.                                                ┆      ┌────────────┐ 
+                                                          └┄┄┄┄┄┄│ All mice … │ 
+                                                                 │ mice, tou… │ 
+                                                                 └────────────┘ 
+                                                                                
+                        ┌──────────────────────────────┐         ┌────────────┐ 
+                        │ Nowhere                      │◄────────│ All input… │ 
+                        │ displays off, inputs ignored │         │ keyboards… │ 
+                        └──────────────────────────────┘         └────────────┘ 
+────────────────────────────────────────────────────────────────────────────────
+ [Space] Pick  [Enter] Open  [Ctrl+S] Save  [.] More       [F10] Menu  [q] Quit 

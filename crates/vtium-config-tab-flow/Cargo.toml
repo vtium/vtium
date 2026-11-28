@@ -1,0 +1,34 @@
+[package]
+name = "vtium-config-tab-flow"
+description = "vtium-config's Flow tab: the configuration drawn as paths from the displays to the inputs, with NEW PATH and PARTS, on one page that scrolls"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The Tab trait the tab implements, the compiled interface tree and key
+# table its action bar comes from, the color roles, and the text helpers
+# that measure by the console's width rule.
+vtium-config-widgets.workspace = true
+# The shared state, the action and the commands the Tab trait names, and
+# the flow that a vtium.conf and the devices present make.
+vtium-config-core.workspace = true
+# The glob of a rule's match, by which a part finds the devices it
+# matches, as vtium matches them; the crate vtium-config-core already
+# links.
+vtium-settings.workspace = true
+# The buffer of cells, the Rect and the Frame the tab draws into. Only
+# their `std` feature, as vtium-config builds them.
+ratatui-core = { version = "=0.1.2", default-features = false, features = ["std"] }
+ratatui-widgets = { version = "=0.3.2", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# The screen map's machine and the large machine, each a Shared over a
+# desk kept in memory, which the screen tests draw.
+vtium-config-core = { workspace = true, features = ["fixture"] }

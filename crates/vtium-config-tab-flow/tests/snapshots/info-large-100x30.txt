@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help                   lab ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Flow › Mouse 42                                                                                    
+                                                                                                    
+ INPUT  Mouse 42   USB 6.3                                                                          
+   Matched by      path:pci-0000:40:00.0-usb-0:6.3                                                  
+   Where it goes   in the terminal gpu2, every VT                                                   
+                                                                                                    
+ What a path joins changes only when you revise it: [e].                                            
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Esc] Back  [e] Revise  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [F1] Help  [Ctrl+F] Find  [.] More  [q] Quit 
