@@ -1,0 +1,100 @@
+# The shaping path's, the BDF reader's, the helper's request parser's, the
+# name-table reader's, the cursor file reader's, the SVG pointer drawing's,
+# the frit reader's, the .hex reader's and the font description's fuzz
+# targets, run with cargo-fuzz on nightly:
+#   cargo +nightly fuzz run shape
+#   cargo +nightly fuzz run bdf
+#   cargo +nightly fuzz run serve
+#   cargo +nightly fuzz run names
+#   cargo +nightly fuzz run xcursor
+#   cargo +nightly fuzz run pointer_svg
+#   cargo +nightly fuzz run frit
+#   cargo +nightly fuzz run hex
+#   cargo +nightly fuzz run describe
+# Its own workspace, so the main workspace and CI do not build it.
+[package]
+name = "vtium-font-helper-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+# The TrueType test font writer the shaping target shares with
+# the font helper's tests.
+vtium-testfont = { path = "../../../tools/testfont" }
+vtium-font-helper = { path = ".." }
+# The style the shaping target synthesises over the glyphs.
+vtium-font = { path = "../../vtium-font" }
+# The swash that vtium-font-helper builds, which the names target calls on each
+# face the font check passes.
+swash = "=0.2.10"
+
+[[bin]]
+name = "shape"
+path = "fuzz_targets/shape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bdf"
+path = "fuzz_targets/bdf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "serve"
+path = "fuzz_targets/serve.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "names"
+path = "fuzz_targets/names.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xcursor"
+path = "fuzz_targets/xcursor.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pointer_svg"
+path = "fuzz_targets/pointer_svg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "frit"
+path = "fuzz_targets/frit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hex"
+path = "fuzz_targets/hex.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "describe"
+path = "fuzz_targets/describe.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

@@ -27,8 +27,6 @@ vtium draws superscript and subscript text smaller, at two thirds of the normal 
 
 These tests check what vtium does with the sequences on this page.
 
-- `script_source_names_smaller_sizes_of_the_source_above_it` in [crates/vtium-config/src/frit.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/frit.rs)
-- `an_ask_made_says_how_each_script_glyph_was_made` in [crates/vtium-config/src/serve/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/serve/tests.rs)
 - `the_script_line_draws_the_glyphs_the_engine_made` in [crates/vtium-config/src/specimen.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/specimen.rs)
 - `the_font_views_captions_say_how_the_font_makes_superscripts` in [crates/vtium-config/src/tui/words/mod.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/tui/words/mod.rs)
 - `the_script_caption_names_each_way` in [crates/vtium-config/src/tui/words/mod.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/src/tui/words/mod.rs)
@@ -50,6 +48,8 @@ These tests check what vtium does with the sequences on this page.
 - `the_engine_says_how_it_made_each_script_glyph` in [crates/vtium-config/tests/script_sizes.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/tests/script_sizes.rs)
 - `the_helper_draws_unifonts_smaller_multiples_as_the_console_does` in [crates/vtium-config/tests/script_sizes.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/tests/script_sizes.rs)
 - `the_helpers_script_lines_are_the_consoles_for_unifont` in [crates/vtium-config/tests/script_sizes.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/tests/script_sizes.rs)
+- `script_source_names_smaller_sizes_of_the_source_above_it` in [crates/vtium-font-helper/src/frit.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font-helper/src/frit.rs)
+- `an_ask_made_says_how_each_script_glyph_was_made` in [crates/vtium-font-helper/src/serve/tests.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font-helper/src/serve/tests.rs)
 - `a_one_pixel_stroke_stays_one_pixel_wide_at_each_phase` in [crates/vtium-font/src/script.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/src/script.rs)
 - `a_script_glyph_sits_against_the_text_band_not_the_cell` in [crates/vtium-font/src/script.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/src/script.rs)
 - `a_smaller_glyph_is_placed_whole_against_the_band` in [crates/vtium-font/src/script.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/src/script.rs)

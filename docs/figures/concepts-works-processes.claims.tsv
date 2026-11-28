@@ -43,5 +43,5 @@ one long-lived worker for a stream of frames	crates/vtium-image-helper/src/bound
 the pty paused for at most 2 seconds while a request is out	crates/vtium/src/head/images.rs	REPLY_TIMEOUT
 vtium-config serve, the font helper, one per font set in use	crates/vtium/src/head.rs	Frit
 one more font helper for a pointer file	crates/vtium/src/helper.rs	for_pointers
-arrow pipes: requests, glyph sets back	crates/vtium-config/src/serve.rs	HELPER_IDLE_MS
+arrow pipes: requests, glyph sets back	crates/vtium-font-helper/src/serve.rs	HELPER_IDLE_MS
 /bin/login, vtium's child	crates/vtium/src/child.rs	child
