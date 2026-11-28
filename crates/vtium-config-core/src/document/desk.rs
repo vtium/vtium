@@ -126,9 +126,13 @@ impl OnDisk {
 
     /// Opens the current draft as a document, making one from the
     /// installed file when there is none: its text, its font set folder,
-    /// its changes to the active resources, and its base, with the base's
-    /// text where the base is the installed file. Also what is installed
-    /// now: vtium.conf and the font sets of the font sets' directory.
+    /// its changes to the active resources, and its base with the text the
+    /// store keeps of it, so a draft whose installed file changed on disk
+    /// opens with the text Update merges from. Also what is installed now:
+    /// vtium.conf and the font sets of the font sets' directory.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "When the installed file changed on disk": the draft keeps the base's text beside its hash, so Update can merge a change made on disk.
     pub fn open(session: &crate::drafts::Session<'_>) -> Result<Document, Fail> {
         let (name, text) = session.current()?;
         let store = &session.store;
@@ -140,7 +144,11 @@ impl OnDisk {
                         .as_deref()
                         .map(|t| crate::store::hash(t.as_bytes()));
                 Base {
-                    text: if same { installed.clone() } else { None },
+                    text: if same {
+                        installed.clone()
+                    } else {
+                        store.base_text(&name)?
+                    },
                     hash,
                 }
             }
@@ -233,8 +241,8 @@ impl Desk for OnDisk {
         Ok(())
     }
 
-    /// The draft's files as the store holds them. The store keeps a base's
-    /// hash alone, so the base's text is `None`.
+    /// The draft's files as the store holds them, the base's text with
+    /// them where the store keeps it.
     fn read(&self, name: &str) -> Result<Option<Content>, String> {
         let store = &self.store;
         let fail = |f: Fail| f.text().to_owned();
@@ -247,7 +255,7 @@ impl Desk for OnDisk {
             active: store.batch_changes(name).map_err(fail)?,
             base: Base {
                 hash: store.base(name).map_err(fail)?.flatten(),
-                text: None,
+                text: store.base_text(name).map_err(fail)?,
             },
         }))
     }
@@ -346,12 +354,7 @@ mod tests {
         .enumerate()
         {
             docs.change(Change::new(format!("step {n}"), edit)).unwrap();
-            let mut on_disk = docs.desk().read(&name).unwrap().unwrap();
-            // the store keeps a base's hash alone
-            on_disk
-                .base
-                .text
-                .clone_from(&docs.document().content().base.text);
+            let on_disk = docs.desk().read(&name).unwrap().unwrap();
             assert_eq!(&on_disk, docs.document().content(), "after step {n}");
         }
         assert_eq!(
@@ -362,11 +365,7 @@ mod tests {
         // activation, the removal, the font set added
         for n in (0..4).rev() {
             docs.undo().unwrap();
-            let mut on_disk = docs.desk().read(&name).unwrap().unwrap();
-            on_disk
-                .base
-                .text
-                .clone_from(&docs.document().content().base.text);
+            let on_disk = docs.desk().read(&name).unwrap().unwrap();
             assert_eq!(&on_disk, docs.document().content(), "undone to step {n}");
         }
         let frits = store.frit_changes(&name).unwrap();

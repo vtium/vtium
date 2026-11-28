@@ -449,6 +449,21 @@ impl Documents {
         self.open.set(content);
     }
 
+    /// Puts `installed`, what is installed now as read again, in place of
+    /// what the open document counts its changes against, and counts the
+    /// document again. The screen for a file changed on disk reads the
+    /// installed file again, so after Update, Overwrite or Revert the count
+    /// not saved follows the file that screen showed. A refresh is no step
+    /// of the history and writes nothing, since the draft does not change.
+    ///
+    /// References:
+    /// - ADR-1403 D11, "One flow for every change": the count not saved is Save's count, against what is installed now.
+    /// - ADR-1403 D8, "When the installed file changed on disk": the review shows the installed file's own change, and Update merges it into the document.
+    pub fn refresh(&mut self, installed: Installed) {
+        self.open.installed = installed;
+        self.open.count = self.open.review().count();
+    }
+
     /// Opens `document` in place of the open one, keeping the open one's
     /// history under its name and taking up the history `document` had,
     /// if it was open before. Switching is no step of either history.
