@@ -528,3 +528,41 @@ fn an_endless_string_is_dropped_at_its_bound() {
 fn other_sequences_and_controls_are_dropped() {
     assert_eq!(keys(b"\x1b[200~\x1b[?1;2$y\x00\x1c\x1b[99~\x1bOx"), []);
 }
+
+/// The terminal's bytes are untrusted input: bytes of every value, in
+/// reads of every length, with and without a reply due, never panic the
+/// decoder, and a lone ESC still comes out as the Esc key after them.
+#[test]
+fn any_bytes_in_any_reads_decode_without_a_panic() {
+    // a linear congruential generator, so the test is the same each run
+    let mut state: u64 = 0x5eed;
+    let mut next = || {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (state >> 33) as u32
+    };
+    let mut d = Decoder::new();
+    let mut events = 0usize;
+    for _ in 0..20_000 {
+        let len = next() % 16;
+        // ESC, `[`, `]`, `P`, `O` and controls come often, so sequences
+        // begin, nest and break
+        let read: Vec<u8> = (0..len)
+            .map(|_| match next() % 8 {
+                0 => 0x1b,
+                1 | 2 => b"[]PO_\\~;M<?0123456789"[(next() % 21) as usize],
+                3 => (next() % 0x20) as u8,
+                _ => (next() % 256) as u8,
+            })
+            .collect();
+        d.push(&read);
+        events += drain(&mut d, next() % 2 == 0).len();
+    }
+    events += drain(&mut d, false).len();
+    assert!(events > 0);
+    // whatever is held, a string's end and a lone ESC clear the decoder
+    d.push(b"\x1b\\\x1b[A");
+    drain(&mut d, false);
+    assert_eq!(d.feed(b"\x1b"), [ESC]);
+}
