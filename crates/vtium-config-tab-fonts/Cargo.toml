@@ -1,0 +1,44 @@
+[package]
+name = "vtium-config-tab-fonts"
+description = "The Fonts tab of vtium-config's TUI: the fonts found on this system with their filters and search, the highlighted font's facts beside the list, a font's detail, Space and Activate missing, and the marks every font carries"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The Tab trait, the opt-in traits Searchable and Choices, the compiled
+# key table, the color roles, the list box, the search component and the
+# action bar.
+vtium-config-widgets.workspace = true
+# The shared state the tab reads, the action it is handed and the
+# commands it returns, with the fonts found, the batch view and the fonts
+# a configuration uses with their five states.
+vtium-config-core.workspace = true
+# A font's format and groups as the font helper describes them, which the
+# tab's words name; the crate vtium-config-core already links.
+vtium-font-helper.workspace = true
+# The name of the layers' folder beside the font sets, which the walk of
+# the fonts a configuration uses reads; the crate vtium-config-core
+# already links.
+vtium-font.workspace = true
+# The rule for a font path the console takes on a live trial, and the
+# batch file's places and trust, which the batch view is read with; the
+# crate vtium-config-core already links.
+vtium-settings.workspace = true
+# The layout, buffer and frame the tab draws into; the version the
+# workspace builds.
+ratatui-core = { version = "=0.1.2", default-features = false, features = ["std"] }
+# The rule between the list and the facts, and the box of the picture,
+# drawn as blocks; the version vtium-config already builds.
+ratatui-widgets = { version = "=0.3.2", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# The screen map's machine and a large machine, which the screen tests
+# draw the tab on.
+vtium-config-core = { workspace = true, features = ["fixture"] }
