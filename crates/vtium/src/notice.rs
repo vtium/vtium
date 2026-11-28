@@ -345,6 +345,78 @@ changes nothing.\n";
         )
     }
 
+    /// Where a `font-name` is set.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum FontNameSet<'a> {
+        /// At vtium.conf's top level.
+        TopLevel,
+        /// As `--font-name` on the command line.
+        CommandLine,
+        /// In the `[look NAME]` section of this name.
+        Look(&'a str),
+    }
+
+    /// Which package installs a font set of vtium's catalog.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum SetPackage {
+        /// Every vtium console package.
+        Console,
+        /// The vtium-fonts package.
+        Fonts,
+        /// None: the font set is not one of the catalog's.
+        None,
+    }
+
+    /// A `font-name`, set where `set` says, whose value `name` gives no
+    /// font vtium loads: no font set in the frits' directory `frits`, no
+    /// kbd console font in the folders `kbd`, and no built-in font. It
+    /// names the places vtium looked, and what to do: install `package`
+    /// for a font set of the catalog, or else correct the name or install
+    /// the font set.
+    pub fn font_not_found(
+        set: FontNameSet<'_>,
+        name: &str,
+        frits: &std::path::Path,
+        kbd: &[std::path::PathBuf],
+        package: SetPackage,
+    ) -> String {
+        let what = match set {
+            FontNameSet::TopLevel => format!(
+                "vtium.conf's top-level `font-name` names the font {name:?}, and this machine has no font of that name, so vtium draws its built-in font."
+            ),
+            FontNameSet::CommandLine => format!(
+                "`--font-name` on the command line names the font {name:?}, and this machine has no font of that name, so vtium draws its built-in font."
+            ),
+            FontNameSet::Look(look) => format!(
+                "Look {look:?} uses the font {name:?}, and this machine has no font of that name, so vtium draws that look in its built-in font."
+            ),
+        };
+        let folders: Vec<String> = kbd.iter().map(|p| crate::font::quoted(p)).collect();
+        let frits = crate::font::quoted(frits);
+        let file = format!("\"{}.vtfrit\"", name.escape_debug());
+        let looked = match folders.as_slice() {
+            [] => format!(
+                "vtium looked for the font set file {file} in {frits} and the category folders inside it."
+            ),
+            folders => format!(
+                "vtium looked for the font set file {file} in {frits} and the category folders inside it, and for a kbd console font named {name:?} in {}.",
+                super::listed(folders)
+            ),
+        };
+        let fix = match package {
+            SetPackage::Fonts => format!(
+                "The font set {name:?} is part of vtium's catalog: install the vtium-fonts package to add it."
+            ),
+            SetPackage::Console => format!(
+                "Every vtium console package, such as vtium or vtium-minspec, installs the font set {name:?}: reinstall the one this machine uses to put it back."
+            ),
+            SetPackage::None => {
+                format!("Correct the name, or put the font set file {file} in {frits}.")
+            }
+        };
+        format!("{what} {looked} {fix}")
+    }
+
     /// `hwaccel` on in a build without the `gpu` feature (ADR-1303 D9).
     pub const HWACCEL_NOT_IN_BUILD: &str =
         "hwaccel needs a build with GPU support, so vtium draws in software";

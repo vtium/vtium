@@ -15,6 +15,66 @@ use super::resources::{font_files, font_needs};
 #[cfg(doc)]
 use super::{WITH_FRIT, WITHOUT_FRIT};
 
+/// The folders where the font helper finds a kbd console font by its
+/// name, in the order it searches them: the `consolefonts` folder of kbd's
+/// own data folder, of Debian's console-setup and of the Red Hat family's.
+pub const CONSOLE_FONT_FOLDERS: [&str; 3] = [
+    "/usr/share/kbd/consolefonts",
+    "/usr/share/consolefonts",
+    "/usr/lib/kbd/consolefonts",
+];
+
+/// The font sets of vtium's catalog that every vtium console package
+/// installs, the Makefile's `CONSOLE_FRITS`.
+pub(super) const CONSOLE_PACKAGE_SETS: [&str; 5] = [
+    "terminus",
+    "cullet-mono",
+    "jetbrains-mono",
+    "unifont-icons",
+    "unscii-icons",
+];
+
+/// The rest of vtium's catalog, the font sets the vtium-fonts package
+/// installs beside the fonts they name.
+///
+/// References:
+/// - ADR-1204 D9: vtium-fonts ships the catalog beside the fonts it names.
+pub(super) const FONTS_PACKAGE_SETS: [&str; 33] = [
+    "dec-vt220",
+    "ibm-vga",
+    "sun-gallant",
+    "cascadia-code",
+    "dejavu-sans-mono",
+    "fira-code",
+    "hack",
+    "ibm-plex-mono",
+    "monoid",
+    "source-code-pro",
+    "default8x16",
+    "linux-sun-12x22",
+    "linux-sun-8x16",
+    "linux-ter-16x32",
+    "linux-vga-8x16",
+    "linux-vga-8x8",
+    "caskaydia-cove",
+    "fira-code-nerd",
+    "hack-nerd",
+    "jetbrains-mono-nerd",
+    "monoid-nerd",
+    "sauce-code-pro",
+    "terminess",
+    "noto-arabic",
+    "noto-cjk-jp",
+    "noto-cjk-kr",
+    "noto-cjk-sc",
+    "noto-cjk-tc",
+    "noto-hebrew",
+    "noto-indic",
+    "noto-thai-lao",
+    "noto-vietnamese",
+    "tiny5",
+];
+
 /// The font sets a draft adds, replaces and removes, as the subcommand's
 /// [`WITH_FRIT`] and [`WITHOUT_FRIT`] give them. vtium-config keeps a
 /// draft's font sets in a folder beside the draft until the install, and
@@ -87,6 +147,85 @@ pub fn with_frit_name(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_str()?.strip_suffix(".vtfrit")?;
     let folder = path.parent()?;
     (font::frit(folder, name)? == folder.join(format!("{name}.vtfrit"))).then(|| name.to_owned())
+}
+
+/// Whether a `font-name` whose value is `name` gives a font that vtium
+/// loads, found as the start finds it: a built-in font, a frit in
+/// `settings`' directory with the draft's changes, or else a kbd console
+/// font of that name in one of `settings`' console font folders, which
+/// the font helper reads for the frit vtium makes on the fly. A name that
+/// starts with `/` is a font file's path, which the start takes as it is,
+/// so it counts as found here. A name with an empty, `.` or `..`
+/// component reaches outside the folders, and the font helper refuses
+/// such a font, so it is not found.
+pub(super) fn font_found(name: &str, settings: &Settings) -> bool {
+    name.starts_with('/')
+        || font::builtin_named(name, None).is_some()
+        || settings.draft.find(settings.frits, name).is_some()
+        || settings
+            .console_fonts
+            .iter()
+            .any(|folder| kbd_font(name, folder))
+}
+
+/// Whether `folder` holds the kbd console font `name` as the font helper
+/// finds it, which is how kbd's `setfont` finds it: the name, then the
+/// name with each suffix `setfont` tries, each plain and then compressed.
+/// A name with `/` in it names a font in a folder below `folder`.
+fn kbd_font(name: &str, folder: &Path) -> bool {
+    use vtium_settings::batch::{COMPRESSED, FONT_SUFFIXES};
+    if name
+        .split('/')
+        .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return false;
+    }
+    FONT_SUFFIXES.iter().any(|suffix| {
+        COMPRESSED
+            .iter()
+            .any(|z| folder.join(format!("{name}{suffix}{z}")).is_file())
+    })
+}
+
+/// The warning on a `font-name` whose value, `name`, gives no font that
+/// vtium loads ([`font_found`]), as `set` says where it is set, with the
+/// places the check looked in and what to do: install the package that
+/// ships the font set when `name` is one of vtium's catalog, and
+/// otherwise correct the name or install the font set.
+pub(super) fn font_not_found(
+    set: check_config::FontNameSet<'_>,
+    name: &str,
+    settings: &Settings,
+) -> String {
+    let package = if CONSOLE_PACKAGE_SETS.contains(&name) {
+        check_config::SetPackage::Console
+    } else if FONTS_PACKAGE_SETS.contains(&name) {
+        check_config::SetPackage::Fonts
+    } else {
+        check_config::SetPackage::None
+    };
+    check_config::font_not_found(set, name, settings.frits, &settings.console_fonts, package)
+}
+
+/// The warning on the top level's `font-name` in `config` when it names
+/// a font that vtium does not find ([`font_found`]), headed by where it
+/// is set; none when it is unset, names a font vtium finds, or names a
+/// font family under `font-engine=freetype` or `pango`, which the font
+/// helper looks up among the installed fonts.
+pub(super) fn font_name_not_found(config: &Config, settings: &Settings) -> Option<String> {
+    let wanted = font::wanted(config, "", "").filter(|w| w.came == font::Came::Config)?;
+    if font_found(&wanted.name, settings) {
+        return None;
+    }
+    let origin = config.origin(&keys::FONT_NAME)?;
+    let set = match origin {
+        crate::config::Origin::CommandLine { .. } => check_config::FontNameSet::CommandLine,
+        _ => check_config::FontNameSet::TopLevel,
+    };
+    Some(format!(
+        "{origin}: {}",
+        font_not_found(set, &wanted.name, settings)
+    ))
 }
 
 /// What the frit `font-name` names in `frits` says of its cell, as
@@ -193,8 +332,11 @@ pub(super) fn font_name_frit(
 /// ownership check of the account the check runs as refuses, or that
 /// cannot be read, counts against the file, since the start draws that
 /// look in its built-in font; one a start as root would refuse though the
-/// account reads it is a note. A name no frit bears there is
-/// `vtium_settings::warnings`' to report.
+/// account reads it is a note. A name that gives no font vtium loads
+/// ([`font_found`]) counts against the file with [`font_not_found`]'s
+/// warning, which takes the place of `vtium_settings::warnings`' warning
+/// on a look's missing frit; a built-in font or a kbd console font is no
+/// frit, so nothing more is judged of it.
 pub(super) fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Settings) {
     for look in &parsed.config.looks {
         let Some(named) = look
@@ -204,10 +346,17 @@ pub(super) fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, sett
         else {
             continue;
         };
+        let line = Some(named.line);
+        if !font_found(&named.value, settings) {
+            let set = check_config::FontNameSet::Look(&look.name);
+            let said = font_not_found(set, &named.value, settings);
+            out.counted.push(at(path, line, said).to_string());
+            continue;
+        }
+        // a built-in font or a kbd console font is no frit to judge
         let Some(found) = settings.draft.find(settings.frits, &named.value) else {
             continue;
         };
-        let line = Some(named.line);
         let judged = judge(&found, &settings.trust);
         let file = found.file;
         // a font set the account reads is checked for its layers and for
