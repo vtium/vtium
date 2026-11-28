@@ -244,7 +244,7 @@ impl Player {
                 status: 2,
             })?;
         }
-        if let Some(why) = words::live_mismatch(m.is_live(), options.live) {
+        if let Some(why) = words::live_mismatch(&options.file, m.is_live(), options.live) {
             return Err(Refusal { why, status: 1 });
         }
         Ok(Player::with(
@@ -385,7 +385,7 @@ impl Player {
             return Next::Leave(1);
         }
         Next::Event(Event::Said(Message {
-            line: format!("{first} [F1] More"),
+            line: words::failed(&first),
             more: match &self.outcome {
                 Outcome::Failed { report, .. } => Some(report.clone()),
                 _ => None,
@@ -411,7 +411,7 @@ impl Player {
             return Next::Leave(0);
         }
         Next::Event(Event::Said(Message {
-            line: words::ended(line),
+            line: words::ended(&self.options.file, line),
             more: None,
         }))
     }
@@ -526,9 +526,9 @@ impl Player {
             }
             let live = matches!(step, Step::SetLive);
             let mismatch = if live && !self.options.live {
-                words::live_mismatch(true, false)
+                words::live_mismatch(&self.options.file, true, false)
             } else if !live && !self.begun && self.options.live {
-                words::live_mismatch(false, true)
+                words::live_mismatch(&self.options.file, false, true)
             } else {
                 None
             };
@@ -687,10 +687,14 @@ pub mod words {
 
     /// The line that refuses a live run asked for by one side alone, or
     /// `None` where both or neither ask.
-    pub fn live_mismatch(set_live: bool, flag: bool) -> Option<String> {
+    pub fn live_mismatch(file: &str, set_live: bool, flag: bool) -> Option<String> {
         match (set_live, flag) {
-            (true, false) => Some("vtium-config: the macro asks for a live run with Set Live, and the command line has no --live.".to_owned()),
-            (false, true) => Some("vtium-config: --live needs a macro whose first step is Set Live.".to_owned()),
+            (true, false) => Some(format!(
+                "vtium-config: {file} asks for a live run with Set Live, but --live is missing."
+            )),
+            (false, true) => Some(format!(
+                "vtium-config: --live asks for a live run, but {file} does not start with Set Live."
+            )),
             _ => None,
         }
     }
@@ -721,9 +725,16 @@ pub mod words {
         format!("A key from the terminal stopped the macro at line {line}: {step}.")
     }
 
-    /// The message row once the macro ended.
-    pub fn ended(line: usize) -> String {
-        format!("The macro ended after line {line}. The keys are yours again.")
+    /// The message row once the macro ended, which fits one line at 80
+    /// columns for a file name of up to 40 characters.
+    pub fn ended(file: &str, line: usize) -> String {
+        format!("{file} ended after line {line}: every step passed.")
+    }
+
+    /// The message row after a step failed: the report's first line, and
+    /// F1 for the rest.
+    pub fn failed(first: &str) -> String {
+        format!("{first} [F1] says more.")
     }
 
     /// `Expect Saved` with changes not saved.

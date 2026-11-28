@@ -26,7 +26,7 @@
                                                                                                     
                                                                                                     
                                                                                                     
- fail.vtmacro:7: Expect "12 pt": the screen does not show it. [F1] More                             
+ fail.vtmacro:7: Expect "12 pt": the screen does not show it. [F1] says more.                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────
  [Space] Activate  [A] Activate missing  [?] Search  [Ctrl+S] Save  [.] More   [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -83,7 +83,7 @@ rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr......................................
                                                                                 
                                                                                 
                                                                                 
- fail.vtmacro:7: Expect "12 pt": the screen does not show it. [F1] More         
+ fail.vtmacro:7: Expect "12 pt": the screen does not show it. [F1] says more.   
 ────────────────────────────────────────────────────────────────────────────────
  [Space] Activate  [Ctrl+S] Save  [.] More                 [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -140,7 +140,7 @@ rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr......................................
                                                                                                     
                                                                                                     
                                                                                                     
- fail.vtmacro:7: Expect "12 pt": the screen does not show it. [F1] More                             
+ fail.vtmacro:7: Expect "12 pt": the screen does not show it. [F1] says more.                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────
  [Space] Activate  [A] Activate missing  [?] Search  [Ctrl+S] Save  [.] More   [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -197,7 +197,7 @@ rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr......................................
                                                                                 
                                                                                 
                                                                                 
- fail.vtmacro:7: Expect "12 pt": the screen does not show it. [F1] More         
+ fail.vtmacro:7: Expect "12 pt": the screen does not show it. [F1] says more.   
 ────────────────────────────────────────────────────────────────────────────────
  [Space] Activate  [Ctrl+S] Save  [.] More                 [F10] Menu  [q] Quit 
 -- attributes without color --

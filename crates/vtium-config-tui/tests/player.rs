@@ -615,7 +615,8 @@ fn a_live_run_needs_set_live_and_the_flag_both() {
         refused.map(|r| (r.status, r.why)),
         Some((
             1,
-            "vtium-config: the macro asks for a live run with Set Live, and the command line has no --live.".to_owned()
+            "vtium-config: l.vtmacro asks for a live run with Set Live, but --live is missing."
+                .to_owned()
         ))
     );
     let mut flagged = Options::new("p.vtmacro", Pace::Off);
@@ -625,7 +626,8 @@ fn a_live_run_needs_set_live_and_the_flag_both() {
         refused.map(|r| (r.status, r.why)),
         Some((
             1,
-            "vtium-config: --live needs a macro whose first step is Set Live.".to_owned()
+            "vtium-config: --live asks for a live run, but p.vtmacro does not start with Set Live."
+                .to_owned()
         ))
     );
 }
@@ -949,7 +951,10 @@ fn a_stream_is_parsed_line_by_line_and_a_bad_line_ends_the_run_there() {
         let run = play_stream("Alt+N\nClik \"x\"\nAlt+L\n", threaded);
         assert_eq!(run.status, 2);
         let out = run.out.text();
-        assert!(out.starts_with("-:1: Alt+N: ok\n-:2: Clik is not a step."), "{out}");
+        assert!(
+            out.starts_with("-:1: Alt+N: ok\n-:2: Clik is not a step."),
+            "{out}"
+        );
         // the key the decoder cannot make ends a stream at its line too, as
         // a line that does not parse
         let run = play_stream("Alt+N\nAlt+Escape\nAlt+L\n", threaded);
@@ -963,7 +968,7 @@ fn a_stream_is_parsed_line_by_line_and_a_bad_line_ends_the_run_there() {
         assert_eq!(run.status, 1);
         assert_eq!(
             run.out.text(),
-            "vtium-config: the macro asks for a live run with Set Live, and the command line has no --live.\n"
+            "vtium-config: - asks for a live run with Set Live, but --live is missing.\n"
         );
     }
 }
@@ -1085,7 +1090,7 @@ fn the_top_row_says_scratch_copy_and_the_message_row_where_the_macro_ended() {
     screens(
         "player-scratch",
         Mode::ScratchCopy,
-        &vtium_config_tui::player::words::ended(22),
+        &vtium_config_tui::player::words::ended("cullet-11.vtmacro", 22),
         "scratch copy",
     );
 }
@@ -1105,7 +1110,9 @@ fn the_message_row_names_a_failure_and_f1_opens_its_report() {
     screens(
         "player-failure",
         Mode::ScratchCopy,
-        "fail.vtmacro:7: Expect \"12 pt\": the screen does not show it. [F1] More",
+        &vtium_config_tui::player::words::failed(
+            "fail.vtmacro:7: Expect \"12 pt\": the screen does not show it.",
+        ),
         "fail.vtmacro:7",
     );
 }

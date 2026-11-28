@@ -26,7 +26,7 @@
                                                                                                     
                                                                                                     
                                                                                                     
- The macro ended after line 22. The keys are yours again.                                           
+ cullet-11.vtmacro ended after line 22: every step passed.                                          
 ────────────────────────────────────────────────────────────────────────────────────────────────────
  [Space] Activate  [A] Activate missing  [?] Search  [Ctrl+S] Save  [.] More   [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -83,7 +83,7 @@ rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr......................................
                                                                                 
                                                                                 
                                                                                 
- The macro ended after line 22. The keys are yours again.                       
+ cullet-11.vtmacro ended after line 22: every step passed.                      
 ────────────────────────────────────────────────────────────────────────────────
  [Space] Activate  [Ctrl+S] Save  [.] More                 [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -140,7 +140,7 @@ rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr......................................
                                                                                                     
                                                                                                     
                                                                                                     
- The macro ended after line 22. The keys are yours again.                                           
+ cullet-11.vtmacro ended after line 22: every step passed.                                          
 ────────────────────────────────────────────────────────────────────────────────────────────────────
  [Space] Activate  [A] Activate missing  [?] Search  [Ctrl+S] Save  [.] More   [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -197,7 +197,7 @@ rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr......................................
                                                                                 
                                                                                 
                                                                                 
- The macro ended after line 22. The keys are yours again.                       
+ cullet-11.vtmacro ended after line 22: every step passed.                      
 ────────────────────────────────────────────────────────────────────────────────
  [Space] Activate  [Ctrl+S] Save  [.] More                 [F10] Menu  [q] Quit 
 -- attributes without color --
