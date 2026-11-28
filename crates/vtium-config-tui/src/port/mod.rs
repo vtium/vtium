@@ -39,6 +39,7 @@ use vtium_config_widgets::keys::{self, Decoder};
 
 use crate::app::{App, Event, Size};
 use crate::live::machine::{Machine, Nowhere};
+use crate::save::Came;
 use crate::view;
 pub use wake::Wake;
 
@@ -152,19 +153,36 @@ pub fn drive_on(port: &mut dyn Port, machine: &mut dyn Machine, mut app: App) ->
                         port.write(&painter.forget()?)?;
                         queue.extend(app.event(Event::FontInstalled(done)));
                     }
-                    // Save's privileged step (rebuild-save), the previews and
-                    // the font helper's answers (the tab cards) and the desk's
-                    // other ops (rebuild-save) are performed by the cards that
-                    // build them
-                    Effect::Install(_)
-                    | Effect::Specimen { .. }
+                    // Save reads the installed file again for its review
+                    Effect::Desk(Op::Prepare) => {
+                        let read = machine.installed();
+                        queue.extend(app.event(Event::Save(Came::Read(read))));
+                    }
+                    // sudo asks for the password on the terminal, so Save's
+                    // privileged step runs while the TUI steps aside, and
+                    // the next frame is drawn whole
+                    Effect::Install(plan) => {
+                        port.write(&painter.frame(&app)?)?;
+                        let name = app.shared().document().name().to_owned();
+                        let mut done = Err(String::new());
+                        port.step_aside(&mut || {
+                            done = machine.save(&name, &plan);
+                            Ok(())
+                        })?;
+                        port.write(&painter.forget()?)?;
+                        queue.extend(app.event(Event::Save(Came::Saved(done))));
+                    }
+                    // the previews and the font helper's answers (the tab
+                    // cards) and the desk's other ops are performed by the
+                    // cards that build them
+                    Effect::Specimen { .. }
                     | Effect::Cell { .. }
                     | Effect::Picture(_)
                     | Effect::ScreenPicture(_)
                     | Effect::Summary { .. }
                     | Effect::Sources(_)
                     | Effect::Describe(_)
-                    | Effect::Desk(Op::Check | Op::Prepare | Op::Versions) => {}
+                    | Effect::Desk(Op::Check | Op::Versions) => {}
                 }
             }
         }
