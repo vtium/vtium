@@ -400,6 +400,11 @@ pub static NOTES: [Note; KEYS.len()] = [
         "[the display hand-back issue](https://github.com/vtium/vtium/issues/36)",
     ),
     note(
+        ALLOW_MACRO_LIVE,
+        "vtium-config",
+        "the decision on vtium-config's macros, ADR-1208",
+    ),
+    note(
         GLYPH_SOURCE,
         "vtium-font",
         "[the glyph source issue](https://github.com/vtium/vtium/issues/85)",
