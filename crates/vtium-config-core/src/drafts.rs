@@ -375,11 +375,18 @@ impl Session<'_> {
 
     /// Whether the installed file `installed` is no longer the draft
     /// `name`'s base. A draft with no recorded base, such as one copied in
-    /// from another machine, takes the installed file as its base.
+    /// from another machine, takes the installed file as its base. A
+    /// missing installed file is no change on disk, since installing the
+    /// draft then overwrites nothing.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "When the installed file changed on disk": a missing installed file is no conflict.
     fn stale(&self, name: &str, installed: Option<&str>) -> Result<bool, Fail> {
-        let now = installed.map(|t| hash(t.as_bytes()));
+        let Some(installed) = installed else {
+            return Ok(false);
+        };
         Ok(match self.store.base(name)? {
-            Some(base) => base != now,
+            Some(base) => base != Some(hash(installed.as_bytes())),
             None => false,
         })
     }
@@ -619,12 +626,44 @@ impl Session<'_> {
         text: &str,
         out: &mut dyn Write,
     ) -> Result<Option<Ready>, Fail> {
+        self.prepare_over(name, text, Over::Refuse, out)
+    }
+
+    /// [`Session::prepare`], which with [`Over::Overwrite`] readies a draft
+    /// made before the installed file changed, as `install --overwrite`
+    /// does, in place of refusing it. The plan still carries the installed
+    /// file as vtium-config read it now, so the privileged step refuses a
+    /// file that changes again before it runs.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "When the installed file changed on disk": `vtium config install --overwrite` installs the draft over a file changed on disk.
+    pub fn prepare_over(
+        &self,
+        name: &str,
+        text: &str,
+        over: Over,
+        out: &mut dyn Write,
+    ) -> Result<Option<Ready>, Fail> {
         let installed = self.installed()?;
-        if self.stale(name, installed.as_deref())? {
+        if over == Over::Refuse && self.stale(name, installed.as_deref())? {
             return Err(Fail::Changed(format!(
                 "Nothing installed: {} changed after draft {name} was made from it. Run vtium config diff to see the difference, or vtium config revert to start again from the installed file.",
                 self.installed_path().display()
             )));
+        }
+        let (frits, notes) = self.frit_changes(name)?;
+        // the privileged step refuses to remove a frit that the vtium.conf
+        // it installs still names. The console's check refuses a font-name
+        // that names a frit the draft removes too, but only by its line, so
+        // the install refuses that removal first, in the privileged step's
+        // own words, which name the frit and the setting
+        for removal in frits.iter().filter(|c| c.new.is_none()) {
+            if let Some(by) = crate::apply::naming(&removal.name, Some(text)) {
+                return Err(Fail::Check(format!(
+                    "nothing installed: {} is not removed: {by} uses it. The draft keeps your changes.",
+                    removal.path.display()
+                )));
+            }
         }
         let shown = self.store.draft_path(name)?;
         let checked = self.check(name, text, &shown)?;
@@ -655,7 +694,6 @@ impl Session<'_> {
                 "{why} The install replaces it with the list of a fresh install and the changes of draft {name}."
             );
         }
-        let (frits, notes) = self.frit_changes(name)?;
         for line in &notes {
             let _ = writeln!(out, "{line}");
         }
@@ -672,20 +710,6 @@ impl Session<'_> {
                 "nothing installed: {} The draft keeps your changes.",
                 crate::apply::FRITS_MOVE_FIRST
             )));
-        }
-        // the privileged step refuses to remove a frit that the vtium.conf
-        // it installs still names. The check above catches a look's
-        // font-name, but not the top level's, which the console reads as a
-        // font family once no frit has that name, so the install refuses
-        // that removal here, in the privileged step's own words, before
-        // anything runs as root
-        for removal in frits.iter().filter(|c| c.new.is_none()) {
-            if let Some(by) = crate::apply::naming(&removal.name, Some(text)) {
-                return Err(Fail::Check(format!(
-                    "nothing installed: {} is not removed: {by} uses it. The draft keeps your changes.",
-                    removal.path.display()
-                )));
-            }
         }
         let same = installed.as_deref() == Some(text);
         if same && batch.is_none() && frits.is_empty() {
@@ -853,7 +877,28 @@ impl Session<'_> {
         ask: Option<Ask<'_>>,
         out: &mut dyn Write,
     ) -> Result<(), Fail> {
-        let Some(ready) = self.prepare(name, text, out)? else {
+        self.install_over(name, text, Over::Refuse, unrouted, run, ask, out)
+    }
+
+    /// [`Session::install`], readied as [`Session::prepare_over`] readies
+    /// it: with [`Over::Overwrite`], over a file changed on disk, which the
+    /// installed history then keeps as it keeps every file an install
+    /// replaces.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "install's arguments, and the one choice install --overwrite adds"
+    )]
+    pub fn install_over(
+        &self,
+        name: &str,
+        text: &str,
+        over: Over,
+        unrouted: Unrouted<'_>,
+        run: Runner<'_>,
+        ask: Option<Ask<'_>>,
+        out: &mut dyn Write,
+    ) -> Result<(), Fail> {
+        let Some(ready) = self.prepare_over(name, text, over, out)? else {
             return Ok(());
         };
         if ready.plan.no_route {
@@ -1001,6 +1046,17 @@ pub fn frit_count(n: usize) -> String {
         1 => "1 font set change".to_owned(),
         n => format!("{n} font set changes"),
     }
+}
+
+/// What an install does with a draft made before the installed file
+/// changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Over {
+    /// Refuses it, exit 3: `vtium config install`.
+    Refuse,
+    /// Installs it over the file changed on disk: `vtium config install
+    /// --overwrite`.
+    Overwrite,
 }
 
 /// What an install does with a draft whose only problem is that it wires

@@ -287,6 +287,10 @@ impl Cli<'_> {
             Command::Activate | Command::Deactivate | Command::Active => {
                 crate::batch::command(command, rest, &o.paths(), self.out, self.err)
             }
+            // update, install --overwrite and draft rename
+            c if vtium_config_core::versions::command::takes(c, rest) => {
+                vtium_config_core::versions::command::run(c, rest, &o.paths(), self.out, self.err)
+            }
             c if c.flow() => {
                 crate::flowcli::run(c.name(), rest, &o.paths(), &o.devices(), self.out, self.err)
             }

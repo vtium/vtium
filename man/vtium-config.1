@@ -10,7 +10,7 @@ Sets up the vtium console's fonts and settings, and can preview each font live o
 .PP
 With no command, vtium-config prints its usage. To open the full-screen tool, run vtium-config tui.
 .PP
-The commands from flow to edit change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. activate and deactivate keep their changes beside the draft, in NAME.batch, and install writes them to /etc/vtium/batch.conf. The font set commands (new-frit, remove-frit) keep their changes beside the draft too, in NAME.frits/, and install writes them to the font sets' directory.
+The commands from flow to edit, and update, change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. activate and deactivate keep their changes beside the draft, in NAME.batch, and install writes them to /etc/vtium/batch.conf. The font set commands (new-frit, remove-frit) keep their changes beside the draft too, in NAME.frits/, and install writes them to the font sets' directory.
 .PP
 vtium reads \fB/etc/vtium/vtium.conf\fR only when it starts on a VT, so a change that install makes takes effect when vtium starts again. install offers to restart vtium on the VTs it runs on. See vtium.conf(5) for the file and its settings.
 .PP
@@ -41,9 +41,9 @@ vtium\-config diff
 .fi
 .RE
 .SS install
-\fBvtium\-config\fR \fBinstall\fR [\fB\-\-force\fR]
+\fBvtium\-config\fR \fBinstall\fR [\fB\-\-force\fR] [\fB\-\-overwrite\fR]
 .PP
-Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). When the check exits 6, because its only warnings are about fonts that a font set needs and this machine lacks, install shows the warnings and installs the draft anyway. It exits 4 when sudo refuses. A draft whose only problem is that it has no complete path, so that no connected keyboard can type into a terminal on a connected display, is the one exception. At a terminal, install asks before it installs that draft. \-\-force installs it without asking. Without a terminal and without \-\-force, install refuses it (exit 1). vtium-config keeps the file it replaces, so restore can bring it back. vtium reads vtium.conf only when it starts on a VT. So after it installs /etc/vtium/vtium.conf, install enables vtium with sudo vtium console enable on each VT a head names where vtium is not enabled, and shows what vtium console says, refusals included. At a terminal, it then asks whether to start vtium on those VTs and restart it where it runs, so the new file applies now. Each session keeps running through a restart, but its screen is cleared. Without a terminal, install prints those commands instead.
+Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). A missing installed file has not changed, because installing the draft overwrites nothing. \-\-overwrite installs a draft made before the installed file last changed, over that change; vtium-config keeps the file it replaces, as it keeps every file an install replaces. update brings that change into the draft instead. When the check exits 6, because its only warnings are about fonts that a font set needs and this machine lacks, install shows the warnings and installs the draft anyway. It exits 4 when sudo refuses. A draft whose only problem is that it has no complete path, so that no connected keyboard can type into a terminal on a connected display, is the one exception. At a terminal, install asks before it installs that draft. \-\-force installs it without asking. Without a terminal and without \-\-force, install refuses it (exit 1). vtium-config keeps the file it replaces, so restore can bring it back. vtium reads vtium.conf only when it starts on a VT. So after it installs /etc/vtium/vtium.conf, install enables vtium with sudo vtium console enable on each VT a head names where vtium is not enabled, and shows what vtium console says, refusals included. At a terminal, it then asks whether to start vtium on those VTs and restart it where it runs, so the new file applies now. Each session keeps running through a restart, but its screen is cleared. Without a terminal, install prints those commands instead.
 .PP
 For example:
 .PP
@@ -163,9 +163,11 @@ vtium\-config look add big \-\-frit monoid \-\-size 14
 .br
 \fBvtium\-config\fR \fBdraft\fR \fBswitch\fR \fINAME\fR
 .br
+\fBvtium\-config\fR \fBdraft\fR \fBrename\fR \fINAME\fR \fINEW\fR
+.br
 \fBvtium\-config\fR \fBdraft\fR \fBrm\fR [\fINAME\fR]
 .PP
-Manages the drafts in ~/.config/vtium/drafts. A draft is your working copy of vtium.conf. A new draft starts as a copy of the installed file unless \-\-from says otherwise. Without a name it is named after the machine, with \-2, \-3 and so on added so that no draft is overwritten. draft rm without a name deletes the current draft; the next change starts a new one from the installed file.
+Manages the drafts in ~/.config/vtium/drafts. A draft is your working copy of vtium.conf. A new draft starts as a copy of the installed file unless \-\-from says otherwise. Without a name it is named after the machine, with \-2, \-3 and so on added so that no draft is overwritten. draft rename renames a draft with its font set changes and its changes to the active resources, and does not take a name another draft has. draft rm without a name deletes the current draft; the next change starts a new one from the installed file.
 .PP
 For example:
 .PP
@@ -394,6 +396,18 @@ For example:
 vtium\-config report \-\-save
 .fi
 .RE
+.SS update
+\fBvtium\-config\fR \fBupdate\fR [\fB\-\-dry\-run\fR]
+.PP
+Merges the change made to the installed /etc/vtium/vtium.conf since the current draft was made from it into the draft, keeping the draft's own changes. The draft then counts as made from the installed file as it is now, so install installs it. Where the draft and the installed file changed the same lines, update changes nothing, lists those lines with the draft's text and the installed file's, and exits 1. Settle them in vtium config tui, or edit the draft with vtium config edit. When no vtium.conf is installed, or it has not changed, update says so and changes nothing. A draft made before vtium-config kept the text of the file it was made from cannot be merged unless history holds that file; update then exits 1 and says so. \-\-dry\-run shows the change without saving it.
+.PP
+For example:
+.PP
+.RS 4
+.nf
+vtium\-config update
+.fi
+.RE
 .SH OPTIONS
 The options come before the command. Run as root, vtium-config refuses each option that names a path or a program. As root, it reads and writes only \fB/etc/vtium\fR and its font set directory, and runs only the programs it was built with.
 .TP
@@ -450,13 +464,13 @@ print the version and exit
 The command did what you asked.
 .TP
 \fB1\fR
-The command failed. For install, the draft failed vtium check-config. For check, FILE has an error, or a warning about something other than missing fonts.
+The command failed. For install, the draft failed vtium check-config. For update, the draft and the installed vtium.conf changed the same lines. For check, FILE has an error, or a warning about something other than missing fonts.
 .TP
 \fB2\fR
 The command line is wrong.
 .TP
 \fB3\fR
-install did not install the draft, because the installed vtium.conf changed after the draft was made.
+install did not install the draft, because the installed vtium.conf changed after the draft was made. update brings that change into the draft, and install \-\-overwrite installs the draft over it.
 .TP
 \fB4\fR
 sudo refused to run apply.
