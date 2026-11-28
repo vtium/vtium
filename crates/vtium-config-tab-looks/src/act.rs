@@ -1,9 +1,10 @@
-//! What each action does to the tab: the moves through the list, Enter on
-//! an item, `t`, `p`, `w` and Space, the search row's keys, a card's
-//! moves, steps, list boxes, typed name and Activate, a detail's scroll,
-//! the clicks on each, and Find's request to highlight an item. The
-//! navigation module hands the tab an action by its row of the key table,
-//! so each arm here answers rows of the tab's nodes.
+//! What each action does to the tab: the moves through the list or
+//! among the matches of a kept filter, Enter on an item, `t`, `p`, `w` and
+//! Space, a card's moves, steps, list boxes, typed name and Activate, a
+//! detail's scroll, the clicks on each, and Find's request to highlight
+//! an item. The navigation module hands the tab an action by its row of
+//! the key table, so each arm here answers rows of the tab's nodes. The
+//! shell keeps the `?` search's row and its keys.
 //!
 //! References:
 //! - ADR-1206 D2: update hands the open tab an action from the key table, and the tab returns commands.
@@ -18,7 +19,6 @@ use vtium_config_core::ui::{
 use vtium_config_widgets::input::{self, Button};
 use vtium_config_widgets::keys::{Code, Key, Mods};
 use vtium_config_widgets::list_box::{ListBox, Outcome as BoxOutcome};
-use vtium_config_widgets::search::{Outcome as SearchOutcome, Search};
 
 use crate::card::{self, Line};
 use crate::draw::Panes;
@@ -45,10 +45,6 @@ pub fn update(tab: &mut Looks, shared: &Shared, action: Action) -> Vec<Command> 
         return window_ops_on();
     }
     let out = match &tab.open {
-        Open::Nothing if tab.filter.as_ref().is_some_and(Search::typing) => {
-            searching(tab, shared, &action);
-            Vec::new()
-        }
         Open::Nothing => browse(tab, shared, &action),
         Open::Card(_) => card_action(tab, shared, &action),
         Open::Detail { .. } => {
@@ -145,8 +141,6 @@ fn browse(tab: &mut Looks, shared: &Shared, action: &Action) -> Vec<Command> {
         ("pgup", ..) => step(tab, shared, -page(tab)),
         ("pgdn", ..) => step(tab, shared, page(tab)),
         ("enter", ..) => return open(tab, item),
-        ("question", ..) => open_search(tab, shared),
-        ("esc", ..) => tab.filter = None,
         (_, "space.view.resources", Some(i)) => return resources::space(shared, i),
         (_, "t.view.looks", Some(i)) => return try_live(tab, shared, i),
         (_, "p.view.looks", Some(Item::Look(_) | Item::FontSet(_))) => {
@@ -196,36 +190,6 @@ fn open(tab: &mut Looks, item: Option<Item>) -> Vec<Command> {
             Vec::new()
         }
         None => Vec::new(),
-    }
-}
-
-/// `?`: puts the cursor back in a kept filter's entry, or opens the
-/// search row over every item's name, on the highlighted item.
-fn open_search(tab: &mut Looks, shared: &Shared) {
-    if let Some(filter) = tab.filter.as_mut() {
-        filter.key(&Key::char('?'));
-        return;
-    }
-    tab.follow(shared);
-    tab.filter = Some(Search::open(&*tab, Some(tab.highlight)));
-}
-
-/// A key typed in the search row: the entry changes and the list filters,
-/// Up and Down move among the matches, Enter keeps the filter, and Esc or
-/// Backspace on an empty entry clear it.
-fn searching(tab: &mut Looks, _shared: &Shared, action: &Action) {
-    let Some(key) = pressed(action) else { return };
-    let Some(filter) = tab.filter.as_mut() else {
-        return;
-    };
-    match filter.key(&key) {
-        SearchOutcome::Typed | SearchOutcome::Moved | SearchOutcome::Kept => {
-            if let Some(h) = filter.highlighted() {
-                tab.highlight = h;
-            }
-        }
-        SearchOutcome::Closed => tab.filter = None,
-        SearchOutcome::Resumed | SearchOutcome::Ignored => {}
     }
 }
 

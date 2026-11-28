@@ -4,16 +4,16 @@ This crate holds the Looks tab of vtium-config's TUI, the full-screen program th
 
 The tab's list holds the open configuration's looks, then the font sets, the color schemes and the pointer themes, each group under its heading. Beside the list sits the highlighted look's card, which sums up its lines and its fonts above the preview of how the console draws it. On a font set, a color scheme or a pointer theme, the same place shows the facts that its detail lists. Enter opens a look's card, and Enter on a card line opens that line's choices in the list box under it. Left and Right step a line to the choice before or after it. A look whose fonts are not all active says so in its own row, and its card offers `[A] Activate` for the fonts that can be activated. `?` filters the list by name.
 
-The tab implements vtium-config-widgets' `Tab` trait over vtium-config-core's shared state, action and commands. It also implements `Searchable` for the `?` search, and the choices trait for each card line's list box. It draws only into the viewer the frame gives it and reads the shared state only. Each change is one command. The shell's one change function makes it, writes the draft, and records it as one step that Undo takes back. The tab depends on no other tab's crate and not on the shell.
+The tab implements vtium-config-widgets' `Tab` trait over vtium-config-core's shared state, action and commands. It also implements `Searchable` for the shell's `?` search, which hands the tab its matches, and the choices trait for each card line's list box. It draws only into the viewer the frame gives it and reads the shared state only. Each change is one command. The shell's one change function makes it, writes the draft, and records it as one step that Undo takes back. The tab depends on no other tab's crate and not on the shell.
 
-vtium-config-core lists the fonts each look uses and judges each one against the batch, the list of active resources. The shared state holds the resources found when vtium-config started, each with its activation. So `src/missing.rs` hands that walk the batch those marks describe, and walks again only after the document changes. No key that moves the highlight reads a folder.
+vtium-config-core lists the fonts each look uses and judges each one against the batch, the list of active resources. `src/missing.rs` hands that walk the batch the shared state holds. It walks again only after the document, the fonts found or the batch change. No key that moves the highlight reads a folder.
 
 The crate forbids unsafe code and denies the lints that find a panic: unchecked indexing, and `unwrap`, `expect`, `panic!`, `unreachable!` and `todo!`.
 
 | Path | What it is |
 |---|---|
-| `src/lib.rs` | The tab's state, its nodes of the interface tree, its preview, its F1 text, its items for Find, and its search over every item's name. |
-| `src/act.rs` | What each action does on the list, in the search row, on a card and its list boxes, and on a detail, with the clicks on each. |
+| `src/lib.rs` | The tab's state, its nodes of the interface tree, its preview, its F1 text, its items for Find, and every item's name for the shell's search. |
+| `src/act.rs` | What each action does on the list and among a kept filter's matches, on a card and its list boxes, and on a detail, with the clicks on each. |
 | `src/list.rs` | The looks as vtium.conf holds them, the list's items in their four groups, and the pane at the left. |
 | `src/card.rs` | A look's lines, what each shows, each line's choices through the choices trait, and the change a pick, a step or a new name makes. |
 | `src/sizes.rs` | The sizes a look's text font supplies: the usual sizes for a font that draws at any size, and the sizes that draw a bitmap font's strikes. |

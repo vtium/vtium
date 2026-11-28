@@ -21,12 +21,18 @@
 //!
 //! [`HelpTab`] implements vtium-config-widgets' `Tab` over
 //! vtium-config-core's shared state, action and commands, and `Searchable`,
-//! so `?` filters the topics' lines. [`topics`] holds what each topic
-//! says, and [`page`] how the tab is drawn.
+//! so the shell's `?` search filters the topics' lines. The tab also lays
+//! out F1's list of every key of a tab's screen, from that tab's topic.
+//! [`topics`] holds what each topic says, and [`page`] how the tab is
+//! drawn.
 //!
 //! References:
 //! - ADR-1206 D9: the shell holds each tab as a trait object, and a tab
 //!   gains the search by implementing `Searchable`.
+//! - ADR-1206 D3: the navigation state holds the search, and each tab
+//!   keeps the indexes that match.
+//! - ADR-1403 D11, "F1, help for what is highlighted": F1's list of every
+//!   key of a screen is the Help tab's topic for that tab.
 //! - ADR-1513 D4: each tab of the rebuilt TUI is a crate of its own.
 //! - ADR-1403 D11, "The tabs' layouts", the Help bullet: the topics and
 //!   the keys that move between and through them.
@@ -42,11 +48,11 @@ use ratatui_core::terminal::Frame;
 use ratatui_widgets::clear::Clear;
 use vtium_config_core::ui::{Action, Carries, Command, Shared};
 use vtium_config_widgets::input::{Button, Key as InputKey};
-use vtium_config_widgets::keys::{Code, Key};
-use vtium_config_widgets::search::{Outcome, Search};
+use vtium_config_widgets::roles::Role;
+use vtium_config_widgets::search::Search;
 use vtium_config_widgets::tab::{FindItem, Searchable, Tab};
 
-use page::{Kept, Layout, Page, View};
+use page::{Kept, Layout, Look, Page, View};
 use topics::{ABOUT, Entry, Item, Kind, TOPICS};
 
 /// The viewer that update reads the places of before the first draw: the
@@ -69,10 +75,8 @@ pub struct HelpTab {
     before_about: usize,
     /// The page's first line in sight.
     top: usize,
-    /// The `?` search over the lines, while it is open or its filter is
-    /// kept. The navigation module holds the search row's own state and
-    /// hands the tab each of the row's keys, which the tab gives this copy
-    /// of the one search component, so the copy keeps the same matches.
+    /// The copy of the shell's `?` search over the lines, while it is
+    /// open or its filter is kept, as the shell last handed it.
     search: Option<Search>,
     /// The viewer the tab last drew in, from which update reads where a
     /// click lands and how far a window scrolls.
@@ -116,7 +120,8 @@ impl HelpTab {
         self.top
     }
 
-    /// The `?` search's copy, while it is open or its filter kept.
+    /// The copy of the shell's `?` search, while it is open or its filter
+    /// kept.
     pub fn search(&self) -> Option<&Search> {
         self.search.as_ref()
     }
@@ -226,47 +231,43 @@ impl HelpTab {
             .map(|(_, t)| *t)
     }
 
-    /// Gives the search's copy `key`, as the search row's key, and keeps
-    /// the highlight on a topic that has a line the filter keeps.
-    fn search_key(&mut self, key: Key) {
-        let Some(search) = self.search.as_mut() else {
-            return;
-        };
-        match search.key(&key) {
-            Outcome::Closed => self.search = None,
-            Outcome::Typed => {
-                self.top = 0;
-                let (listed, _) = self.listed();
-                if !listed.contains(&self.topic)
-                    && let Some(first) = listed.first()
-                {
-                    self.go(*first);
-                }
+    /// The topic of the line numbered `item`, by its index in [`TOPICS`].
+    fn topic_of(&self, item: usize) -> Option<usize> {
+        self.items.get(item).map(|i| i.topic)
+    }
+
+    /// Keeps `search`, the shell's search after a key that changed it.
+    /// A changed entry starts the page at its top and keeps the topic
+    /// while it has a line that matches, and otherwise the topic of the
+    /// line the search highlights takes the highlight. With the entry as
+    /// it was, the highlight moved among the matches, and the topic of
+    /// the highlighted line takes it.
+    fn keep(&mut self, search: &Search) {
+        let typed = self
+            .search
+            .as_ref()
+            .is_none_or(|s| s.entry() != search.entry());
+        let moved = self
+            .search
+            .as_ref()
+            .is_some_and(|s| s.highlighted() != search.highlighted());
+        self.search = Some(search.clone());
+        let to = search.highlighted().and_then(|h| self.topic_of(h));
+        if typed {
+            self.top = 0;
+            let (listed, _) = self.listed();
+            if !listed.contains(&self.topic)
+                && let Some(t) = to.or_else(|| listed.first().copied())
+            {
+                self.go(t);
             }
-            _ => {}
+        } else if moved
+            && let Some(t) = to
+            && t != self.topic
+        {
+            self.go(t);
         }
     }
-
-    /// Opens the search's copy over the lines, with the highlight on the
-    /// highlighted topic's first line.
-    fn open_search(&mut self) {
-        let first = self.items.iter().position(|i| i.topic == self.topic);
-        self.search = Some(Search::open(self, first));
-    }
-}
-
-/// The key of the old decoder, which an action carries, as the key type
-/// the search component reads.
-fn as_key(key: &InputKey) -> Option<Key> {
-    Some(match key {
-        InputKey::Char(c) => Key::char(*c),
-        InputKey::Backspace => Key::plain(Code::Backspace),
-        InputKey::Enter => Key::plain(Code::Enter),
-        InputKey::Escape => Key::plain(Code::Escape),
-        InputKey::Up => Key::plain(Code::Up),
-        InputKey::Down => Key::plain(Code::Down),
-        _ => return None,
-    })
 }
 
 impl Tab<Shared, Action, Command> for HelpTab {
@@ -308,9 +309,9 @@ impl Tab<Shared, Action, Command> for HelpTab {
     /// the topic by a window, and Left and Right switch to About and back.
     /// A click on a topic, Find's match and the tab the person came from
     /// carry the topic's index, which is a tab's own index for the six
-    /// tabs, and the tab highlights it. The search row's keys reach the
-    /// tab's copy of the search. The Help tab changes nothing in the
-    /// document, so it returns no command.
+    /// tabs, and the tab highlights it. While the shell's search filters,
+    /// these keys move among the topics with a line that matches. The
+    /// Help tab changes nothing in the document, so it returns no command.
     fn update(&mut self, _shared: &Shared, action: Action) -> Vec<Command> {
         match (action.row, &action.carries) {
             (_, Carries::Item(topic)) => self.go(*topic),
@@ -332,20 +333,6 @@ impl Tab<Shared, Action, Command> for HelpTab {
             ("pgup.view.help", _) => self.scroll(false),
             ("pgdn.view.help", _) => self.scroll(true),
             ("left.view.help" | "right.view.help", _) => self.about(),
-            ("question.view", _) => self.open_search(),
-            ("updown.typing.search", Carries::Key(InputKey::Up)) => self.step_topic(-1),
-            ("updown.typing.search", Carries::Key(InputKey::Down)) => self.step_topic(1),
-            ("char.typing.search", Carries::Key(k)) => {
-                if let Some(k) = as_key(k) {
-                    self.search_key(k);
-                }
-            }
-            ("backspace.typing.search", _) => self.search_key(Key::plain(Code::Backspace)),
-            ("enter.typing.search", _) => self.search_key(Key::plain(Code::Enter)),
-            ("esc.typing.search" | "esc.layer.filter", _) => {
-                self.search_key(Key::plain(Code::Escape));
-            }
-            ("question.layer.filter", _) => self.search_key(Key::char('?')),
             _ => {}
         }
         Vec::new()
@@ -374,6 +361,37 @@ impl Tab<Shared, Action, Command> for HelpTab {
     fn searchable(&self) -> Option<&dyn Searchable> {
         Some(self)
     }
+
+    /// Keeps the shell's search, and lists only the topics with a line
+    /// that matches; `None` lists every topic again.
+    fn filtered(&mut self, _shared: &Shared, search: Option<&Search>) {
+        match search {
+            Some(s) => self.keep(s),
+            None => self.search = None,
+        }
+    }
+
+    /// The topic of the tab that `node` belongs to, laid out `width`
+    /// columns wide without color, as the tab's page shows it: each line's
+    /// text with the role of its first run. A node over no tab, such as a
+    /// menu or a sheet, has no topic.
+    fn keys_help(&self, node: &'static str, width: u16) -> Option<Vec<(String, Role)>> {
+        let entries = topics::for_node(node).and_then(|t| self.entries.get(t))?;
+        let page = page::lay(entries, None, usize::from(width), false);
+        Some(
+            page.lines
+                .iter()
+                .map(|line| {
+                    let text: String = line.iter().map(|r| r.text.as_str()).collect();
+                    let role = match line.first().map(|r| r.look) {
+                        Some(Look::Role(role)) => role,
+                        _ => Role::Row,
+                    };
+                    (text, role)
+                })
+                .collect(),
+        )
+    }
 }
 
 /// The one fact Find shows beside a topic: how many keys, clicks or
@@ -396,6 +414,20 @@ impl Searchable for HelpTab {
 
     fn count(&self) -> usize {
         self.items.len()
+    }
+
+    /// The highlighted topic's line that the search highlights, or else
+    /// its first line that matches, or its first line where no search is
+    /// kept.
+    fn highlighted(&self) -> Option<usize> {
+        let in_topic = |i: &usize| self.topic_of(*i) == Some(self.topic);
+        match self.search.as_ref() {
+            None => self.items.iter().position(|i| i.topic == self.topic),
+            Some(s) => s
+                .highlighted()
+                .filter(in_topic)
+                .or_else(|| s.matches().iter().copied().find(in_topic)),
+        }
     }
 
     /// The `topic` field of a line: the topic's name, then the line.

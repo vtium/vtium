@@ -128,11 +128,12 @@ impl Counts {
     }
 }
 
-/// The state of the font file at `path`, which a font set of the
-/// document names, against `machine` and the document's changes to the
-/// active resources `changes`. The scan's trust mark stands for a file
-/// the scan found, and `machine.judge` judges any other.
-pub(super) fn judge(path: &Path, changes: &Changes, machine: &Machine<'_>) -> State {
+/// The state of the font file at `path` against `machine` and the
+/// document's changes to the active resources `changes`, the one rule for
+/// a file a font set of the document names and for a file the Fonts tab
+/// lists that none names. The scan's trust mark stands for a file the
+/// scan found, and `machine.judge` judges any other.
+pub fn judge(path: &Path, changes: &Changes, machine: &Machine<'_>) -> State {
     let found = machine.fonts.file(path);
     if found.is_none() && std::fs::symlink_metadata(path).is_err() {
         return State::Missing;

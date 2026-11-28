@@ -4,13 +4,12 @@
 //! vtium-config-core's walk lists every font file a font set of the
 //! document would draw, each with its state and the looks that use it, so
 //! the tab marks a gap before the console draws without the font. The
-//! walk judges each file against the batch, the list of active resources.
-//! The shared state holds the resources found at start with each one's
-//! activation, so this module gives the walk the batch those marks
-//! describe: every font the marks call active, and every font the batch
-//! file turns off with a `-` line. The walk reads a font set's layers and
-//! a kbd console font's file, so the tab walks again only after the
-//! document changes, never on a key that only moves the highlight.
+//! walk judges each file against the batch, the list of active resources,
+//! as the shared state holds it once the loop has read it, and against an
+//! empty batch before then. The walk reads a font set's layers and a kbd
+//! console font's file, so the tab walks again only after the document,
+//! the fonts found or the batch change, never on a key that only moves
+//! the highlight.
 //!
 //! Activate puts the look's fonts that are installed and trusted but not
 //! active into the document's batch as one change, which Undo takes back
@@ -27,48 +26,60 @@ use std::path::{Path, PathBuf};
 use vtium_config_core::batch::{Change as Batch, Folders, Start, View};
 use vtium_config_core::document::{Change, Content, Edit};
 use vtium_config_core::fontuse::{self, Activated, Counts, Font, Machine, State, Used, User};
-use vtium_config_core::found::{Found, Origin};
 use vtium_config_core::ui::{Change as UiChange, Command, Shared};
 use vtium_config_widgets::roles::Role;
 
 use crate::words;
 
 /// The fonts the document uses, with what the walk read them against, so
-/// the tab walks again only when either changes.
+/// the tab walks again only when one of them changes.
 #[derive(Clone, Debug, Default)]
 pub struct Walked {
     content: Content,
     fonts: usize,
+    batch: Option<View>,
     pub used: Used,
 }
 
 impl Walked {
-    /// The walk of `shared`'s document, or `self` again where neither the
-    /// document nor the fonts found changed since it was made.
+    /// The walk of `shared`'s document, or `self` again where the
+    /// document, the fonts found and the batch are as they were when it
+    /// was made.
     pub fn of(shared: &Shared, last: Option<Walked>) -> Walked {
         let content = shared.document().content();
         let fonts = shared.found.fonts.files().len();
-        if let Some(last) = last.filter(|w| w.fonts == fonts && w.content == *content) {
+        let batch = shared.batch();
+        if let Some(last) =
+            last.filter(|w| w.fonts == fonts && w.content == *content && w.batch.as_ref() == batch)
+        {
             return last;
         }
         Walked {
             content: content.clone(),
             fonts,
-            used: walk(shared),
+            batch: batch.cloned(),
+            used: walk(shared, batch),
         }
     }
 }
 
-/// Every font the document uses, judged against the batch the resources'
-/// marks describe.
-fn walk(shared: &Shared) -> Used {
-    let view = view(&shared.found);
+/// Every font the document uses, judged against `batch`, the batch the
+/// shared state holds, or an empty batch where it holds none yet.
+fn walk(shared: &Shared, batch: Option<&View>) -> Used {
+    let empty;
+    let view = match batch {
+        Some(view) => view,
+        None => {
+            empty = empty_batch();
+            &empty
+        }
+    };
     let kbd = fontuse::kbd_dirs();
     let euid = shared.found.places.as_ref().map_or(0, |p| p.euid);
     let judge = |path: &Path| vtium_config_core::batch::trusted(path, euid);
     let machine = Machine {
         fonts: &shared.found.fonts,
-        view: &view,
+        view,
         layers: None,
         kbd_dirs: &kbd,
         judge: &judge,
@@ -76,29 +87,10 @@ fn walk(shared: &Shared) -> Used {
     Used::of(shared.document(), &machine)
 }
 
-/// The batch that the marks of the fonts found describe: each font whose
-/// activation comes from the batch file, the list of a fresh install or a
-/// package's list, and a `-` line for each the batch file turns off. It
-/// reads no folder of lists.
-fn view(found: &Found) -> View {
-    let mut text = String::new();
-    for file in found.fonts.files() {
-        let path = file.path();
-        let Some(shown) = path.to_str() else { continue };
-        match &file.resource.origin {
-            Origin::BatchFile | Origin::FreshInstall | Origin::List { .. } => {
-                text.push_str(shown);
-                text.push('\n');
-            }
-            Origin::TurnedOff { .. } => {
-                if let Some(line) = vtium_settings::batch::off_line(path) {
-                    text.push_str(&line);
-                    text.push('\n');
-                }
-            }
-            Origin::Nothing => {}
-        }
-    }
+/// The batch of a machine whose batch the loop has not read: no batch
+/// file, a fresh install's list that holds nothing, and no folder of
+/// lists, so it activates nothing and reads no file.
+fn empty_batch() -> View {
     let start = Start {
         fresh: vtium_settings::batch::Batch::default(),
         folders: Folders {
@@ -107,7 +99,7 @@ fn view(found: &Found) -> View {
         },
         trust: vtium_settings::Trust::running_as(0),
     };
-    View::new(Some(text.as_bytes()), &start)
+    View::new(None, &start)
 }
 
 /// How many of the fonts `look` uses are in each state but active.

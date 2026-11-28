@@ -64,8 +64,19 @@ impl About {
         }
     }
 
+    /// The list of every key of the screen called `screen`, as the Help
+    /// tab's topic for it lays `lines` out, each in its role.
+    pub fn topic(screen: &str, lines: Vec<(String, Role)>) -> About {
+        About {
+            title: format!("Keys of {screen}"),
+            lines,
+            top: 0,
+        }
+    }
+
     /// The list of every key of the node `node`, which the screen called
-    /// `screen` is, then the keys that work everywhere.
+    /// `screen` is, then the keys that work everywhere, where no tab gives
+    /// a topic for the screen.
     pub fn keys(screen: &str, node: &str) -> About {
         let mut lines = Vec::new();
         let own: Vec<_> = contract::labelled(node)

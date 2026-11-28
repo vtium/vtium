@@ -176,7 +176,7 @@ fn the_tab_names_itself_and_takes_its_keys_from_the_key_table() {
         (tab.name(), tab.letter(), tab.node()),
         ("Flow", 'o', "flow")
     );
-    assert_eq!(tab.bar(), contract::buttons("flow"));
+    assert_eq!(tab.bar(&shared), contract::buttons("flow"));
     assert_eq!(tab.key_line(), contract::labelled("flow"));
     assert!(tab.searchable().is_none(), "Flow offers no ? search");
     assert!(contract::search("flow").is_empty());
