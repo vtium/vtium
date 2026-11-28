@@ -63,6 +63,8 @@ opt-level = 2
 # The Help tab's screen tests lay out every topic at both sizes, and its
 # crate is built at the level of the toolkit it draws with.
 [profile.dev.package.vtium-config-tab-help]
+opt-level = 2
+
 # The Settings tab's screen tests draw every section at two sizes on two
 # machines, so the tab is built at the same level as the toolkit it draws
 # with.
