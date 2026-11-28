@@ -1,0 +1,118 @@
+id	key	state	means	status	note	decided	issue	label	page
+ctrl-z.view	Ctrl-Z	view	Undoes the last change, and says what it undid. With nothing to undo, says so.	supported		ADR-1403 D11; ADR-1206 D2, D3	#479	Undo	
+ctrl-z.layer	Ctrl-Z	layer	Undoes the last change, and says what it undid. What is open stays open.	supported		ADR-1403 D11; ADR-1206 D3	#479	Undo	
+ctrl-z.typing	Ctrl-Z	typing	Does nothing while you type. Esc drops what you typed.	supported		ADR-1403 D11	#479	-	
+ctrl-z.layer.menu	Ctrl-Z	layer:menu	Does nothing while a menu is open. File › Undo undoes.	supported		ADR-1403 D11	#479	-	
+ctrl-z.layer.save	Ctrl-Z	layer:save	Does nothing in Save's review. Esc goes back, and Ctrl-Z then undoes.	supported		ADR-1403 D11	#479	-	
+ctrl-z.layer.save-changed	Ctrl-Z	layer:save-changed	Does nothing here. Esc cancels, and Ctrl-Z then undoes.	supported		ADR-1403 D11	#479	-	
+ctrl-z.layer.save-settle	Ctrl-Z	layer:save-settle	Does nothing while you settle the lines both of you changed.	supported		ADR-1403 D11	#479	-	
+ctrl-y.view	Ctrl-Y	view	Redoes the change the last undo took back, and says what it redid. With nothing to redo, says so.	supported		ADR-1403 D11; ADR-1206 D2, D3	#479	Redo	
+ctrl-y.layer	Ctrl-Y	layer	Redoes the change the last undo took back, and says what it redid. What is open stays open.	supported		ADR-1403 D11; ADR-1206 D3	#479	Redo	
+ctrl-y.typing	Ctrl-Y	typing	Does nothing while you type.	supported		ADR-1403 D11	#479	-	
+ctrl-y.layer.menu	Ctrl-Y	layer:menu	Does nothing while a menu is open. File › Redo redoes.	supported		ADR-1403 D11	#479	-	
+ctrl-y.layer.save	Ctrl-Y	layer:save	Does nothing in Save's review.	supported		ADR-1403 D11	#479	-	
+ctrl-y.layer.save-changed	Ctrl-Y	layer:save-changed	Does nothing here.	supported		ADR-1403 D11	#479	-	
+ctrl-y.layer.save-settle	Ctrl-Y	layer:save-settle	Does nothing while you settle the lines both of you changed.	supported		ADR-1403 D11	#479	-	
+f1.view	F1	view	Opens help for what is highlighted: the full text of a line the screen cut to one line, or of a message that ends with (F1). Otherwise lists every key of this screen.	supported		ADR-1403 D11; ADR-1206 D2, D3	#479	Help	
+f1.layer	F1	layer	Opens help for what is highlighted: the full text of a line the screen cut to one line, or of a message that ends with (F1). Otherwise lists every key of this screen.	supported		ADR-1403 D11; ADR-1206 D3	#479	Help	
+f1.layer.settings-section	F1	layer:settings-section	Opens the highlighted key's whole help, with its default and its value now.	supported		ADR-1403 D11	#479	About this key	
+f1.layer.new-frit	F1	layer:new-frit	Opens what a font set is and what each role holds.	supported		ADR-1403 D11	#479	About font sets	
+f1.view.help	F1	view:help	Does nothing here: the topics are in view.	supported		ADR-1403 D11	#479	-	
+f1.typing	F1	typing	Does nothing while you type.	supported		ADR-1403 D11	#479	-	
+f1.layer.menu	F1	layer:menu	Does nothing while a menu is open.	supported		ADR-1403 D11	#479	-	
+f1.layer.about	F1	layer:about	Does nothing: the help is open.	supported		ADR-1403 D11	#479	-	
+scroll.layer.about	Up, Down, PgUp, PgDn, Home, End	layer:about	Scroll the help.	supported		ADR-1403 D11	#479	move	
+esc.layer.about	Esc	layer:about	Closes the help, back where you were.	supported		ADR-1403 D11	#479	Close	
+question.layer	?	layer	Where what is open offers the search, such as a section's keys or a list box with many choices, opens the search row on it. Elsewhere does nothing.	supported		ADR-1403 D11; ADR-1206 D3	#479	Search	
+question.view.flow	?	view:flow	Does nothing here. Ctrl+F finds a part by its name.	supported		ADR-1403 D11	#479	-	
+question.layer.menu	?	layer:menu	Does nothing while a menu is open.	supported		ADR-1403 D11	#479	-	
+char.typing.search	any letter	typing:search	Types the character, and the list keeps only what matches.	supported		ADR-1403 D11; ADR-1206 D3	#479	type	
+updown.typing.search	Up, Down	typing:search	Move the list's highlight, and the cursor stays in the entry.	supported		ADR-1403 D11	#479	move	
+enter.typing.search	Enter	typing:search	Keeps the filter and goes back to the list, with the row still showing the pattern.	supported		ADR-1403 D11	#479	Keep	
+esc.typing.search	Esc	typing:search	Closes the search row and clears the filter.	supported		ADR-1403 D11	#479	Clear	
+backspace.typing.search	Backspace	typing:search	Deletes the character before the cursor. On an empty entry, closes the search row and clears the filter.	supported		ADR-1403 D11	#479	-	
+question.layer.filter	?	layer:filter	Puts the cursor back in the search row's entry.	supported		ADR-1403 D11	#479	Search	
+esc.layer.filter	Esc	layer:filter	Clears the filter and closes the search row. A second Esc does what Esc does on this screen.	supported		ADR-1403 D11	#479	Clear	
+ctrl-f.view	Ctrl-F	view	Opens Find in the search row: what matches in every tab, listed above it.	supported		ADR-1403 D11; ADR-1206 D2, D3	#479	Find	
+ctrl-f.layer	Ctrl-F	layer	Opens Find above what is open here. Esc from Find comes back here, and Enter on a match closes what is open and goes to the item.	supported		ADR-1403 D11; ADR-1206 D3	#479	Find	
+ctrl-f.layer.menu	Ctrl-F	layer:menu	Closes the menu and opens Find over the tab.	supported		ADR-1403 D11; ADR-1206 D3	#479	-	
+ctrl-f.typing	Ctrl-F	typing	Does nothing while you type, in Find too.	supported		ADR-1403 D11	#479	-	
+char.typing.find	any letter	typing:find	Types the character, and the list keeps only what matches.	supported		ADR-1403 D11	#479	type	
+move.typing.find	Up, Down, PgUp, PgDn	typing:find	Move the highlight through the matches.	supported		ADR-1403 D11	#479	Match	
+enter.typing.find	Enter, Click on a match	typing:find	Goes to the highlighted item in its tab, and closes Find. With nothing found, does nothing.	supported		ADR-1403 D11	#479	Go	
+esc.typing.find	Esc	typing:find	Closes Find. Nothing moves.	supported		ADR-1403 D11	#479	Close	
+backspace.typing.find	Backspace	typing:find	Deletes the character before the cursor. On an empty entry, closes Find.	supported		ADR-1403 D11	#479	-	
+updown.layer.manage	Up, Down	layer:manage	Moves through the configurations.	supported		ADR-1403 D11	#479	move	
+enter.layer.manage	Enter	layer:manage	Opens the highlighted configuration, and keeps the one that was open.	supported		ADR-1403 D11	#479	Open	
+r.layer.manage	r	layer:manage	Asks for a new name for the highlighted configuration.	supported		ADR-1403 D8, D11	#479	Rename…	
+delete.layer.manage	Delete	layer:manage	Asks once, naming what is lost, then deletes the highlighted configuration. /etc is untouched. On the open configuration it is greyed out, with the reason.	supported		ADR-1403 D8, D11; ADR-1206 D2	#479	Delete…	
+d.layer.manage	d	layer:manage	Does what Delete does: asks once, then deletes the highlighted configuration.	supported		ADR-1403 D8, D11	#479	-	
+esc.layer.manage	Esc	layer:manage	Closes the sheet.	supported		ADR-1403 D11	#479	Close	
+v.layer.history-version	v, Click on View changes	layer:history-version	Shows this version against the configuration, read-only, as Show changes does.	supported		ADR-1403 D11	#479	View changes	
+a.layer.history-version	a, Click on Use this version	layer:history-version	Loads this version into the configuration as one change, which Undo takes back and Save makes real.	supported		ADR-1403 D11	#479	Use this version	
+esc.layer.history-version	Esc	layer:history-version	Closes the sheet. Nothing changes.	supported		ADR-1403 D11	#479	Close	
+w.layer.history-view	w, Click on the checked pair	layer:history-view	Switches between the changes only and the whole file.	supported		ADR-1403 D11	#479	Whole file	
+scroll.layer.history-view	Up, Down, PgUp, PgDn, Home, End	layer:history-view	Scrolls the changes.	supported		ADR-1403 D11	#479	move	
+esc.layer.history-view	Esc	layer:history-view	Goes back to the version's sheet.	supported		ADR-1403 D11	#479	Back	
+m.layer.save-settle	m	layer:save-settle	Keeps your lines here, and goes to the next lines both of you changed. After the last, shows the review with Save.	supported		ADR-1403 D8	#479	Mine	
+i.layer.save-settle	i	layer:save-settle	Keeps the installed file's lines here, and goes to the next. After the last, shows the review with Save.	supported		ADR-1403 D8	#479	Installed	
+esc.layer.save-settle	Esc	layer:save-settle	Cancels the update, and leaves the configuration as it was.	supported		ADR-1403 D8	#479	Cancel	
+shift-a.view.fonts	A	view:fonts	Activates the fonts the configuration uses that are installed and trusted but not active, as one change, which Undo takes back and Save makes real. Says what it activated.	supported		ADR-1403 D11; ADR-1205 D4	#479	Activate missing	
+shift-a.layer.look	A	layer:look	Activates this look's fonts that are installed and trusted but not active, as one change.	supported		ADR-1403 D11; ADR-1205 D4	#479	Activate	
+click-choice.layer.list	Click on a choice	layer:list	Picks the choice. A click on the choice already picked keeps it, as Enter does.	supported		ADR-1403 D11; ADR-1206 D8	#479	-	
+question.layer.list	?	layer:list	While the line has more choices than the list box shows, opens the search row on them. Otherwise does nothing.	supported		ADR-1403 D11; ADR-1206 D3, D8	#479	Search	
+alt-f.view	Alt-F	view	Opens the File menu, which holds what you do with the configuration as a document.	supported		ADR-1403 D11; ADR-1206 D2	#479	File	
+alt-a.view	Alt-A	view	Opens the Actions menu, which holds what acts at once on this machine or on the console.	supported		ADR-1403 D11; ADR-1206 D2	#479	Actions	
+alt-tab.view	Alt-N, Alt-E, Alt-L, Alt-O, Alt-S, Alt-H	view	Goes straight to the tab whose letter is underlined: Fonts, Effects, Looks, Flow, Settings or Help.	supported		ADR-1403 D11; ADR-1206 D2	#479	go to tab	
+f10.view	F10	view	Opens the menu bar on the File menu.	supported		ADR-1403 D11; ADR-1206 D2	#479	Menu	
+ctrl-s.view	Ctrl-S	view	Opens Save's review of what saving changes in /etc/vtium/vtium.conf. Ctrl-S there saves.	supported		ADR-1403 D8, D11; ADR-1206 D2	#479	Save	
+question.view	?	view	Opens the search row, which filters the list on this screen as you type.	supported		ADR-1403 D11; ADR-1206 D3	#479	Search	
+click-menu.view	Click on a menu's name	view	Opens that menu.	supported		ADR-1403 D11	#479	-	
+click-tab.view	Click on a tab's name	view	Goes to that tab.	supported		ADR-1403 D11	#479	-	
+click-row.view	Click on a row of a list	view	Highlights the row. A click on the highlighted row opens it, as Enter does.	supported		ADR-1403 D11	#479	-	
+click-button.any	Click on a button of the action bar	any	Does what the button's key does.	supported		ADR-1403 D11	#479	-	
+alt-p.view	Alt-P	view	Opens the Problems list: each problem the check finds, in one line with where it is.	supported		ADR-1403 D11; ADR-1206 D2	#479	Problems	
+click-facts.view	Click on the top row's counts	view	A click on the problems count opens the Problems list, and a click on the count not saved opens Show changes.	supported		ADR-1403 D11	#479	-	
+updown.layer.menu	Up, Down	layer:menu	Moves through the menu's items, past the separators and the items that are greyed out.	supported		ADR-1403 D11; ADR-1206 D3	#479	move	
+leftright.layer.menu	Left, Right	layer:menu	Opens the menu beside this one. On an item marked ›, Right opens its submenu, and Left closes it again.	supported		ADR-1403 D11; ADR-1206 D3	#479	menus	
+enter.layer.menu	Enter	layer:menu	Chooses the highlighted item.	supported		ADR-1403 D11; ADR-1206 D3	#479	Pick	
+enter.layer.menu.open	Enter	layer:menu-open	Opens the draft you chose as the configuration, and keeps the one that was open. On Manage configurations…, opens the sheet that renames and deletes them.	supported		ADR-1403 D11; ADR-1206 D3	#479	Pick	
+enter.layer.menu.history	Enter	layer:menu-history	Opens a sheet for the version you chose, with View changes and Use this version.	supported		ADR-1403 D11; ADR-1206 D3	#479	Pick	
+esc.layer.menu	Esc	layer:menu	Closes the menu, or only its submenu when one is open.	supported		ADR-1403 D11; ADR-1206 D3	#479	Close	
+f10.layer.menu	F10	layer:menu	Closes the menu bar.	supported		ADR-1403 D11; ADR-1206 D3	#479	Menu	
+letters.layer.menu.file	n o u d s c e r h q	layer:menu-file	Chooses the item whose letter is underlined: New, Open, Undo, Redo, Save, Show changes, Edit as text, Revert to saved, History or Quit.	supported		ADR-1403 D11; ADR-1206 D3	#479	-	
+letters.layer.menu.actions	t r i	layer:menu-actions	Chooses the item whose letter is underlined: Try live, Read devices again, or Install as a system font.	supported		ADR-1403 D11; ADR-1206 D3	#479	-	
+click-item.layer.menu	Click on a menu item	layer:menu	Chooses the item.	supported		ADR-1403 D11; ADR-1206 D3	#479	-	
+click-outside.layer.menu	Click outside the menu	layer:menu	Closes the menu.	supported		ADR-1403 D11; ADR-1206 D3	#479	-	
+ctrl-s.layer.save	Ctrl-S, Enter	layer:save	Saves. vtium-config checks the configuration, and sudo asks for your password once before it writes /etc/vtium/vtium.conf.	supported		ADR-1403 D8; ADR-1201 D5	#479	Save	
+w.layer.save	w	layer:save	Shows the whole file, or only the changes again.	supported		ADR-1403 D8	#479	Whole file	
+esc.layer.save	Esc	layer:save	Cancels, and changes nothing.	supported		ADR-1403 D8	#479	Cancel	
+scroll.layer.save	Up, Down, PgUp, PgDn, Home, End	layer:save	Scrolls the review.	supported		ADR-1403 D8	#479	move	
+u.layer.save-changed	u	layer:save-changed	Brings the change made on disk into yours, then shows the review again. Where both of you changed the same lines, it lists them one by one, for you to settle with m or i.	supported		ADR-1403 D8	#479	Update	
+o.layer.save-changed	o	layer:save-changed	Saves yours over the change made on disk. History keeps the version it replaces.	supported		ADR-1403 D8; ADR-1201 D5	#479	Overwrite	
+r.layer.save-changed	r	layer:save-changed	Asks, then reloads the file from disk and drops your changes.	supported		ADR-1403 D8	#479	Revert	
+w.layer.changes	w, Click on the checked pair	layer:changes	Switches between the changes only and the whole file.	supported		ADR-1403 D11	#479	Whole file	
+e.layer.changes	e	layer:changes	Opens the configuration in your editor, and checks it when you return.	supported		ADR-1403 D11	#479	Edit as text	
+ctrl-s.layer.changes	Ctrl-S	layer:changes	Opens Save's review.	supported		ADR-1403 D11	#479	Save	
+scroll.layer.changes	Up, Down, PgUp, PgDn, Home, End, j, k, g, G, Ctrl-D, Ctrl-U	layer:changes	Scrolls, as the file view's keys do.	supported		ADR-1403 D11	#479	move	
+move.layer.problems	Up, Down, PgUp, PgDn, Home, End	layer:problems	Moves through the problems.	supported		ADR-1403 D11	#479	move	
+enter.layer.problems	Enter, Click on a problem	layer:problems	Goes to the place of the problem: its tab and item, or its line of vtium.conf in Show changes' whole file, so you can fix it. On the line of fonts that are not active, asks whether to activate them, counting them.	supported		ADR-1403 D11	#479	Go to	
+esc.layer.problems	Esc	layer:problems	Closes the list.	supported		ADR-1403 D11	#479	Close	
+up.view.help	Up	view:help	Moves to the topic above.	supported		ADR-1403 D7, D11	#479	scroll	1
+down.view.help	Down	view:help	Moves to the topic below.	supported		ADR-1403 D7, D11	#479	scroll	1
+home.view.help	Home	view:help	Goes to the first topic.	supported		ADR-1403 D7, D11	#479	top	
+end.view.help	End	view:help	Goes to the last topic.	supported		ADR-1403 D7, D11	#479	bottom	
+pgup.view.help	PgUp	view:help	Scrolls the topic up by a window.	supported		ADR-1403 D7, D11	#479	page up	
+pgdn.view.help	PgDn	view:help	Scrolls the topic down by a window.	supported		ADR-1403 D7, D11	#479	page down	
+enter.view.fonts	Enter	view:fonts	On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it. On Activate missing fonts, activates them as A does.	supported		ADR-1205 D3, D8; ADR-1403 D10, D11	#479	open	
+enter.layer.list	Enter	layer:list	Keeps the highlighted choice as one change and closes the list box. On Other…, lets you type a value instead.	supported	the Flow view's picker does this today	ADR-1403 D7, D11	#479	pick	1
+q.view	q	view	Quits vtium-config at once. The draft keeps every change, and vtium-config opens them again next time.	supported		ADR-1403 D7, D11	#479	Quit	
+ctrl-c.any	Ctrl-C	any	Quits vtium-config at once, as q does, and puts back the console's font. The draft keeps every change.	supported		ADR-1403 D7; ADR-1201 D4; ADR-1403 D11	#479	Quit	
+key-line.any	action bar	any	Shows a button for each action here, its key in brackets. Where they do not fit, the bar leaves out the lowest first and ends with [.] More.	supported		ADR-1403 D7, D11	#479	-	
+key-line.view.flow	action bar	view:flow	Shows a button for each action here, its key in brackets. Where they do not fit, the bar leaves out the lowest first and ends with [.] More.	supported		ADR-1403 D7, D11	#479	-	
+period.view	.	view	Opens the buttons the action bar has no room for as a small menu. Does nothing where every button fits.	supported		ADR-1403 D7, D11	#479	More	
+period.layer	.	layer	Opens the buttons the action bar has no room for as a small menu. Does nothing where every button fits.	supported		ADR-1403 D7, D11	#479	More	
+r.view.flow	r	view:flow	Opens File › Revert to saved…, which asks, then reloads the configuration from what is saved.	supported		ADR-1403 D7, D11	#479	Revert to saved…	
+n.view.flow	n	view:flow	Opens File › New…, which starts a new configuration from what is saved or from vtium's defaults.	supported		ADR-1403 D7, D11	#479	New…	
+v.view.flow	v	view:flow	Opens File › Show changes: the configuration's changes against what is saved.	supported		ADR-1403 D7, D11	#479	Show changes	
+o.view.flow	o	view:flow	Opens File › History ›: the versions installed before, newest first.	supported		ADR-1201 D3; ADR-1403 D7, D11	#479	History	

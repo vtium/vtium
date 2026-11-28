@@ -17,11 +17,15 @@
 //! text to them, [`color`] their colors, [`listbox`] the shared list, and
 //! [`input`] the decoder of what the terminal sends.
 //!
-//! vtium-config re-exports each module in its `tui` module, so
+//! vtium-config re-exports each of those modules in its `tui` module, so
 //! `vtium_config::tui::canvas` and the rest keep their paths.
+//!
+//! [`contract`] holds the interface tree and the key table compiled in, for
+//! the rebuilt TUI.
 
 pub mod backend;
 pub mod canvas;
 pub mod color;
+pub mod contract;
 pub mod input;
 pub mod listbox;
