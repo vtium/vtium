@@ -53,6 +53,17 @@ vtium-config-widgets.workspace = true
 # resources, the installs and the flow, which the command line and the TUI
 # call and this crate re-exports at its root.
 vtium-config-core.workspace = true
+# The rebuilt TUI: the shell, which holds the tabs as trait objects, and
+# the six tabs, each a crate of its own, which the binary builds and hands
+# to the shell (ADR-1206 D9). Until the binary switches to them, only the
+# scenario walk in tests/walk/ drives them.
+vtium-config-tui.workspace = true
+vtium-config-tab-fonts.workspace = true
+vtium-config-tab-effects.workspace = true
+vtium-config-tab-looks.workspace = true
+vtium-config-tab-flow.workspace = true
+vtium-config-tab-settings.workspace = true
+vtium-config-tab-help.workspace = true
 # Opening a file without following a link, the
 # effective uid, and `set`'s raw mode; vtium-platform already builds this
 # version with these features.
@@ -72,6 +83,9 @@ rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs"
 # libc's system call numbers, for the seccomp filters' tests in
 # tests/serve.rs; the version vtium-font-helper builds.
 libc = "=0.2.191"
+# The screen map's machine and the large machine that the walk in
+# tests/walk/ drives the rebuilt TUI over.
+vtium-config-core = { workspace = true, features = ["fixture"] }
 # The pointer file's size bound, which tests/pointer_file.rs builds its
 # files against.
 vtium-render.workspace = true
