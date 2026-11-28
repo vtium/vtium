@@ -333,7 +333,7 @@ You can remove `kmscon` afterwards with `pacman -R kmscon`, if you want to. vtiu
 
 vtium draws only from the active resources: the fonts, color schemes, color maps, shaders and pointer themes that `/etc/vtium/batch.conf` lists. Each one must also pass the trust rule. Root owns the file and every folder above it, nobody else can write them, none of them is a symbolic link, and the filesystem stays mounted. [Active resources and the trust rule](concepts/resources.md) explains why.
 
-The package writes no `batch.conf`. While the file does not exist, vtium uses the list of a fresh install. That list holds vtium's own fonts in `/usr/share/vtium/fonts`, the console font that `/etc/vconsole.conf` names, the color schemes in `/usr/share/vtium/palettes`, and vtium's pointer pictures. Every other font waits until you activate it, those of `vtium-fonts` and the fonts that the `jetbrains-mono` frit names included.
+The package writes no `batch.conf`. While the file does not exist, vtium uses the list of a fresh install. That list holds vtium's own fonts in `/usr/share/vtium/fonts`, the console font that `/etc/vconsole.conf` names, the color schemes in `/usr/share/vtium/palettes`, and vtium's pointer pictures. The `vtium-fonts` package installs a list of the fonts that vtium's font sets name, the `jetbrains-mono` frit's included, at `/usr/share/vtium/batch.d/vtium-fonts.conf`. So once you install `vtium-fonts`, those fonts are active. Every other font waits until you activate it.
 
 `vtium config active` lists what is active now, one resource on each line: its kind, its path, and its state. Without a `batch.conf`, a last line says that the list is the list of a fresh install. To activate a font, give its full path:
 
