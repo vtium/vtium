@@ -72,6 +72,66 @@ fn a_tab_with_only_the_required_methods_answers_every_default_empty() {
     assert_eq!(tab.full_text(&s), None);
     assert!(tab.find_items(&s).is_empty());
     assert!(tab.searchable().is_none());
+    assert!(tab.search().is_none());
+    assert_eq!(tab.own_font(&s), None);
+}
+
+#[test]
+fn the_search_matches_and_a_name_to_show_reach_a_tab_that_takes_them() {
+    /// A tab that keeps what the shell hands it.
+    #[derive(Default)]
+    struct Keeping {
+        matches: Option<Vec<usize>>,
+        shown: Option<String>,
+    }
+    impl Tab<Shared, Action, Command> for Keeping {
+        fn name(&self) -> &'static str {
+            "Fonts"
+        }
+        fn letter(&self) -> char {
+            'n'
+        }
+        fn node(&self) -> &'static str {
+            "fonts"
+        }
+        fn draw(&self, _shared: &Shared, _frame: &mut Frame<'_>, _area: Rect) {}
+        fn update(&mut self, _shared: &Shared, _action: Action) -> Vec<Command> {
+            Vec::new()
+        }
+        fn filtered(&mut self, matches: Option<&[usize]>) {
+            self.matches = matches.map(<[usize]>::to_vec);
+        }
+        fn show(&mut self, _shared: &Shared, name: &str) {
+            self.shown = Some(name.to_owned());
+        }
+        fn own_font(&self, shared: &Shared) -> Option<std::path::PathBuf> {
+            // the highlighted font, while the search's matches hold it
+            let name = self.shown.as_ref()?;
+            let at = shared.fonts.iter().position(|f| f.0 == name)?;
+            self.matches.as_ref().filter(|m| m.contains(&at))?;
+            shared.fonts.get(at).map(|f| std::path::PathBuf::from(f.1))
+        }
+    }
+    let s = shared();
+    // the shell holds the tab as a trait object and reaches it through the
+    // trait alone
+    let mut tab: Box<dyn Tab<Shared, Action, Command>> = Box::new(Keeping::default());
+    tab.filtered(Some(&[0, 2]));
+    tab.show(&s, "Terminus");
+    assert_eq!(tab.own_font(&s), None, "Terminus is not among the matches");
+    tab.filtered(Some(&[1]));
+    assert_eq!(
+        tab.own_font(&s),
+        Some(std::path::PathBuf::from(
+            "/usr/share/fonts/misc/ter-u16n.pcf.gz"
+        ))
+    );
+    // a bare tab takes both and keeps nothing
+    let mut bare: Box<dyn Tab<Shared, Action, Command>> = Box::new(Bare);
+    bare.filtered(Some(&[1]));
+    bare.filtered(None);
+    bare.show(&s, "Terminus");
+    assert_eq!(bare.own_font(&s), None);
 }
 
 #[test]
