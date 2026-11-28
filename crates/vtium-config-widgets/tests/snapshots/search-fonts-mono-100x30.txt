@@ -1,0 +1,30 @@
+ Fonts                                                                          2 of 10 fonts match 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+   Monoid-Regular.ttf         Monoid                                                                
+   mononoki-Regular.ttf       mononoki                                                              
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+ ? ^mono_                                     ^start  $end  *anywhere · case ignored · family, file 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Enter] Keep  [↑↓] Move  [Esc] Clear                                                               
