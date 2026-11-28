@@ -20,6 +20,7 @@ vtium-platform = { path = "crates/vtium-platform" }
 vtium-settings = { path = "crates/vtium-settings" }
 vtium-devices = { path = "crates/vtium-devices" }
 vtium-broker-protocol = { path = "crates/vtium-broker-protocol" }
+vtium-font-helper = { path = "crates/vtium-font-helper" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -37,6 +38,11 @@ opt-level = 2
 # Built at opt-level 2, the scenarios binary runs in about 90 s instead of
 # 300 s.
 [profile.dev.package.vtium-config]
+opt-level = 2
+
+# The same scenarios call the font helper's code, which vtium-font-helper
+# holds, so it is built at the same level.
+[profile.dev.package.vtium-font-helper]
 opt-level = 2
 
 [profile.release]

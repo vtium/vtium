@@ -1706,25 +1706,21 @@ dependencies = [
  "bzip2",
  "harfrust",
  "insta",
- "landlock",
  "libc",
  "lzma-rust2",
  "miniz_oxide",
  "nix",
- "png",
  "proptest",
  "proptest-state-machine",
  "ratatui-core",
  "ratatui-widgets",
- "resvg",
  "roxmltree",
  "rustix",
  "ruzstd",
- "seccompiler",
  "skrifa",
- "swash",
  "vtium-devices",
  "vtium-font",
+ "vtium-font-helper",
  "vtium-platform",
  "vtium-render",
  "vtium-settings",
@@ -1766,6 +1762,33 @@ version = "0.1.0-alpha.12"
 dependencies = [
  "miniz_oxide",
  "vtium-font",
+]
+
+[[package]]
+name = "vtium-font-helper"
+version = "0.1.0-alpha.12"
+dependencies = [
+ "bzip2",
+ "harfrust",
+ "landlock",
+ "libc",
+ "lzma-rust2",
+ "miniz_oxide",
+ "png",
+ "resvg",
+ "roxmltree",
+ "rustix",
+ "ruzstd",
+ "seccompiler",
+ "skrifa",
+ "swash",
+ "vtium-font",
+ "vtium-platform",
+ "vtium-render",
+ "vtium-settings",
+ "vtium-term",
+ "vtium-testfont",
+ "vtium-testscript",
 ]
 
 [[package]]

@@ -7,7 +7,7 @@ the five displays, each one's character cell and grid	tools/specimens/src/profil
 MiB: peak memory with minspec in a virtual machine with 1 vCPU and 512 MB	Makefile	tier3-minimal:
 MiB: the peak memory a tier 3 run measures	tools/tier3/t3_bench.py	def measure
 minspec, the default build, has no feature	crates/vtium/Cargo.toml	default = []
-frits included: every build starts the font helper, vtium-config serve	crates/vtium-config/src/serve.rs	SERVE_ARG
+frits included: every build starts the font helper, vtium-config serve	crates/vtium-font-helper/src/serve.rs	SERVE_ARG
 a build with more features adds images	crates/vtium/Cargo.toml	images = 
 a build with more features adds right-to-left text	crates/vtium/Cargo.toml	bidi = 
 a build with more features adds the GPU path	crates/vtium/Cargo.toml	gpu = 

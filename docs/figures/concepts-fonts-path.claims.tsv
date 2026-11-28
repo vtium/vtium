@@ -6,11 +6,11 @@ transition you pick fonts: preview names the fonts new-frit takes	crates/vtium-c
 vtium config new-frit makes a font set of the fonts you name	crates/vtium-config/src/commands.rs	frit_from
 vtium config new-frit --template prints a frit with each key explained	crates/vtium-config/src/commands.rs	TEMPLATE
 vtium config new-frit --from takes a file you wrote from its template	crates/vtium-config/src/commands.rs	new
-by hand: the file you write is read as strictly as any frit	crates/vtium-config/src/frit.rs	FritError
+by hand: the file you write is read as strictly as any frit	crates/vtium-font-helper/src/frit.rs	FritError
 transition installing it asks for sudo once	crates/vtium-config/src/apply.rs	Route::Sudo
 the frit: the directory of frits, /etc/vtium/fonts/	crates/vtium/src/font.rs	frits
 the frit: NAME.vtfrit	crates/vtium/src/font/frits.rs	frit
-the frit names the sources in order	crates/vtium-config/src/frit.rs	Frit
+the frit names the sources in order	crates/vtium-font-helper/src/frit.rs	Frit
 the frit: root owns it, and vtium reads it only after the ownership check	crates/vtium/src/font/frits.rs	trust
 vtium reads the frit, once the frit passes the ownership check that vtium.conf passes	crates/vtium/src/font/frits.rs	frit_text
 vtium, the console, as root, starts the font helper	crates/vtium/src/helper/launcher.rs	Launcher::process
@@ -25,10 +25,10 @@ transition the characters to draw: the screen's, asked first	crates/vtium/src/he
 transition the characters to draw: the fill, while nothing is asked	crates/vtium/src/helper.rs	Helper::fill
 transition glyphs at the character cell's size; vtium checks each one	crates/vtium/src/helper/answers.rs	Helper::glyphs
 transition vtium checks each answer's length before it reads it	crates/vtium/src/helper.rs	FRAME_BYTES_MAX
-vtium-config serve, the font helper	crates/vtium-config/src/serve.rs	SERVE_ARG
+vtium-config serve, the font helper	crates/vtium-font-helper/src/serve.rs	SERVE_ARG
 the font helper runs as nobody	crates/vtium/src/helper/launcher.rs	nobody
-the font helper runs in a sandbox	crates/vtium-config/src/serve/sandbox.rs	lock_out
-the font helper exits when it has nothing to do	crates/vtium-config/src/serve.rs	HELPER_IDLE_MS
+the font helper runs in a sandbox	crates/vtium-font-helper/src/serve/sandbox.rs	lock_out
+the font helper exits when it has nothing to do	crates/vtium-font-helper/src/serve.rs	HELPER_IDLE_MS
 vtium starts a crashed font helper again a limited number of times per boot	crates/vtium/src/helper.rs	RESTARTS_MAX
 font files: the directories where the font helper finds installed fonts	crates/vtium/src/helper/launcher.rs	font_dirs
 your session: vtium config use-frit NAME	crates/vtium-config/src/switch.rs	command

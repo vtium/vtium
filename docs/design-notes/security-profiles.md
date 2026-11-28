@@ -10,7 +10,7 @@ The drawer's needs depend on the display hardware. On the CPU path, the drawer d
 
 So a filter written for one driver breaks another, and a filter wide enough for all of them adds little. This is the problem the maintainer's request points at: choose the profile from what the machine has, and let people who own the hardware add the profiles.
 
-vtium already writes a seccomp filter by hand for the font helper, with a table of call numbers for each architecture (`crates/vtium-config/src/seccomp.rs`, ADR-1200 D15). The font helper needs no device, so one table serves every machine.
+vtium already writes a seccomp filter by hand for the font helper, with a table of call numbers for each architecture (`crates/vtium-font-helper/src/seccomp.rs`, ADR-1200 D15). The font helper needs no device, so one table serves every machine.
 
 ## Precedent
 

@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Copies HarfBuzz's shaping tests for syllabic scripts from a HarfRust
+checkout into this directory, as the goldens that judge the glyph helper's
+shaper (`tests/harfbuzz/README.md`).
+
+Usage: tests/harfbuzz/import /path/to/harfrust
+
+HarfRust's `harfrust/tests/shaping/*.rs` hold each HarfBuzz test case as a
+Rust test: the font, the text, hb-shape's options, and hb-shape's output.
+This script keeps a case when all of these hold:
+
+- its test file is one of HarfBuzz's tests of a syllabic script (`GROUPS`);
+- it gives hb-shape no options, so hb-shape shapes it as the helper does;
+- its text holds no default ignorable character and no space or control
+  character, since the helper removes default ignorables and the console
+  never asks for a space as a cluster;
+- its font is a subset of a Noto font, by the family name in the font's
+  name table, whose licence lets vtium copy it (`README.md`).
+
+It writes `cases.tsv` and copies each font the cases use into `fonts/`. It
+needs fontTools to read the fonts' names. A second run with the same
+checkout writes the same files.
+"""
+
+import re
+import shutil
+import sys
+from pathlib import Path
+
+from fontTools.ttLib import TTFont
+
+HERE = Path(__file__).resolve().parent
+
+# HarfRust's generated test files, and the HarfBuzz test files of syllabic
+# scripts among them, by the prefix HarfRust gives their cases' names.
+GROUPS = {
+    "in_house.rs": (
+        "indic_",
+        "khmer_",
+        "myanmar_",
+        "sinhala_",
+        "tibetan_",
+        "use_",
+    ),
+    "text_rendering_tests.rs": ("shbali_", "shknda_", "shlana_"),
+}
+
+CASE = re.compile(
+    r'fn (\w+)\(\) \{\s*assert_eq!\(\s*shape\(\s*"([^"]*)",\s*'
+    r'"((?:[^"\\]|\\.)*)",\s*"((?:[^"\\]|\\.)*)",\s*\),\s*'
+    r'"((?:[^"\\]|\\.)*)"',
+    re.S,
+)
+ESCAPE = re.compile(r"\\u\{([0-9A-Fa-f]+)\}")
+
+
+def ignorable(c):
+    """Default_Ignorable_Code_Point, from Unicode's DerivedCoreProperties."""
+    return (
+        c in (0xAD, 0x34F, 0x61C, 0x115F, 0x1160, 0x3164, 0xFEFF, 0xFFA0)
+        or 0x17B4 <= c <= 0x17B5
+        or 0x180B <= c <= 0x180F
+        or 0x200B <= c <= 0x200F
+        or 0x202A <= c <= 0x202E
+        or 0x2060 <= c <= 0x206F
+        or 0xFE00 <= c <= 0xFE0F
+        or 0xFFF0 <= c <= 0xFFF8
+        or 0x1BCA0 <= c <= 0x1BCA3
+        or 0x1D173 <= c <= 0x1D17A
+        or 0xE0000 <= c <= 0xE0FFF
+    )
+
+
+def family(path):
+    font = TTFont(path, lazy=True)
+    return font["name"].getDebugName(1) or "" if "name" in font else ""
+
+
+def main():
+    if len(sys.argv) != 2:
+        sys.exit(__doc__.strip().splitlines()[3])
+    harfrust = Path(sys.argv[1]).resolve() / "harfrust"
+    rows = []
+    fonts = set()
+    for file, prefixes in GROUPS.items():
+        text = (harfrust / "tests" / "shaping" / file).read_text()
+        for name, font, chars, options, expected in CASE.findall(text):
+            if not name.startswith(prefixes) or options:
+                continue
+            codes = [int(h, 16) for h in ESCAPE.findall(chars)]
+            if any(ignorable(c) or c <= 0x20 or 0x7F <= c <= 0x9F for c in codes):
+                continue
+            source = harfrust / font
+            if not family(source).startswith("Noto "):
+                continue
+            fonts.add(source)
+            text = ",".join(f"U+{c:04X}" for c in codes)
+            rows.append(f"{name}\t{source.name}\t{text}\t{expected}\n")
+    (HERE / "fonts").mkdir(exist_ok=True)
+    for old in (HERE / "fonts").iterdir():
+        old.unlink()
+    for font in sorted(fonts):
+        shutil.copyfile(font, HERE / "fonts" / font.name)
+    with open(HERE / "cases.tsv", "w") as out:
+        out.write("name\tfont\ttext\texpected\n")
+        out.writelines(rows)
+    print(f"{len(rows)} cases in {len(fonts)} fonts")
+
+
+if __name__ == "__main__":
+    main()
