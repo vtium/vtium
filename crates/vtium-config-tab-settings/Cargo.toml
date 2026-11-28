@@ -1,0 +1,35 @@
+[package]
+name = "vtium-config-tab-settings"
+description = "The Settings tab of vtium-config's TUI: vtium.conf's top-level keys in their sections, each key's value and help, and the changes that set them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The Tab trait, the opt-in traits Searchable and Choices, the compiled
+# key table, the color roles, the list box and the search component.
+vtium-config-widgets.workspace = true
+# The shared state the tab reads, the action it is handed and the
+# commands it returns, with the edit to vtium.conf and the reading of a
+# key's value that the command line uses too.
+vtium-config-core.workspace = true
+# The key table: every key, its kind, its default and its help, and the
+# sections and groups the example vtium.conf follows.
+vtium-settings.workspace = true
+# The layout, buffer and frame the tab draws into; the version the
+# workspace builds.
+ratatui-core = { version = "=0.1.2", default-features = false, features = ["std"] }
+# The rule between the two panes, drawn as a block's left border; the
+# version vtium-config already builds.
+ratatui-widgets = { version = "=0.3.2", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# The screen map's machine and a large machine, which the screen tests
+# draw the tab on.
+vtium-config-core = { workspace = true, features = ["fixture"] }
