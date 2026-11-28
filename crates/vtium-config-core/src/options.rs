@@ -14,7 +14,7 @@ pub struct ValueOption {
 
 /// Every option that needs a value: the one table the parser reads its
 /// options from, the usage and vtium-config(1) list them from, and root's
-/// refusal reads the path and program options from ([`crate::cli::root_refusal`]), so
+/// refusal reads the path and program options from (vtium-config's `cli::root_refusal`), so
 /// an option the parser takes cannot be missed by the refusal or the help. Run as root, vtium-config takes none of the flagged
 /// ones, so `sudo vtium-config` reads and writes only the system's
 /// directories and runs only the console it was built with.

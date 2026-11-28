@@ -2,7 +2,7 @@
 element	file	symbol
 the list of active resources is /etc/vtium/batch.conf	crates/vtium-settings/src/batch.rs	BATCH_FILE
 a line holds one absolute path, and # starts a comment	crates/vtium-settings/src/batch.rs	Batch::parse
-the five kinds of resource, and a folder or .svg is a pointer theme	crates/vtium-config/src/batch.rs	kind
+the five kinds of resource, and a folder or .svg is a pointer theme	crates/vtium-config-core/src/batch.rs	kind
 a missing, refused or too large list means the list of a fresh install	crates/vtium-settings/src/batch.rs	Batch::read
 the list holds at most 64 KiB	crates/vtium-settings/src/bounds.rs	BATCH
 what a fresh install activates	crates/vtium-settings/src/batch.rs	Batch::fresh_install
@@ -18,4 +18,4 @@ a family search through the list finds only active files, and a font not listed 
 vtium reads the list again before each new login, and brings the fonts, color schemes and pointer up to it	crates/vtium/src/app/batch.rs	App::reread_batch
 each head chooses its vtlook again at its own next login	crates/vtium/src/app/batch.rs	App::catch_up
 a color scheme read once is read again when a login finds the list changed	crates/vtium/src/config/palette.rs	Config::forget_palettes
-vtium-config installs a font as a system font in /usr/local/share/fonts	crates/vtium-config/src/apply.rs	install_system_font
+vtium-config installs a font as a system font in /usr/local/share/fonts	crates/vtium-config-core/src/apply.rs	install_system_font
