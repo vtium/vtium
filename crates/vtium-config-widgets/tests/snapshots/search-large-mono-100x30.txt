@@ -1,0 +1,30 @@
+ Fonts                                                                    1679 of 10000 fonts match 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+   family-00011-nerd-mono.ttf Family 00011 Nerd Font Mono                                           
+   family-00012-mono.ttf      Family 00012 Mono                                                     
+   family-00015-nerd-mono.ttf Family 00015 Nerd Font Mono                                           
+   family-00016-mono.ttf      Family 00016 Mono                                                     
+   family-00019-nerd-mono.ttf Family 00019 Nerd Font Mono                                           
+   family-00031-nerd-mono.ttf Family 00031 Nerd Font Mono                                           
+   family-00051-nerd-mono.ttf Family 00051 Nerd Font Mono                                           
+   family-00071-nerd-mono.ttf Family 00071 Nerd Font Mono                                           
+   family-00091-nerd-mono.ttf Family 00091 Nerd Font Mono                                           
+   family-00100-mono.ttf      Family 00100 Mono                                                     
+   family-00103-nerd-mono.ttf Family 00103 Nerd Font Mono                                           
+   family-00104-mono.ttf      Family 00104 Mono                                                     
+   family-00107-nerd-mono.ttf Family 00107 Nerd Font Mono                                           
+   family-00108-mono.ttf      Family 00108 Mono                                                     
+   family-00111-nerd-mono.ttf Family 00111 Nerd Font Mono                                           
+   family-00112-mono.ttf      Family 00112 Mono                                                     
+   family-00115-nerd-mono.ttf Family 00115 Nerd Font Mono                                           
+   family-00116-mono.ttf      Family 00116 Mono                                                     
+   family-00119-nerd-mono.ttf Family 00119 Nerd Font Mono                                           
+   family-00120-mono.ttf      Family 00120 Mono                                                     
+   family-00123-nerd-mono.ttf Family 00123 Nerd Font Mono                                           
+   family-00124-mono.ttf      Family 00124 Mono                                                     
+   family-00127-nerd-mono.ttf Family 00127 Nerd Font Mono                                           
+   family-00128-mono.ttf      Family 00128 Mono                                                     
+   family-00131-nerd-mono.ttf Family 00131 Nerd Font Mono                                           
+ ? *mono 1_                                   ^start  $end  *anywhere · case ignored · family, file 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Enter] Keep  [↑↓] Move  [Esc] Clear                                                               
