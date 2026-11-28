@@ -1,7 +1,7 @@
 == map machine, 100×30: any.search (keys: ?)
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help           ● 1 not saved · 1 problem
 ────────────────────────────────────────────────────────────────────────────────────────────────────
- Show: All fonts ▾                         7 fonts · 4 active │ 5 fonts found                       
+ Show: All fonts ▾ · matching                    7 of 7 fonts │ 5 fonts found                       
  ○ not all active · workstation's fonts: 1 missing            │                                     
  System fonts                                                 │ A filter other than All fonts       
    DejaVuSansMono.ttf     outline  ● active                   │ leaves out each font the font       
@@ -63,7 +63,7 @@ bbbbbbbbbbbbbb..................................................................
 == map machine, 80×25: any.search (keys: ?)
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help ● 1 · 1 problem
 ────────────────────────────────────────────────────────────────────────────────
- Show: All fonts ▾             7 fonts · 4 active │ 5 fonts found               
+ Show: All fonts ▾ · matching        7 of 7 fonts │ 5 fonts found               
  ○ not all active · workstation's fonts: 1 missing│                             
  System fonts                                     │ A filter other than All     
    DejaVuSansMono.ttf       ● active              │ fonts leaves out each font  
@@ -115,7 +115,7 @@ bbbbbbbbbbbbbbb.................................................................
 == large machine, 100×30: any.search (keys: ?)
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help     lab ● 1 not saved · 10 problems
 ────────────────────────────────────────────────────────────────────────────────────────────────────
- Show: All fonts ▾                    3002 fonts · 902 active │ 3000 fonts found                    
+ Show: All fonts ▾ · matching              3002 of 3002 fonts │ 3000 fonts found                    
  ○ not all active · lab's fonts: 1 missing                    │                                     
  System fonts                                                 │ A filter other than All fonts       
    Local-0003.ttf         bitmap   ○ not active               │ leaves out each font the font       
@@ -177,7 +177,7 @@ bbbbbbbbbbbbb...................................................................
 == large machine, 80×25: any.search (keys: ?)
  File ▾  Actions ▾ │ Fonts Effects Looks Flow Settings Help    ● 1 · 10 problems
 ────────────────────────────────────────────────────────────────────────────────
- Show: All fonts ▾        3002 fonts · 902 active │ 3000 fonts found            
+ Show: All fonts ▾ · matching  3002 of 3002 fonts │ 3000 fonts found            
  ○ not all active · lab's fonts: 1 missing        │                             
  System fonts                                     │ A filter other than All     
    Local-0003.ttf           ○ not active          │ fonts leaves out each font  
