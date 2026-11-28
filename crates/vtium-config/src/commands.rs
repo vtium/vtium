@@ -25,7 +25,7 @@ use vtium_settings::{Edit, fonts_report, setting, switch};
 use crate::frit::{FRIT_BYTES_MAX, Frit, FritError, Origin, RESERVED, valid_name};
 use crate::needs::{Differ, Differs};
 use crate::specimen::{Found, Sources};
-use crate::tui::{Paths, model::FontState};
+use crate::{fontlist::FontState, places::Paths};
 use vtium_font::set::layer;
 
 /// The usage error `why`, as every command reports one.
@@ -44,7 +44,7 @@ fn failed(err: &mut dyn Write, why: &str) -> u8 {
 /// `None` when there is none.
 fn conf(paths: &Paths) -> Result<(PathBuf, Option<String>), String> {
     let path = paths.configdir.join("vtium.conf");
-    let text = crate::tui::read_conf(&path)?;
+    let text = crate::places::read_conf(&path)?;
     Ok((path, text))
 }
 
@@ -80,7 +80,7 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
         Ok(frits) => frits,
         Err(why) => return failed(err, why),
     };
-    let fonts = crate::tui::fonts(frits);
+    let fonts = crate::fontlist::fonts(frits);
     // each frit that reads, with its layers in place, as the helper is
     // handed it; the parsed frit names what each source needs
     let read: Vec<(String, Result<Frit, String>)> = fonts
@@ -320,7 +320,7 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
             Err(e) => failed(err, &e.to_string()),
         };
     }
-    let text = match crate::tui::read_conf(path) {
+    let text = match crate::places::read_conf(path) {
         Ok(Some(text)) => text,
         Ok(None) => return failed(err, &format!("{file}: no such file")),
         Err(why) => return failed(err, &why),

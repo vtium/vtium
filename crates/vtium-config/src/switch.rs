@@ -54,7 +54,7 @@ pub enum Answer {
 /// named vtium. Every terminal of the VT100 line answers DA1, and replies
 /// come in the order of the requests, so no reply comes after DA1's.
 pub fn is_vtium(tty: &mut (impl Read + Write), deadline: Instant) -> io::Result<bool> {
-    use crate::tui::input::Reply;
+    use vtium_config_widgets::input::Reply;
     let replies = ask(tty, b"\x1b[>q", deadline)?;
     Ok(replies
         .iter()
@@ -69,8 +69,8 @@ pub fn ask(
     tty: &mut (impl Read + Write),
     requests: &[u8],
     deadline: Instant,
-) -> io::Result<Vec<crate::tui::input::Reply>> {
-    use crate::tui::input::{Decoder, Input, Reply};
+) -> io::Result<Vec<vtium_config_widgets::input::Reply>> {
+    use vtium_config_widgets::input::{Decoder, Input, Reply};
     tty.write_all(requests)?;
     tty.write_all(b"\x1b[c")?;
     tty.flush()?;
@@ -99,7 +99,7 @@ pub fn ask(
 /// Asks the terminal behind `tty`, already raw, for `name`, and reads the
 /// reply to the query until DA1's reply or `deadline`.
 pub fn switch(tty: &mut (impl Read + Write), name: &str, deadline: Instant) -> io::Result<Answer> {
-    use crate::tui::input::Reply;
+    use vtium_config_widgets::input::Reply;
     let request = format!("\x1b]50;{name}\x1b\\\x1b]50;?\x1b\\");
     let replies = ask(tty, request.as_bytes(), deadline)?;
     Ok(replies
@@ -184,7 +184,7 @@ pub type Frits = Result<PathBuf, String>;
 pub fn frits_dir(configdir: &Path) -> Frits {
     let key = vtium_settings::keys::FONT_FRITS.name;
     let file = configdir.join("vtium.conf");
-    let set = crate::tui::read_conf(&file)?.and_then(|text| vtium_settings::setting(&text, key));
+    let set = crate::places::read_conf(&file)?.and_then(|text| vtium_settings::setting(&text, key));
     let Some(value) = set else {
         return Ok(PathBuf::from(vtium_settings::keys::FRITS));
     };

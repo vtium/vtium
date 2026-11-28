@@ -971,7 +971,7 @@ pub struct Shot {
     /// The columns and rows `cell` gives on `display`.
     pub grid: (usize, usize),
     /// The TUI's screen at `grid`.
-    pub screen: Vec<crate::tui::canvas::Row>,
+    pub screen: Vec<vtium_config_widgets::canvas::Row>,
     /// The palette the draft's `palette` key names, and whether the TUI
     /// draws color at all.
     pub palette: String,
@@ -1159,7 +1159,9 @@ fn content(shot: &Shot) -> (u32, u32) {
         for span in line {
             let filled = span.style.bg.is_some() || span.style.reverse;
             for c in shown_text(span).chars() {
-                col = col.saturating_add(crate::tui::canvas::width(&c.to_string()).clamp(1, 2));
+                col = col.saturating_add(
+                    vtium_config_widgets::canvas::width(&c.to_string()).clamp(1, 2),
+                );
                 if filled || (c != ' ' && !c.is_control()) {
                     cols = cols.max(col);
                     rows = row.saturating_add(1);
@@ -1227,7 +1229,7 @@ pub fn screen(
 }
 
 /// A span's text as the screen shows it: a raw span without its escapes.
-fn shown_text(span: &crate::tui::canvas::Span) -> String {
+fn shown_text(span: &vtium_config_widgets::canvas::Span) -> String {
     if !span.raw {
         return span.text.clone();
     }
@@ -1388,7 +1390,8 @@ impl Sample {
             let mut cells: Vec<(char, [u8; 3], [u8; 3], usize)> = Vec::new();
             for span in line {
                 let style = span.style;
-                let pick = |c: Option<crate::tui::color::Color>, default: vtium_term::Rgb| match c {
+                let pick = |c: Option<vtium_config_widgets::color::Color>,
+                            default: vtium_term::Rgb| match c {
                     Some(c) if shot.color => rgb(palette.color(c.index())),
                     _ => rgb(default),
                 };
@@ -1398,7 +1401,7 @@ impl Sample {
                     std::mem::swap(&mut ink, &mut back);
                 }
                 for c in shown_text(span).chars() {
-                    let wide = crate::tui::canvas::width(&c.to_string()).clamp(1, 2);
+                    let wide = vtium_config_widgets::canvas::width(&c.to_string()).clamp(1, 2);
                     cells.push((c, ink, back, wide));
                 }
             }
@@ -1593,7 +1596,7 @@ fn lay_out(
             line.iter()
                 .map(|&(c, script)| {
                     let glyph = glyph_in(faces, own, scripts, (c, script));
-                    let wide = u32::try_from(crate::tui::canvas::width(&c.to_string()))
+                    let wide = u32::try_from(vtium_config_widgets::canvas::width(&c.to_string()))
                         .unwrap_or(1)
                         .clamp(1, 2);
                     let cells = glyph
@@ -1894,7 +1897,7 @@ mod tests {
     fn shot(
         display: (u32, u32),
         grid: (usize, usize),
-        screen: Vec<crate::tui::canvas::Row>,
+        screen: Vec<vtium_config_widgets::canvas::Row>,
         max: (u32, u32),
     ) -> Shot {
         Shot {
@@ -1924,8 +1927,8 @@ mod tests {
     /// and the display past the grid in the palette's background.
     #[test]
     fn a_picture_of_the_console_draws_each_cell_in_the_palette_s_colors() {
-        use crate::tui::canvas::Span;
-        use crate::tui::color::{Color, Style};
+        use vtium_config_widgets::canvas::Span;
+        use vtium_config_widgets::color::{Color, Style};
         let cell = Cell {
             width: 8,
             height: 16,
@@ -1979,7 +1982,7 @@ mod tests {
             assert!(all.contains(c), "{c:?}");
         }
         for line in DETAIL {
-            assert!(crate::tui::canvas::width(line) <= 40, "{line}");
+            assert!(vtium_config_widgets::canvas::width(line) <= 40, "{line}");
         }
     }
 
@@ -2017,10 +2020,10 @@ mod tests {
     }
 
     /// A row of the screen: `text` in the default colors.
-    fn plain(text: &str) -> crate::tui::canvas::Row {
-        vec![crate::tui::canvas::Span {
+    fn plain(text: &str) -> vtium_config_widgets::canvas::Row {
+        vec![vtium_config_widgets::canvas::Span {
             text: text.to_owned(),
-            style: crate::tui::color::Style::PLAIN,
+            style: vtium_config_widgets::color::Style::PLAIN,
             raw: false,
         }]
     }
@@ -2087,14 +2090,15 @@ mod tests {
     /// a bigger picture of the same content.
     #[test]
     fn a_picture_of_the_console_is_whole_cells_of_its_content_and_grows_with_the_cell() {
-        let at = |cell: (u32, u32), rows: Vec<crate::tui::canvas::Row>, max: (u32, u32)| {
-            let mut s = shot((4000, 3000), (500, 200), rows, max);
-            s.cell = Cell {
-                width: cell.0,
-                height: cell.1,
+        let at =
+            |cell: (u32, u32), rows: Vec<vtium_config_widgets::canvas::Row>, max: (u32, u32)| {
+                let mut s = shot((4000, 3000), (500, 200), rows, max);
+                s.cell = Cell {
+                    width: cell.0,
+                    height: cell.1,
+                };
+                shown(&s)
             };
-            shown(&s)
-        };
         let line = || plain(&"x".repeat(60));
         // one character is one cell, whatever room is left
         assert_eq!(at((8, 16), vec![plain("A")], (440, 224)), Ok((8, 16)));

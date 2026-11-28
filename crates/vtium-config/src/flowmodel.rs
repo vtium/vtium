@@ -15,10 +15,8 @@ use std::path::Path;
 use vtium_platform::listing::{self, Roots};
 use vtium_settings::{By, Identity, Kind as IdKind, Policy, Warning, WhenDisplayLost, split};
 
+use crate::flow::{Base, Device, Draft, Flow, Head, Kind, Look, Rule, RuleState, Target, general};
 use crate::ops::RuleText;
-use crate::tui::flow::{
-    Base, Device, Draft, Flow, Head, Kind, Look, Rule, RuleState, Target, general,
-};
 
 /// The devices present, and whether a udev daemon runs, which the keys
 /// `path`, `serial`, `card`, `connector` and `udev` need.

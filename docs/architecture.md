@@ -29,6 +29,9 @@ vtium-config (binary)   the configuration tool and the glyph helper: the drafts,
 │   ├── vtium-render     the pointer's bounds (constants only)
 │   ├── vtium-settings
 │   └── vtium-term       the terminal's cluster width rule
+├── vtium-config-widgets   the TUI's toolkit: its Backend, its rows of styled text, its colors, the shared list and the decoder of keys and replies
+│   ├── vtium-font       the superscript and subscript a style carries
+│   └── vtium-term       the terminal's cluster width rule
 ├── vtium-devices
 ├── vtium-font
 ├── vtium-platform
