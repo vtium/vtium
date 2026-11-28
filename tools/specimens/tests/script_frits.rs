@@ -8,8 +8,8 @@
 
 use std::path::{Path, PathBuf};
 
-use vtium_config::frit::{Frit, Origin};
 use vtium_font::spacing::Fit;
+use vtium_font_helper::frit::{Frit, Origin};
 
 /// The catalog's frits' directory, whose `scripts/` category folder holds
 /// these sets and whose `layers/` folder holds the layers they add; `make
@@ -260,7 +260,7 @@ fn each_cjk_family_is_found_in_its_collection_and_takes_its_regions_face() {
     let dirs = [root.clone()];
     for (name, families, _) in SCRIPT_FRITS.iter().filter(|f| is_cjk(f.0)) {
         let family = families[1];
-        let found = vtium_config::sources::find_outline_family(family, &dirs)
+        let found = vtium_font_helper::sources::find_outline_family(family, &dirs)
             .unwrap_or_else(|e| panic!("{name}: {e}"))
             .unwrap_or_else(|| panic!("{name}: {family} not found"));
         assert_eq!(
@@ -269,8 +269,8 @@ fn each_cjk_family_is_found_in_its_collection_and_takes_its_regions_face() {
             "{name}"
         );
         let file = std::fs::File::open(&found).expect("opens");
-        let faces = vtium_config::names::faces(&file).expect("faces");
-        let face = vtium_config::names::choose(&faces, family).expect("a face");
+        let faces = vtium_font_helper::names::faces(&file).expect("faces");
+        let face = vtium_font_helper::names::choose(&faces, family).expect("a face");
         let region = family.rsplit(' ').next().expect("a region");
         let index = REGIONS.iter().position(|r| *r == region).expect("a region");
         assert_eq!(face.index as usize, index, "{name}");

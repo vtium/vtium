@@ -795,8 +795,8 @@ pub fn chosen_frit(
     height: u32,
     shown: impl FnOnce(Cell) -> Result<Vec<Shown>, String>,
 ) -> Result<Chosen, String> {
-    use vtium_config::serve::{Engine, FritText as EngineFrit, OwnCell as EngineCell, Paths};
     use vtium_font::spacing::SpacedCell;
+    use vtium_font_helper::serve::{Engine, FritText as EngineFrit, OwnCell as EngineCell, Paths};
     let paths = Paths {
         font_dirs: vec![dir.to_path_buf()],
         ..Paths::default()
@@ -885,7 +885,7 @@ pub fn chosen_frit(
     // The fill's glyphs change no pixel of a screen whose asks hold a set,
     // so tier 2 holds the fill's first answer only where they hold none.
     if !lines {
-        let fill: Vec<char> = vtium_config::serve::LATIN_AND_BOX
+        let fill: Vec<char> = vtium_font_helper::serve::LATIN_AND_BOX
             .iter()
             .flat_map(|&(a, b)| a..=b)
             .filter_map(char::from_u32)
@@ -906,7 +906,7 @@ pub fn chosen_frit(
 /// helper answers an ask and the console takes the answer: whether the
 /// store took a set, which it does not when the engine draws none.
 fn hold(
-    engine: &vtium_config::serve::Engine,
+    engine: &vtium_font_helper::serve::Engine,
     generated: &vtium::deferred::Shared,
     (at, variant): (vtium_font::spacing::SpacedCell, vtium_font::Variant),
     (chars, clusters): (&[char], &[Vec<u32>]),
@@ -941,7 +941,7 @@ fn hold(
 /// must hold one cell, the one the double size gives `at`, as the console
 /// checks.
 fn add_doubled(
-    engine: &vtium_config::serve::Engine,
+    engine: &vtium_font_helper::serve::Engine,
     generated: &vtium::deferred::Shared,
     (at, variant, doubled): (
         vtium_font::spacing::SpacedCell,
@@ -1271,7 +1271,7 @@ mod tests {
     #[test]
     fn the_shipped_fonts_are_the_families_the_shipped_frits_name() {
         use std::collections::BTreeSet;
-        use vtium_config::frit::{Frit, Origin};
+        use vtium_font_helper::frit::{Frit, Origin};
         let mut named = BTreeSet::new();
         for frit in SHIPPED_FRITS {
             let parsed = Frit::parse_spliced(

@@ -270,10 +270,10 @@ fn the_helper_stand_in() {
         copy,
         read,
     };
-    let status = vtium_config::serve::serve(
+    let status = vtium_font_helper::serve::serve(
         input,
         &mut out,
-        &vtium_config::serve::Paths::default(),
+        &vtium_font_helper::serve::Paths::default(),
         Duration::from_secs(5),
     );
     std::process::exit(i32::from(status));
@@ -283,7 +283,7 @@ fn the_helper_stand_in() {
 /// ends with [`CRASHES`]: the frit of the first request names such a
 /// source, and no leave-out request leaves it out.
 fn reads_a_crashing_font(mut read: &[u8]) -> bool {
-    use vtium_config::serve::{Request, read_request};
+    use vtium_font_helper::serve::{Request, read_request};
     let mut left_out = 0u32;
     let mut frit = None;
     while let Ok(Some(request)) = read_request(&mut read) {

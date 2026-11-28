@@ -1671,9 +1671,10 @@ dependencies = [
  "log",
  "rustix",
  "vtium-broker-protocol",
- "vtium-config",
+ "vtium-config-core",
  "vtium-devices",
  "vtium-font",
+ "vtium-font-helper",
  "vtium-image",
  "vtium-platform",
  "vtium-render",
@@ -1851,7 +1852,7 @@ version = "0.1.0-alpha.12"
 dependencies = [
  "vtium",
  "vtium-clipboard",
- "vtium-config",
+ "vtium-config-core",
  "vtium-settings",
  "vtium-site",
  "vtium-term",
@@ -1924,8 +1925,8 @@ version = "0.1.0-alpha.12"
 dependencies = [
  "miniz_oxide",
  "vtium",
- "vtium-config",
  "vtium-font",
+ "vtium-font-helper",
  "vtium-render",
  "vtium-term",
  "vtium-testfont",
@@ -1975,8 +1976,8 @@ name = "vtium-tier2"
 version = "0.1.0-alpha.12"
 dependencies = [
  "vtium",
- "vtium-config",
  "vtium-font",
+ "vtium-font-helper",
  "vtium-platform",
  "vtium-render",
  "vtium-settings",

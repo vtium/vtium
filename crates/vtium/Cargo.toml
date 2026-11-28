@@ -122,8 +122,15 @@ rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs"
 calloop = { version = "=0.14.4", default-features = false }
 # The glyph helper's serve mode, which `tests/boot.rs` runs in a process of
 # its own as the helper an outline frit asks, so the console's tests meet
-# the checks the real helper makes.
-vtium-config = { path = "../vtium-config" }
+# the checks the real helper makes, and the helper's wire format, shaping
+# and font sources, which the unit tests compare against the console's.
+vtium-font-helper.workspace = true
+# The font files vtium-config finds and the `source=` line it writes for
+# one, which the font tests compare against the console's, and how
+# vtium-config counts the problems that `vtium check-config` reports. This
+# crate holds vtium-config's commands without its TUI, so the console's
+# tests do not build the TUI.
+vtium-config-core.workspace = true
 # The stand-in programs the tests write and copy, put in place so that
 # the kernel never refuses to run one as busy.
 vtium-testscript = { path = "../../tools/testscript" }

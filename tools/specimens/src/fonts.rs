@@ -339,7 +339,7 @@ pub(crate) fn generate(
     cells: &[Cell],
     clusters: &[StyleClusters],
 ) -> Result<Vec<CellGlyphs>, String> {
-    use vtium_config::serve::{Engine, FritText, Paths};
+    use vtium_font_helper::serve::{Engine, FritText, Paths};
     let frit = FritText {
         name: name.to_owned(),
         text: text.to_owned(),

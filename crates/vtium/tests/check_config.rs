@@ -389,8 +389,8 @@ fn vtium_config_counts_each_error_of_check_config_once() {
         .count();
     // the two errors, each followed by what it drops
     assert_eq!(drops, 2, "{problems:#?}");
-    let checked = vtium_config::drafts::Checked {
-        verdict: vtium_config::drafts::Verdict::Failed,
+    let checked = vtium_config_core::drafts::Checked {
+        verdict: vtium_config_core::drafts::Verdict::Failed,
         problems: problems.clone(),
         notes: Vec::new(),
     };

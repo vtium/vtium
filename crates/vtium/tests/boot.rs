@@ -7799,9 +7799,9 @@ fn fills_asked(kinds: &Path) -> Vec<(u32, u32)> {
     let bytes = std::fs::read(stand_in::requests_of(kinds)).unwrap_or_default();
     let mut input = bytes.as_slice();
     let mut fills = Vec::new();
-    while let Ok(Some(request)) = vtium_config::serve::read_request(&mut input) {
-        if let vtium_config::serve::Request::Serve(r) = request
-            && r.kind == vtium_config::serve::FILL
+    while let Ok(Some(request)) = vtium_font_helper::serve::read_request(&mut input) {
+        if let vtium_font_helper::serve::Request::Serve(r) = request
+            && r.kind == vtium_font_helper::serve::FILL
         {
             fills.push((r.cell.width, r.cell.height));
         }
@@ -7830,7 +7830,7 @@ fn takes_the_late_console_font_cell(
         .write(true)
         .open(go)
         .expect("the go FIFO");
-    let filled = vtium_config::serve::FRAME_FILLED;
+    let filled = vtium_font_helper::serve::FRAME_FILLED;
     assert!(
         h.until(BOUND, |a| a.cells() == vec![(16, 32)]
             && kinds_sent(kinds).contains(&filled)),
@@ -8122,8 +8122,8 @@ fn a_cell_refused_after_the_wait_fills_the_cell_the_head_draws_in() {
         .write(true)
         .open(&go)
         .expect("the go FIFO");
-    let refused = vtium_config::serve::FRAME_NO_OWN_CELL;
-    let filling = vtium_config::serve::FRAME_FILL;
+    let refused = vtium_font_helper::serve::FRAME_NO_OWN_CELL;
+    let filling = vtium_font_helper::serve::FRAME_FILL;
     assert!(
         h.until(BOUND, |_| {
             let sent = kinds_sent(&kinds);
