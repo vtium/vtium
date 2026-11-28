@@ -15,6 +15,19 @@ fn batch(paths: &[&str]) -> Batch {
     )
 }
 
+/// A start of the batch from the list of a fresh install `fresh`, with
+/// folders of lists that do not exist.
+fn bare(fresh: Batch) -> Start {
+    Start {
+        fresh,
+        folders: Folders {
+            package: PathBuf::from("/nonexistent/package-lists"),
+            admin: PathBuf::from("/nonexistent/batch.d"),
+        },
+        trust: vtium_settings::Trust::running_as(0),
+    }
+}
+
 #[test]
 fn a_changes_file_reads_back_as_it_was_written() {
     let mut changes = Changes::default();
@@ -70,7 +83,7 @@ fn a_large_changes_file_reads_without_a_scan_for_each_line() {
 
 #[test]
 fn the_changes_apply_to_the_installed_file_and_keep_its_other_lines() {
-    let fresh = batch(&["/f/one", "/f/two"]);
+    let fresh = bare(batch(&["/f/one", "/f/two"]));
     let mut changes = Changes::default();
     changes.set("/n/new".into(), Some(Change::Activate));
     changes.set("/k/kept".into(), Some(Change::Deactivate));
@@ -89,7 +102,7 @@ fn the_changes_apply_to_the_installed_file_and_keep_its_other_lines() {
     same.set("/gone".into(), Some(Change::Deactivate));
     assert_eq!(applied(None, &fresh, &same), None);
     assert_eq!(applied(Some("/f/one\n"), &fresh, &same), None);
-    same.settle(&fresh);
+    same.settle(&fresh.fresh);
     assert!(same.is_empty());
 }
 
@@ -203,4 +216,177 @@ fn a_look_that_names_a_color_scheme_is_warned_of() {
     assert!(users(&pkg.join("dracula.palette"), conf, &places).is_empty());
     assert_eq!(users(&etc.join("dracula.palette"), conf, &places), big);
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A machine with both folders of lists, under a temporary folder `R`:
+/// the package's list vtium-fonts names `R/fonts/tiny5.bdf`, which is
+/// installed, `R/fonts/cjk.ttc`, which is not, and `R/fonts/bold.ttf`;
+/// the package's list other-fonts names `R/fonts/other.ttf`, and an empty
+/// file of its name in root's folder turns it off.
+struct Lists {
+    root: PathBuf,
+    start: Start,
+}
+
+impl Lists {
+    fn new(name: &str) -> Lists {
+        let root =
+            std::env::temp_dir().join(format!("vtium-config-lists-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (package, admin) = (root.join("package-lists"), root.join("batch.d"));
+        for dir in [&package, &admin, &root.join("fonts")] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let r = root.display();
+        std::fs::write(
+            package.join("vtium-fonts.conf"),
+            format!("# vtium-fonts\n{r}/fonts/tiny5.bdf\n{r}/fonts/cjk.ttc\n{r}/fonts/bold.ttf\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            package.join("other-fonts.conf"),
+            format!("{r}/fonts/other.ttf\n"),
+        )
+        .unwrap();
+        std::fs::write(admin.join("other-fonts.conf"), "").unwrap();
+        for font in ["tiny5.bdf", "bold.ttf", "other.ttf", "own.ttf"] {
+            std::fs::write(root.join("fonts").join(font), "a font\n").unwrap();
+        }
+        let euid = rustix::process::geteuid().as_raw();
+        let start = Start {
+            fresh: batch(&["/f/one"]),
+            folders: Folders { package, admin },
+            trust: vtium_settings::Trust::running_as(euid).below(&root),
+        };
+        Lists { root, start }
+    }
+
+    /// The path `p` under the machine's folder.
+    fn path(&self, p: &str) -> PathBuf {
+        self.root.join(p)
+    }
+
+    /// The path `p` under the machine's folder, as a line names it.
+    fn line(&self, p: &str) -> String {
+        self.path(p).display().to_string()
+    }
+
+    fn changes(&self, made: &[(&str, Change)]) -> Changes {
+        let mut out = Changes::default();
+        for (p, c) in made {
+            out.set(self.path(p), Some(*c));
+        }
+        out
+    }
+}
+
+impl Drop for Lists {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+// The batch holds what batch.conf and the package's list name, less the
+// path a `-` line turns off; root's empty file turns the other package's
+// list off, and the view says how root turned each path off.
+#[test]
+fn a_package_s_list_activates_its_paths_less_what_root_turns_off() {
+    let m = Lists::new("view");
+    let conf = format!(
+        "{}\n-{}\n",
+        m.line("fonts/own.ttf"),
+        m.line("fonts/bold.ttf")
+    );
+    let view = View::new(Some(conf.as_bytes()), &m.start);
+    let batch = view.batch();
+    for held in ["fonts/own.ttf", "fonts/tiny5.bdf", "fonts/cjk.ttc"] {
+        assert!(batch.holds(&m.path(held)), "{held}");
+    }
+    assert!(!batch.holds(&m.path("fonts/bold.ttf")));
+    assert!(!batch.holds(&m.path("fonts/other.ttf")));
+    assert_eq!(view.off(&m.path("fonts/bold.ttf")), Some(Off::BatchFile));
+    assert_eq!(
+        view.off(&m.path("fonts/other.ttf")),
+        Some(Off::List(m.path("batch.d/other-fonts.conf")))
+    );
+    assert_eq!(view.off(&m.path("fonts/tiny5.bdf")), None);
+    assert_eq!(view.off(&m.path("fonts/nowhere.ttf")), None);
+    assert_eq!(
+        list_lines(&view),
+        [
+            format!(
+                "list\t{0}/package-lists/other-fonts.conf\tturned off\t{0}/batch.d/other-fonts.conf",
+                m.root.display()
+            ),
+            format!(
+                "list\t{0}/batch.d/other-fonts.conf\tread\t{0}/batch.d/other-fonts.conf",
+                m.root.display()
+            ),
+            format!(
+                "list\t{0}/package-lists/vtium-fonts.conf\tread\t{0}/package-lists/vtium-fonts.conf",
+                m.root.display()
+            ),
+        ]
+    );
+}
+
+// Deactivating a path that a list names writes a `-` line, since taking
+// out a line batch.conf does not hold would leave the list activating it;
+// a path only batch.conf names loses its line and gains no `-` line.
+#[test]
+fn deactivating_a_listed_path_writes_a_dash_line() {
+    let m = Lists::new("deactivate");
+    let conf = format!("# mine\n{}\n", m.line("fonts/own.ttf"));
+    let changes = m.changes(&[
+        ("fonts/tiny5.bdf", Change::Deactivate),
+        ("fonts/own.ttf", Change::Deactivate),
+    ]);
+    assert_eq!(
+        applied(Some(&conf), &m.start, &changes),
+        Some(format!("# mine\n-{}\n", m.line("fonts/tiny5.bdf")))
+    );
+    // a `-` line already there is not written twice
+    let off = format!("-{}\n", m.line("fonts/tiny5.bdf"));
+    let again = m.changes(&[("fonts/tiny5.bdf", Change::Deactivate)]);
+    assert_eq!(applied(Some(&off), &m.start, &again), None);
+}
+
+// Activating a path that a `-` line turns off takes the line out, and
+// the list then activates the path, so no line of its own is added. A
+// path whose list root turned off gets a line of its own, and so does a
+// path no list names.
+#[test]
+fn activating_a_turned_off_path_takes_the_dash_line_out() {
+    let m = Lists::new("activate");
+    let conf = format!("# mine\n-{}\n", m.line("fonts/bold.ttf"));
+    let changes = m.changes(&[
+        ("fonts/bold.ttf", Change::Activate),
+        ("fonts/other.ttf", Change::Activate),
+        ("fonts/own.ttf", Change::Activate),
+    ]);
+    assert_eq!(
+        applied(Some(&conf), &m.start, &changes),
+        Some(format!(
+            "# mine\n{}\n{}\n",
+            m.line("fonts/other.ttf"),
+            m.line("fonts/own.ttf")
+        ))
+    );
+    // activating what a list already activates changes nothing
+    let listed = m.changes(&[("fonts/tiny5.bdf", Change::Activate)]);
+    assert_eq!(applied(Some("# mine\n"), &m.start, &listed), None);
+}
+
+// The first batch file written from the list of a fresh install holds the
+// fresh list and the change, and none of the lists' paths, so removing a
+// package still deactivates its fonts.
+#[test]
+fn the_first_write_from_a_fresh_install_copies_no_list() {
+    let m = Lists::new("fresh");
+    let changes = m.changes(&[("fonts/tiny5.bdf", Change::Deactivate)]);
+    let text = applied(None, &m.start, &changes).expect("a new file");
+    assert_eq!(
+        text,
+        format!("{HEADER}/f/one\n-{}\n", m.line("fonts/tiny5.bdf"))
+    );
 }

@@ -3,8 +3,10 @@
 //!
 //! vtium uses only the active resources: the fonts, color schemes,
 //! color maps, shaders and pointer themes that the batch file,
-//! `/etc/vtium/batch.conf`, lists one path on each line. The built-in
-//! font is always active and never appears there. A change to that list
+//! `/etc/vtium/batch.conf`, lists one path on each line, and those that
+//! the lists packages and root keep in the `batch.d` folders name, less
+//! what a `-` line of batch.conf turns off ([`lists`]). The built-in
+//! font is always active and never appears there. A change to the batch
 //! waits beside the draft, in `drafts/NAME.batch`, until the draft is
 //! installed, so it installs with the draft and goes when the draft is
 //! reverted or removed.
@@ -21,11 +23,13 @@
 //!
 //! References:
 //! - ADR-1205 D4: the batch, its file, the trust rule each activated file passes, the list of a fresh install, and a draft keeping its changes to the batch beside it.
+//! - ADR-1205 D4, as amended on 2026-11-27: the packages' lists, root's lists and the `-` lines of batch.conf.
 //! - ADR-1205 D8: deactivating a resource warns and names the looks that use it.
 //! - ADR-1403 D8: a draft keeps its font set changes beside it in the same way.
 
 mod command;
 mod installed;
+mod lists;
 mod resource;
 mod uses;
 
@@ -38,6 +42,10 @@ use crate::outcome::Fail;
 
 pub use command::{Done, Resources, State, command};
 pub use installed::{HEADER, Installed, applied, base, batch_file, fresh};
+pub use lists::{
+    Folders, NOT_INSTALLED, Off, Start, View, activated_by, list_lines, not_installed,
+    origin_words, start,
+};
 pub use resource::{kind, rule_user, trusted};
 pub use uses::{
     Places, Through, Use, drawing_palette, drawing_vtlook, named_files, users, uses, vtlook_files,

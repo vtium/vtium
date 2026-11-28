@@ -173,12 +173,14 @@ fn an_activation_waits_in_the_draft_and_installs_with_it() {
     assert!(
         active
             .out
-            .contains("font\tROOT/res/mine.ttf\tactivates on install\n"),
+            .contains("font\tROOT/res/mine.ttf\tactivates on install\tthe draft\n"),
         "{}",
         active.out
     );
     assert!(
-        active.out.starts_with("font\tbuilt-in\talways active\n"),
+        active
+            .out
+            .starts_with("font\tbuilt-in\talways active\tbuilt in\n"),
         "{}",
         active.out
     );
@@ -198,7 +200,9 @@ fn an_activation_waits_in_the_draft_and_installs_with_it() {
     assert_eq!(mode & 0o777, 0o644);
     let active = f.ok(&["active"]);
     assert!(
-        active.out.contains("font\tROOT/res/mine.ttf\tactive\n"),
+        active
+            .out
+            .contains("font\tROOT/res/mine.ttf\tactive\tbatch.conf\n"),
         "{}",
         active.out
     );
@@ -538,7 +542,9 @@ fn a_batch_file_that_vtium_refuses_counts_as_missing() {
     assert!(!active.out.contains("evil.ttf"), "{}", active.out);
     for font in fresh_fonts() {
         assert!(
-            active.out.contains(&format!("font\t{font}\tactive\n")),
+            active
+                .out
+                .contains(&format!("font\t{font}\tactive\tfresh install\n")),
             "{font} missing from {}",
             active.out
         );
@@ -601,7 +607,9 @@ fn a_batch_file_with_a_line_that_is_not_utf_8_is_read_as_vtium_reads_it() {
     f.desk();
     let active = f.ok(&["active"]);
     assert!(
-        active.out.contains("font\tROOT/res/mine.ttf\tactive\n"),
+        active
+            .out
+            .contains("font\tROOT/res/mine.ttf\tactive\tbatch.conf\n"),
         "{}",
         active.out
     );
@@ -622,17 +630,36 @@ fn a_batch_file_with_a_line_that_is_not_utf_8_is_read_as_vtium_reads_it() {
 /// reader: the same batch, and for a file vtium refuses, the same words.
 #[test]
 fn vtium_config_reads_the_batch_file_as_vtium_reads_it() {
-    use vtium_config::batch::Installed;
+    use vtium_config::batch::{Folders, Installed, Start};
     use vtium_settings::batch::{Batch, Entry, Finding};
     let f = fixture("same-reader");
     let file = f.path("etc/batch.conf");
     let euid = rustix::process::geteuid().as_raw();
     let trust = vtium_settings::Trust::running_as(euid);
     let fresh = || Batch::new(vec![Entry::Path(PathBuf::from("/fresh/one.ttf"))]);
+    // a package's list beside the batch file, which both readers add
+    let (package, admin) = (f.path("etc/package-lists"), f.path("etc/batch.d"));
+    std::fs::create_dir_all(&package).expect("the packages' folder");
+    std::fs::write(
+        package.join("vtium-fonts.conf"),
+        format!("{}\n", f.arg("res/other.ttf")),
+    )
+    .expect("a package's list");
+    let start = Start {
+        fresh: fresh(),
+        folders: Folders {
+            package: package.clone(),
+            admin: admin.clone(),
+        },
+        trust: trust.clone(),
+    };
     let compare = |case: &str| {
         let ours = Installed::read(&file, euid);
-        let theirs = Batch::read(&file, &trust, fresh());
-        assert_eq!(ours.base(&fresh()), theirs.batch, "{case}");
+        let mut theirs = Batch::read(&file, &trust, fresh());
+        theirs.add_lists(&package, &admin, &trust);
+        assert!(theirs.batch.holds(&f.path("res/other.ttf")), "{case}");
+        assert_eq!(ours.base(&start), theirs.batch, "{case}");
+        assert_eq!(ours.view(&start).list_files(), theirs.list_files, "{case}");
         match (&ours, theirs.findings.first()) {
             (Installed::Refused(why), Some(finding @ Finding::Refused { .. })) => {
                 assert_eq!(*why, finding.to_string(), "{case}");
@@ -846,4 +873,73 @@ fn one_activation_past_the_bound_is_refused_and_the_draft_keeps_the_rest() {
     resources.save().expect("the draft keeps its changes");
     let active = f.ok(&["active"]);
     assert!(!active.out.contains(&font), "{}", active.out);
+}
+
+/// `active` on the record's example machine: a package's list that
+/// activates a font, names one that is not installed and names one that a
+/// `-` line of batch.conf turns off; a second package's list that root
+/// turns off with a link to /dev/null; and a font the draft activates.
+/// Each line has four columns, the fourth saying where the state comes
+/// from, and one line follows for each entry in the folders of lists.
+///
+/// References:
+/// - ADR-1205 D4, as amended on 2026-11-27: what `vtium config active` prints, and its example.
+#[test]
+fn active_names_where_each_state_comes_from_and_lists_the_lists() {
+    let f = fixture("active-lists");
+    for dir in ["etc/package-lists", "etc/batch.d"] {
+        std::fs::create_dir_all(f.path(dir)).expect("a folder of lists");
+    }
+    std::fs::write(f.path("res/tiny5.bdf"), "a font\n").expect("a font");
+    std::fs::write(f.path("res/bold.ttf"), "a font\n").expect("a font");
+    std::fs::write(
+        f.path("etc/package-lists/vtium-fonts.conf"),
+        format!(
+            "# the fonts vtium-fonts activates\n{}\n{}\n{}\n",
+            f.arg("res/tiny5.bdf"),
+            f.arg("res/cjk.ttc"),
+            f.arg("res/bold.ttf")
+        ),
+    )
+    .expect("a package's list");
+    std::fs::write(
+        f.path("etc/package-lists/other-fonts.conf"),
+        format!("{}\n", f.arg("res/other.ttf")),
+    )
+    .expect("a package's list");
+    std::os::unix::fs::symlink("/dev/null", f.path("etc/batch.d/other-fonts.conf"))
+        .expect("root's link to /dev/null");
+    std::fs::write(
+        f.path("etc/batch.conf"),
+        format!("-{}\n", f.arg("res/bold.ttf")),
+    )
+    .expect("a batch file");
+    f.desk();
+    f.ok(&["activate", &f.arg("res/mine.ttf")]);
+    let active = f.ok(&["active"]);
+    assert_eq!(
+        active.out,
+        "\
+font\tbuilt-in\talways active\tbuilt in
+font\tROOT/res/tiny5.bdf\tactive\tvtium-fonts
+font\tROOT/res/cjk.ttc\tnot installed\tvtium-fonts
+font\tROOT/res/bold.ttf\tnot active\tbatch.conf
+font\tROOT/res/mine.ttf\tactivates on install\tthe draft
+list\tROOT/etc/package-lists/other-fonts.conf\tturned off\tROOT/etc/batch.d/other-fonts.conf
+list\tROOT/etc/batch.d/other-fonts.conf\tturned off\tROOT/etc/batch.d/other-fonts.conf
+list\tROOT/etc/package-lists/vtium-fonts.conf\tread\tROOT/etc/package-lists/vtium-fonts.conf
+",
+        "{}",
+        active.err
+    );
+    // a font a list activates can be deactivated, and the draft says so
+    f.ok(&["deactivate", &f.arg("res/tiny5.bdf")]);
+    let active = f.ok(&["active"]);
+    assert!(
+        active
+            .out
+            .contains("font\tROOT/res/tiny5.bdf\tdeactivates on install\tthe draft\n"),
+        "{}",
+        active.out
+    );
 }

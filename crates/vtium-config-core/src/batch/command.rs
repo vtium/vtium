@@ -13,8 +13,8 @@ use crate::store::Store;
 
 use super::installed::{BATCH_KIB, too_long};
 use super::{
-    Change, Changes, Installed, Places, builtin, fresh, kind, plain, rule_user, trusted, users,
-    vtlook_files,
+    Change, Changes, Installed, NOT_INSTALLED, Places, Start, View, builtin, kind, list_lines,
+    not_installed, origin_words, plain, rule_user, trusted, users, vtlook_files,
 };
 
 /// What `activate`, `deactivate` and `active` were asked.
@@ -135,7 +135,11 @@ pub struct Resources<'a> {
     /// The installed batch file as vtium reads it. When it is missing or
     /// vtium refuses it, vtium uses the list of a fresh install.
     pub installed: Installed,
-    base: Batch,
+    /// What the batch starts from besides the batch file: the list of a
+    /// fresh install and the folders of lists for this install.
+    start: Start,
+    /// The batch the system holds, with the lists.
+    view: View,
     changes: Changes,
     /// The user whose files the trust rule accepts for this install.
     euid: u32,
@@ -146,23 +150,36 @@ impl<'a> Resources<'a> {
     pub fn open(session: &'a Session<'a>) -> Result<Resources<'a>, Fail> {
         let (name, text) = session.current()?;
         let installed = session.installed_batch();
-        let base = installed.base(&fresh());
         let changes = session.store.batch_changes(&name)?;
         let euid = rule_user(&session.paths.targets(), &session.paths.sudo);
+        let start = super::start(session.paths);
+        let view = installed.view(&start);
         Ok(Resources {
             session,
             name,
             text,
             installed,
-            base,
+            start,
+            view,
             changes,
             euid,
         })
     }
 
+    /// The batch the system holds, with the packages' and root's lists,
+    /// as vtium reads it.
+    pub fn view(&self) -> &View {
+        &self.view
+    }
+
+    /// The batch the system holds.
+    fn base(&self) -> &Batch {
+        self.view.batch()
+    }
+
     /// Where the resource at `path` stands in the draft.
     pub fn state(&self, path: &Path) -> State {
-        match (self.base.holds(path), self.changes.get(path)) {
+        match (self.base().holds(path), self.changes.get(path)) {
             (true, Some(Change::Deactivate)) => State::Deactivates,
             (true, _) => State::Active,
             (false, Some(Change::Activate)) => State::Activates,
@@ -176,16 +193,64 @@ impl<'a> Resources<'a> {
     /// listed, since it has no path.
     pub fn list(&self) -> Vec<(PathBuf, State)> {
         let held = self
-            .base
+            .base()
             .entries()
             .iter()
             .map(|Entry::Path(p)| (p.clone(), self.state(p)));
         let added = self
             .changes
             .iter()
-            .filter(|(p, c)| *c == Change::Activate && !self.base.holds(p))
+            .filter(|(p, c)| *c == Change::Activate && !self.base().holds(p))
             .map(|(p, _)| (p.to_path_buf(), State::Activates));
         held.chain(added).collect()
+    }
+
+    /// The lines `vtium config active` prints, each of four columns
+    /// separated by tabs: the kind, the path, the state, and where the
+    /// state comes from. The built-in font comes first; then each active
+    /// resource, the batch file's or the list of a fresh install's before
+    /// the lists'; each path batch.conf turns off; each resource the draft
+    /// activates; and last one line for each entry in the folders of
+    /// lists, as [`list_lines`] gives it. A path that a list activates
+    /// where no file is installed is [`NOT_INSTALLED`], and a state the
+    /// draft makes comes from `the draft`.
+    ///
+    /// References:
+    /// - ADR-1205 D4, as amended on 2026-11-27: what `vtium config active` prints.
+    pub fn lines(&self) -> Vec<String> {
+        use vtium_settings::batch::Origin;
+        const DRAFT: &str = "the draft";
+        let line = |path: &Path, state: &str, from: &str| {
+            format!("{}\t{}\t{state}\t{from}", kind(path), path.display())
+        };
+        let base = self.base();
+        let mut out = vec![format!(
+            "font\tbuilt-in\t{}\tbuilt in",
+            State::Always.words()
+        )];
+        for Entry::Path(path) in base.entries() {
+            let state = self.state(path);
+            out.push(match base.origin(path) {
+                _ if state == State::Deactivates => line(path, state.words(), DRAFT),
+                Some(origin @ Origin::List(_)) if not_installed(path) => {
+                    line(path, NOT_INSTALLED, origin_words(origin))
+                }
+                Some(origin) => line(path, state.words(), origin_words(origin)),
+                None => line(path, state.words(), "batch.conf"),
+            });
+        }
+        for path in base.turned_off() {
+            if self.changes.get(path).is_none() {
+                out.push(line(path, State::Inactive.words(), "batch.conf"));
+            }
+        }
+        for (path, change) in self.changes.iter() {
+            if change == Change::Activate && !base.holds(path) {
+                out.push(line(path, State::Activates.words(), DRAFT));
+            }
+        }
+        out.extend(list_lines(&self.view));
+        out
     }
 
     /// Activates or deactivates the resource at `path` in the draft, in
@@ -221,7 +286,8 @@ impl<'a> Resources<'a> {
         let Ok(installed) = self.installed.text(&file) else {
             return Ok(());
         };
-        match too_long(installed, &fresh(), before, &self.changes) {
+        let start = (&self.start.fresh, self.base());
+        match too_long(installed, start, before, &self.changes) {
             Some(len) => Err(len),
             None => Ok(()),
         }
@@ -235,7 +301,7 @@ impl<'a> Resources<'a> {
         match change {
             Change::Activate if state == State::Activates => return Ok(Done::AlreadyActivates),
             Change::Activate if active => return Ok(Done::AlreadyActive),
-            Change::Activate if !self.base.holds(path) => trusted(path, self.euid)?,
+            Change::Activate if !self.base().holds(path) => trusted(path, self.euid)?,
             Change::Activate => {}
             Change::Deactivate if !active => {
                 return Err(format!(
@@ -265,7 +331,7 @@ impl<'a> Resources<'a> {
         let wanted = change == Change::Activate;
         self.changes.set(
             path.to_path_buf(),
-            (self.base.holds(path) != wanted).then_some(change),
+            (self.base().holds(path) != wanted).then_some(change),
         );
         Ok(Done::Changed { warnings })
     }
@@ -383,23 +449,17 @@ fn change(
     Ok(())
 }
 
-/// `active`: the built-in font, then each resource the batch file lists
-/// and each the draft activates, one line each, tab-separated: its kind,
-/// its path, and its [`State`].
+/// `active`: one line for each resource that is active, that the draft
+/// changes or that batch.conf turns off, then one for each entry in the
+/// folders of lists ([`Resources::lines`]), and last why vtium reads the
+/// list of a fresh install, where it does.
 fn list(session: &Session<'_>, words: &[String], out: &mut dyn Write) -> Result<(), Fail> {
     if !words.is_empty() {
         return Err(Fail::Usage("active takes no argument".to_owned()));
     }
     let resources = Resources::open(session)?;
-    let _ = writeln!(out, "font\tbuilt-in\t{}", State::Always.words());
-    for (path, state) in resources.list() {
-        let _ = writeln!(
-            out,
-            "{}\t{}\t{}",
-            kind(&path),
-            path.display(),
-            state.words()
-        );
+    for line in resources.lines() {
+        let _ = writeln!(out, "{line}");
     }
     match &resources.installed {
         Installed::Read(_) => {}

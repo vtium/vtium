@@ -3,11 +3,11 @@
 
 use std::path::{Path, PathBuf};
 
-use vtium_settings::batch::{self as active, Batch, Entry};
+use vtium_settings::batch::{self as active, Batch, Entry, off_line};
 
 use crate::apply::Targets;
 
-use super::{Change, Changes};
+use super::{Change, Changes, Start, View};
 
 /// The batch file that an install to `targets` writes: the one vtium
 /// reads, [`active::BATCH_FILE`], for the system's directories, and
@@ -21,22 +21,23 @@ pub fn batch_file(targets: &Targets) -> PathBuf {
     }
 }
 
-/// The list of a fresh install on this machine: the fonts, color schemes
-/// and pointer file the package ships, and the console font that
-/// vconsole.conf's `FONT=` names, with the kernel command line over it.
-/// vtium uses it while no batch file is installed, and builds it the same
-/// way ([`Batch::fresh`]).
-pub fn fresh() -> Batch {
-    Batch::fresh(&vtium_settings::batch::Places::system())
+/// What the batch starts from on this machine besides the batch file:
+/// the list of a fresh install, which the package's fonts, color schemes
+/// and pointer file and vconsole.conf's console font make, and the lists
+/// of the two `batch.d` folders, read under root's trust as the console
+/// reads them ([`Start::system`]). An install to other directories, such
+/// as a test's, starts from [`Start::of`] instead.
+pub fn fresh() -> Start {
+    Start::system()
 }
 
 /// The batch the system holds: the one the installed batch file's text
-/// `installed` lists, or `fresh` when vtium reads no batch file.
-pub fn base(installed: Option<&str>, fresh: &Batch) -> Batch {
-    match installed {
-        Some(text) => Batch::parse(text.as_bytes(), Path::new("")).batch,
-        None => fresh.clone(),
-    }
+/// `installed` lists, or `start`'s list of a fresh install when vtium
+/// reads no batch file, with the lists of `start`'s folders.
+pub fn base(installed: Option<&str>, start: &Start) -> Batch {
+    View::new(installed.map(str::as_bytes), start)
+        .batch()
+        .clone()
 }
 
 /// The installed batch file, as vtium reads it.
@@ -83,14 +84,20 @@ impl Installed {
         }
     }
 
-    /// The batch vtium uses: the one the file lists, or `fresh`, the list
-    /// of a fresh install, when vtium reads no file. A line that vtium
+    /// The batch vtium uses, as [`View::new`] reads it: the one the file
+    /// lists, or `start`'s list of a fresh install when vtium reads no
+    /// file, with the lists of `start`'s folders. A line that vtium
     /// ignores, such as one that is not UTF-8, lists nothing.
-    pub fn base(&self, fresh: &Batch) -> Batch {
+    pub fn view(&self, start: &Start) -> View {
         match self {
-            Installed::Read(bytes) => Batch::parse(bytes, Path::new("")).batch,
-            Installed::Missing | Installed::Refused(_) => fresh.clone(),
+            Installed::Read(bytes) => View::new(Some(bytes), start),
+            Installed::Missing | Installed::Refused(_) => View::new(None, start),
         }
+    }
+
+    /// The batch of [`Installed::view`].
+    pub fn base(&self, start: &Start) -> Batch {
+        self.view(start).batch().clone()
     }
 
     /// The text of the file vtium reads, the one that changes start from,
@@ -141,23 +148,50 @@ fn line_path(line: &str) -> Option<PathBuf> {
     }
 }
 
-/// The batch file's text after `changes`, starting from `installed`, the
-/// installed file's text, or from [`HEADER`] and `fresh` when none is
-/// installed: a deactivation takes out each line that names its path, and
-/// an activation of a path no line names adds a line at the end. Every
-/// other line, comments and blank lines included, stays as it was. `None`
-/// when the result lists the same resources as the system holds now, so
-/// the install leaves the batch file as it is.
-pub fn applied(installed: Option<&str>, fresh: &Batch, changes: &Changes) -> Option<String> {
-    let text = edited(installed, fresh, changes);
-    let after = Batch::parse(text.as_bytes(), Path::new("")).batch;
-    (after != base(installed, fresh)).then_some(text)
+/// The path a `-` line of a batch file turns off, if it is one.
+fn line_off(line: &str) -> Option<PathBuf> {
+    let read = Batch::parse(line.as_bytes(), Path::new(""));
+    let mut off = read.batch.turned_off();
+    off.next()
+        .map(Path::to_path_buf)
+        .filter(|_| off.next().is_none())
 }
 
-/// The text [`applied`] makes, whether or not it changes anything. Each
-/// line is read once, and the paths it names are looked up in sets, so a
-/// long list of changes takes time in proportion to its length.
-fn edited(installed: Option<&str>, fresh: &Batch, changes: &Changes) -> String {
+/// The batch file's text after `changes`, starting from `installed`, the
+/// installed file's text, or from [`HEADER`] and `start`'s list of a fresh
+/// install when none is installed. Every line that `changes` do not name
+/// stays as it was, comments and blank lines included. `None` when the
+/// result leaves the same resources active and turned off as the system
+/// holds now, so the install leaves the batch file as it is.
+///
+/// A deactivation takes out each line that names its path, and adds a
+/// `-PATH` line where a list names the path, so the path stays off while
+/// the list names it. An activation takes out each `-` line that names
+/// its path, and adds a line of its own only where no list would then
+/// activate the path. So no list's paths are ever copied into the file,
+/// also when it is first written from the list of a fresh install, and a
+/// package's fonts go with the package.
+///
+/// References:
+/// - ADR-1205 D4, as amended on 2026-11-27: vtium-config writes `-PATH` for a deactivated path a list names, takes the `-` line out to activate it, adds a line only where no list activates the path, and never copies a list into batch.conf.
+pub fn applied(installed: Option<&str>, start: &Start, changes: &Changes) -> Option<String> {
+    let before = base(installed, start);
+    let text = edited(installed, &start.fresh, &before, changes);
+    let after = base(Some(&text), start);
+    let same = |a: &Batch, b: &Batch| {
+        a.entries().len() == b.entries().len()
+            && a.entries().iter().all(|Entry::Path(p)| b.holds(p))
+            && a.turned_off().eq(b.turned_off())
+    };
+    (!same(&after, &before)).then_some(text)
+}
+
+/// The text [`applied`] makes, whether or not it changes anything, where
+/// `base` is the batch the system holds, whose lists say which paths a
+/// list names. Each line is read once, and the paths it names are looked
+/// up in sets, so a long list of changes takes time in proportion to its
+/// length.
+fn edited(installed: Option<&str>, fresh: &Batch, base: &Batch, changes: &Changes) -> String {
     use std::collections::BTreeSet;
     let lines: Vec<String> = match installed {
         Some(text) => text.lines().map(str::to_owned).collect(),
@@ -172,27 +206,44 @@ fn edited(installed: Option<&str>, fresh: &Batch, changes: &Changes) -> String {
             )
             .collect(),
     };
-    let gone: BTreeSet<&Path> = changes
-        .iter()
-        .filter(|(_, c)| *c == Change::Deactivate)
-        .map(|(p, _)| p)
-        .collect();
+    let wanted = |want: Change| -> BTreeSet<&Path> {
+        changes
+            .iter()
+            .filter(|(_, c)| *c == want)
+            .map(|(p, _)| p)
+            .collect()
+    };
+    let (gone, back) = (wanted(Change::Deactivate), wanted(Change::Activate));
     let mut named = BTreeSet::new();
+    let mut off = BTreeSet::new();
     let mut text = String::new();
     for line in &lines {
         let path = line_path(line);
         if path.as_deref().is_some_and(|p| gone.contains(p)) {
             continue;
         }
+        let turned = line_off(line);
+        if turned.as_deref().is_some_and(|p| back.contains(p)) {
+            continue;
+        }
         named.extend(path);
+        off.extend(turned);
         text.push_str(line);
         text.push('\n');
     }
-    // `changes` holds each path once, so no activation adds a line that
-    // another activation added
+    // `changes` holds each path once, so no change adds a line that
+    // another change added
     for (path, change) in changes.iter() {
-        if change == Change::Activate && !named.contains(path) {
-            text.push_str(&path.display().to_string());
+        let listed = base.listed_by(path).is_some();
+        let line = match change {
+            Change::Activate if !listed && !named.contains(path) => {
+                Some(path.display().to_string())
+            }
+            Change::Deactivate if listed && !off.contains(path) => off_line(path),
+            _ => None,
+        };
+        if let Some(line) = line {
+            text.push_str(&line);
             text.push('\n');
         }
     }
@@ -206,17 +257,19 @@ fn edited(installed: Option<&str>, fresh: &Batch, changes: &Changes) -> String {
 /// messages about the bound say it.
 pub(super) const BATCH_KIB: usize = active::BATCH_MAX / 1024;
 
-/// Why the batch file that `changes` make, starting from `installed` and
-/// `fresh` as [`applied`] does, is refused: it is longer than vtium reads,
-/// and longer than the file `before` makes. `None` when the file fits, or
-/// when it shrinks, so that a draft that holds too many activations can
-/// always be brought back within the bound by deactivating resources.
+/// Why the batch file that `changes` make, starting from `installed`,
+/// `fresh` and `base` as [`applied`] does, is refused: it is longer than
+/// vtium reads, and longer than the file `before` makes. `None` when the
+/// file fits, or when it shrinks, so that a draft that holds too many
+/// activations can always be brought back within the bound by
+/// deactivating resources.
 pub(super) fn too_long(
     installed: Option<&str>,
-    fresh: &Batch,
+    (fresh, base): (&Batch, &Batch),
     before: &Changes,
     changes: &Changes,
 ) -> Option<usize> {
-    let after = edited(installed, fresh, changes).len();
-    (after > active::BATCH_MAX && after > edited(installed, fresh, before).len()).then_some(after)
+    let after = edited(installed, fresh, base, changes).len();
+    let was = edited(installed, fresh, base, before).len();
+    (after > active::BATCH_MAX && after > was).then_some(after)
 }
