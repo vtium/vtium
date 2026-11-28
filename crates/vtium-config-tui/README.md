@@ -12,12 +12,13 @@ The terminal's bytes are untrusted input, and no key, click or reply can panic t
 |---|---|
 | `src/lib.rs` | The crate's lints, its modules, the type `BoxTab`, and `run`, which runs the TUI on the terminal of standard input and output. |
 | `src/app/` | The model: the navigation state, the tabs, the shared state and the screen's size (`mod.rs`), and the one update, `App::event`, with `route`, which says who acts on each row of the key table (`update.rs`). |
-| `src/nav/` | The navigation module: the open tab, each tab's stack of levels, the question, the open menu and the search row (`mod.rs`), the kinds of node and the lookup of a key's row (`levels.rs`), and the open menu's keys (`menus.rs`). |
+| `src/nav/` | The navigation module: the open tab, each tab's stack of levels, the question, the open menu, the search row and the sheets open over the tab (`mod.rs`), the kinds of node and the lookup of a key's row (`levels.rs`), and the open menu's keys (`menus.rs`). |
 | `src/view.rs` | The one layout of the screen, which update reads where a click lands, and the view that draws the frame, the open tab, the search row, the message and an open menu from it. |
 | `src/menus/` | The File and Actions menus' items, letters, shortcuts, submenus and check marks. An item that cannot act here is greyed out with its reason, and an item whose action no card has built yet says "not built yet". |
 | `src/port/` | The loop, `drive_on`, and the `Port` it runs against (`mod.rs`), the real terminal (`tty.rs`), and what wakes the loop (`wake.rs`). |
 | `src/live/` | The live console. It asks the terminal what it is at start and hands each reply to whoever asked (`mod.rs`, `queue.rs`). It runs the live trial and its countdown (`trial.rs`, `sheet.rs`), and gives the console its font back on leaving (`leave.rs`). It reads the machine for the Actions menu's items (`machine.rs`), and holds the words it puts on the screen (`words.rs`). |
-| `src/sheets/`, `src/save/`, `src/changes/`, `src/history/`, `src/editor/`, `src/revert/`, `src/player/` | Empty until the cards that fill them: the sheets over a tab, Save, Show changes, History, Edit as text, Revert to saved, and the macro player. |
+| `src/sheets/` | The sheets over a tab, as a stack the navigation state keeps: F1's help (`about.rs`), Ctrl+F's Find (`find.rs`), the Problems list (`problems.rs`), File › New… (`new.rs`) and Manage configurations… (`manage.rs`), with opening a configuration from File › Open › (`open.rs`). Each sheet answers a key with what it asks for, which update carries out. |
+| `src/save/`, `src/changes/`, `src/history/`, `src/editor/`, `src/revert/`, `src/player/` | Empty until the cards that fill them: the sheets over a tab, Save, Show changes, History, Edit as text, Revert to saved, and the macro player. |
 
 ## Bounds
 
@@ -38,5 +39,5 @@ References:
 - ADR-1206 D3: the navigation module, the menus, the undo history and the search component's state.
 - ADR-1206 D4: who may call whom, the frame and the guard test.
 - ADR-1206 D9: the shell and each tab are crates, joined by traits.
-- ADR-1403 D11: the frame, the menus, the Alt letters, the action bar, the mouse, quitting, and undo and redo.
+- ADR-1403 D11: the frame, the menus, the Alt letters, the action bar, the mouse, quitting, undo and redo, F1, Find, the Problems list, New… and managing configurations.
 - ADR-1513 D4: the TUI's crates.
