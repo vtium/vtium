@@ -24,26 +24,39 @@
 //! `report`'s document, [`help`] holds the `--help` text, and [`banner`]
 //! draws the art that `--help about` opens with.
 //!
-//! vtium-config re-exports each module at its root, so
-//! `vtium_config::drafts` and the rest keep their paths.
+//! [`document`] is the configuration as the TUI's one open document, with
+//! its undo history and the desk its draft is written through, and [`ui`]
+//! holds the shared state, the action and the commands that
+//! vtium-config-widgets' `Tab` trait names. [`found`], [`preview`],
+//! [`fontuse`] and [`versions`] are the resources found on the machine,
+//! the pictures, the fonts a configuration uses, and the document's
+//! versions.
+//!
+//! vtium-config re-exports each module that its own code used before the
+//! split at its root, so `vtium_config::drafts` and the rest keep their
+//! paths. The modules for the rebuilt TUI are this crate's alone.
 
 pub mod apply;
 pub mod banner;
 pub mod batch;
 pub mod commands;
 pub mod discover;
+pub mod document;
 pub mod draft;
 pub mod drafts;
 pub mod flow;
 pub mod flowcli;
 pub mod flowmodel;
 pub mod fontlist;
+pub mod fontuse;
+pub mod found;
 pub mod help;
 pub mod library;
 pub mod ops;
 pub mod options;
 pub mod outcome;
 pub mod places;
+pub mod preview;
 pub mod report;
 #[cfg(test)]
 mod scratch;
@@ -51,6 +64,8 @@ pub mod shell;
 pub mod specimen;
 pub mod store;
 pub mod switch;
+pub mod ui;
+pub mod versions;
 pub mod vts;
 pub mod words;
 
