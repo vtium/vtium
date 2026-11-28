@@ -13,6 +13,11 @@
 //! TUI runs. Mouse reporting goes off when the TUI leaves, and while it
 //! steps aside for an editor or sudo ([`Port::step_aside`]).
 //!
+//! The loop reads the machine for the Actions menu's items through
+//! [`crate::live::machine::Machine`], and hands the App what it found as a
+//! message. It runs the install of a system font while it steps aside, so
+//! sudo can ask for the password on the terminal.
+//!
 //! References:
 //! - ADR-1206 D2: the loop turns every wake into a message, and performs
 //!   the effects.
@@ -28,11 +33,12 @@ use std::io;
 use std::time::Duration;
 
 use ratatui_core::terminal::Terminal;
-use vtium_config_core::ui::Effect;
+use vtium_config_core::ui::{Effect, Op};
 use vtium_config_widgets::backend::Vt;
 use vtium_config_widgets::keys::{self, Decoder};
 
 use crate::app::{App, Event, Size};
+use crate::live::machine::{Machine, Nowhere};
 use crate::view;
 pub use wake::Wake;
 
@@ -99,37 +105,67 @@ impl Painter {
     }
 }
 
-/// Runs `app` on `port` until it leaves.
-pub fn drive(port: &mut dyn Port, mut app: App) -> io::Result<Left> {
+/// Runs `app` on `port` until it leaves, on a loop with no machine to
+/// read: Read devices again and Install as a system font… say that they
+/// cannot act here.
+pub fn drive(port: &mut dyn Port, app: App) -> io::Result<Left> {
+    drive_on(port, &mut Nowhere, app)
+}
+
+/// Runs `app` on `port` until it leaves, reading and acting on `machine`
+/// for the Actions menu's items.
+pub fn drive_on(port: &mut dyn Port, machine: &mut dyn Machine, mut app: App) -> io::Result<Left> {
     let mut painter = Painter::new(app.color())?;
     let mut decoder = Decoder::new();
     let mut queue = app.event(Event::Resize(port.size()));
     loop {
-        for effect in std::mem::take(&mut queue) {
-            match effect {
-                Effect::Write(bytes) => port.write(&bytes)?,
-                Effect::Wait(after) => port.arm(after),
-                Effect::Exit(status) => {
-                    return Ok(Left {
-                        status,
-                        line: app.farewell(),
-                    });
+        // an effect the loop performs can hand the App an event whose
+        // effects follow at once
+        while !queue.is_empty() {
+            for effect in std::mem::take(&mut queue) {
+                match effect {
+                    Effect::Write(bytes) => port.write(&bytes)?,
+                    Effect::Wait(after) => port.arm(after),
+                    Effect::Exit(status) => {
+                        return Ok(Left {
+                            status,
+                            line: app.farewell(),
+                        });
+                    }
+                    Effect::Desk(Op::Devices) => {
+                        let present = machine.devices();
+                        queue.extend(app.event(Event::Devices(present)));
+                    }
+                    Effect::Desk(Op::SystemFont(path)) => {
+                        let ready = machine.ready_font(&path);
+                        queue.extend(app.event(Event::FontReady(ready)));
+                    }
+                    // sudo asks for the password on the terminal, so the
+                    // install runs while the TUI steps aside, and the next
+                    // frame is drawn whole
+                    Effect::InstallFont => {
+                        let mut done = Ok(());
+                        port.step_aside(&mut || {
+                            done = machine.install_font();
+                            Ok(())
+                        })?;
+                        port.write(&painter.forget()?)?;
+                        queue.extend(app.event(Event::FontInstalled(done)));
+                    }
+                    // Save's privileged step (rebuild-save), the previews and
+                    // the font helper's answers (the tab cards) and the desk's
+                    // other ops (rebuild-save) are performed by the cards that
+                    // build them
+                    Effect::Install(_)
+                    | Effect::Specimen { .. }
+                    | Effect::Cell { .. }
+                    | Effect::Picture(_)
+                    | Effect::ScreenPicture(_)
+                    | Effect::Summary { .. }
+                    | Effect::Sources(_)
+                    | Effect::Describe(_)
+                    | Effect::Desk(Op::Check | Op::Prepare | Op::Versions) => {}
                 }
-                // Save's privileged step (rebuild-save), the previews and
-                // the font helper's answers (the tab cards and
-                // rebuild-shell-live) and the desk's ops (rebuild-save and
-                // rebuild-shell-live) are performed by the cards that
-                // build them
-                Effect::Install(_)
-                | Effect::InstallFont
-                | Effect::Specimen { .. }
-                | Effect::Cell { .. }
-                | Effect::Picture(_)
-                | Effect::ScreenPicture(_)
-                | Effect::Summary { .. }
-                | Effect::Sources(_)
-                | Effect::Describe(_)
-                | Effect::Desk(_) => {}
             }
         }
         port.write(&painter.frame(&app)?)?;

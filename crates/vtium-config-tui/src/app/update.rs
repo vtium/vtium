@@ -12,6 +12,12 @@
 //! giving it a [`Route`] here and its handler in `App::shell`; the File
 //! menu's item for that row then stops being greyed out.
 //!
+//! A reply, the end of a wait and the first resize go to the live
+//! console's module, [`crate::live`]. While a live trial counts down, it
+//! takes every key and click before the navigation module does. Quitting
+//! gives the console its start font back first, and from then on only the
+//! replies due, the end of the wait and a signal still count.
+//!
 //! References:
 //! - ADR-1206 D2: update hands a key to the navigation module, routes the
 //!   action, and applies changes, then requests, then returns effects.
@@ -20,12 +26,15 @@
 //! - ADR-1403 D11, "Undo and redo": Ctrl+Z and Ctrl+Y act on the document
 //!   and do nothing while a value is typed, in a menu or in Save's review.
 //! - ADR-1403 D11, "Quitting, Ctrl-C and the signals": `q`, File › Quit,
-//!   Ctrl-C and the signals quit at once.
+//!   Ctrl-C and the signals quit without asking.
+//! - ADR-1201 D4, "Giving the console back": the start font goes back as
+//!   the TUI leaves.
 
-use vtium_config_core::ui::{Action, Change, Command, Effect, Request};
+use vtium_config_core::ui::{Action, Change, Command, Effect, Op, Request};
 
 use super::{App, Event, menu_lines};
-use crate::menus::{self, Line, Submenu};
+use crate::live::{self, leave, trial, words};
+use crate::menus::{self, Line, Submenu, actions};
 use crate::nav::menus::Which;
 use crate::nav::{Here, Step, pressed};
 use crate::view;
@@ -39,8 +48,17 @@ pub enum Route {
     Undo,
     /// The shell redoes the change the last undo took back.
     Redo,
-    /// The shell quits at once.
+    /// The shell quits, giving the console its start font back first.
     Quit,
+    /// Actions › Read devices again: the loop reads the devices and the
+    /// resources again.
+    Devices,
+    /// Actions › Install as a system font…: the loop readies the font file
+    /// the open tab highlights, and the shell asks before it installs it.
+    SystemFont,
+    /// The yes to the question before a system font is installed: the
+    /// loop runs the install on the terminal it hands back.
+    InstallFont,
     /// The row is the shell's, and does nothing where it acts, as Ctrl+Z
     /// while a value is typed.
     Nothing,
@@ -55,6 +73,9 @@ pub fn route(id: &str) -> Route {
         "ctrl-z.view" | "ctrl-z.layer" => Route::Undo,
         "ctrl-y.view" | "ctrl-y.layer" => Route::Redo,
         "q.view" | "q.layer" | "q.too-small" | "ctrl-c.any" | "ctrl-c.too-small" => Route::Quit,
+        actions::READ_DEVICES => Route::Devices,
+        actions::SYSTEM_FONT => Route::SystemFont,
+        live::INSTALL_FONT => Route::InstallFont,
         // the Flow view's letters for the File menu's items
         "n.view.flow" => Route::Unbuilt("New…"),
         "r.view.flow" => Route::Unbuilt("Revert to saved…"),
@@ -107,15 +128,26 @@ pub fn handled(id: &str) -> bool {
 }
 
 impl App {
-    /// Acts on `event`, and returns what the loop is to do.
+    /// Acts on `event`, and returns what the loop is to do. The first
+    /// resize, which the loop hands over before anything else, asks the
+    /// terminal what it is. While the TUI leaves, only the replies due, the
+    /// end of the wait and a signal still count.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
-        if self.leaving.is_some() {
-            return Vec::new();
+        if let Some(status) = self.leaving {
+            return match event {
+                Event::Reply(reply) => live::reply(&mut self.shared, &mut self.live, reply),
+                Event::Timeout => live::timeout(&mut self.shared, &mut self.live),
+                Event::Signal(_) => vec![Effect::Exit(status)],
+                _ => Vec::new(),
+            };
         }
         match event {
             Event::Key(key) => {
                 // the message says what the last key did, until the next
                 self.shared.message = None;
+                if self.live.trial.is_some() {
+                    return self.trial_key(&key);
+                }
                 let step = self.navigate(|nav, here, _| nav.key(&key, here));
                 self.follow(step)
             }
@@ -124,6 +156,11 @@ impl App {
                     return Vec::new();
                 };
                 self.shared.message = None;
+                // a click while the trial counts down puts the font back
+                // and does nothing else
+                if self.live.trial.is_some() {
+                    return trial::put_back(&mut self.shared, &mut self.live);
+                }
                 let step = self.navigate(|nav, here, shown| {
                     nav.click(
                         at,
@@ -137,12 +174,33 @@ impl App {
             }
             Event::Resize(size) => {
                 self.size = size;
-                Vec::new()
+                live::start(&mut self.shared, &mut self.live)
             }
             Event::Signal(n) => self.quit(u8::try_from(n.saturating_add(128)).unwrap_or(1)),
-            // the live console's replies and waits, which rebuild-shell-live
-            // reads
-            Event::Reply(_) | Event::Timeout => Vec::new(),
+            Event::Reply(reply) => live::reply(&mut self.shared, &mut self.live, reply),
+            Event::Timeout => live::timeout(&mut self.shared, &mut self.live),
+            Event::Devices(present) => {
+                self.devices(present);
+                Vec::new()
+            }
+            Event::FontReady(ready) => {
+                self.font_ready(ready);
+                Vec::new()
+            }
+            Event::FontInstalled(done) => {
+                self.font_installed(done);
+                Vec::new()
+            }
+        }
+    }
+
+    /// A key while the live trial counts down: `k` keeps the font, Ctrl+C
+    /// quits, and any other key puts the font back and does nothing else.
+    fn trial_key(&mut self, key: &vtium_config_widgets::keys::Key) -> Vec<Effect> {
+        match trial::key(&mut self.shared, &mut self.live, key) {
+            trial::Keyed::Kept => Vec::new(),
+            trial::Keyed::PutBack(effects) => effects,
+            trial::Keyed::Quit => self.quit(0),
         }
     }
 
@@ -185,6 +243,8 @@ impl App {
     fn follow(&mut self, step: Step) -> Vec<Effect> {
         match step {
             Step::Nothing => Vec::new(),
+            // the question before a system font is the shell's own
+            Step::Tab(action) if route(action.row) == Route::InstallFont => self.shell(action),
             Step::Tab(action) => {
                 let Some(tab) = self.tabs.get_mut(self.nav.tab()) else {
                     return Vec::new();
@@ -202,6 +262,27 @@ impl App {
             Route::Undo => self.apply(vec![Command::Change(Change::Undo)]),
             Route::Redo => self.apply(vec![Command::Change(Change::Redo)]),
             Route::Quit => self.quit(0),
+            Route::Devices => vec![Effect::Desk(Op::Devices)],
+            Route::SystemFont => {
+                let own = self
+                    .tabs
+                    .get(self.nav.tab())
+                    .and_then(|t| t.own_font(&self.shared));
+                match own {
+                    Some(path) => vec![Effect::Desk(Op::SystemFont(path))],
+                    None => {
+                        self.shared.say(format!(
+                            "Install as a system font… acts {}.",
+                            words::NOT_OWN
+                        ));
+                        Vec::new()
+                    }
+                }
+            }
+            Route::InstallFont => match self.live.font.as_ref() {
+                Some(_) => vec![Effect::InstallFont],
+                None => Vec::new(),
+            },
             Route::Nothing => Vec::new(),
             Route::Unbuilt(what) => {
                 self.shared.say(format!("{what} is not built yet."));
@@ -219,7 +300,7 @@ impl App {
         let mut requests = Vec::new();
         for command in commands {
             match command {
-                Command::Change(change) => self.change(change),
+                Command::Change(change) => effects.extend(self.change(change)),
                 Command::Request(request) => requests.push(request),
                 Command::Effect(effect) => effects.push(effect),
             }
@@ -233,8 +314,9 @@ impl App {
     /// The one place a change reaches the shared state. A change to the
     /// document goes through its one change function, which writes the
     /// draft and records one step of the undo history; a refusal goes on
-    /// the message line.
-    fn change(&mut self, change: Change) {
+    /// the message line. A live trial changes the console's state, never
+    /// the document, and returns the switch for the loop to write.
+    fn change(&mut self, change: Change) -> Vec<Effect> {
         match change {
             Change::Document(change) => {
                 let _ = self.shared.change(change);
@@ -243,10 +325,13 @@ impl App {
             Change::Redo => self.shared.redo(),
             Change::Say(message) => self.shared.message = Some(message),
             Change::Quiet => self.shared.message = None,
-            Change::Try(_) | Change::TryLook(_) | Change::TrySize { .. } => {
-                self.shared.say("Try live is not built yet.".to_owned());
+            Change::Try(font) => return trial::try_font(&mut self.shared, &mut self.live, font),
+            Change::TryLook(look) => {
+                return trial::try_look(&mut self.shared, &mut self.live, &look);
             }
+            Change::TrySize { .. } => self.shared.message = Some(words::size_not_built()),
         }
+        Vec::new()
     }
 
     /// A tab's request to the navigation module.
@@ -255,18 +340,100 @@ impl App {
             Request::Open(node) => self.nav.open_level(node),
             Request::Close => self.nav.close_level(),
             Request::Ask { question, then } => self.nav.ask(question, then),
-            Request::Show { tab, .. } => {
+            Request::Show { tab, name } => {
                 if let Some(i) = self.tabs.iter().position(|t| t.node() == tab) {
                     self.nav.go_to(i, self.tabs.len());
+                    if let Some(t) = self.tabs.get_mut(i) {
+                        t.show(&self.shared, &name);
+                    }
                 }
             }
         }
     }
 
-    /// Leaves at once with `status`. The draft already holds every change,
-    /// so nothing is asked.
+    /// Leaves with `status`. The draft already holds every change, so
+    /// nothing is asked. Where a trial changed the console's font, the
+    /// console gets its start font back first, and the TUI leaves once the
+    /// console answers or the wait ends.
     fn quit(&mut self, status: u8) -> Vec<Effect> {
         self.leaving = Some(status);
-        vec![Effect::Exit(status)]
+        leave::leave(&mut self.shared, &mut self.live, status)
+    }
+
+    /// What Read devices again found: the devices connected now, which
+    /// replace those the Flow tab placed, and the resources read again.
+    /// The message line names what came and what went.
+    ///
+    /// References:
+    /// - ADR-1403 D7: Read devices again reads the connected displays and
+    ///   input devices again.
+    /// - ADR-1205 D3: the resources are read again on Read devices again,
+    ///   and on no key.
+    fn devices(&mut self, present: Option<vtium_config_core::flowmodel::Present>) {
+        let Some(present) = present else {
+            self.shared.message = Some(words::devices_unread());
+            return;
+        };
+        let name = |d: &vtium_settings::Identity| {
+            d.connector
+                .clone()
+                .or_else(|| d.name.clone())
+                .unwrap_or_else(|| "a device".to_owned())
+        };
+        let old = &self.shared.present.devices;
+        let came: Vec<String> = present
+            .devices
+            .iter()
+            .filter(|d| !old.contains(d))
+            .map(name)
+            .collect();
+        let went: Vec<String> = old
+            .iter()
+            .filter(|d| !present.devices.contains(d))
+            .map(name)
+            .collect();
+        self.shared.present = present;
+        self.shared.found.again();
+        self.shared.message = Some(words::devices(&came, &went));
+    }
+
+    /// The font file the loop readied as a system font: the question,
+    /// which names the command first, or why it cannot be installed.
+    ///
+    /// References:
+    /// - ADR-1205 D5: the question before a font of the person's own is
+    ///   installed shows the exact command first.
+    fn font_ready(&mut self, ready: Result<live::machine::Ready, String>) {
+        use vtium_config_core::apply::Placement;
+        let ready = match ready {
+            Ok(ready) => ready,
+            Err(why) => {
+                self.shared.message = Some(words::system_font_failed(&why));
+                return;
+            }
+        };
+        let target = ready.target.display().to_string();
+        if ready.placement == Placement::Identical {
+            self.shared.message = Some(words::system_font_identical(&target));
+            return;
+        }
+        let question = words::system_font_question(&ready.source.display().to_string());
+        self.live.font = Some(ready);
+        self.nav.ask(question, Action::of(live::INSTALL_FONT));
+    }
+
+    /// The install of a system font ended: on success the fonts are read
+    /// again, so the font shows among the system fonts.
+    fn font_installed(&mut self, done: Result<(), String>) {
+        let Some(ready) = self.live.font.take() else {
+            return;
+        };
+        self.shared.message = Some(match done {
+            Ok(()) => {
+                self.shared.found.again();
+                words::system_font_installed(&ready.target.display().to_string())
+            }
+            Err(why) => words::system_font_failed(&why),
+        });
     }
 }

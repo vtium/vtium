@@ -52,9 +52,9 @@ fn alt_a_view_opens_the_actions_menu_with_the_tab_s_own_items_after_its_own() {
     assert_eq!(app.node(), "any.menu.actions");
     let screen = text(&app);
     for item in [
-        "Try live · not built yet",
-        "Read devices again · not built yet",
-        "Install as a system font… · not built yet",
+        "Try live · still asking this terminal",
+        "Read devices again",
+        "Install as a system font… · on a font of your own",
         "Picture of the console",
     ] {
         assert!(screen.contains(item), "{item:?} is missing:\n{screen}");
@@ -151,11 +151,17 @@ fn letters_layer_menu_file_choose_their_items_and_a_greyed_one_does_nothing() {
 }
 
 #[test]
-fn letters_layer_menu_actions_on_items_not_built_do_nothing() {
+fn letters_layer_menu_actions_choose_their_items_and_a_greyed_one_does_nothing() {
     let (mut app, ..) = common::app(Machine::Map, MAP);
-    keys(&mut app, &["Alt-A", "t", "r", "i"]);
+    // this terminal has not answered yet, and the font is a system font
+    keys(&mut app, &["Alt-A", "t", "i"]);
     assert_eq!(app.node(), "any.menu.actions");
     assert_eq!(app.leaving(), None);
+    assert_eq!(
+        press(&mut app, Key::char('r')),
+        [Effect::Desk(vtium_config_core::ui::Op::Devices)]
+    );
+    assert_eq!(app.node(), "fonts");
 }
 
 #[test]
@@ -569,7 +575,10 @@ fn period_view_opens_more_with_what_the_bar_leaves_out_and_an_item_does_what_its
     let (x, y) = locate(&app, "Try live");
     click(&mut app, x, y);
     assert_eq!(last(&fonts).map(|a| a.row), Some("t.view.fonts"));
-    assert_eq!(message(&app).as_deref(), Some("Try live is not built yet."));
+    assert_eq!(
+        message(&app).as_deref(),
+        Some("Try live waits for this terminal's answers. Try again in a moment.")
+    );
 }
 
 #[test]

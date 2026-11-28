@@ -60,6 +60,14 @@ pub enum Event {
     Signal(i32),
     /// A wait the update asked for ended.
     Timeout,
+    /// The devices connected now, which the loop read for Read devices
+    /// again, or `None` where it cannot read them.
+    Devices(Option<vtium_config_core::flowmodel::Present>),
+    /// The font file the loop readied as a system font, or why it cannot
+    /// be one.
+    FontReady(Result<crate::live::machine::Ready, String>),
+    /// The install of the readied font ended, or why it failed.
+    FontInstalled(Result<(), String>),
 }
 
 /// The TUI's model.
@@ -72,6 +80,9 @@ pub struct App {
     color: bool,
     /// The exit status once the TUI is leaving.
     leaving: Option<u8>,
+    /// The live console's state: the questions at start, the trial, and
+    /// the font readied as a system font.
+    live: crate::live::State,
 }
 
 impl App {
@@ -85,6 +96,7 @@ impl App {
             size,
             color,
             leaving: None,
+            live: crate::live::State::default(),
         }
     }
 
@@ -124,8 +136,17 @@ impl App {
         self.shared.askers.awaiting()
     }
 
-    /// The node of the interface tree the person is on.
+    /// The live console's state.
+    pub fn live(&self) -> &crate::live::State {
+        &self.live
+    }
+
+    /// The node of the interface tree the person is on: the live trial's
+    /// countdown while one runs, since it takes every key.
     pub fn node(&self) -> &'static str {
+        if self.live.trial.is_some() && !self.size.too_small() {
+            return "any.trial";
+        }
         self.nav.node(&self.tabs, self.size.too_small())
     }
 
@@ -165,7 +186,8 @@ pub(crate) fn menu_lines(
         Which::File => menus::file::lines(&cx),
         Which::Actions => {
             let items = tab.map(|t| t.menu_items(shared)).unwrap_or_default();
-            menus::actions::lines(&cx, items)
+            let own = tab.and_then(|t| t.own_font(shared));
+            menus::actions::lines(&cx, items, own.is_some())
         }
         Which::More => more.to_vec(),
     }
