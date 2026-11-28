@@ -1,0 +1,33 @@
+[package]
+name = "vtium-config-tab-help"
+description = "The Help tab of vtium-config's TUI: its topics at the left and the highlighted topic's keys at the right, from the TUI's compiled key table"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The Tab and Searchable traits the tab implements, the compiled interface
+# tree and key table its topics list, the color roles, the search
+# component it filters its lines with, and the text helpers.
+vtium-config-widgets.workspace = true
+# The shared state, the action and the commands the Tab trait names, and
+# the command line's help and banner that the Commands and About topics
+# show.
+vtium-config-core.workspace = true
+# The layout, buffer and frame the tab draws into; the version the
+# widgets build, with only its `std` feature.
+ratatui-core = { version = "=0.1.2", default-features = false, features = ["std"] }
+# Clear, which blanks the viewer before the tab draws in it; the version
+# vtium-config builds.
+ratatui-widgets = { version = "=0.3.2", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# The screen map's machine and a large one, which the screen tests draw
+# the tab with.
+vtium-config-core = { workspace = true, features = ["fixture"] }
