@@ -10,10 +10,11 @@ Run the commands on this page in a terminal on your desktop, such as Konsole. Yo
 
 Ctrl+Alt+F1 shows SDDM's login screen, and the function key of your desktop's VT brings you back to the desktop. The TTY column of `loginctl list-sessions` names that VT, such as `tty2` for Ctrl+Alt+F2.
 
-If you tried vtium before, keep a copy of its configuration:
+If you tried vtium before, keep a copy of its configuration, and start vtium-config's draft again from the installed file:
 
 ```
 $ sudo cp -a /etc/vtium /root/vtium-before
+$ vtium config revert
 ```
 
 ## Install vtium and its fonts
