@@ -1,0 +1,43 @@
+[package]
+name = "vtium-config-tab-looks"
+description = "The Looks tab of vtium-config's TUI: the looks, font sets, color schemes and pointer themes, the highlighted look's card beside them, each card line's list box, and the fonts a look has not activated"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The Tab trait, the opt-in traits Searchable and Choices, the compiled
+# key table, the color roles, the list box and the search component.
+vtium-config-widgets.workspace = true
+# The shared state the tab reads, the action it is handed and the
+# commands it returns, with the resources found, the fonts a
+# configuration uses and the preview's sample screen.
+vtium-config-core.workspace = true
+# The key table and vtium.conf's reader of sections, by which the tab
+# reads each look and the values vtium.conf sets at its top level; the
+# crate vtium-config-core already links.
+vtium-settings.workspace = true
+# The font helper's reader of a font set, by which a look's card names
+# the fonts of each role and finds the text font whose sizes it offers;
+# the crate vtium-config-core already links.
+vtium-font-helper.workspace = true
+# The console's built-in color schemes, whose colors a scheme's detail
+# shows; the crate vtium-config-core already links.
+vtium-term.workspace = true
+# The layout, buffer and frame the tab draws into; the version the
+# workspace builds.
+ratatui-core = { version = "=0.1.2", default-features = false, features = ["std"] }
+# The rule between the list and the card, and the preview's box, drawn as
+# blocks; the version vtium-config already builds.
+ratatui-widgets = { version = "=0.3.2", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# The screen map's machine and a large machine, which the screen tests
+# draw the tab on.
+vtium-config-core = { workspace = true, features = ["fixture"] }
