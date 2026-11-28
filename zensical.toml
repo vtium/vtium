@@ -124,6 +124,7 @@ not_in_nav = """
 /architecture/*/ADR-*.md
 /acceptance/*.md
 /design-notes/*.md
+/design-notes/vtium-config/*.md
 /specimens/*/README.md
 /specimens/simulated/*/README.md
 /showcase/text-and-fonts.md
