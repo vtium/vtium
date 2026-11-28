@@ -28,7 +28,9 @@
 //! [`sizes`] the sizes a look's fonts supply, [`resources`] the font
 //! sets', color schemes' and pointer themes' facts, [`missing`] the fonts
 //! a look uses and Activate, [`view`] the screens, and [`draw`] where
-//! each part goes. [`forms`] holds the forms the tab's second half adds.
+//! each part goes. [`forms`] holds `n`'s new look and new font set's
+//! form, `r`'s removal of a font set, and the questions before a look is
+//! deleted or something a look uses is deactivated.
 //!
 //! References:
 //! - ADR-1206 D9: each tab is a crate that implements the `Tab` trait over the shared state, the action and the commands.
@@ -153,6 +155,8 @@ pub struct Looks {
     names: RefCell<Vec<String>>,
     /// The fonts the document uses, walked again when it changes.
     walked: RefCell<Walked>,
+    /// The new font set's form, open over the tab while it is shown.
+    form: Option<forms::new_frit::Form>,
 }
 
 /// Where each part of the tab is drawn, for clicks.
@@ -164,6 +168,8 @@ pub struct Places {
     pub card: Vec<(Rect, usize)>,
     /// The list box's parts, while one is open.
     pub list: Option<list_box::Places>,
+    /// Each row of the new font set's form, and the row's number.
+    pub form: Vec<(Rect, usize)>,
 }
 
 /// What the preview shows, which the shell hands the pictures with the
@@ -215,6 +221,7 @@ impl Looks {
             on_resource: Cell::new(false),
             names: RefCell::new(Vec::new()),
             walked: RefCell::new(Walked::default()),
+            form: None,
         }
     }
 
@@ -230,6 +237,11 @@ impl Looks {
     /// The highlighted item.
     pub fn highlighted(&self, shared: &Shared) -> Option<Item> {
         list::items(shared).into_iter().nth(self.highlight)
+    }
+
+    /// The new font set's form, if it is open.
+    pub fn form(&self) -> Option<&forms::new_frit::Form> {
+        self.form.as_ref()
     }
 
     /// The look card open over the list, if one is.
@@ -250,6 +262,9 @@ impl Looks {
     /// box's, or the tab's over its list. The shell draws its row with
     /// `vtium_config_widgets::search::row::draw`.
     pub fn search(&self) -> Option<&Search> {
+        if let Some(form) = &self.form {
+            return form.search();
+        }
         match &self.open {
             Open::Card(Card {
                 open: CardOpen::List { list, .. },
@@ -287,7 +302,7 @@ impl Looks {
     /// list is the screen. Nothing on a color scheme or a pointer theme,
     /// and while a card or a detail fills the viewer.
     pub fn preview(&self, shared: &Shared) -> Option<Previewed> {
-        if !matches!(self.open, Open::Nothing) {
+        if !matches!(self.open, Open::Nothing) || self.form.is_some() {
             return None;
         }
         let text = shared.document().text();
@@ -321,7 +336,17 @@ impl Looks {
     /// Where each part of the tab is drawn on `shared`, in the viewer
     /// last drawn.
     pub fn places(&self, shared: &Shared) -> Places {
-        view::places(self, shared, self.seen.get())
+        match &self.form {
+            Some(form) => {
+                let (rows, list) = forms::new_frit::places(form, shared, self.seen.get());
+                Places {
+                    form: rows,
+                    list,
+                    ..Places::default()
+                }
+            }
+            None => view::places(self, shared, self.seen.get()),
+        }
     }
 }
 
@@ -336,9 +361,13 @@ impl Tab<Shared, Action, Command> for Looks {
 
     /// The list, `looks` on a look or a font set and `looks-resources` on
     /// a color scheme or a pointer theme; a card and what is open on it;
-    /// a detail; or the search row while the person types in the list's
-    /// or a list box's search.
+    /// a detail; the new font set's form and what is open on it; or the
+    /// search row while the person types in the list's or a list box's
+    /// search.
     fn node(&self) -> &'static str {
+        if let Some(form) = &self.form {
+            return form.node();
+        }
         match &self.open {
             Open::Nothing if self.filter.as_ref().is_some_and(Search::typing) => NODE_SEARCH,
             Open::Nothing if self.on_resource.get() => NODE_RESOURCES,
@@ -362,20 +391,31 @@ impl Tab<Shared, Action, Command> for Looks {
     fn draw(&self, shared: &Shared, frame: &mut Frame<'_>, area: Rect) {
         self.seen.set(area);
         self.follow(shared);
-        view::draw(self, shared, frame, area);
+        match &self.form {
+            Some(form) => forms::new_frit::draw(form, shared, frame, area, self.color),
+            None => view::draw(self, shared, frame, area),
+        }
     }
 
     fn update(&mut self, shared: &Shared, action: Action) -> Vec<Command> {
-        let out = act::update(self, shared, action);
+        let out = match forms::update(self, shared, &action) {
+            Some(out) => out,
+            None => act::update(self, shared, action),
+        };
         self.follow(shared);
         out
     }
 
     /// F1's text: the full facts of what is highlighted, a card line's
     /// choices, a role's fonts and why each is not active, or a whole
-    /// detail. Nothing while a name is typed, where F1 does nothing.
+    /// detail; on the new font set's form, what a font set is and what
+    /// each role holds. Nothing while a name is typed, where F1 does
+    /// nothing.
     fn full_text(&self, shared: &Shared) -> Option<String> {
-        view::full_text(self, shared)
+        match &self.form {
+            Some(form) => forms::new_frit::full_text(form, shared),
+            None => view::full_text(self, shared),
+        }
     }
 
     /// Every look, font set, color scheme and pointer theme, for Find.
