@@ -29,6 +29,9 @@ pub struct Shared {
     pub message: Option<Message>,
     /// The devices present, which the Flow tab places on the document.
     pub present: crate::flowmodel::Present,
+    /// The fonts, effects, color schemes and pointer themes found on the
+    /// machine, read at start and again on Read devices again.
+    pub found: crate::found::Found,
 }
 
 impl Shared {
@@ -43,6 +46,7 @@ impl Shared {
             installs: Installs::default(),
             message: None,
             present,
+            found: crate::found::Found::default(),
         }
     }
 
