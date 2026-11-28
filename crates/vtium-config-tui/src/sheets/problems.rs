@@ -8,16 +8,28 @@
 //! whether to activate them, through the Fonts tab's Activate missing. A
 //! line too long for the list is cut, and F1 opens all of it.
 //!
+//! The list reads two things the shared state holds: what the check found
+//! in the open document as it stands, and the fonts the document uses. A
+//! font that fails the trust rule gets a warning line of its own with the
+//! reason behind F1. A font that is missing gets none here, since the check
+//! names each missing font itself. Until the check has judged the document
+//! as it stands, the list says so in place of "No problems".
+//!
 //! References:
 //! - ADR-1403 D11, "The frame": the list, its order, and Enter going to
 //!   the place.
 //! - ADR-1403 D11, "Fonts the configuration uses but has not activated":
 //!   the list's line for those fonts offers Activate missing in a
 //!   question.
+//! - ADR-1403 D11, "Fonts that cannot be activated": a font that fails
+//!   the trust rule gets a warning line with its reason, and Enter goes to
+//!   the Fonts tab.
 
 use ratatui_core::buffer::Buffer;
 use ratatui_core::layout::Rect;
+use vtium_config_core::fontuse::State;
 use vtium_config_core::fontuse::activate::words as activate;
+use vtium_config_core::ui::shared::Finding;
 use vtium_config_core::ui::{Action, Shared};
 use vtium_config_widgets::keys::{Code, Key};
 use vtium_config_widgets::roles::Role;
@@ -65,6 +77,10 @@ pub enum Goes {
     /// The fonts the configuration uses that are not active: asks
     /// whether to activate these many.
     Activate(usize),
+    /// Nowhere vtium-config edits, such as a line of a file the
+    /// configuration does not hold: Enter does nothing, and F1 opens the
+    /// whole text.
+    Nowhere,
 }
 
 impl Problem {
@@ -76,7 +92,7 @@ impl Problem {
                 .position(|t| t == tab)
                 .unwrap_or(TAB_ORDER.len()),
             Goes::Activate(_) => 0,
-            Goes::Line(_) => TAB_ORDER.len(),
+            Goes::Line(_) | Goes::Nowhere => TAB_ORDER.len(),
         }
     }
 }
@@ -93,11 +109,91 @@ pub fn inactive_fonts(n: usize) -> Problem {
     }
 }
 
-/// The problems of the open document that the shared state holds. It
-/// holds neither the check's findings nor the fonts the configuration
-/// uses yet, so the list is empty until it does.
-pub fn gather(_shared: &Shared) -> Vec<Problem> {
-    Vec::new()
+/// A font that fails the trust rule, by its name, with the check it
+/// failed; `own` for a font in the person's own folders.
+fn untrusted(name: &str, check: &str, own: bool) -> Problem {
+    Problem {
+        stops: false,
+        place: "Fonts".to_owned(),
+        line: if own {
+            words::own_font(name)
+        } else {
+            words::fails_trust(name)
+        },
+        more: Some(check.to_owned()),
+        goes: Goes::Item {
+            tab: "fonts",
+            item: None,
+        },
+    }
+}
+
+/// The check's `finding` as the list shows it: in the draft's vtium.conf
+/// by its line, in Flow where no complete route is wired, and in a font
+/// set's own file by that file's name.
+fn checked(finding: Finding) -> Problem {
+    let name = |path: &str| {
+        std::path::Path::new(path)
+            .file_name()
+            .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned())
+    };
+    let (place, goes) = match (&finding.file, finding.line) {
+        (None, _) if finding.route => (
+            "Flow".to_owned(),
+            Goes::Item {
+                tab: "flow",
+                item: None,
+            },
+        ),
+        (None, Some(n)) => (words::line(n), Goes::Line(n)),
+        (None, None) => ("vtium.conf".to_owned(), Goes::Line(1)),
+        (Some(file), line) => {
+            let place = match line {
+                Some(n) => format!("{} line {n}", name(file)),
+                None => name(file),
+            };
+            let goes = if file.ends_with(".vtfrit") {
+                Goes::Item {
+                    tab: "looks",
+                    item: None,
+                }
+            } else {
+                Goes::Nowhere
+            };
+            (place, goes)
+        }
+    };
+    Problem {
+        stops: finding.stops,
+        place,
+        line: finding.text,
+        more: finding.more,
+        goes,
+    }
+}
+
+/// The problems of the open document that the shared state holds: what
+/// the check found in the document as it stands, the line of fonts the
+/// document uses that are not active, and each font that fails the trust
+/// rule.
+pub fn gather(shared: &Shared) -> Vec<Problem> {
+    let mut out: Vec<Problem> = shared
+        .findings()
+        .unwrap_or_default()
+        .into_iter()
+        .map(checked)
+        .collect();
+    let used = shared.fonts_used();
+    let n = used.to_activate().len();
+    if n > 0 {
+        out.push(inactive_fonts(n));
+    }
+    for font in &used.fonts {
+        if let State::FailsTrust { check, own } = &font.state {
+            out.push(untrusted(&font.name(), check, *own));
+        }
+    }
+    out
 }
 
 /// The list's state: the problems in their order, and the highlighted
@@ -106,6 +202,8 @@ pub fn gather(_shared: &Shared) -> Vec<Problem> {
 pub struct Problems {
     problems: Vec<Problem>,
     at: Option<usize>,
+    /// Whether the check has judged the document as it stands.
+    checked: bool,
 }
 
 impl Problems {
@@ -115,7 +213,21 @@ impl Problems {
     pub fn new(mut problems: Vec<Problem>) -> Problems {
         problems.sort_by_key(|p| (!p.stops, p.order()));
         let at = (!problems.is_empty()).then_some(0);
-        Problems { problems, at }
+        Problems {
+            problems,
+            at,
+            checked: true,
+        }
+    }
+
+    /// The list of the problems `shared` holds for the open document,
+    /// which says so where the check has not judged the document as it
+    /// stands.
+    pub fn of(shared: &Shared) -> Problems {
+        Problems {
+            checked: shared.findings().is_some(),
+            ..Problems::new(gather(shared))
+        }
     }
 
     /// The problems in the list's order.
@@ -176,7 +288,7 @@ impl Problems {
             },
             Some(Goes::Line(_)) => Act::Shell(Action::of("v.view.flow")),
             Some(Goes::Activate(n)) => Act::Activate(*n),
-            None => Act::Stay,
+            Some(Goes::Nowhere) | None => Act::Stay,
         }
     }
 
@@ -197,6 +309,7 @@ impl Problems {
         let n = self.problems.len();
         let stop = self.problems.iter().filter(|p| p.stops).count();
         match (n, stop) {
+            (0, _) if !self.checked => words::NOT_CHECKED.to_owned(),
             (0, _) => words::NONE.to_owned(),
             (1, 0) => format!("1 problem  {}", words::WARNING_ONE),
             (n, 0) => format!("{n} problems  {}", words::WARNINGS),
@@ -293,6 +406,8 @@ const PLACE_COLUMNS: usize = 34;
 /// The list's words.
 mod words {
     pub const NONE: &str = "No problems: the check finds nothing in this configuration.";
+    pub const NOT_CHECKED: &str =
+        "No problems listed: the check has not run on the configuration yet.";
     pub const WARNING_ONE: &str = "a warning: Save still works";
     pub const WARNINGS: &str = "each a warning: Save still works";
     pub const STOPS: &str = "it stops Save";
@@ -303,6 +418,22 @@ mod words {
     pub const NO_GROUP: &str = "none";
     pub const ORDER: &str =
         "Problems that stop Save come first, then warnings, each group in tab order.";
+
+    /// Where a line of vtium.conf is.
+    pub fn line(n: usize) -> String {
+        format!("vtium.conf line {n}")
+    }
+
+    /// A font that fails the trust rule, which Activate missing leaves.
+    pub fn fails_trust(name: &str) -> String {
+        format!("{name} cannot be activated: it fails the trust rule (F1 says why)")
+    }
+
+    /// A font in the person's own folders, which vtium takes only once it
+    /// is installed as a system font.
+    pub fn own_font(name: &str) -> String {
+        format!("{name} is not usable yet: it is in your own fonts folder (F1 says why)")
+    }
 }
 
 #[cfg(test)]
