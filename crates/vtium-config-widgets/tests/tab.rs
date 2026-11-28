@@ -11,11 +11,19 @@ use ratatui_core::backend::TestBackend;
 use ratatui_core::layout::Rect;
 use ratatui_core::terminal::{Frame, Terminal};
 use vtium_config_widgets::contract;
-use vtium_config_widgets::tab::{Choices, Haystack, Searchable, Tab};
+use vtium_config_widgets::keys::Key;
+use vtium_config_widgets::roles::Role;
+use vtium_config_widgets::search::Search;
+use vtium_config_widgets::tab::{Choices, Haystack, Previews, Searchable, Tab};
 
 /// The shared state a test tab reads.
 struct Shared {
     fonts: Vec<(&'static str, &'static str)>,
+}
+
+/// A test tab previews a font by its family.
+impl Previews for Shared {
+    type Preview<'a> = &'a str;
 }
 
 /// An action, and the command a test tab returns for it.
@@ -74,6 +82,9 @@ fn a_tab_with_only_the_required_methods_answers_every_default_empty() {
     assert!(tab.searchable().is_none());
     assert!(tab.search().is_none());
     assert_eq!(tab.own_font(&s), None);
+    assert!(tab.bar_labels(&s).is_empty());
+    assert_eq!(tab.preview(&s), None);
+    assert_eq!(tab.keys_help("fonts", 80), None);
 }
 
 #[test]
@@ -98,8 +109,8 @@ fn the_search_matches_and_a_name_to_show_reach_a_tab_that_takes_them() {
         fn update(&mut self, _shared: &Shared, _action: Action) -> Vec<Command> {
             Vec::new()
         }
-        fn filtered(&mut self, matches: Option<&[usize]>) {
-            self.matches = matches.map(<[usize]>::to_vec);
+        fn filtered(&mut self, _shared: &Shared, search: Option<&Search>) {
+            self.matches = search.map(|s| s.matches().to_vec());
         }
         fn show(&mut self, _shared: &Shared, name: &str) {
             self.shown = Some(name.to_owned());
@@ -116,10 +127,23 @@ fn the_search_matches_and_a_name_to_show_reach_a_tab_that_takes_them() {
     // the shell holds the tab as a trait object and reaches it through the
     // trait alone
     let mut tab: Box<dyn Tab<Shared, Action, Command>> = Box::new(Keeping::default());
-    tab.filtered(Some(&[0, 2]));
+    let list = Searching {
+        fonts: s.fonts.clone(),
+    };
+    let mut search = Search::open(&list, None);
+    for c in "mono".chars() {
+        search.key(&Key::char(c));
+    }
+    assert_eq!(search.matches(), [0, 2], "Cullet Mono and DejaVu Sans Mono");
+    tab.filtered(&s, Some(&search));
     tab.show(&s, "Terminus");
     assert_eq!(tab.own_font(&s), None, "Terminus is not among the matches");
-    tab.filtered(Some(&[1]));
+    let mut search = Search::open(&list, None);
+    for c in "ter".chars() {
+        search.key(&Key::char(c));
+    }
+    assert_eq!(search.matches(), [1]);
+    tab.filtered(&s, Some(&search));
     assert_eq!(
         tab.own_font(&s),
         Some(std::path::PathBuf::from(
@@ -128,8 +152,8 @@ fn the_search_matches_and_a_name_to_show_reach_a_tab_that_takes_them() {
     );
     // a bare tab takes both and keeps nothing
     let mut bare: Box<dyn Tab<Shared, Action, Command>> = Box::new(Bare);
-    bare.filtered(Some(&[1]));
-    bare.filtered(None);
+    bare.filtered(&s, Some(&search));
+    bare.filtered(&s, None);
     bare.show(&s, "Terminus");
     assert_eq!(bare.own_font(&s), None);
 }
@@ -139,9 +163,10 @@ fn the_key_line_and_the_bar_come_from_the_contract_for_the_tab_s_node() {
     let tab = Bare;
     let ids = |rows: Vec<&contract::Row>| rows.iter().map(|r| r.id).collect::<Vec<_>>();
     assert_eq!(ids(tab.key_line()), ids(contract::labelled("fonts")));
-    assert_eq!(ids(tab.bar()), ids(contract::buttons("fonts")));
+    let s = shared();
+    assert_eq!(ids(tab.bar(&s)), ids(contract::buttons("fonts")));
     assert_eq!(
-        tab.bar().first().map(|r| r.id),
+        tab.bar(&s).first().map(|r| r.id),
         Some("space.view.resources")
     );
 }
@@ -175,6 +200,71 @@ fn the_shell_holds_a_tab_as_a_trait_object_and_draws_and_updates_through_it() ->
         ("Fonts", 'n', "fonts")
     );
     Ok(())
+}
+
+#[test]
+fn a_tab_answers_its_bar_s_counts_its_preview_and_f1_s_keys_through_the_trait() {
+    /// A tab that counts a button, previews its first font, and gives the
+    /// keys of the fonts node.
+    struct Answering;
+    impl Tab<Shared, Action, Command> for Answering {
+        fn name(&self) -> &'static str {
+            "Fonts"
+        }
+        fn letter(&self) -> char {
+            'n'
+        }
+        fn node(&self) -> &'static str {
+            "fonts"
+        }
+        fn draw(&self, _shared: &Shared, _frame: &mut Frame<'_>, _area: Rect) {}
+        fn update(&mut self, _shared: &Shared, _action: Action) -> Vec<Command> {
+            Vec::new()
+        }
+        fn bar_labels(&self, shared: &Shared) -> Vec<(&'static str, String)> {
+            vec![(
+                "shift-a.view.fonts",
+                format!("Activate missing ({})", shared.fonts.len()),
+            )]
+        }
+        fn preview<'a>(&self, shared: &'a Shared) -> Option<&'a str> {
+            shared.fonts.first().map(|f| f.0)
+        }
+        fn keys_help(&self, node: &'static str, width: u16) -> Option<Vec<(String, Role)>> {
+            (node == "fonts").then(|| vec![(format!("{width} columns"), Role::Row)])
+        }
+    }
+    let s = shared();
+    let tab: Box<dyn Tab<Shared, Action, Command>> = Box::new(Answering);
+    assert_eq!(
+        tab.bar_labels(&s),
+        [("shift-a.view.fonts", "Activate missing (3)".to_owned())]
+    );
+    assert_eq!(tab.preview(&s), Some("Cullet Mono"));
+    assert_eq!(
+        tab.keys_help("fonts", 76),
+        Some(vec![("76 columns".to_owned(), Role::Row)])
+    );
+    assert_eq!(tab.keys_help("looks", 76), None);
+}
+
+#[test]
+fn the_search_shares_its_haystack_and_puts_its_highlight_on_a_match() {
+    let list = Searching {
+        fonts: shared().fonts,
+    };
+    let mut search = Search::open(&list, Some(1));
+    assert_eq!(search.highlighted(), Some(1));
+    search.key(&Key::char('m'));
+    search.key(&Key::char('o'));
+    assert_eq!(search.matches(), [0, 2]);
+    search.highlight(2);
+    assert_eq!(search.highlighted(), Some(2));
+    search.highlight(1);
+    assert_eq!(search.highlighted(), Some(2), "Terminus does not match");
+    let copy = search.clone();
+    assert_eq!(copy.matches(), search.matches());
+    assert_eq!(copy.count(), 3);
 }
 
 /// A tab that offers the `?` search over its fonts.

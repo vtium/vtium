@@ -23,7 +23,6 @@ use ratatui_core::layout::Position;
 use vtium_config_core::ui::{Action, Carries, Change as UiChange, Command, Message, Shared};
 use vtium_config_widgets::input::{self, Button};
 use vtium_config_widgets::keys::{Code, Key, Mods};
-use vtium_config_widgets::search::Search;
 
 use crate::list::Item;
 use crate::{Looks, Open, view};
@@ -42,7 +41,7 @@ pub fn update(tab: &mut Looks, shared: &Shared, action: &Action) -> Option<Vec<C
             return Some(remove::deactivate(shared, at));
         }
     }
-    if !matches!(tab.open, Open::Nothing) || tab.filter.as_ref().is_some_and(Search::typing) {
+    if !matches!(tab.open, Open::Nothing) {
         return None;
     }
     let at = tab.highlight;

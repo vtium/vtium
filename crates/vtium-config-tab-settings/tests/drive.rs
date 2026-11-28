@@ -13,7 +13,10 @@
 
 mod common;
 
-use common::{act, click, machines, repeat, screen, snapshot, type_in};
+use common::{
+    act, click, machines, open_search, repeat, screen, screen_searching, search_key, search_type,
+    snapshot, type_in,
+};
 use vtium_config_core::commands::value_text;
 use vtium_config_core::document::{ConfEdit, Done, Edit};
 use vtium_config_core::fixture;
@@ -21,7 +24,9 @@ use vtium_config_core::ui::{Action, Change, Command, Shared};
 use vtium_config_tab_settings::Settings;
 use vtium_config_widgets::contract;
 use vtium_config_widgets::input::Key;
-use vtium_config_widgets::tab::Tab;
+use vtium_config_widgets::keys::{self as widget_keys, Code};
+use vtium_config_widgets::search::{Outcome, Search};
+use vtium_config_widgets::tab::{Searchable, Tab};
 use vtium_settings::keys::{self, Kind};
 
 /// Goes from the list of sections to the key numbered `at`.
@@ -217,47 +222,138 @@ fn a_value_vtium_conf_cannot_hold_keeps_the_entry_open_and_says_why() {
     assert_eq!(top_edit(&made), Some(("font-size", None)));
 }
 
+/// A key of the search row with no modifier.
+fn plain(code: Code) -> widget_keys::Key {
+    widget_keys::Key::plain(code)
+}
+
 #[test]
 fn the_search_matches_a_description_word_as_well_as_a_key_s_name() {
     for (_, build) in machines() {
         let shared = build();
         let mut tab = Settings::new(true);
         screen(&tab, &shared, 100, 30, true);
-        act(&mut tab, &shared, "question.view");
-        assert_eq!(tab.node(), "any.search");
-        type_in(&mut tab, &shared, "char.typing.search", "*bright");
+        let mut search = Some(open_search(&tab));
+        search_type(&mut tab, &shared, &mut search, "*bright");
         assert_eq!(tab.key().map(|k| k.name), Some("display-depth"));
-        let names = |tab: &Settings| -> Vec<&str> {
-            let s = tab.search().expect("the search is open");
+        let names = |tab: &Settings, search: &Option<Search>| -> Vec<&'static str> {
+            let s = search.as_ref().expect("the search is open");
             s.matches()
                 .iter()
                 .map(|&m| tab.table().entries[m].key.name)
                 .collect()
         };
-        assert!(names(&tab).contains(&"display-depth"), "{:?}", names(&tab));
+        assert!(
+            names(&tab, &search).contains(&"display-depth"),
+            "{:?}",
+            names(&tab, &search)
+        );
         assert!(
             !keys::DISPLAY_DEPTH.name.contains("bright"),
             "display-depth matched by its name"
         );
         // a key's name
-        repeat(&mut tab, &shared, "backspace.typing.search", 7);
-        type_in(&mut tab, &shared, "char.typing.search", "^font-n");
-        assert_eq!(names(&tab), ["font-name"]);
+        for _ in 0..7 {
+            search_key(&mut tab, &shared, &mut search, &plain(Code::Backspace));
+        }
+        search_type(&mut tab, &shared, &mut search, "^font-n");
+        assert_eq!(names(&tab, &search), ["font-name"]);
         // Enter keeps the filter, and the section's keys act on it
-        act(&mut tab, &shared, "enter.typing.search");
+        search_key(&mut tab, &shared, &mut search, &plain(Code::Enter));
         assert_eq!(tab.node(), "settings.section");
         assert_eq!(tab.key().map(|k| k.name), Some("font-name"));
+        // `?` resumes the kept filter on the tab's key
+        let resumed = search_key(&mut tab, &shared, &mut search, &widget_keys::Key::char('?'));
+        assert_eq!(resumed, Outcome::Resumed);
+        assert_eq!(
+            search.as_ref().and_then(Search::highlighted),
+            Searchable::highlighted(&tab)
+        );
+        search_key(&mut tab, &shared, &mut search, &plain(Code::Enter));
         // the first Esc clears the filter, the second goes to the sections
-        act(&mut tab, &shared, "esc.layer.settings-section");
-        assert!(tab.search().is_none());
+        search_key(&mut tab, &shared, &mut search, &plain(Code::Escape));
+        assert!(search.is_none());
         assert_eq!(tab.node(), "settings.section");
+        assert_eq!(tab.key().map(|k| k.name), Some("font-name"));
         act(&mut tab, &shared, "esc.layer.settings-section");
         assert_eq!(tab.node(), "settings");
         // Backspace on an empty entry closes the row
-        act(&mut tab, &shared, "question.view");
-        act(&mut tab, &shared, "backspace.typing.search");
-        assert!(tab.search().is_none());
+        let mut search = Some(open_search(&tab));
+        search_key(&mut tab, &shared, &mut search, &plain(Code::Backspace));
+        assert!(search.is_none());
     }
+}
+
+#[test]
+fn the_search_opens_on_the_tab_s_highlight_and_a_kept_filter_s_keys_move_among_its_matches() {
+    let shared = fixture::padnoir::shared();
+    let mut tab = Settings::new(true);
+    screen(&tab, &shared, 100, 30, true);
+    // on the list of sections, the highlighted section's first key
+    repeat(&mut tab, &shared, "down.view", 1);
+    let first = tab.table().sections[1].keys.start;
+    assert_eq!(Searchable::highlighted(&tab), Some(first));
+    assert_eq!(open_search(&tab).highlighted(), Some(first));
+    // on the keys, the highlighted key
+    act(&mut tab, &shared, "enter.view.settings");
+    repeat(&mut tab, &shared, "down.layer.settings-section", 2);
+    assert_eq!(Searchable::highlighted(&tab), Some(first + 2));
+    // the tab keeps the copy it is handed, and lists only what matches
+    let mut search = Some(open_search(&tab));
+    search_type(&mut tab, &shared, &mut search, "*color");
+    search_key(&mut tab, &shared, &mut search, &plain(Code::Enter));
+    let matches = search
+        .as_ref()
+        .map(|s| s.matches().to_vec())
+        .unwrap_or_default();
+    assert!(matches.len() > 1, "{matches:?}");
+    let lit = |tab: &Settings| {
+        tab.table()
+            .entries
+            .iter()
+            .position(|e| tab.key().is_some_and(|k| k.name == e.key.name))
+    };
+    let shell = search.as_ref().and_then(Search::highlighted);
+    assert_eq!(lit(&tab), shell);
+    let at = matches.iter().position(|&m| Some(m) == shell);
+    let next = at.and_then(|at| matches.get(at + 1)).copied();
+    assert!(next.is_some(), "{matches:?} past {shell:?}");
+    // with the filter kept, Down moves the tab's highlight to the next
+    // match, which the shell's search does not see
+    act(&mut tab, &shared, "down.layer.settings-section");
+    assert_eq!(lit(&tab), next);
+    assert_eq!(Searchable::highlighted(&tab), next);
+    assert_eq!(search.as_ref().and_then(Search::highlighted), shell);
+    // a click on another section that keeps a match puts the copy's
+    // highlight on the section's first match, so Down moves on from there
+    screen(&tab, &shared, 100, 30, true);
+    let (row, section) = *tab
+        .places(&shared)
+        .sections
+        .iter()
+        .find(|(_, s)| *s != tab.section())
+        .expect("another section keeps a match");
+    let first = matches
+        .iter()
+        .position(|&m| tab.table().entries[m].section == section)
+        .expect("the section keeps a match");
+    click(&mut tab, &shared, "click-row.view", row.x + 2, row.y);
+    assert_eq!(tab.section(), section);
+    assert_eq!(lit(&tab), matches.get(first).copied());
+    act(&mut tab, &shared, "down.layer.settings-section");
+    assert_eq!(lit(&tab), matches.get(first + 1).copied());
+    let next = lit(&tab);
+    // the tab's own search is only a list box's
+    assert!(tab.search().is_none(), "the ? search is the shell's");
+    // `None` clears the filter, and the highlight stays
+    tab.filtered(&shared, None);
+    assert_eq!(lit(&tab), next);
+    let text = common::rows_of(&screen(&tab, &shared, 100, 30, true)).join("\n");
+    assert!(!text.contains("matching"), "{text}");
+    // `?` reaches the tab as a row that does nothing: the shell opens the
+    // search
+    assert!(act(&mut tab, &shared, "question.layer").is_empty());
+    assert!(tab.search().is_none());
 }
 
 #[test]
@@ -265,15 +361,23 @@ fn a_search_that_matches_nothing_says_so_and_enter_opens_nothing() {
     let shared = fixture::padnoir::shared();
     let mut tab = Settings::new(true);
     screen(&tab, &shared, 80, 25, true);
-    act(&mut tab, &shared, "question.view");
-    type_in(&mut tab, &shared, "char.typing.search", "^qqzz");
+    let mut search = Some(open_search(&tab));
+    search_type(&mut tab, &shared, &mut search, "^qqzz");
     assert_eq!(tab.key(), None);
-    let text = common::rows_of(&screen(&tab, &shared, 80, 25, true)).join("\n");
+    let text = common::rows_of(&screen_searching(
+        &tab,
+        &shared,
+        search.as_ref(),
+        80,
+        25,
+        true,
+    ))
+    .join("\n");
     assert!(
         text.contains("No setting matches. [Esc] clears the search."),
         "{text}"
     );
-    act(&mut tab, &shared, "enter.typing.search");
+    search_key(&mut tab, &shared, &mut search, &plain(Code::Enter));
     assert!(act(&mut tab, &shared, "enter.layer.settings-section").is_empty());
     assert_eq!(tab.node(), "settings.section");
     assert_eq!(tab.full_text(&shared), None);
@@ -284,12 +388,12 @@ fn up_and_down_in_the_search_move_through_the_matches_across_sections() {
     let shared = fixture::large::shared();
     let mut tab = Settings::new(true);
     screen(&tab, &shared, 80, 25, true);
-    act(&mut tab, &shared, "question.view");
-    type_in(&mut tab, &shared, "char.typing.search", "*color");
+    let mut search = Some(open_search(&tab));
+    search_type(&mut tab, &shared, &mut search, "*color");
     let first = tab.section();
     let mut sections = vec![first];
     for _ in 0..40 {
-        tab.update(&shared, Action::key("updown.typing.search", Key::Down));
+        search_key(&mut tab, &shared, &mut search, &plain(Code::Down));
         sections.push(tab.section());
     }
     let key = tab.key().expect("a match is highlighted");
@@ -495,7 +599,7 @@ fn every_row_of_each_node_acts_or_does_nothing_and_only_a_pick_changes_the_docum
                 screen(&tab, &shared, 80, 25, true);
                 assert_eq!(tab.node(), node);
                 assert_eq!(
-                    tab.bar().iter().map(|r| r.id).collect::<Vec<_>>(),
+                    tab.bar(&shared).iter().map(|r| r.id).collect::<Vec<_>>(),
                     contract::buttons(node)
                         .iter()
                         .map(|r| r.id)

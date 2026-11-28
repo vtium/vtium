@@ -35,13 +35,26 @@ pub fn shown(name: &str) -> PathBuf {
 /// layers and no kbd folder, so the walk reads no file of the machine it
 /// runs on. A font a package's list activates is not active in the walk.
 fn reads(found: &crate::found::Found) -> FontReads {
-    let batch: String = found
-        .fonts
-        .files()
-        .iter()
-        .filter(|f| f.resource.origin == crate::found::Origin::BatchFile)
-        .map(|f| format!("{}\n", f.path().display()))
-        .collect();
+    use crate::found::Origin;
+    // the batch the fonts' origins record: each path the batch file, a
+    // fresh install's list or a package's list activates, and a `-` line
+    // for each the batch file turns off
+    let mut batch = String::new();
+    for f in found.fonts.files() {
+        let path = f.path();
+        match &f.resource.origin {
+            Origin::BatchFile | Origin::FreshInstall | Origin::List { .. } => {
+                batch.push_str(&format!("{}\n", path.display()));
+            }
+            Origin::TurnedOff { .. } => {
+                if let Some(line) = vtium_settings::batch::off_line(path) {
+                    batch.push_str(&line);
+                    batch.push('\n');
+                }
+            }
+            Origin::Nothing => {}
+        }
+    }
     let start = Start {
         fresh: vtium_settings::batch::Batch::default(),
         folders: Folders {

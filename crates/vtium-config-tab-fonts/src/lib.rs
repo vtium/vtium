@@ -15,7 +15,8 @@
 //! each was found in, with the fonts built into vtium and the fonts a
 //! font set of the configuration names that no file is installed for. A
 //! filter line above the list keeps every font, or one kind, group or
-//! script, and `?` searches the list by family and file name. Each font
+//! script, and the shell's `?` search filters the list by family and file
+//! name, through [`Tab::filtered`]. Each font
 //! carries its kind and one mark, `● active`, `○ not active`, `○ turned
 //! off on purpose`, `○ not active · fails trust`, `not usable yet` or `✗
 //! missing`, the same words every screen gives it. The highlighted font's
@@ -34,8 +35,9 @@
 //!
 //! The tab draws only into the viewer the frame gives it and reads the
 //! shared state only. [`states`] works out every font's state once for
-//! each change of the document or of the fonts found, so a key that
-//! moves, filters or searches reads no folder. [`list`] holds the list,
+//! each change of the document or of the fonts found, from the shared
+//! state's walk of the fonts in use and its batch, so a key that moves,
+//! filters or searches reads no folder. [`list`] holds the list,
 //! [`facts`] the facts beside it, [`detail`] a font's detail, [`own`] a
 //! font of your own, [`trial`] the path a live trial sends, and
 //! [`layout`] where each part goes.
@@ -51,6 +53,10 @@
 //!   the marks, Activate missing and its count.
 //! - ADR-1403 D11, "Search, on ?": Fonts matches a font's family and its
 //!   file's name.
+//! - ADR-1206 D3: the navigation state holds the search, and each tab
+//!   keeps the indexes that match.
+//! - ADR-1201 D4: the Fonts tab previews a font as a picture of the
+//!   console.
 
 pub mod detail;
 pub mod facts;
@@ -73,9 +79,9 @@ use ratatui_core::widgets::Widget;
 use ratatui_widgets::block::Block;
 use ratatui_widgets::borders::Borders;
 use vtium_config_core::found::fonts::{Filter, FontFile};
+use vtium_config_core::preview::{Place, Previewed, Shows};
 use vtium_config_core::ui::{Action, Command, Live, Shared};
 use vtium_config_widgets::contract::{self, Row};
-use vtium_config_widgets::frame::Bar;
 use vtium_config_widgets::list_box::{self, ListBox};
 use vtium_config_widgets::roles::Role;
 use vtium_config_widgets::search::Search;
@@ -91,8 +97,6 @@ const NODE: &str = "fonts";
 const NODE_FILTERS: &str = "fonts.filter";
 /// The node of a font's detail.
 const NODE_FONT: &str = "fonts.font";
-/// The node of the search row while the person types in it.
-const NODE_SEARCH: &str = "any.search";
 /// The row of Activate missing.
 const ROW_ACTIVATE: &str = "shift-a.view.fonts";
 /// The row of Space.
@@ -114,8 +118,9 @@ enum Open {
 }
 
 /// The Fonts tab: the highlighted row, the list's window, the filter, the
-/// `?` search, what is open over the list, whether the picture shows the
-/// console or the sample characters, and what it knows of every font.
+/// shell's `?` search as last handed over, what is open over the list,
+/// whether the picture shows the console or the sample characters, and
+/// what it knows of every font.
 #[derive(Debug)]
 pub struct Fonts {
     color: bool,
@@ -124,8 +129,8 @@ pub struct Fonts {
     top: usize,
     filter: Filter,
     open: Open,
-    /// The search over the fonts, while its row is open or its filter
-    /// kept.
+    /// The shell's `?` search over the fonts, as [`Tab::filtered`] last
+    /// handed it, while its row is open or its filter kept.
     search: Option<Search>,
     /// Whether the picture shows the console drawn in the font, rather
     /// than its sample characters, which `p` switches.
@@ -136,19 +141,6 @@ pub struct Fonts {
     /// The viewer the tab was last drawn in, which a click and a page's
     /// step are read against.
     seen: Cell<Rect>,
-    /// How many fonts Activate missing would activate, as last drawn,
-    /// which the action bar's button counts.
-    missing: Cell<usize>,
-}
-
-/// What the picture under the list shows, for the shell's preview: the
-/// font by its file's path or its name, whether its sample characters
-/// show rather than the console drawn in it, and where.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Preview {
-    pub font: String,
-    pub detail: bool,
-    pub place: Rect,
 }
 
 /// The filters, as the list box's choices.
@@ -201,7 +193,6 @@ impl Fonts {
             picture: false,
             known: RefCell::new(Known::default()),
             seen: Cell::new(Rect::default()),
-            missing: Cell::new(0),
         }
     }
 
@@ -209,9 +200,7 @@ impl Fonts {
     /// document or the fonts found changed since.
     pub fn known(&self, shared: &Shared) -> Ref<'_, Known> {
         if !self.known.borrow().holds(shared) {
-            let fresh = Known::of(shared);
-            self.missing.set(fresh.counts.not_active);
-            *self.known.borrow_mut() = fresh;
+            *self.known.borrow_mut() = Known::of(shared);
         }
         self.known.borrow()
     }
@@ -240,10 +229,9 @@ impl Fonts {
         }
     }
 
-    /// The search whose row shows above the action bar while it is open
-    /// or its filter kept. The shell draws its row with
-    /// `vtium_config_widgets::search::row::draw`.
-    pub fn search(&self) -> Option<&Search> {
+    /// The shell's `?` search as the tab last received it, whose matches
+    /// the list shows, while its row is open or its filter kept.
+    pub fn filtered_by(&self) -> Option<&Search> {
         self.search.as_ref()
     }
 
@@ -302,56 +290,37 @@ impl Fonts {
         own::target(self.file(shared))
     }
 
-    /// What the picture under the list shows, and where, while the list
-    /// highlights a font: the font by its file's path or its name. `None`
-    /// on the filter line, the configuration's row, a font no file is
-    /// installed for, and while a level is open over the list.
-    pub fn preview(&self, shared: &Shared) -> Option<Preview> {
+    /// The font the picture under the list shows while the list
+    /// highlights a font: its file's path or its name. `None` on the
+    /// filter line, the configuration's row, a font no file is installed
+    /// for, and while a level is open over the list.
+    fn previewed_font(&self, shared: &Shared) -> Option<String> {
         if self.open != Open::Nothing {
             return None;
         }
-        let font = match self.sel {
-            Sel::Item(Item::File(i)) => shared
-                .found
-                .fonts
-                .files()
-                .get(i)?
-                .path()
-                .to_str()?
-                .to_owned(),
-            Sel::Item(Item::BuiltIn(name)) => name.to_owned(),
-            _ => return None,
-        };
-        let place = Panes::of(self.seen.get()).picture;
-        (place.height > 2).then(|| Preview {
-            font,
-            detail: !self.picture,
-            place: inner(place),
-        })
+        match self.sel {
+            Sel::Item(Item::File(i)) => Some(
+                shared
+                    .found
+                    .fonts
+                    .files()
+                    .get(i)?
+                    .path()
+                    .to_str()?
+                    .to_owned(),
+            ),
+            Sel::Item(Item::BuiltIn(name)) => Some(name.to_owned()),
+            _ => None,
+        }
     }
 
-    /// The action bar's buttons on `shared`: the node's rows, with
-    /// Activate missing counting its fonts while there are any, and
-    /// Space's label saying what it does to the highlighted font.
-    pub fn action_bar(&self, shared: &Shared) -> Bar {
-        let known = self.known(shared);
-        let n = known.counts.not_active;
-        let rows = self.rows_for(n);
-        let mut bar = Bar::from_rows(rows);
-        let deactivates = self.open == Open::Nothing
+    /// Whether Space deactivates the highlighted font on `known`: the list
+    /// highlights a font file that is active.
+    fn deactivates(&self, known: &Known) -> bool {
+        self.open == Open::Nothing
             && matches!(self.sel, Sel::Item(item) if known.position(item).is_some_and(|at| {
                 matches!(item, Item::File(_)) && known.active(at)
-            }));
-        for b in &mut bar.buttons {
-            match b.action {
-                Some(ROW_ACTIVATE) => {
-                    b.label = vtium_config_core::fontuse::activate::words::button(n);
-                }
-                Some(ROW_SPACE) if deactivates => b.label = "Deactivate".to_owned(),
-                _ => {}
-            }
-        }
-        bar
+            }))
     }
 
     /// The node's buttons, without Activate missing while no font waits,
@@ -437,14 +406,14 @@ impl Tab<Shared, Action, Command> for Fonts {
         'n'
     }
 
-    /// The list, the list box of the filters, a font's detail, or the
-    /// search row while the person types in it. A kept filter leaves the
-    /// list's node, whose keys act on what matches.
+    /// The list, the list box of the filters, or a font's detail. The
+    /// shell answers the search row's node while its `?` search is open,
+    /// and a kept filter leaves the list's node, whose keys act on what
+    /// matches.
     fn node(&self) -> &'static str {
         match &self.open {
             Open::Detail { .. } => NODE_FONT,
             Open::Filters(_) => NODE_FILTERS,
-            Open::Nothing if self.search.as_ref().is_some_and(Search::typing) => NODE_SEARCH,
             Open::Nothing => NODE,
         }
     }
@@ -452,7 +421,6 @@ impl Tab<Shared, Action, Command> for Fonts {
     fn draw(&self, shared: &Shared, frame: &mut Frame<'_>, area: Rect) {
         self.seen.set(area);
         let known = self.known(shared);
-        self.missing.set(known.counts.not_active);
         let color = self.color;
         let buf = frame.buffer_mut();
         if let Open::Detail { item, top, .. } = &self.open {
@@ -495,10 +463,65 @@ impl Tab<Shared, Action, Command> for Fonts {
     }
 
     /// The action bar's buttons: the node's, without Activate missing
-    /// while no font waits to be activated, as last drawn. The shell
-    /// gets the button's count through [`Fonts::action_bar`].
-    fn bar(&self) -> Vec<&'static Row> {
-        self.rows_for(self.missing.get())
+    /// while no font on `shared` waits to be activated.
+    fn bar(&self, shared: &Shared) -> Vec<&'static Row> {
+        self.rows_for(self.known(shared).counts.not_active)
+    }
+
+    /// Activate missing counts its fonts, and Space says `Deactivate` on
+    /// a font it deactivates.
+    fn bar_labels(&self, shared: &Shared) -> Vec<(&'static str, String)> {
+        let known = self.known(shared);
+        let mut labels = vec![(
+            ROW_ACTIVATE,
+            vtium_config_core::fontuse::activate::words::button(known.counts.not_active),
+        )];
+        if self.deactivates(&known) {
+            labels.push((ROW_SPACE, words::DEACTIVATE.to_owned()));
+        }
+        labels
+    }
+
+    /// The search of the list box of the filters, while it is open or its
+    /// filter kept.
+    fn search(&self) -> Option<&Search> {
+        match &self.open {
+            Open::Filters(lb) => lb.filter(),
+            _ => None,
+        }
+    }
+
+    /// The tab keeps the search it is handed, lists only the fonts that
+    /// match, and puts its highlight on the search's.
+    fn filtered(&mut self, shared: &Shared, search: Option<&Search>) {
+        self.search = search.cloned();
+        act::follow(self, shared);
+        act::settle(self, shared);
+    }
+
+    /// The highlighted font at the document's size: its sample characters,
+    /// or the console drawn in it where `p` switched the picture on, in
+    /// the box under the list where the viewer leaves it room.
+    fn preview<'a>(&self, shared: &'a Shared) -> Option<Previewed<'a>> {
+        let font = self.previewed_font(shared)?;
+        let place = Panes::of(self.seen.get()).picture;
+        Some(Previewed {
+            font: Some(font),
+            shows: Shows::Font {
+                detail: !self.picture,
+            },
+            in_document: None,
+            place: (place.height > 2).then(|| {
+                let inner = inner(place);
+                Place::new(inner.x, inner.y, inner.width, inner.height)
+            }),
+        })
+    }
+
+    /// The font of your own whose detail is open or that the list
+    /// highlights.
+    fn own_font(&self, shared: &Shared) -> Option<PathBuf> {
+        self.system_font(shared).ok()
     }
 
     /// F1's text: the highlighted row's facts uncut, where the pane cut
@@ -554,6 +577,14 @@ impl Tab<Shared, Action, Command> for Fonts {
 impl Searchable for Fonts {
     fn search_node(&self) -> &'static str {
         NODE
+    }
+
+    /// The highlighted font's place among every font the tab lists.
+    fn highlighted(&self) -> Option<usize> {
+        match self.sel {
+            Sel::Item(item) => self.known.borrow().position(item),
+            _ => None,
+        }
     }
 
     fn count(&self) -> usize {

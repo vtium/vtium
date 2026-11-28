@@ -23,7 +23,9 @@
 //! The filter line above the list opens the list of groups in the list
 //! box, Enter on an item opens its detail, which changes nothing, and
 //! Space activates or deactivates a color map or a shader, asking first
-//! when a look uses it. `?` filters the list by the items' names.
+//! when a look uses it. The shell's `?` search filters the list by the
+//! items' names: the tab hands it the names through `Searchable`, and
+//! keeps the copy of the search the shell hands it after each key.
 //!
 //! The tab draws only into the viewer the frame gives it and reads the
 //! shared state only. An activation is one command, which the shell's one
@@ -59,7 +61,7 @@ use ratatui_core::widgets::Widget;
 use ratatui_widgets::block::Block;
 use ratatui_widgets::borders::Borders;
 use vtium_config_core::found::effects::Group;
-use vtium_config_core::preview::{Applied, Place, Source};
+use vtium_config_core::preview::{Applied, Place, Previewed, Shows};
 use vtium_config_core::ui::{Action, Command, Shared};
 use vtium_config_widgets::list_box::{self, ListBox};
 use vtium_config_widgets::roles::Role;
@@ -74,7 +76,7 @@ const NODE_LIST: &str = "effects";
 const NODE_GROUPS: &str = "effects.filter";
 /// The node of an item's detail.
 const NODE_DETAIL: &str = "effects.effect";
-/// The node of the search row while the person types in it.
+/// The node of the list box's search row while the person types in it.
 const NODE_SEARCH: &str = "any.search";
 
 /// The left pane's width: the list's columns, before the rule.
@@ -98,7 +100,8 @@ enum Open {
 }
 
 /// The Effects tab: the groups shown, the highlighted item, the first line
-/// in sight, what is open over the list, and the `?` filter over it.
+/// in sight, what is open over the list, and the shell's `?` filter over
+/// it.
 #[derive(Debug)]
 pub struct Effects {
     color: bool,
@@ -108,8 +111,9 @@ pub struct Effects {
     highlight: Option<usize>,
     offset: usize,
     open: Open,
-    /// The search over the items of the groups shown, while its row is
-    /// open or its filter kept.
+    /// The copy of the shell's `?` search over the items of the groups
+    /// shown that the shell handed the tab last, while its row is open or
+    /// its filter kept.
     filter: Option<Search>,
     /// The names of the items of the groups shown, as the search matches
     /// them, taken from the shared state each time the tab is drawn or
@@ -160,26 +164,6 @@ pub struct Places {
     pub groups: Option<list_box::Places>,
 }
 
-/// What the preview of the highlighted item asks for: the font the
-/// sample screen is drawn in, the effect it is drawn through, and the
-/// place inside the picture's frame, where the item has a picture.
-#[derive(Clone, Debug)]
-pub struct Wanted<'a> {
-    pub font: Option<String>,
-    pub effect: Applied<'a>,
-    pub place: Option<Place>,
-}
-
-impl Wanted<'_> {
-    /// The preview's source, for `vtium_config_core::preview::Preview::of`.
-    pub fn source(&self) -> Source<'_> {
-        Source::Effect {
-            font: self.font.as_deref(),
-            effect: self.effect,
-        }
-    }
-}
-
 impl Effects {
     /// The tab on the filter line, showing every group. `color` is whether
     /// the TUI draws color ([`vtium_config_widgets::color::enabled`]).
@@ -206,16 +190,6 @@ impl Effects {
     pub fn highlighted(&self, shared: &Shared) -> Option<Item> {
         let at = self.lit()?;
         self.items(shared).get(at).copied()
-    }
-
-    /// The search whose row shows above the action bar: the list box's,
-    /// while it is open, or the tab's over the list. The shell draws its
-    /// row with `vtium_config_widgets::search::row::draw`.
-    pub fn search(&self) -> Option<&Search> {
-        match &self.open {
-            Open::Groups(list) => list.filter(),
-            _ => self.filter.as_ref(),
-        }
     }
 
     /// The items of the groups shown, before the filter.
@@ -297,45 +271,6 @@ impl Effects {
             .then(|| Rect::new(side.x, side.y.saturating_add(top), side.width, rows))
     }
 
-    /// The preview of the highlighted item: the font of the console's head
-    /// `head`, as `VTIUM_HEAD` names it, where its look names one, else
-    /// the document's top-level font-name, else the font the console
-    /// shows, else the first font built into vtium; the item as the
-    /// preview applies it; and the place inside the picture's frame, in
-    /// the viewer last drawn.
-    pub fn preview<'a>(&self, shared: &'a Shared, head: Option<&str>) -> Wanted<'a> {
-        let effects = &shared.found.effects;
-        let effect = if self.open == Open::Nothing {
-            match self.highlighted(shared) {
-                Some(Item::Vtlook(i)) => effects
-                    .vtlooks
-                    .get(i)
-                    .map_or(Applied::Nothing, Applied::Vtlook),
-                Some(Item::Map(i)) => effects.maps.get(i).map_or(Applied::Nothing, Applied::Map),
-                Some(Item::Shader(i)) => effects
-                    .shaders
-                    .get(i)
-                    .map_or(Applied::Nothing, |s| Applied::Shader(&s.resource)),
-                None => Applied::Nothing,
-            }
-        } else {
-            Applied::Nothing
-        };
-        let place = self.picture_frame(shared).map(|r| {
-            Place::new(
-                r.x.saturating_add(1),
-                r.y.saturating_add(1),
-                r.width.saturating_sub(2),
-                r.height.saturating_sub(2),
-            )
-        });
-        Wanted {
-            font: font(shared, head),
-            effect,
-            place,
-        }
-    }
-
     /// The list box's place under the filter line, in the viewer last
     /// drawn.
     fn groups_rect(&self, list: &ListBox) -> Rect {
@@ -390,8 +325,10 @@ impl Effects {
     }
 }
 
-/// The font the preview draws the sample screen in, as
-/// [`Effects::preview`] says.
+/// The font the preview draws the sample screen in: the font of the
+/// look of the console's terminal `head`, as `VTIUM_HEAD` names it, where
+/// that look names one, else the document's top-level font-name, else the
+/// font the console shows, else the first font built into vtium.
 fn font(shared: &Shared, head: Option<&str>) -> Option<String> {
     let text = shared.document().text();
     if let Some(head) = head {
@@ -422,13 +359,13 @@ impl Tab<Shared, Action, Command> for Effects {
     }
 
     /// The list, the list of groups, an item's detail, or the search row
-    /// while the person types in the tab's or the list box's search.
+    /// while the person types in the list box's search. The shell answers
+    /// the node of its own `?` search while that is open.
     fn node(&self) -> &'static str {
         match &self.open {
             Open::Detail { .. } => NODE_DETAIL,
             Open::Groups(list) if list.filter().is_some_and(Search::typing) => NODE_SEARCH,
             Open::Groups(_) => NODE_GROUPS,
-            Open::Nothing if self.filter.as_ref().is_some_and(Search::typing) => NODE_SEARCH,
             Open::Nothing => NODE_LIST,
         }
     }
@@ -541,12 +478,80 @@ impl Tab<Shared, Action, Command> for Effects {
     fn searchable(&self) -> Option<&dyn Searchable> {
         Some(self)
     }
+
+    /// The list box's search, while the list of groups is open and the
+    /// person searches it.
+    fn search(&self) -> Option<&Search> {
+        match &self.open {
+            Open::Groups(list) => list.filter(),
+            _ => None,
+        }
+    }
+
+    /// Keeps the copy of the shell's search and lists only what it
+    /// matches, with the highlight on its highlighted match; `None` lists
+    /// every item again and leaves the highlight where it is.
+    fn filtered(&mut self, shared: &Shared, search: Option<&Search>) {
+        self.filter = search.cloned();
+        if let Some(s) = &self.filter {
+            self.highlight = s.highlighted().or(self.highlight);
+        }
+        self.settle(shared);
+    }
+
+    /// The highlighted item applied to the sample screen, in the font of
+    /// the console's terminal's look where it names one, else the
+    /// document's, the console's or the first built-in font, with the place inside
+    /// the picture's frame in the viewer last drawn. The place is `None`
+    /// where the tab draws no frame: on a shader, on a search that matches
+    /// nothing, with the list of groups or a detail open, or where the
+    /// pane has too few rows. Nothing is applied on the filter line, on a
+    /// search that matches nothing, or with a level open.
+    fn preview<'a>(&self, shared: &'a Shared) -> Option<Previewed<'a>> {
+        let effects = &shared.found.effects;
+        let effect = if self.open == Open::Nothing {
+            match self.highlighted(shared) {
+                Some(Item::Vtlook(i)) => effects
+                    .vtlooks
+                    .get(i)
+                    .map_or(Applied::Nothing, Applied::Vtlook),
+                Some(Item::Map(i)) => effects.maps.get(i).map_or(Applied::Nothing, Applied::Map),
+                Some(Item::Shader(i)) => effects
+                    .shaders
+                    .get(i)
+                    .map_or(Applied::Nothing, |s| Applied::Shader(&s.resource)),
+                None => Applied::Nothing,
+            }
+        } else {
+            Applied::Nothing
+        };
+        let place = self.picture_frame(shared).map(|r| {
+            Place::new(
+                r.x.saturating_add(1),
+                r.y.saturating_add(1),
+                r.width.saturating_sub(2),
+                r.height.saturating_sub(2),
+            )
+        });
+        Some(Previewed {
+            font: font(shared, shared.machine.head.as_deref()),
+            shows: Shows::Effect(effect),
+            in_document: None,
+            place,
+        })
+    }
 }
 
 /// The `?` search over the items of the groups shown, by their names.
 impl Searchable for Effects {
     fn search_node(&self) -> &'static str {
         NODE_LIST
+    }
+
+    /// The highlighted item's place among the items of the groups shown,
+    /// `None` on the filter line.
+    fn highlighted(&self) -> Option<usize> {
+        self.highlight
     }
 
     fn count(&self) -> usize {

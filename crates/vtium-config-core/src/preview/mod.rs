@@ -134,6 +134,115 @@ pub struct Facts {
     pub head: Option<String>,
 }
 
+impl Facts {
+    /// The facts of a terminal of `grid` cells, each `cell_px` pixels where
+    /// it reports a size in pixels, drawn in color where `color` holds,
+    /// with the text area a vtium console reported, on `machine`.
+    pub fn of(
+        machine: &Machine,
+        grid: (usize, usize),
+        cell_px: Option<(u32, u32)>,
+        color: bool,
+        text_area: Option<TextArea>,
+    ) -> Facts {
+        Facts {
+            grid,
+            cell_px,
+            dpi: machine.dpi,
+            locale: machine.locale.clone(),
+            color,
+            display: machine.display,
+            text_area,
+            head: machine.head.clone(),
+        }
+    }
+}
+
+/// The half of [`Facts`] that comes from the machine rather than the
+/// terminal: the density, the locale, the first display's mode and the
+/// console's terminal. The binary reads them at start, and the shared
+/// state keeps them, so the shell builds the facts from them and the
+/// terminal's size.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Machine {
+    /// The density a size in points is drawn at, in dots per inch.
+    pub dpi: u32,
+    /// The locale the detailed specimen's lines are chosen for.
+    pub locale: String,
+    /// The size in pixels of the mode the first display runs at, `None`
+    /// where no display is connected.
+    pub display: Option<(u32, u32)>,
+    /// The console's terminal, as `VTIUM_HEAD` names it.
+    pub head: Option<String>,
+}
+
+impl Default for Machine {
+    /// A machine with no display known, at the density a size in points
+    /// is drawn at where the display says nothing, 96 dots per inch.
+    fn default() -> Machine {
+        Machine {
+            dpi: DPI,
+            locale: String::new(),
+            display: None,
+            head: None,
+        }
+    }
+}
+
+/// The density a size in points is drawn at where no display says what
+/// its density is, in dots per inch.
+pub const DPI: u32 = 96;
+
+/// What a tab previews and where, which the tab's
+/// `vtium_config_widgets::tab::Tab::preview` answers and the shell hands
+/// the pictures: the font, how it shows, the font set it stands for, and
+/// the place in the viewer. It borrows the effect it applies from the
+/// shared state for `'a`.
+#[derive(Clone, Debug)]
+pub struct Previewed<'a> {
+    /// The font, by a font set's or a built-in font's name or a font
+    /// file's path; `None` for the font the console shows.
+    pub font: Option<String>,
+    /// How the font shows.
+    pub shows: Shows<'a>,
+    /// The font set the preview stands for, where only the document adds
+    /// it, so the console cannot draw it before Save.
+    pub in_document: Option<String>,
+    /// Where the picture goes, `None` where the tab has no room for one.
+    pub place: Option<Place>,
+}
+
+/// How a [`Previewed`] font shows, as [`Source`] names it.
+#[derive(Clone, Copy, Debug)]
+pub enum Shows<'a> {
+    /// At the document's size: the detailed specimen where `detail` is
+    /// set, otherwise vtium-config's screen drawn in it.
+    Font { detail: bool },
+    /// At `points` on the sample screen.
+    Size { points: u32 },
+    /// At the document's size on the sample screen, drawn through the
+    /// effect.
+    Effect(Applied<'a>),
+}
+
+impl Previewed<'_> {
+    /// The preview's source, for [`Preview::of`].
+    pub fn source(&self) -> Source<'_> {
+        let font = self.font.as_deref();
+        match self.shows {
+            Shows::Font { detail } => Source::Font { font, detail },
+            Shows::Size { points } => Source::Size { font, points },
+            Shows::Effect(effect) => Source::Effect { font, effect },
+        }
+    }
+
+    /// The preview of this on `shared` and `facts`, standing for the font
+    /// set only the document adds.
+    pub fn on<'s>(&'s self, shared: &'s Shared, facts: &'s Facts) -> Preview<'s> {
+        Preview::of(shared, facts, self.source()).in_document(self.in_document.as_deref())
+    }
+}
+
 /// What a tab previews, and in which font: a font set's or a built-in
 /// font's name, or a font file's path.
 #[derive(Clone, Copy, Debug)]

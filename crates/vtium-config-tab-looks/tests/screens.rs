@@ -20,12 +20,13 @@
 mod common;
 
 use common::{
-    SIZES, act, check_rows, check_without_color, go_to, machines, rows_of, screen, snapshot,
-    snapshot_text, type_in,
+    SIZES, act, check_rows, check_without_color, go_to, machines, open_search, rows_of, screen,
+    screen_searching, search_type, snapshot, snapshot_text,
 };
 use vtium_config_core::ui::{Live, Shared};
 use vtium_config_tab_looks::Looks;
 use vtium_config_tab_looks::list::{Item, Scheme};
+use vtium_config_widgets::search::Search;
 
 /// Draws `name`'s screen four times, sets it up with `set`, checks each,
 /// and compares the four with the snapshot `name`. `must` lists what the
@@ -36,20 +37,35 @@ fn check_screen(
     lit: bool,
     set: impl Fn(&mut Looks, &mut Shared, u16, u16),
 ) {
+    check_searching(name, must, lit, |tab, shared, w, h| {
+        set(tab, shared, w, h);
+        None
+    });
+}
+
+/// Checks `name`'s screen as [`check_screen`] does, where `set` also
+/// gives the shell's `?` search it leaves open, whose row the screen
+/// draws.
+fn check_searching(
+    name: &str,
+    must: &[&str],
+    lit: bool,
+    set: impl Fn(&mut Looks, &mut Shared, u16, u16) -> Option<Search>,
+) {
     let mut text = String::new();
     for (machine, build) in machines() {
         for (w, h) in SIZES {
             let mut shared = build();
             let mut tab = Looks::new(true);
             screen(&tab, &shared, w, h, true);
-            set(&mut tab, &mut shared, w, h);
-            let with = screen(&tab, &shared, w, h, true);
+            let search = set(&mut tab, &mut shared, w, h);
+            let with = screen_searching(&tab, &shared, search.as_ref(), w, h, true);
             check_rows(&with, w, h);
             let mut mono_shared = build();
             let mut mono = Looks::new(false);
             screen(&mono, &mono_shared, w, h, false);
-            set(&mut mono, &mut mono_shared, w, h);
-            let without = screen(&mono, &mono_shared, w, h, false);
+            let search = set(&mut mono, &mut mono_shared, w, h);
+            let without = screen_searching(&mono, &mono_shared, search.as_ref(), w, h, false);
             check_without_color(&with, &without, lit);
             let all = rows_of(&with).join("\n");
             for m in must {
@@ -113,13 +129,14 @@ fn in_a_vtium_console_the_preview_is_the_console_s_own_text() {
 
 #[test]
 fn the_search_filters_the_list_by_name() {
-    check_screen(
+    check_searching(
         "looks-search",
         &["Color schemes", "solarized"],
         true,
         |tab, shared, _, _| {
-            act(tab, shared, "question.view");
-            type_in(tab, shared, "char.typing", "^sol");
+            let mut search = Some(open_search(tab));
+            search_type(tab, shared, &mut search, "^sol");
+            search
         },
     );
 }

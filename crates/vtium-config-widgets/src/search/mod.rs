@@ -10,7 +10,9 @@
 //! The component keeps the indexes that match, so a filter kept with
 //! Enter survives every redraw, and the highlighted item among them. A
 //! [`Search`] is a value that the state holding it keeps, as the
-//! navigation state keeps a menu's, and [`row::draw`] draws it.
+//! navigation state keeps a menu's, and [`row::draw`] draws it. The
+//! haystack is shared between copies, so the copy that the shell hands a
+//! tab after each key costs the matches alone.
 //!
 //! The row's keys: a character is typed into the entry, `?` and `q`
 //! included; Backspace deletes the last character, and on an empty entry
@@ -32,6 +34,7 @@ pub mod matcher;
 pub mod row;
 
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use crate::keys::{Code, Key};
 use crate::tab::{FindItem, Haystack, Searchable};
@@ -86,7 +89,7 @@ pub struct Search {
     entry: String,
     typing: bool,
     pattern: Pattern,
-    haystack: Haystack,
+    haystack: Rc<Haystack>,
     matches: Vec<usize>,
     /// Where the highlight is among `matches`.
     at: Option<usize>,
@@ -121,7 +124,7 @@ impl Search {
             entry: String::new(),
             typing: true,
             pattern: Pattern::default(),
-            haystack,
+            haystack: Rc::new(haystack),
             matches,
             at,
             help,
@@ -168,6 +171,15 @@ impl Search {
     /// Whether the item numbered `item` matches.
     pub fn is_match(&self, item: usize) -> bool {
         self.matches.binary_search(&item).is_ok()
+    }
+
+    /// Puts the highlight on `item`, the list's own index, where it
+    /// matches, as the list's highlight moved while the filter was kept.
+    /// An item that does not match leaves the highlight where it is.
+    pub fn highlight(&mut self, item: usize) {
+        if let Ok(at) = self.matches.binary_search(&item) {
+            self.at = Some(at);
+        }
     }
 
     /// Acts on `key`, as the row's keys say.

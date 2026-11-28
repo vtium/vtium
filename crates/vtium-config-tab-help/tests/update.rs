@@ -1,7 +1,7 @@
 //! The Help tab driven through its `Tab` methods, on the screen map's
 //! machine and on a large one: every row of the Help node, the clicks on
-//! the places the tab draws, the search row's keys, and what the tab
-//! answers Find, F1 and the search.
+//! the places the tab draws, the shell's `?` search handed to the tab,
+//! and what the tab answers Find, F1 and the search.
 //!
 //! References:
 //! - ADR-1403 D11, "The tabs' layouts", the Help bullet, and "The keys and
@@ -9,18 +9,25 @@
 //!   scroll a topic, Left and Right switch to About and back.
 //! - ADR-1206 D2: a tab's update returns commands, and changes the
 //!   document only through them.
+//! - ADR-1206 D3: the navigation state holds the search, and each tab
+//!   keeps the indexes that match.
+//! - ADR-1403 D11, "F1, help for what is highlighted": F1's list of every
+//!   key of a screen is the Help tab's topic for that tab.
 
 mod common;
 
-use common::{after, fixtures, rows_of, screen, tab, viewer};
+use common::{after, fixtures, open_search, rows_of, screen, search_keys, tab, typed, viewer};
 use ratatui_core::layout::Rect;
 use vtium_config_core::ui::{Action, Shared};
 use vtium_config_tab_help::HelpTab;
-use vtium_config_tab_help::page::Layout;
-use vtium_config_tab_help::topics::{ABOUT, TOPICS};
+use vtium_config_tab_help::page::{self, Layout, Look};
+use vtium_config_tab_help::topics::{ABOUT, EVERYWHERE, TOPICS};
+use vtium_config_widgets::canvas;
 use vtium_config_widgets::contract;
 use vtium_config_widgets::input::{Button, Key, Mouse};
-use vtium_config_widgets::tab::Tab;
+use vtium_config_widgets::keys::{Code, Key as SearchKey};
+use vtium_config_widgets::roles::Role;
+use vtium_config_widgets::tab::{Searchable, Tab};
 
 /// A press of the left button at `x`, `y`, on a row of a list.
 fn click(x: u16, y: u16) -> Action {
@@ -229,27 +236,38 @@ fn every_row_of_the_help_node_returns_no_command() {
     }
 }
 
+/// A key of the search row that types nothing.
+fn plain(code: Code) -> SearchKey {
+    SearchKey::plain(code)
+}
+
+/// The topics the column of `t` lists at 100×30, each with its count.
+fn listed(t: &HelpTab, shared: &Shared) -> Vec<String> {
+    rows_of(&screen(t, shared, 100, 30, false))[4..]
+        .iter()
+        .map(|r| r.split('│').next().unwrap_or("").trim().to_owned())
+        .take_while(|l| !l.is_empty())
+        .collect()
+}
+
 #[test]
-fn the_search_filters_the_topics_lines_and_esc_or_backspace_closes_it() {
+fn the_shell_s_search_filters_the_topics_lines_and_esc_or_backspace_closes_it() {
     for (fixture, shared) in fixtures() {
         let mut t = tab(true);
         t.update(&shared, Action::item("6.view", 5));
-        after(&mut t, &shared, &["question.view"]);
+        let mut s = open_search(&t);
+        search_keys(&mut t, &shared, &mut s, &typed("*activ"));
         assert!(t.search().is_some_and(|s| s.typing()));
-        for c in "*activ".chars() {
-            t.update(&shared, Action::key("char.typing.search", Key::Char(c)));
-        }
         // Help has no line with "activ", so the highlight goes to Fonts
         assert_eq!(t.topic(), 0, "{fixture}");
-        let s = rows_of(&screen(&t, &shared, 100, 30, false));
-        assert!(s[2].contains("Fonts  5 lines match"), "{fixture}: {}", s[2]);
-        let listed: Vec<&str> = s[4..]
-            .iter()
-            .map(|r| r.split('│').next().unwrap_or("").trim())
-            .take_while(|l| !l.is_empty())
-            .collect();
+        let rows = rows_of(&screen(&t, &shared, 100, 30, false));
+        assert!(
+            rows[2].contains("Fonts  5 lines match"),
+            "{fixture}: {}",
+            rows[2]
+        );
         assert_eq!(
-            listed,
+            listed(&t, &shared),
             [
                 "Fonts            5",
                 "Effects          2",
@@ -257,34 +275,92 @@ fn the_search_filters_the_topics_lines_and_esc_or_backspace_closes_it() {
                 "Commands         4"
             ]
         );
-        // Down moves among the topics that match while the cursor stays
-        t.update(&shared, Action::key("updown.typing.search", Key::Down));
-        assert_eq!(t.topic(), 1);
-        after(&mut t, &shared, &["enter.typing.search"]);
+        // Down moves the search's highlight among the lines that match
+        // while the cursor stays, and the highlighted line's topic shows
+        search_keys(&mut t, &shared, &mut s, &[plain(Code::Down); 4]);
+        assert_eq!(t.topic(), 0, "{fixture}: Fonts has five lines");
+        search_keys(&mut t, &shared, &mut s, &[plain(Code::Down)]);
+        assert_eq!(t.topic(), 1, "{fixture}");
+        search_keys(&mut t, &shared, &mut s, &[plain(Code::Up)]);
+        assert_eq!(t.topic(), 0, "{fixture}");
+        search_keys(&mut t, &shared, &mut s, &[plain(Code::Down)]);
+        assert_eq!(t.topic(), 1, "{fixture}");
+        search_keys(&mut t, &shared, &mut s, &[plain(Code::Enter)]);
         assert!(t.search().is_some_and(|s| !s.typing()));
         after(&mut t, &shared, &["down.view.help", "down.view.help"]);
         assert_eq!(t.topic(), 8, "{fixture}: Down moves among what matches");
-        after(&mut t, &shared, &["question.layer.filter"]);
+        // `?` resumes with the search's highlight on the topic's line
+        search_keys(&mut t, &shared, &mut s, &typed("?"));
         assert!(t.search().is_some_and(|s| s.typing()));
-        after(&mut t, &shared, &["esc.typing.search"]);
-        assert!(t.search().is_none());
+        let at = s.as_ref().and_then(|s| s.highlighted());
+        assert_eq!(at, t.highlighted(), "{fixture}");
+        assert!(at.is_some(), "{fixture}");
+        search_keys(&mut t, &shared, &mut s, &[plain(Code::Escape)]);
+        assert!(t.search().is_none() && s.is_none());
         assert_eq!(t.topic(), 8);
+        assert_eq!(listed(&t, &shared).len(), TOPICS.len(), "{fixture}");
         // Backspace on an empty entry closes the row
-        after(&mut t, &shared, &["question.view"]);
-        t.update(&shared, Action::key("char.typing.search", Key::Char('q')));
-        after(&mut t, &shared, &["backspace.typing.search"]);
+        let mut s = open_search(&t);
+        search_keys(&mut t, &shared, &mut s, &typed("q"));
+        search_keys(&mut t, &shared, &mut s, &[plain(Code::Backspace)]);
         assert!(t.search().is_some());
-        after(&mut t, &shared, &["backspace.typing.search"]);
+        search_keys(&mut t, &shared, &mut s, &[plain(Code::Backspace)]);
         assert!(t.search().is_none());
         // a kept filter clears on Esc
-        after(&mut t, &shared, &["question.view"]);
-        t.update(&shared, Action::key("char.typing.search", Key::Char('z')));
-        after(
+        let mut s = open_search(&t);
+        search_keys(&mut t, &shared, &mut s, &typed("z"));
+        search_keys(
             &mut t,
             &shared,
-            &["enter.typing.search", "esc.layer.filter"],
+            &mut s,
+            &[plain(Code::Enter), plain(Code::Escape)],
         );
         assert!(t.search().is_none());
+    }
+}
+
+#[test]
+fn a_typed_entry_keeps_a_topic_that_still_has_a_line_that_matches() {
+    for (fixture, shared) in fixtures() {
+        let mut t = tab(true);
+        // Commands, whose first line does not hold "activ", so the search
+        // highlights a line of Fonts
+        t.update(&shared, Action::item("6.view", 8));
+        after(&mut t, &shared, &["pgdn.view.help"]);
+        let mut s = open_search(&t);
+        search_keys(&mut t, &shared, &mut s, &typed("*activ"));
+        assert_ne!(s.as_ref().and_then(|s| s.highlighted()), t.highlighted());
+        assert_eq!(t.topic(), 8, "{fixture}");
+        assert_eq!(t.top(), 0, "{fixture}");
+    }
+}
+
+#[test]
+fn the_search_opens_on_the_highlighted_topic_s_line() {
+    let [(_, shared), _] = fixtures();
+    assert_eq!(tab(true).highlighted(), Some(0));
+    for (n, topic) in TOPICS.iter().enumerate() {
+        let mut t = tab(true);
+        t.update(&shared, Action::item("6.view", n));
+        let line = t.highlighted().expect("a line of every topic");
+        assert!(
+            t.text(line, 0).is_some_and(|l| l.starts_with(topic.name)),
+            "{}",
+            topic.name
+        );
+    }
+}
+
+#[test]
+fn the_shell_s_empty_hand_lists_every_topic_again() {
+    for (_, shared) in fixtures() {
+        let mut t = tab(true);
+        let mut s = open_search(&t);
+        search_keys(&mut t, &shared, &mut s, &typed("*activ"));
+        assert_eq!(listed(&t, &shared).len(), 4);
+        t.filtered(&shared, None);
+        assert!(t.search().is_none());
+        assert_eq!(listed(&t, &shared).len(), TOPICS.len());
     }
 }
 
@@ -292,12 +368,77 @@ fn the_search_filters_the_topics_lines_and_esc_or_backspace_closes_it() {
 fn a_search_that_matches_nothing_says_so() {
     for (_, shared) in fixtures() {
         let mut t = tab(true);
-        after(&mut t, &shared, &["question.view"]);
-        for c in "$qqqq".chars() {
-            t.update(&shared, Action::key("char.typing.search", Key::Char(c)));
+        let mut s = open_search(&t);
+        search_keys(&mut t, &shared, &mut s, &typed("$qqqq"));
+        let rows = rows_of(&screen(&t, &shared, 80, 25, false));
+        assert!(rows[2].contains("No topic matches"), "{}", rows[2]);
+    }
+}
+
+/// The page of `topic` laid out `width` columns wide without color, as
+/// each line's text.
+fn page_text(t: &HelpTab, topic: usize, width: usize) -> Vec<String> {
+    page::lay(&t.entries()[topic], None, width, false)
+        .lines
+        .iter()
+        .map(|l| l.iter().map(|r| r.text.as_str()).collect())
+        .collect()
+}
+
+#[test]
+fn f1_lists_a_level_s_keys_from_its_tab_s_topic() {
+    let t = tab(true);
+    for width in [76, 56] {
+        let lines = t.keys_help("looks.look", width).expect("Looks' keys");
+        let text: Vec<String> = lines.iter().map(|(l, _)| l.clone()).collect();
+        assert_eq!(text, page_text(&t, 2, usize::from(width)), "{width}");
+        let what = contract::node("looks").expect("the Looks node").what;
+        let first = what.split_whitespace().next().expect("a word");
+        assert!(text[0].starts_with(first), "{width}: {}", text[0]);
+        let heading = lines.iter().find(|(l, _)| l == EVERYWHERE);
+        assert_eq!(heading.map(|(_, r)| *r), Some(Role::Heading), "{width}");
+        // a key's line takes its first run's role
+        let page = page::lay(&t.entries()[2], None, usize::from(width), false);
+        for (line, (_, role)) in page.lines.iter().zip(&lines) {
+            let want = match line.first().map(|r| r.look) {
+                Some(Look::Role(r)) => r,
+                _ => Role::Row,
+            };
+            assert_eq!(*role, want, "{width}");
         }
-        let s = rows_of(&screen(&t, &shared, 80, 25, false));
-        assert!(s[2].contains("No topic matches"), "{}", s[2]);
+    }
+    // the tab's own node, and a level over the resources' list
+    let looks = t.keys_help("looks", 76);
+    assert_eq!(t.keys_help("looks.palette", 76), looks);
+    assert_eq!(t.keys_help("looks.look", 76), looks);
+}
+
+#[test]
+fn f1_on_a_node_over_no_tab_lists_nothing() {
+    let t = tab(true);
+    for node in ["any.menu.file", "any.menu.actions", "any.search", "no.such"] {
+        assert_eq!(t.keys_help(node, 76), None, "{node}");
+    }
+}
+
+#[test]
+fn f1_lists_each_tab_s_topic_and_every_line_fits_its_width() {
+    let t = tab(true);
+    let nodes = ["fonts", "effects", "looks", "flow", "settings", "help"];
+    for (topic, node) in nodes.iter().enumerate() {
+        for width in [76, 56] {
+            let lines = t.keys_help(node, width).expect("a tab's keys");
+            let text: Vec<String> = lines.iter().map(|(l, _)| l.clone()).collect();
+            assert_eq!(text, page_text(&t, topic, usize::from(width)), "{node}");
+            assert!(lines.len() > 5, "{node} {width}");
+            for (line, _) in &lines {
+                assert!(
+                    canvas::cells(line) <= usize::from(width),
+                    "{node} at {width}: {} cells: {line:?}",
+                    canvas::cells(line)
+                );
+            }
+        }
     }
 }
 
@@ -312,7 +453,7 @@ fn the_tab_answers_the_shell_s_queries() {
         assert!(t.menu_items(&shared).is_empty());
         let ids = |rows: Vec<&contract::Row>| rows.iter().map(|r| r.id).collect::<Vec<_>>();
         assert_eq!(ids(t.key_line()), ids(contract::labelled("help")));
-        assert_eq!(ids(t.bar()), ids(contract::buttons("help")));
+        assert_eq!(ids(t.bar(&shared)), ids(contract::buttons("help")));
         let s = t.searchable().expect("Help offers the search");
         assert_eq!(s.fields(), ["topic"]);
         assert_eq!(s.help(), "topic");

@@ -25,8 +25,8 @@
 mod common;
 
 use common::{
-    SIZES, act, check_rows, check_without_color, every_state, machines, rows_of, screen, snapshot,
-    snapshot_text, type_in,
+    SIZES, act, check_rows, check_without_color, every_state, machines, open_search, rows_of,
+    screen, search_type, snapshot, snapshot_text,
 };
 use vtium_config_core::ui::{Action, Shared};
 use vtium_config_tab_fonts::Fonts;
@@ -203,8 +203,8 @@ fn the_search_keeps_the_fonts_whose_family_or_file_matches() {
         true,
         |tab, shared, w, h| {
             screen(tab, shared, w, h, true);
-            act(tab, shared, "question.view");
-            type_in(tab, shared, "char.typing.search", "mono");
+            let mut search = open_search(tab, shared);
+            search_type(tab, shared, &mut search, "mono");
         },
     );
 }
@@ -217,8 +217,8 @@ fn a_search_that_matches_nothing_says_so() {
         true,
         |tab, shared, w, h| {
             screen(tab, shared, w, h, true);
-            act(tab, shared, "question.view");
-            type_in(tab, shared, "char.typing.search", "$vga");
+            let mut search = open_search(tab, shared);
+            search_type(tab, shared, &mut search, "$vga");
         },
     );
 }

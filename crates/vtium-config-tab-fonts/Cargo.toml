@@ -17,8 +17,8 @@ workspace = true
 # action bar.
 vtium-config-widgets.workspace = true
 # The shared state the tab reads, the action it is handed and the
-# commands it returns, with the fonts found, the batch view and the fonts
-# a configuration uses with their five states.
+# commands it returns, with the fonts found, the batch, the fonts a
+# configuration uses with their five states, and what a tab previews.
 vtium-config-core.workspace = true
 # A font's format and groups as the font helper describes them, which the
 # tab's words name; the crate vtium-config-core already links.
@@ -27,9 +27,8 @@ vtium-font-helper.workspace = true
 # the fonts a configuration uses reads; the crate vtium-config-core
 # already links.
 vtium-font.workspace = true
-# The rule for a font path the console takes on a live trial, and the
-# batch file's places and trust, which the batch view is read with; the
-# crate vtium-config-core already links.
+# The rule for a font path the console takes on a live trial; the crate
+# vtium-config-core already links.
 vtium-settings.workspace = true
 # The layout, buffer and frame the tab draws into; the version the
 # workspace builds.
