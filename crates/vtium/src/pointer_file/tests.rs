@@ -28,10 +28,10 @@ fn read_answer(bytes: &[u8], ask: &Ask) -> Result<Answer, String> {
 /// real helper checks, because it is the real helper's code.
 fn helper_answer(ask: &Ask) -> Result<Answer, String> {
     let mut out = Vec::new();
-    vtium_config::serve::serve(
+    vtium_font_helper::serve::serve(
         std::io::Cursor::new(ask.encode()),
         &mut out,
-        &vtium_config::serve::Paths::default(),
+        &vtium_font_helper::serve::Paths::default(),
         Duration::from_secs(5),
     );
     read_answer(&out, ask)
@@ -118,11 +118,11 @@ fn the_consoles_ask_is_the_helpers_layout() {
             heights: heights.clone(),
             bytes: Arc::new(b"bytes".to_vec()),
         };
-        let theirs = vtium_config::serve::PointerAsk {
+        let theirs = vtium_font_helper::serve::PointerAsk {
             file: if svg {
-                vtium_config::serve::PointerFile::Svg
+                vtium_font_helper::serve::PointerFile::Svg
             } else {
-                vtium_config::serve::PointerFile::Xcursor
+                vtium_font_helper::serve::PointerFile::Xcursor
             },
             shape: PointerShape::EwResize,
             size,

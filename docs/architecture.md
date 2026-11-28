@@ -58,6 +58,8 @@ The tree shows the workspace as it is built today. vtium-term takes vtium-image 
 
 vtium-config, the configuration tool, is a binary of its own. A user runs it as `vtium config`. The console binary then replaces itself with vtium-config. That hand-off is the only part of the tool that the console binary holds (ADR-1201 D12). The install tree carries vtium-config beside the console. vtium-config is not part of the console's binary, and the minspec size budget does not count it, because that budget judges the console alone. The console also starts vtium-config as its glyph helper. The glyph helper reads the fonts of a frit (a font set file) and sends their glyphs to the console (ADR-1200). This keeps the font decoders and the rasterizer out of the console.
 
+The console's tests take vtium-font-helper and vtium-config-core as dev-dependencies. They run the font helper in a process of their own, and check that the console and vtium-config agree on font files and on the problems that `vtium check-config` reports. vtium-config's TUI stays in vtium-config, so the console's tests build without it.
+
 Two crates may use `unsafe`:
 
 - `vtium-platform`, for ioctls and FFI;

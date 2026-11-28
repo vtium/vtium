@@ -1,8 +1,8 @@
 //! vtium-config(1): the synopsis, the commands, the options and the exit
 //! statuses from vtium-config's own lists, which its `--help` prints too.
 
-use vtium_config::cli::VALUE_OPTIONS;
-use vtium_config::help;
+use vtium_config_core::help;
+use vtium_config_core::options::VALUE_OPTIONS;
 
 use crate::Stamp;
 use crate::roff::{Writer, synopsis};

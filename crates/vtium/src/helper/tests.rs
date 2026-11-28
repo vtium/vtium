@@ -630,11 +630,11 @@ fn a_path_the_helper_would_refuse_is_left_out_of_the_active_fonts() {
             .collect(),
     );
     let bytes = active_request(0, &batch);
-    let read = vtium_config::serve::read_request(&mut bytes.as_slice());
+    let read = vtium_font_helper::serve::read_request(&mut bytes.as_slice());
     assert!(
         matches!(
             &read,
-            Ok(Some(vtium_config::serve::Request::Active(ask)))
+            Ok(Some(vtium_font_helper::serve::Request::Active(ask)))
                 if ask.paths == [PathBuf::from("/ok.bdf")]
         ),
         "the helper reads the request as the one good path: {read:?}"
@@ -2482,7 +2482,7 @@ fn a_helper_that_fails_with_no_font_is_given_up_at_once() {
 #[test]
 fn the_sources_are_numbered_as_the_helper_numbers_them() {
     let text = format!("name=t\n{THREE}layer=sym\nsource=kbd:lat9w-16 # in a layer\nlayer=\n");
-    let parsed = vtium_config::frit::Frit::parse_spliced(
+    let parsed = vtium_font_helper::frit::Frit::parse_spliced(
         text.as_bytes(),
         Path::new("t"),
         "t",
@@ -2502,8 +2502,8 @@ fn the_sources_are_numbered_as_the_helper_numbers_them() {
     );
     for mask in [0b010, 0b1111] {
         assert_eq!(
-            vtium_config::serve::read_request(&mut &leave_out_request(mask)[..]),
-            Ok(Some(vtium_config::serve::Request::LeaveOut(mask)))
+            vtium_font_helper::serve::read_request(&mut &leave_out_request(mask)[..]),
+            Ok(Some(vtium_font_helper::serve::Request::LeaveOut(mask)))
         );
     }
 }

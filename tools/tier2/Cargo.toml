@@ -29,7 +29,7 @@ vtium-font = { workspace = true, features = ["psf"] }
 vtium-render = { workspace = true, features = ["images", "bidi", "filters", "scroll-pan"] }
 # generates the test PSF fonts' glyphs through the engine the helper runs,
 # for the screens drawn from sets
-vtium-config = { path = "../../crates/vtium-config" }
+vtium-font-helper.workspace = true
 # the small displays' PSF fonts, built in memory, and the TrueType writer
 # of the ink test font
 vtium-testfont = { path = "../testfont" }

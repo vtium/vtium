@@ -266,6 +266,34 @@ pub fn is_font_file(path: &Path) -> bool {
     is(&FONT_SUFFIXES, ext)
 }
 
+/// The `source=` value of a font set that draws the file at `path` alone,
+/// by its extension: `bdf:` for a BDF font, `hex:` for a `.hex` font,
+/// `file:` for a PSF font and `outline:` for an OpenType file. `None` for
+/// a path that a font set's `source=` line cannot hold: one that is not
+/// UTF-8; one that holds a control character, which would end the line and
+/// start another; one that holds a `#`, which a font set reads as the
+/// start of a comment; and one that starts or ends with a blank, which a
+/// font set drops from the line.
+pub fn source_of(path: &Path) -> Option<String> {
+    let text = path.to_str()?;
+    if text.chars().any(|c| c.is_control() || c == '#') || text.trim() != text {
+        return None;
+    }
+    let name = path.file_name()?.to_str()?.to_ascii_lowercase();
+    let mut parts = name.rsplit('.');
+    let mut ext = parts.next()?;
+    if crate::discover::COMPRESSED.contains(&ext) {
+        ext = parts.next()?;
+    }
+    let kind = match ext {
+        "bdf" => "bdf",
+        "hex" => "hex",
+        "psf" | "psfu" => "file",
+        _ => "outline",
+    };
+    Some(format!("{kind}:{text}"))
+}
+
 /// Every font file under `folder`, at most [`DEPTH_MAX`] folders deep,
 /// sorted by path. A folder that is a symbolic link is not entered, so a
 /// link cannot lead the scan out of the folder or round in a loop. A file
