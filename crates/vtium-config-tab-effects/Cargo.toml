@@ -1,0 +1,39 @@
+[package]
+name = "vtium-config-tab-effects"
+description = "The Effects tab of vtium-config's TUI: the vtlooks, color maps and shaders found, the highlighted vtlook's filter chain beside the list, each one's detail, and the changes that activate them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The Tab trait, the opt-in trait Searchable and Choices, the compiled key
+# table, the color roles, the list box and the search component.
+vtium-config-widgets.workspace = true
+# The shared state the tab reads, the action it is handed and the
+# commands it returns, with the effects found, the edit that activates a
+# resource, the looks that use one, and the preview's source and place.
+vtium-config-core.workspace = true
+# The layer of a vtlook's filter, by which the chain puts the spatial
+# filters before the turn and the color filters after it; the features
+# vtium-config-core builds it with, so the workspace builds it once.
+vtium-render = { workspace = true, features = ["filters"] }
+# The top-level font-name, which the preview draws in where the console's
+# look names no font; the features vtium-config-core builds it with.
+vtium-settings = { workspace = true, features = ["filters"] }
+# The layout, buffer and frame the tab draws into; the version the
+# workspace builds.
+ratatui-core = { version = "=0.1.2", default-features = false, features = ["std"] }
+# The rule between the list and the chain, and the picture's frame, drawn
+# as a block's borders; the version vtium-config already builds.
+ratatui-widgets = { version = "=0.3.2", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# The screen map's machine and a large machine, which the screen tests
+# draw the tab on.
+vtium-config-core = { workspace = true, features = ["fixture"] }

@@ -27,6 +27,7 @@ vtium-config-tab-help = { path = "crates/vtium-config-tab-help" }
 vtium-config-tab-settings = { path = "crates/vtium-config-tab-settings" }
 vtium-config-tui = { path = "crates/vtium-config-tui" }
 vtium-config-tab-flow = { path = "crates/vtium-config-tab-flow" }
+vtium-config-tab-effects = { path = "crates/vtium-config-tab-effects" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -84,6 +85,10 @@ opt-level = 2
 # both machines, so the tab is built at the same level as the crates it
 # draws through.
 [profile.dev.package.vtium-config-tab-flow]
+# The Effects tab's screen tests draw every screen at two sizes on two
+# machines, the large one with 200 vtlooks, so the tab is built at the
+# same level as the toolkit it draws with.
+[profile.dev.package.vtium-config-tab-effects]
 opt-level = 2
 
 [profile.release]
