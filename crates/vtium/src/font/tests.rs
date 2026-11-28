@@ -1940,8 +1940,8 @@ fn a_font_paths_source_follows_the_files_extension() {
 // - ADR-1200 D5, "Trying one font from vtium-config's Fonts tab".
 #[test]
 fn a_font_paths_source_is_the_one_the_fonts_tab_previews() {
-    use vtium_config::discover::{COMPRESSED, COMPRESSIBLE_SUFFIXES, FONT_SUFFIXES};
-    use vtium_config::tui::fonts_found::source_of;
+    use vtium_config_core::discover::source_of;
+    use vtium_config_core::discover::{COMPRESSED, COMPRESSIBLE_SUFFIXES, FONT_SUFFIXES};
     let mut names: Vec<String> = FONT_SUFFIXES.iter().map(|s| format!("a.{s}")).collect();
     for s in COMPRESSIBLE_SUFFIXES {
         names.extend(COMPRESSED.iter().map(|c| format!("a.{s}.{c}")));
@@ -1969,7 +1969,7 @@ fn a_font_paths_source_is_the_one_the_fonts_tab_previews() {
     reason = "a test fails by panicking"
 )]
 fn served_sources(text: &str) -> Result<String, String> {
-    use vtium_config::serve;
+    use vtium_font_helper::serve;
     let request = serve::ServeRequest {
         kind: serve::SOURCES,
         frit: serve::FritText {
@@ -2221,7 +2221,7 @@ fn a_font_on_a_filesystem_not_known_to_stay_mounted_fails_the_fourth_check() {
 // - ADR-1200 D25: font-paths replaces the build's list.
 #[test]
 fn the_folders_a_font_path_must_sit_in_follow_font_paths() {
-    assert_eq!(FONT_DIRS, vtium_config::sources::FONT_DIRS);
+    assert_eq!(FONT_DIRS, vtium_font_helper::sources::FONT_DIRS);
     let tail = [
         batch::PACKAGE_FONTS,
         "/usr/share/kbd/consolefonts",

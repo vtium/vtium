@@ -1805,7 +1805,7 @@ fn a_font_a_looks_font_set_lacks_is_noted_with_its_page() {
     reason = "a test fails by panicking"
 )]
 fn served_sources(frit: &helper::FritText) -> Result<String, String> {
-    use vtium_config::serve;
+    use vtium_font_helper::serve;
     let request = serve::ServeRequest {
         kind: serve::SOURCES,
         frit: serve::FritText {
@@ -3635,7 +3635,7 @@ fn a_font_name_that_names_no_font_is_a_warning() {
 // helper searches for a kbd console font by its name.
 #[test]
 fn the_console_font_folders_are_the_font_helpers() {
-    let helpers: Vec<PathBuf> = vtium_config::sources::KBD_DIRS
+    let helpers: Vec<PathBuf> = vtium_font_helper::sources::KBD_DIRS
         .iter()
         .map(|d| Path::new(d).join("consolefonts"))
         .collect();

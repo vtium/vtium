@@ -27,7 +27,7 @@
     reason = "a test fails by panicking"
 )]
 
-use vtium_config::pointer_svg::draw;
+use vtium_font_helper::pointer_svg::draw;
 use vtium_render::Arrow;
 use vtium_term::PointerShape;
 

@@ -30,6 +30,11 @@ use crate::frit::{Frit, Origin};
 use super::model::{Font, FontState};
 use super::resources::Resource;
 
+// The `source=` value of a font file, which the console's tests use too, at
+// the path it had in this module.
+#[doc(inline)]
+pub use crate::discover::source_of;
+
 /// What a list calls a font, as the other resources name their kind.
 pub const KIND: &str = "font";
 
@@ -457,34 +462,6 @@ pub fn strike_points(strikes: &[Strike], dpi: u32) -> Vec<(u32, Strike)> {
 /// an absolute path, which no font set's name can be.
 pub fn is_file_name(name: &str) -> bool {
     name.starts_with('/')
-}
-
-/// The `source=` value of a font set that draws the file at `path` alone,
-/// by its extension: `bdf:` for a BDF font, `hex:` for a `.hex` font,
-/// `file:` for a PSF font and `outline:` for an OpenType file. `None` for
-/// a path that a font set's `source=` line cannot hold: one that is not
-/// UTF-8; one that holds a control character, which would end the line and
-/// start another; one that holds a `#`, which a font set reads as the
-/// start of a comment; and one that starts or ends with a blank, which a
-/// font set drops from the line.
-pub fn source_of(path: &Path) -> Option<String> {
-    let text = path.to_str()?;
-    if text.chars().any(|c| c.is_control() || c == '#') || text.trim() != text {
-        return None;
-    }
-    let name = path.file_name()?.to_str()?.to_ascii_lowercase();
-    let mut parts = name.rsplit('.');
-    let mut ext = parts.next()?;
-    if crate::discover::COMPRESSED.contains(&ext) {
-        ext = parts.next()?;
-    }
-    let kind = match ext {
-        "bdf" => "bdf",
-        "hex" => "hex",
-        "psf" | "psfu" => "file",
-        _ => "outline",
-    };
-    Some(format!("{kind}:{text}"))
 }
 
 /// A family with case and blanks ignored, as the console matches one.

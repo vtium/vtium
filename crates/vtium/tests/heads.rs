@@ -1613,7 +1613,7 @@ input class:keyboard -> roaming
         }
         if refused {
             assert!(refusal_kept(&s.app), "{:?}", s.app.frit_cells("t"));
-            let refusal = vtium_config::serve::FRAME_NO_OWN_CELL.to_string();
+            let refusal = vtium_font_helper::serve::FRAME_NO_OWN_CELL.to_string();
             let refusals = std::fs::read_to_string(&kinds)
                 .expect("the helper's frames")
                 .lines()

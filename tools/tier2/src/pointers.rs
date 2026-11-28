@@ -93,7 +93,7 @@ fn adwaita(dir: &Path) -> Result<Vec<u8>, String> {
 fn keep(
     table: &mut PointerPictures,
     shape: PointerShape,
-    p: &vtium_config::serve::PointerPicture,
+    p: &vtium_font_helper::serve::PointerPicture,
 ) -> Result<(), String> {
     let arrow = Arrow::from_rgba(p.width, p.height, p.hot, &p.rgba)
         .map_err(|e| format!("the {} shape: {e}", shape.name()))?;
@@ -108,7 +108,7 @@ pub fn pictures(file: PointerFile, cell_height: u32) -> Result<Arc<PointerPictur
         PointerFile::Shipped => {
             let mut table = PointerPictures::new(PictureSizes::Svg);
             for shape in PointerShape::ALL {
-                let p = vtium_config::pointer_svg::draw(SHIPPED, shape.name(), cell_height)
+                let p = vtium_font_helper::pointer_svg::draw(SHIPPED, shape.name(), cell_height)
                     .map_err(|e| format!("pointers.svg has no {} shape: {e:?}", shape.name()))?;
                 keep(&mut table, shape, &p)?;
             }
@@ -116,7 +116,7 @@ pub fn pictures(file: PointerFile, cell_height: u32) -> Result<Arc<PointerPictur
         }
         PointerFile::Adwaita => {
             let bytes = adwaita(&cache_dir())?;
-            let kept = vtium_config::xcursor::read(&bytes, Some(ADWAITA_SIZE))
+            let kept = vtium_font_helper::xcursor::read(&bytes, Some(ADWAITA_SIZE))
                 .map_err(|e| format!("Adwaita's default cursor fails, because {e}"))?;
             let mut table = PointerPictures::new(PictureSizes::Theme {
                 size: Some(ADWAITA_SIZE),

@@ -2344,7 +2344,7 @@ mod tests {
         let mut differ = Vec::new();
         for c in 0..=0x10_ffff_u32 {
             let ours = console.fit(c, Style::default());
-            let helpers = vtium_config::serve::default_fit(c);
+            let helpers = vtium_font_helper::serve::default_fit(c);
             if ours != helpers {
                 differ.push(format!(
                     "U+{c:04X}: the console {ours:?}, the helper {helpers:?}"
@@ -2376,8 +2376,8 @@ mod tests {
                 continue;
             }
             let key = [u32::from(c)];
-            let helper = !vtium_config::shaping::emoji_by_default(key[0])
-                && !vtium_config::shaping::wide(&key);
+            let helper = !vtium_font_helper::shaping::emoji_by_default(key[0])
+                && !vtium_font_helper::shaping::wide(&key);
             assert_eq!(presents_as_text(c), helper, "U+{:04X}", key[0]);
             checked += 1;
         }
@@ -2385,7 +2385,7 @@ mod tests {
         // the heart presents as text, the grinning face as emoji
         assert!(presents_as_text('\u{2764}'));
         assert!(!presents_as_text('\u{1f600}'));
-        assert!(vtium_config::shaping::emoji_by_default(0x1f600));
+        assert!(vtium_font_helper::shaping::emoji_by_default(0x1f600));
     }
 
     /// A set at `cell` whose every glyph in `chars` is solid.

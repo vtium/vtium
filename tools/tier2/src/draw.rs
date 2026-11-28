@@ -272,7 +272,7 @@ impl TestFont {
     /// is written into a scratch directory of this call's, which is removed
     /// once the engine has read it, or when the call fails.
     pub fn generate(self, fill: Option<&str>) -> Result<Vec<u8>, String> {
-        use vtium_config::serve::{Engine, FritText, Paths};
+        use vtium_font_helper::serve::{Engine, FritText, Paths};
         let bytes = self.bytes()?;
         let cell = Psf::parse(&bytes)
             .map_err(|e| format!("{self:?}: {e}"))?
@@ -304,8 +304,8 @@ impl TestFont {
     /// which is removed once the engine has read them, or when the call
     /// fails.
     pub fn generate_scripts(self, small: TestFont) -> Result<Scripted, String> {
-        use vtium_config::serve::{Engine, FritText, Paths};
         use vtium_font::{Script, Variant};
+        use vtium_font_helper::serve::{Engine, FritText, Paths};
         let bytes = self.bytes()?;
         let cell = Psf::parse(&bytes)
             .map_err(|e| format!("{self:?}: {e}"))?
@@ -908,7 +908,7 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
             width,
             height,
         } => {
-            use vtium_config::serve::{Engine, FritText, Paths};
+            use vtium_font_helper::serve::{Engine, FritText, Paths};
             // a frit may not take a built-in set's name
             let frit = FritText {
                 name: format!("{builtin}-{width}x{height}"),
