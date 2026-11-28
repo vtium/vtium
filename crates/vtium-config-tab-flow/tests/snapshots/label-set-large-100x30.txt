@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help                  lab ● 14 not saved
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Flow › DP-1                                                                                        
+                                                                                                    
+ DISPLAY PART  DP-1                                                                                 
+   Label     Big screen                 shown on the display when you identify the displays         
+                                                                                                    
+ CHOOSE WHICH DISPLAYS THIS PART MATCHES  from the widest to the narrowest; [Enter] picks one       
+   ○ All displays   every display, connected now or later                                           
+   ○ DP-1           by its connector                                                                
+   ○ DP-2           by its connector                                                                
+   ○ DP-3           by its connector                                                                
+   ○ DP-4           by its connector                                                                
+   ○ DP-1           by its connector                                                                
+   ○ DP-2           by its connector                                                                
+   ○ DP-3           by its connector                                                                
+   ○ DP-4           by its connector                                                                
+   ○ DP-1           by its connector                                                                
+   ○ DP-2           by its connector                                                                
+   ○ DP-3           by its connector                                                                
+   ○ DP-4           by its connector                                                                
+   ○ DP-1           by its connector                                                                
+   ○ DP-2           by its connector                                                                
+   ○ DP-3           by its connector                                                                
+   ○ DP-4           by its connector                                                                
+   ○ DP-1           by its connector                                                                
+   ○ DP-2           by its connector                                                                
+ The label is now “Big screen”.                                                                     
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Esc] Back, keep changes  [Enter] Label  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [.] More           [q] Quit 

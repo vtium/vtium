@@ -74,6 +74,12 @@ pub enum Level {
     Info(Obj),
     /// The list of the inputs that are neither keyboards nor pointers.
     Others,
+    /// A part's detail with its label being typed.
+    Label { obj: Obj, typed: String },
+    /// A terminal's card: an added path's, or NEW PATH's.
+    Card(Box<edit::card::Card>),
+    /// A part maker, with its picker while one is open.
+    Maker(Box<edit::makers::Maker>),
 }
 
 /// The letters the File menu's items keep on the Flow page, and the level
@@ -112,6 +118,7 @@ pub struct FlowTab {
 struct Cached {
     text: String,
     present: vtium_config_core::flowmodel::Present,
+    revising: Option<edit::plan::Revising>,
     model: Rc<Model>,
 }
 
@@ -130,21 +137,24 @@ impl FlowTab {
     }
 
     /// The page's model of the shared state: the one kept, while the open
-    /// document's text and the devices present are what it was made from,
-    /// else a new one.
+    /// document's text, the devices present and the path NEW PATH revises
+    /// are what it was made from, else a new one.
     fn model(&self, shared: &Shared) -> Rc<Model> {
         let text = shared.document().text();
+        let revising = self.state.revising.as_ref();
         let mut kept = self.model.borrow_mut();
         if let Some(c) = kept.as_ref()
             && c.text == text
             && c.present == shared.present
+            && c.revising.as_ref() == revising
         {
             return Rc::clone(&c.model);
         }
-        let model = Rc::new(Model::of(shared));
+        let model = Rc::new(Model::of(shared, revising));
         *kept = Some(Cached {
             text: text.to_owned(),
             present: shared.present.clone(),
+            revising: revising.cloned(),
             model: Rc::clone(&model),
         });
         model
@@ -205,6 +215,17 @@ fn say(line: impl Into<String>) -> Vec<Command> {
     }))]
 }
 
+/// What `t` says where the live trial cannot run here, or `None` where it
+/// can.
+fn live_refusal(live: Live) -> Option<Vec<Command>> {
+    match live {
+        Live::On => None,
+        Live::OpsOff => Some(say_more(words::OPS_OFF, words::OPS_OFF_MORE)),
+        Live::Asking => Some(say(words::TRIAL_ASKING)),
+        Live::NotVtium => Some(say(words::NOT_VTIUM)),
+    }
+}
+
 /// A message with a longer text behind it, which F1 opens.
 fn say_more(line: impl Into<String>, more: impl Into<String>) -> Vec<Command> {
     vec![Command::Change(Change::Say(Message {
@@ -243,6 +264,9 @@ impl Tab<Shared, Action, Command> for FlowTab {
             Level::Detail { .. } => "flow.detail.choices",
             Level::Info(_) => "flow.info",
             Level::Others => "flow.others",
+            Level::Label { .. } => "flow.detail.typing",
+            Level::Card(card) => card.node(),
+            Level::Maker(maker) => maker.node(),
         }
     }
 
@@ -268,6 +292,13 @@ impl Tab<Shared, Action, Command> for FlowTab {
             }
             Level::Info(obj) => info::draw(&model.flow, &model.doc, obj, buf, area, self.color),
             Level::Others => inputs::draw_others(&model.flow, buf, area, self.color),
+            Level::Label { obj, typed } => {
+                edit::labels::draw(&model, obj, typed, buf, area, self.color);
+            }
+            Level::Card(card) => {
+                edit::card::draw(shared, &model, &self.state.new, card, buf, area, self.color);
+            }
+            Level::Maker(maker) => edit::makers::draw(&model, maker, buf, area, self.color),
         }
     }
 
@@ -281,12 +312,18 @@ impl Tab<Shared, Action, Command> for FlowTab {
         match self.level.clone() {
             Level::Page => self.page_action(shared, &model, &layout, &action),
             Level::Detail { obj, line } => self.detail_action(&model, &obj, line, &action),
-            Level::Info(_) | Level::Others => match action.row {
+            Level::Info(obj) => match action.row {
                 "esc.layer" => self.close_level(),
-                // e on a part of a path revises the path, which the
-                // editing in `edit` builds
+                "e.layer.flow-info" => self.revise(&model, &obj),
                 _ => Vec::new(),
             },
+            Level::Others => match action.row {
+                "esc.layer" => self.close_level(),
+                _ => Vec::new(),
+            },
+            Level::Label { obj, typed } => self.label_key(shared, &model, &obj, typed, &action),
+            Level::Card(card) => self.card_action(shared, &model, *card, &action),
+            Level::Maker(maker) => self.maker_action(&model, *maker, &action),
         }
     }
 
@@ -328,6 +365,9 @@ impl Tab<Shared, Action, Command> for FlowTab {
                 ))
             }
             Level::Others => Some(inputs::others_text(&model.flow)),
+            Level::Label { .. } => None,
+            Level::Card(card) => edit::card::full_text(&model, &self.state.new, card),
+            Level::Maker(maker) => edit::makers::full_text(&model, maker),
         }
     }
 
@@ -434,18 +474,16 @@ impl FlowTab {
             }
             "space.view.flow" => self.space(model),
             "enter.view.flow" => self.open(model),
+            "esc.view.flow" if self.state.revising.is_some() => self.drop_revised(shared, model),
             "esc.view.flow" if self.state.new.is_empty() => say(words::NOTHING_TO_CLEAR),
             "esc.view.flow" => {
                 self.state.new = paths::Path::default();
                 say(words::NEW_PATH_CLEARED)
             }
             "d.view.flow" => vec![Command::Effect(Effect::Desk(Op::Devices))],
-            "t.view.flow" => match shared.console.live {
-                Live::On => say(words::LIVE_ON),
-                Live::OpsOff => say_more(words::OPS_OFF, words::OPS_OFF_MORE),
-                Live::Asking => say(words::TRIAL_ASKING),
-                Live::NotVtium => say(words::NOT_VTIUM),
-            },
+            "t.view.flow" => {
+                live_refusal(shared.console.live).unwrap_or_else(|| say(words::LIVE_ON))
+            }
             "p.view.flow" => match shared.console.live {
                 Live::On | Live::OpsOff => {
                     say_more(words::PREVIEW_LATER, words::PREVIEW_LATER_MORE)
@@ -454,8 +492,11 @@ impl FlowTab {
                 Live::NotVtium => say(words::PREVIEW_NOT_HERE),
             },
             "click-box.view.flow" => self.click(model, layout, &action.carries),
-            // `a` adds NEW PATH to the configuration and `e` revises a
-            // path, which the editing in `edit` builds
+            "a.view.flow" => self.add(shared, model),
+            "e.view.flow" => match self.state.at.clone() {
+                Some(at) => self.revise(model, &at),
+                None => say(edit::words::REVISE_WHERE),
+            },
             _ => Vec::new(),
         }
     }
@@ -551,6 +592,9 @@ impl FlowTab {
             Obj::Pal(Slot::Display(_) | Slot::Input(_)) => {
                 self.open_level(Level::Detail { obj, line: 0 })
             }
+            Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => self.open_card(model, obj),
+            Obj::Pal(Slot::Template(stage)) => self.open_maker(*stage, false),
+            Obj::New(Slot::Empty(stage)) => self.open_maker(*stage, true),
             // a part of NEW PATH opens on its own choice
             Obj::New(Slot::Display(s) | Slot::Input(s)) => {
                 let line = parts::choices(&model.flow, &obj)
@@ -559,8 +603,6 @@ impl FlowTab {
                     .map_or(0, |at| at.saturating_add(1));
                 self.open_level(Level::Detail { obj, line })
             }
-            // a terminal's card and a template's part maker are the
-            // editing that `edit` builds
             _ => Vec::new(),
         }
     }
@@ -589,8 +631,13 @@ impl FlowTab {
                 line.saturating_add(page).min(count)
             }
             "pgup.layer.flow-choices" => line.saturating_sub(page),
-            // Enter types the label, or picks a choice into NEW PATH,
-            // which the editing in `edit` builds
+            "enter.layer.flow-detail" => return self.start_label(model, obj),
+            "enter.layer.flow-choices" => {
+                return match line.checked_sub(1) {
+                    Some(at) => self.choose(model, obj, at),
+                    None => self.start_label(model, obj),
+                };
+            }
             _ => return Vec::new(),
         };
         self.level = Level::Detail {

@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help                   lab ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Flow › gpu0                                                                                        
+                                                                                                    
+ TERMINAL gpu0 · every VT                                                                           
+   Name                           gpu0x_                                                            
+   Look                           card0                                                             
+   VTs                            every VT                                                          
+   Consoles                       1                                                                 
+   Login                          Default: /bin/login -p                                            
+   When its screen is unplugged   keep the sessions running                                         
+   Switch on Enter                off                                                               
+                                                                                                    
+   What a path joins changes only when you revise it: [e].                                          
+                                                                                                    
+ WHAT THIS TERMINAL DRAWS                                                                           
+   Font set proof  →  look card0  →  DP-1, DP-2, DP-3, DP-4                                         
+   Effects: No filter, the built-in vtlook, which changes no color.                                 
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Esc] Cancel  [Enter] Keep  [Backspace] Delete                                       [Ctrl+C] Quit 

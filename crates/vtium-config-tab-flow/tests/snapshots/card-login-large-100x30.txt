@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help                   lab ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Flow › gpu0                                                                                        
+                                                                                                    
+ TERMINAL gpu0 · every VT                                                                           
+   Name                           gpu0                                                              
+   Look                           card0                                                             
+   VTs                            every VT                                                          
+   Consoles                       1                                                                 
+   Login                          ● Default: /bin/login -p   ○ Other…                               
+   When its screen is unplugged   keep the sessions running                                         
+   Switch on Enter                off                                                               
+                                                                                                    
+   Login: the program each console of this terminal starts.                                         
+   What a path joins changes only when you revise it: [e].                                          
+                                                                                                    
+ WHAT THIS TERMINAL DRAWS                                                                           
+   Font set proof  →  look card0  →  DP-1, DP-2, DP-3, DP-4                                         
+   Effects: No filter, the built-in vtlook, which changes no color.                                 
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Enter] Set  [e] Revise this path  [Esc] Back, keep changes  [Ctrl+Z] Undo  [.] More      [q] Quit 

@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────
+ Flow › Input                                                                   
+                                                                                
+ ADD AN INPUT   Which inputs should this include?                               
+   ○ No input                 display only, no keyboard or mouse                
+   ○ All keyboards            every keyboard, connected now or later            
+   ○ All mice and touchpads   mice, touchpads, trackballs                       
+   ○ All input devices        keyboards, pointers and every other input         
+   OR CHOOSE BY                                                                 
+   ○ USB port                 devices plugged into one USB port                 
+   ○ This one device          one device by its serial number, in any port      
+   ○ Model                    every device of one make and model                
+   ○ Bluetooth device         one paired Bluetooth device                       
+   ○ Device name              devices that report a given name                  
+   ○ Device type              touchscreens, tablets, joysticks and other kinds  
+   ○ udev property            devices with a given udev property (advanced)     
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+────────────────────────────────────────────────────────────────────────────────
+ [Esc] Back  [Enter] Choose  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [.] More    [q] Quit 

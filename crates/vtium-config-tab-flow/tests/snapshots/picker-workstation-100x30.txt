@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help           workstation ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Flow › Display                                                                                     
+                                                                                                    
+ THIS MONITOR   each monitor lists what matches it now                                              
+   ○ edid:AAA:0x0001:LARGE00001   DP-8                                                              
+   ○ edid:BBB:0x0002:SMALL00001   HDMI-A-2                                                          
+   ○ Other…                       type a value                                                      
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Enter] Pick  [Esc] Back  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [F1] Help  [.] More               [q] Quit 

@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────
+ Flow › Display                                                                 
+                                                                                
+ ADD A DISPLAY   Which displays should this include?                            
+   ○ All displays    every display, connected now or later                      
+   OR CHOOSE BY                                                                 
+   ○ This monitor    one monitor by its EDID, on any port                       
+   ○ Connector       the display on one connector, such as HDMI-A-1             
+   ○ Hub port        the display on one port of a DisplayPort hub               
+   ○ Graphics card   every display on one graphics card                         
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+────────────────────────────────────────────────────────────────────────────────
+ [Esc] Back  [Enter] Choose  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [.] More    [q] Quit 
