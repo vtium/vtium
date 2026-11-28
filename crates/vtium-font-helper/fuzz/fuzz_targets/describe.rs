@@ -12,7 +12,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use vtium_config::describe::{
+use vtium_font_helper::describe::{
     Description, FACES_MAX, RANGES_MAX, STRIKES_MAX, TEXT_BYTES_MAX, describe,
 };
 

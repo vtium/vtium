@@ -5,7 +5,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use vtium_config::hex::{HEX_CELL, font};
+use vtium_font_helper::hex::{HEX_CELL, font};
 use vtium_font::Width;
 
 fuzz_target!(|bytes: &[u8]| {

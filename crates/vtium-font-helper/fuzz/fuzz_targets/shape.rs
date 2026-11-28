@@ -20,9 +20,9 @@
 use std::sync::Arc;
 
 use libfuzzer_sys::fuzz_target;
-use vtium_config::frit::Hinting;
-use vtium_config::outline::{OutlineRequest, rasterise};
-use vtium_config::shaping::ask;
+use vtium_font_helper::frit::Hinting;
+use vtium_font_helper::outline::{OutlineRequest, rasterise};
+use vtium_font_helper::shaping::ask;
 use vtium_testfont::ttf;
 
 /// Up to 16 clusters of `bytes`, each 1 to 16 scalar values.

@@ -1,0 +1,99 @@
+[package]
+name = "vtium-font-helper"
+description = "Reads vtium's font sets and their fonts, and draws the console's glyphs in the font helper that vtium-config serve runs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The glyph chunk format's writer; the PSF reader; the built-in fonts a
+# frit may name as sources. The PSF reader is behind
+# vtium-font's `psf` feature and the writer's deflate behind its
+# `deflate` feature, which only this crate and vtium-config enable
+# (ADR-1200 D19).
+vtium-font = { workspace = true, features = ["psf", "deflate"] }
+# KDFONTOP and GIO_UNIMAP's types for the console: source (ADR-1200 D8),
+# and the helper's closing of inherited descriptors.
+vtium-platform.workspace = true
+# The batch format the helper's requests name their files in, the mounts
+# a source may be read from, and the cell sizes the key table parses.
+vtium-settings.workspace = true
+# The terminal's width rule, by which the helper gives each glyph its
+# cells (ADR-1200 D21); the crate the console already links.
+vtium-term.workspace = true
+# gzip's deflate, for compressed fonts and unimaps; vtium-font already
+# builds this version.
+miniz_oxide = "0.8.9"
+# Opening a source without following a link, the parser's and the
+# helper's no-new-privileges and limits; vtium-platform already builds
+# this version with these features.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "process", "system", "thread"] }
+# The decoders kbd's other compressions need (ADR-1200 D6), each pure
+# Rust with no C compiled; the README says why each.
+bzip2 = "=0.6.1"
+lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz"] }
+ruzstd = "=0.9.1"
+# The outline rasteriser ADR-1200 D14 decided on: outlines with hinting,
+# embedded bitmaps and color (COLR and CBDT), pure Rust, run only in the
+# parser's child; MIT or Apache-2.0, as are skrifa, read-fonts, zeno and
+# yazi under it. The README says why this one.
+swash = "=0.2.10"
+# swash's own outline reader, which the rasteriser calls itself to hint in
+# the mode a frit's `hinting=` names (ADR-1200 D1), since swash's scaler
+# hints in one fixed mode; the version and features swash already builds.
+skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
+# The PNG decoder of color bitmap strikes, which the helper reads itself
+# with skrifa's read-fonts in place of swash's strike reader (ADR-1200,
+# 2026-11-21): it bounds what it allocates and inflates only the rows an
+# image needs. Pure Rust, MIT or Apache-2.0, the version the image helper
+# already builds.
+png = "=0.18.1"
+# The shaper ADR-1200's glyph engine takes for clusters (vtium/vtium#144):
+# HarfRust, the HarfBuzz project's Rust port, MIT, with no unsafe code of
+# its own; run only in the helper and the parser's child, never in the
+# console. Its read-fonts is the version swash's skrifa already builds.
+harfrust = { version = "=0.12.0", default-features = false, features = ["std"] }
+# The glyph helper's landlock domain, which refuses file writes and
+# network access before it reads any font (ADR-1200 D15, the maintainer,
+# 2026-11-04): the Linux landlock maintainers' own binding, safe, the
+# version the image helper already builds.
+landlock = "=0.4.7"
+# The SVG pointer file's drawing (ADR-1309 D4), run only in the font
+# helper's sandbox: resvg draws a symbol of the file through tiny-skia,
+# with its default features off, so it builds no text, no fonts and no
+# raster images. resvg and usvg are Apache-2.0 or MIT; tiny-skia is
+# BSD-3-Clause and arrayref BSD-2-Clause, which the maintainer allowed.
+resvg = { version = "=0.50.0", default-features = false }
+# The XML reader usvg already builds, at its version, which finds each
+# symbol, its viewBox and its data-hotspot before resvg draws it.
+roxmltree = "=0.21.1"
+# The pointer's bounds, the cursor theme's and the SVG file's
+# (`POINTER_SIDE_MAX`, `POINTER_SVG_BYTES_MAX`), from the crate the
+# console draws the pointer with.
+vtium-render.workspace = true
+
+# The glyph helper's two seccomp filters, the socket filter on every
+# kernel and the fallback filter where landlock is missing (ADR-1200 D15,
+# the maintainer, 2026-11-04 and 2026-11-13). The helper writes their BPF
+# programs itself, since seccompiler builds none for 32-bit ARM, and
+# installs them with seccompiler's apply_filter; libc names the calls. The
+# versions the image helper already builds.
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "arm"))'.dependencies]
+seccompiler = "=0.5.0"
+libc = "=0.2.191"
+
+[dev-dependencies]
+# The xz encoder, for the tests' fixtures only.
+lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz", "encoder"] }
+# The TrueType test font writer the tests build their outline fonts with,
+# which tier 2's ink test font shares (vtium/vtium#339).
+vtium-testfont = { path = "../../tools/testfont" }
+# The stand-in programs the tests write and copy, put in place so that
+# the kernel never refuses to run one as busy.
+vtium-testscript = { path = "../../tools/testscript" }

@@ -203,7 +203,7 @@ fn run(ucd: &Path, cldr: &Path) -> Result<(), String> {
     let marks = marks(&unicode_data)?;
     let on_demand = on_demand(&scripts);
     let presentation = presentation(&read("emoji-data.txt")?)?;
-    let path = root.join("src/shaping/data.rs");
+    let path = root.join("../vtium-font-helper/src/shaping/data.rs");
     let text = data_rs(
         &emoji,
         &presentation,
@@ -241,7 +241,7 @@ fn run(ucd: &Path, cldr: &Path) -> Result<(), String> {
         exemplars.len()
     );
     println!(
-        "src/shaping/data.rs: Unicode {VERSION}, {} emoji sequences, {} joining letters, \
+        "../vtium-font-helper/src/shaping/data.rs: Unicode {VERSION}, {} emoji sequences, {} joining letters, \
          {} ranges of characters that join, {} ranges of marks, {} decomposed keys, \
          {} scripts shaped on demand, {} ranges of Emoji_Presentation",
         emoji.len(),

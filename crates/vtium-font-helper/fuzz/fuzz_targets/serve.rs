@@ -17,7 +17,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use vtium_config::serve::{Request, leave_out_request, read_request};
+use vtium_font_helper::serve::{Request, leave_out_request, read_request};
 
 fuzz_target!(|bytes: &[u8]| {
     let mut input = bytes;

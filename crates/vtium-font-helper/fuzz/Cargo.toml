@@ -13,7 +13,7 @@
 #   cargo +nightly fuzz run describe
 # Its own workspace, so the main workspace and CI do not build it.
 [package]
-name = "vtium-config-fuzz"
+name = "vtium-font-helper-fuzz"
 version = "0.0.0"
 edition = "2024"
 publish = false
@@ -24,12 +24,12 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 # The TrueType test font writer the shaping target shares with
-# vtium-config's tests.
+# the font helper's tests.
 vtium-testfont = { path = "../../../tools/testfont" }
-vtium-config = { path = ".." }
+vtium-font-helper = { path = ".." }
 # The style the shaping target synthesises over the glyphs.
 vtium-font = { path = "../../vtium-font" }
-# The swash that vtium-config builds, which the names target calls on each
+# The swash that vtium-font-helper builds, which the names target calls on each
 # face the font check passes.
 swash = "=0.2.10"
 

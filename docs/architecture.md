@@ -22,11 +22,17 @@ vtium (binary)
 │   └── vtium-font   glyphs: the built-in Unifont and Unscii-8, the glyph chunk format, sprites
 └── vtium-image      (feature `images`): the image helper's requests and replies, the `auto` budget, animation
 
-vtium-config (binary)   the configuration tool and the glyph helper: the drafts, the Flow view, every font decoder, the outline rasterizer and shaping
+vtium-config (binary)   the configuration tool and the glyph helper: the drafts, the Flow view, and `serve`, which runs the font helper
+├── vtium-font-helper   the font helper: the frits, every font decoder, the outline rasterizer and shaping, the pointer pictures
+│   ├── vtium-font
+│   ├── vtium-platform
+│   ├── vtium-render     the pointer's bounds (constants only)
+│   ├── vtium-settings
+│   └── vtium-term       the terminal's cluster width rule
 ├── vtium-devices
 ├── vtium-font
 ├── vtium-platform
-├── vtium-render     the pointer's bounds and shapes, and (feature `filters`) the frame filters' color tables for the Effects tab's preview
+├── vtium-render     (feature `filters`) the frame filters' color tables for the Effects tab's preview
 ├── vtium-settings
 └── vtium-term       the terminal's cluster width rule and its palettes
 

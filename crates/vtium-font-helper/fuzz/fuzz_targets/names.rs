@@ -38,9 +38,9 @@
 use libfuzzer_sys::fuzz_target;
 use swash::scale::ScaleContext;
 use swash::{FontRef, StringId};
-use vtium_config::names::{FACES_MAX, faces, swash_fonts};
-use vtium_config::outline::{OutlineRequest, cell_width, rasterise};
-use vtium_config::serve::outline_version;
+use vtium_font_helper::names::{FACES_MAX, faces, swash_fonts};
+use vtium_font_helper::outline::{OutlineRequest, cell_width, rasterise};
+use vtium_font_helper::serve::outline_version;
 
 /// How many mapped glyphs the scaler reads on each face.
 const SCALED: usize = 4;

@@ -462,7 +462,7 @@ pub fn describe(bytes: &[u8], name: &str) -> Result<Description, String> {
 /// The file's name less its directory, its compression's suffix and its
 /// format's suffix: `ter-v16n` for `/x/ter-v16n.psf.gz`.
 /// The suffixes are matched without case, as the scan that lists font
-/// files matches them ([`crate::discover::is_font_file`]).
+/// files matches them (vtium-config's `discover::is_font_file`).
 fn stem(name: &str) -> &str {
     let mut stem = name.rsplit('/').next().unwrap_or(name);
     for suffix in [".gz", ".bz2", ".xz", ".zst"] {

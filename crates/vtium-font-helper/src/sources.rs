@@ -175,7 +175,7 @@ pub enum Input {
 /// Opens `path` for reading: once, without blocking on a FIFO and never as
 /// a controlling terminal, and refused unless that descriptor is a regular
 /// file. The error leaves the path to the caller.
-pub(crate) fn open_regular(path: &Path) -> Result<std::fs::File, String> {
+pub fn open_regular(path: &Path) -> Result<std::fs::File, String> {
     use std::os::unix::fs::OpenOptionsExt;
     let flags = rustix::fs::OFlags::NONBLOCK | rustix::fs::OFlags::NOCTTY;
     let file = std::fs::OpenOptions::new()

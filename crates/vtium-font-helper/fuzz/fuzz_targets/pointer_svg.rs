@@ -6,7 +6,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use vtium_config::pointer_svg::draw;
+use vtium_font_helper::pointer_svg::draw;
 
 const SHAPES: [&str; 10] = [
     "default",

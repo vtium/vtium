@@ -6,7 +6,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use vtium_config::xcursor::read;
+use vtium_font_helper::xcursor::read;
 
 fuzz_target!(|input: &[u8]| {
     let Some((&first, bytes)) = input.split_first() else {

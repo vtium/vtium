@@ -11,7 +11,7 @@
 use std::path::Path;
 
 use libfuzzer_sys::fuzz_target;
-use vtium_config::frit::{Frit, Version};
+use vtium_font_helper::frit::{Frit, Version};
 
 fuzz_target!(|bytes: &[u8]| {
     let file = Path::new("t.vtfrit");

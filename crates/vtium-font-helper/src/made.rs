@@ -3,7 +3,7 @@
 //! draws the character. The engine records it as it draws
 //! ([`crate::serve::Engine::draw_made`]), the helper sends it in a frame of
 //! its own ([`crate::serve::FRAME_MADE`]), and the font preview names it in
-//! its caption ([`crate::tui::words::script_caption`]).
+//! its caption (vtium-config's `tui::words::script_caption`).
 
 /// How the engine made one superscript or subscript glyph.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

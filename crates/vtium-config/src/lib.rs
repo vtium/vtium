@@ -22,59 +22,35 @@
 //! switches the running console among the frits. [`cli`] is the command
 //! line, and [`banner`] the art it opens with at a terminal.
 
-/// A message made once from `format!`'s arguments and kept for the rest of
-/// the run, for a reader whose errors are `&'static str` and whose message
-/// names a limit's number.
-macro_rules! static_message {
-    ($($arg:tt)*) => {{
-        static MESSAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-        MESSAGE.get_or_init(|| format!($($arg)*)).as_str()
-    }};
-}
-
 pub mod apply;
 pub mod banner;
 pub mod batch;
-pub mod bdf;
-pub mod child;
 pub mod cli;
 pub mod commands;
-pub mod cover;
-pub mod decode;
-pub mod describe;
 pub mod discover;
 pub mod display;
 pub mod draft;
 pub mod drafts;
 pub mod flowcli;
 pub mod flowmodel;
-pub mod font;
-pub mod frit;
-pub mod glyphs;
 pub mod help;
-pub mod hex;
 pub mod kitty;
 pub mod library;
-pub mod made;
-pub mod names;
-pub mod needs;
-pub mod onscreen;
 pub mod ops;
 pub mod outcome;
-pub mod outline;
-pub mod pointer_svg;
 pub mod preview;
 pub mod report;
-pub mod resample;
 #[cfg(test)]
 mod scratch;
-pub mod seccomp;
-pub mod serve;
-pub mod shaping;
-pub mod sources;
 pub mod specimen;
 pub mod store;
 pub mod switch;
 pub mod tui;
 pub mod vts;
-pub mod xcursor;
+
+// The font helper's modules, which vtium-font-helper holds, at the paths
+// they had in this crate.
+pub use vtium_font_helper::{
+    bdf, child, cover, decode, describe, font, frit, glyphs, hex, made, names, needs, onscreen,
+    outline, pointer_svg, resample, seccomp, serve, shaping, sources, xcursor,
+};

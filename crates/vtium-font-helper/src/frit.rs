@@ -510,7 +510,7 @@ const IGNORED: &str = "vtium ignores this line and reads the rest of the font se
 /// The warning for the line `ignored` of the layer in `file`, which the
 /// layer reader leaves blank because a layer cannot hold it. The rest of
 /// the layer and of the font set still reads.
-pub(crate) fn ignored_warning(file: &Path, ignored: &layer::Ignored) -> FritError {
+pub fn ignored_warning(file: &Path, ignored: &layer::Ignored) -> FritError {
     FritError {
         file: file.to_owned(),
         line: ignored.line,

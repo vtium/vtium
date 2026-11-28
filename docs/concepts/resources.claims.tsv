@@ -14,7 +14,7 @@ the checks a resource can fail, and a file not on the list	crates/vtium-settings
 a refused file counts as missing, and the refusal names the file and the check	crates/vtium-settings/src/cullet.rs	Refused
 network filesystems fail the rule	crates/vtium-settings/src/mounts.rs	NETWORK
 a USB disk counts as removable unless it holds the root filesystem	crates/vtium-settings/src/mounts.rs	USB_IS_REMOVABLE
-a family search through the list finds only active files, and a font not listed is never parsed	crates/vtium-config/src/sources.rs	family_missing
+a family search through the list finds only active files, and a font not listed is never parsed	crates/vtium-font-helper/src/sources.rs	family_missing
 vtium reads the list again before each new login, and brings the fonts, color schemes and pointer up to it	crates/vtium/src/app/batch.rs	App::reread_batch
 each head chooses its vtlook again at its own next login	crates/vtium/src/app/batch.rs	App::catch_up
 a color scheme read once is read again when a login finds the list changed	crates/vtium/src/config/palette.rs	Config::forget_palettes

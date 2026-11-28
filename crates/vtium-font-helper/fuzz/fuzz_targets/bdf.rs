@@ -5,7 +5,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use vtium_config::bdf::{font, read, version};
+use vtium_font_helper::bdf::{font, read, version};
 
 fuzz_target!(|bytes: &[u8]| {
     let stated = version(bytes);
