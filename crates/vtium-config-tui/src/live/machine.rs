@@ -6,8 +6,10 @@
 //!
 //! [`Machine`] is the seam. [`System`] is this machine: sysfs and udev's
 //! database for the devices, and `vtium-config apply` through sudo for the
-//! font and for Save ([`crate::save::privileged`]). [`Nowhere`] reads and installs
-//! nothing, for a loop that has no machine to act on.
+//! font and for Save ([`crate::save::privileged`]). It also runs the
+//! person's editor for Edit as text ([`crate::editor`]). [`Nowhere`]
+//! reads, installs and edits nothing, for a loop that has no machine
+//! to act on.
 //!
 //! References:
 //! - ADR-1206 D2: the loop is the only place that reads the machine or
@@ -67,6 +69,14 @@ pub trait Machine {
     /// with no complete route. `Err` says why nothing was saved.
     fn save(&mut self, _name: &str, _plan: &Plan) -> Result<crate::save::Saved, String> {
         Err(crate::save::words::NO_MACHINE.to_owned())
+    }
+
+    /// Runs the person's editor on a copy of `text`, the configuration
+    /// `name`'s vtium.conf, on the terminal the loop has handed back, then
+    /// checks the copy. `Err` says why the editor did not run. A machine
+    /// with no editor says so.
+    fn edit(&mut self, _name: &str, _text: &str) -> Result<crate::editor::Edited, String> {
+        Err(crate::editor::words::NO_EDITOR.to_owned())
     }
 }
 
@@ -173,5 +183,14 @@ impl Machine for System {
 
     fn save(&mut self, name: &str, plan: &Plan) -> Result<crate::save::Saved, String> {
         crate::save::privileged::save(&self.paths, name, plan)
+    }
+
+    fn edit(&mut self, name: &str, text: &str) -> Result<crate::editor::Edited, String> {
+        let store = vtium_config_core::store::Store::system().map_err(|f| f.text().to_owned())?;
+        let session = vtium_config_core::drafts::Session {
+            store,
+            paths: &self.paths,
+        };
+        crate::editor::run(&session, name, text, &|k| std::env::var(k).ok())
     }
 }

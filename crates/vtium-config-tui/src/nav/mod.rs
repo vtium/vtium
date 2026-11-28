@@ -134,6 +134,12 @@ impl Nav {
         self.sheets.last_mut()
     }
 
+    /// Every open sheet, to change, as Show changes reads its lines again
+    /// after a change to the document.
+    pub fn sheets_mut(&mut self) -> &mut [Sheet] {
+        &mut self.sheets
+    }
+
     /// Opens `sheet` over everything open, closing a menu, as a menu
     /// closes when the person turns to something else.
     pub fn open_sheet(&mut self, sheet: Sheet) {
@@ -593,12 +599,21 @@ impl Nav {
 
     /// Asks `question` over everything, a yes handing the tab `then`.
     pub fn ask(&mut self, text: String, then: Action) {
+        self.ask_on("any.question.confirm", text, then);
+    }
+
+    /// Asks `question` as the question node `node`, such as Edit as text's
+    /// question to edit again, a yes handing `then` to whoever acts on its
+    /// row.
+    pub fn ask_on(&mut self, node: &'static str, text: String, then: Action) {
         self.menu = None;
-        self.question = Some(Question {
-            text,
-            node: "any.question.confirm",
-            then,
-        });
+        self.question = Some(Question { text, node, then });
+    }
+
+    /// Opens the menu `open`, as `o` in the Flow tab opens File on its
+    /// History submenu.
+    pub fn show_menu(&mut self, open: Open) {
+        self.menu = Some(open);
     }
 
     /// Goes to the tab at `index`.
