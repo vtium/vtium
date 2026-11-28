@@ -896,7 +896,7 @@ test-tools: ## Test the VT review tools, the locale mode scripts with the real v
 # builds keep their cache. --lib runs the unit tests alone and leaves out
 # every integration test.
 BUILD_SETTINGS_TARGET = $(or $(CARGO_TARGET_DIR),target)/build-settings
-TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 $(call build-dir,$(BUILD_SETTINGS_TARGET)) cargo test -q --target-dir $(BUILD_SETTINGS_TARGET) -p vtium-settings -p vtium -p vtium-config --features vtium/gpu --lib
+TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 $(call build-dir,$(BUILD_SETTINGS_TARGET)) cargo test -q --target-dir $(BUILD_SETTINGS_TARGET) -p vtium-settings -p vtium -p vtium-config -p vtium-config-core --features vtium/gpu --lib
 
 .PHONY: fuzz
 # FUZZ_TARGETS and FUZZ_TIME reach tools/fuzz/run through the environment;

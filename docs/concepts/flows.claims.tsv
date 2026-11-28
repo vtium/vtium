@@ -36,9 +36,9 @@ two heads on different VTs can both show every display: a rule whose head runs e
 on VT 3 the keyboard on port 3.3 stays with panel and types into nothing	crates/vtium-settings/src/place.rs	Place::Elsewhere
 its Ctrl-Alt-F4 still switches to VT 4, since panel is not isolated	crates/vtium/src/head/route.rs	Routes::vt_keys
 switch-on-enter lets Enter on that keyboard switch to VT 4	crates/vtium-settings/src/place.rs	Config::switch_on_enter
-picture: each flow head carries vtium's own isolation answer	crates/vtium-config/src/flowmodel.rs	build
+picture: each flow head carries vtium's own isolation answer	crates/vtium-config-core/src/flowmodel.rs	build
 picture: the roaming inputs line is drawn only beside a head that is not isolated	crates/vtium-config/src/tui/flowview.rs	isolated
-picture: the flow head's isolated field	crates/vtium-config/src/flow.rs	Head
+picture: the flow head's isolated field	crates/vtium-config-core/src/flow.rs	Head
 pictures: the Flow view states each picture is drawn from	crates/vtium-config/tests/tui_flow.rs	the_flow_view_s_states_at_80x25_and_120x32
 picture of the kiosk: the machine it is drawn on	crates/vtium-config/tests/tui_flow.rs	kiosk_machine
 picture of the stations: the machine it is drawn on	crates/vtium-config/tests/tui_flow.rs	stations_machine

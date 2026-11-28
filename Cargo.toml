@@ -22,6 +22,7 @@ vtium-devices = { path = "crates/vtium-devices" }
 vtium-broker-protocol = { path = "crates/vtium-broker-protocol" }
 vtium-font-helper = { path = "crates/vtium-font-helper" }
 vtium-config-widgets = { path = "crates/vtium-config-widgets" }
+vtium-config-core = { path = "crates/vtium-config-core" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -49,6 +50,12 @@ opt-level = 2
 # The same scenarios draw every frame through the TUI's toolkit, which
 # vtium-config-widgets holds, so it is built at the same level too.
 [profile.dev.package.vtium-config-widgets]
+opt-level = 2
+
+# The same scenarios edit drafts and run the commands through the
+# configuration's modules, which vtium-config-core holds, so it is built at
+# the same level too.
+[profile.dev.package.vtium-config-core]
 opt-level = 2
 
 [profile.release]

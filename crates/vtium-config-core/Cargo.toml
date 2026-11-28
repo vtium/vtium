@@ -1,0 +1,51 @@
+[package]
+name = "vtium-config-core"
+description = "Edits, checks and installs vtium's configuration: the drafts of vtium.conf, the store, the active resources, and the commands that vtium-config's command line and TUI share"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The font helper: the frits, the sources and `serve`, which the commands
+# check, install and ask for glyphs, and whose modules this crate's
+# lib.rs names at its root for its own code.
+vtium-font-helper.workspace = true
+# The TUI's rows of styled text and its colors, in which `specimen`
+# paints its picture of the console, and the decoder of the terminal's
+# replies, which `use-frit` reads its answer with.
+vtium-config-widgets.workspace = true
+# The built-in fonts and layers a frit may name, the glyphs a specimen
+# lays out, and the SHA-256 that the store and the installs mark files
+# with.
+vtium-font.workspace = true
+# The device listing the flow reads, a monitor's EDID for the report,
+# and the signals `use-frit` holds while it waits for the reply.
+vtium-platform.workspace = true
+# vtium.conf's line editor and the head file's one writer and parser
+# (ADR-1201 D5, D6), the crate the console already links; with its vtlook
+# reader, which the looks are checked with (ADR-1205 D3).
+vtium-settings = { workspace = true, features = ["filters"] }
+# The console's named palettes, in whose colors a specimen draws its
+# picture of the console; the crate the console already links.
+vtium-term.workspace = true
+# The devices present as the head file's rules see them, mapped by the
+# functions the console places them with, for the flow view (ADR-1403 D9).
+vtium-devices.workspace = true
+# The frame filters' color tables of the crate the console draws with,
+# which a look's specimen draws a picture of the console through, as the
+# console's CPU path draws a frame.
+vtium-render = { workspace = true, features = ["filters"] }
+# Opening a file without following a link, the effective uid, and the
+# terminal's width for the banner; vtium-platform already builds this
+# version with these features.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "process", "termios"] }
+# The user database's lookup of the name doas hands apply in DOAS_USER
+# (getpwnam), safe; the version calloop already builds, with its `user`
+# feature, in vtium-config's binary only.
+nix = { version = "=0.31.3", default-features = false, features = ["user"] }

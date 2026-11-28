@@ -53,7 +53,7 @@ the trust check covers every folder above the file, through each link, on descri
 the console reads vtium.conf through the trust check	crates/vtium/src/config/mod.rs	read_file
 an untrusted vtium.conf: the compiled-in configuration and a notice	crates/vtium/src/head.rs	rules
 the login key runs as root	crates/vtium-settings/src/keys.rs	key login
-vtium-config installs through sudo, with no path or program option	crates/vtium-config/src/apply.rs	route
+vtium-config installs through sudo, with no path or program option	crates/vtium-config-core/src/apply.rs	route
 check-config opens nothing under /dev and writes nothing	crates/vtium/src/check.rs	main
 open and closed policies	crates/vtium-settings/src/outcome.rs	Policy
 ignored keyboards are watched only for the VT keys	crates/vtium-platform/src/input/event.rs	Disposition
