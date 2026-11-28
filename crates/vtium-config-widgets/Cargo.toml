@@ -1,0 +1,26 @@
+[package]
+name = "vtium-config-widgets"
+description = "Draws vtium-config's TUI in a terminal's text cells: its Backend, its rows of styled text, its sixteen colors, its shared list and its decoder of keys and replies"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The layout, buffer of cells, styles and Backend trait that the Backend
+# implements. Only its `std` feature, and no backend crate: this crate's
+# own Backend turns ratatui's cells into the bytes vtium-config's loop
+# writes. The version vtium-config builds.
+ratatui-core = { version = "=0.1.2", default-features = false, features = ["std"] }
+# The console's width rule, by which the Backend and the text helpers
+# measure each character, and the terminal the Backend's tests draw into;
+# the crate the console already links.
+vtium-term.workspace = true
+# The superscript and subscript a style carries, as the console's
+# character attributes name them.
+vtium-font.workspace = true

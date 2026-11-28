@@ -1,7 +1,7 @@
 //! The help text: the usage `--help` prints, and the help `--help TOPIC`
 //! prints for one command. Each command's text is written once, in
 //! `TOPICS`, and both read it. The options come from the parser's own
-//! table, [`crate::cli::VALUE_OPTIONS`], and the exit statuses from
+//! table, [`crate::options::VALUE_OPTIONS`], and the exit statuses from
 //! [`EXIT_STATUS`]. vtium-config(1), the man page that tools/man
 //! generates, reads the same lists.
 
@@ -502,7 +502,7 @@ pub const EXIT_STATUS: [(u8, &str); 7] = [
 ];
 
 /// The options `--help` and `--version`, which the parser reads apart
-/// from [`crate::cli::VALUE_OPTIONS`].
+/// from [`crate::options::VALUE_OPTIONS`].
 pub const HELP_OPTIONS: &str = "--help [TOPIC], --version";
 
 /// The widest line of the usage, in columns.
@@ -569,7 +569,7 @@ pub fn usage() -> String {
         text.push_str(&wrap(means, &format!("  {code}  "), "     "));
     }
     text.push_str("\nOptions:\n");
-    for o in crate::cli::VALUE_OPTIONS {
+    for o in crate::options::VALUE_OPTIONS {
         let option = format!("{} {}", o.name, o.value);
         text.push_str(&format!("  {option:<21} {}\n", o.does));
     }

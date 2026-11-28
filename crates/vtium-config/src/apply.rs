@@ -14,7 +14,7 @@
 //! --force`.
 //!
 //! `apply` runs as root through `sudo vtium-config apply DIR`, and takes
-//! no option that names a path or a program ([`crate::cli::root_refusal`]).
+//! no option that names a path or a program (`crate::cli::root_refusal`).
 //! So it writes only these files: `/etc/vtium/vtium.conf`; the batch file
 //! vtium reads; the frits, in the frits' directory that the installed
 //! vtium.conf names in `font-frits`, else the one the build names, read as
@@ -84,8 +84,8 @@ use vtium_font::{Sha256, sha256_hex};
 use crate::draft::Plan;
 use crate::drafts::Verdict;
 use crate::frit::{FRIT_BYTES_MAX, Frit, valid_name};
+use crate::places::CONF_MAX;
 use crate::specimen::Helper;
-use crate::tui::CONF_MAX;
 
 /// What `apply` says of a file that changed after the draft was made.
 /// `install` finds these words in `apply`'s output to choose its exit code.
@@ -561,7 +561,7 @@ impl Targets {
     pub fn is_system(&self) -> bool {
         // the system's frits' directory is read from its vtium.conf, so
         // targets elsewhere are told apart without reading it
-        if self.configdir != crate::cli::default_configdir() {
+        if self.configdir != crate::places::default_configdir() {
             return false;
         }
         let system = Targets::system();
@@ -573,7 +573,7 @@ impl Targets {
     /// one the build names ([`crate::switch::frits_dir`]), and the console
     /// the build names.
     pub fn system() -> Targets {
-        let configdir = crate::cli::default_configdir();
+        let configdir = crate::places::default_configdir();
         Targets {
             frits: crate::switch::frits_dir(&configdir),
             configdir,
@@ -1375,7 +1375,7 @@ fn same_check(
     removals: &[PathBuf],
     file: Option<&Path>,
 ) -> String {
-    let path = |p: &Path| crate::tui::edit::shell(&p.to_string_lossy());
+    let path = |p: &Path| crate::shell::shell(&p.to_string_lossy());
     let name = |p: &Path, of: fn(&Path) -> Option<&std::ffi::OsStr>| {
         of(p)
             .map(|n| n.to_string_lossy().into_owned())
@@ -1395,7 +1395,7 @@ fn same_check(
     }
     for removal in removals {
         words.push("--without-frit".to_owned());
-        words.push(crate::tui::edit::shell(&name(removal, Path::file_stem)));
+        words.push(crate::shell::shell(&name(removal, Path::file_stem)));
     }
     if let Some(file) = file {
         words.push(path(file));
@@ -2181,7 +2181,7 @@ mod tests {
     #[test]
     fn the_system_s_directories_are_the_system_s_configdir_and_frits_together() {
         let trial = Targets {
-            configdir: crate::cli::default_configdir(),
+            configdir: crate::places::default_configdir(),
             frits: Ok(PathBuf::from("/tmp/my-frits")),
             vtium: VTIUM.into(),
         };

@@ -381,14 +381,13 @@ pub fn rename(text: &str, of: Of<'_>, new: &str) -> Result<String, Fail> {
 pub fn set_top(text: &str, key: &str, value: &str) -> Result<String, Fail> {
     let key = crate::commands::conf_key(key).map_err(Fail::Usage)?;
     let edit = crate::commands::set_edit(key, value).map_err(Fail::Usage)?;
-    edit_conf(text, &[edit]).map_err(|e| Fail::Usage(crate::tui::words::conf_edit(&e)))
+    edit_conf(text, &[edit]).map_err(|e| Fail::Usage(crate::words::conf_edit(&e)))
 }
 
 /// Leaves the top-level key `key` at its default: its line commented out.
 pub fn unset_top(text: &str, key: &str) -> Result<String, Fail> {
     let key = crate::commands::conf_key(key).map_err(Fail::Usage)?;
-    edit_conf(text, &[Edit::Unset(key.name)])
-        .map_err(|e| Fail::Usage(crate::tui::words::conf_edit(&e)))
+    edit_conf(text, &[Edit::Unset(key.name)]).map_err(|e| Fail::Usage(crate::words::conf_edit(&e)))
 }
 
 /// The top level of `text`: every line above its first section.
@@ -474,7 +473,7 @@ pub const LABELS_COMMENT: &str = "\
 /// The longer comment the Flow view's try-out wrote above the section. A
 /// draft may still hold it, and it goes with the section as the comment
 /// above does.
-pub(crate) const LABELS_COMMENT_TRIED: &str = "\
+pub const LABELS_COMMENT_TRIED: &str = "\
 # Labels. A label is a name of your own for a display or an input, such as
 # \"desk keyboard\" or \"left screen\". vtium shows it on the on-screen
 # display, in place of the name the system gives the device.

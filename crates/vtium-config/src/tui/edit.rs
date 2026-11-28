@@ -8,6 +8,11 @@ use vtium_settings::Of;
 use crate::ops::{self, RuleChange};
 use crate::outcome::Fail;
 
+// The shell quoting that apply.rs shows a command line with too, at the
+// path it had in this module.
+#[doc(inline)]
+pub use crate::shell::shell;
+
 /// One change to the draft.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change {
@@ -74,19 +79,6 @@ pub enum Change {
     /// Writes the `[labels]` section with these lines, after `[rules]`, or
     /// removes it when there are none.
     Labels(Vec<String>),
-}
-
-/// `word` quoted for a shell where it needs it.
-pub(crate) fn shell(word: &str) -> String {
-    if !word.is_empty()
-        && word
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-_./:,=@+".contains(c))
-    {
-        word.to_owned()
-    } else {
-        format!("'{}'", word.replace('\'', r"'\''"))
-    }
 }
 
 /// The draft `text` with `changes` made in order. When a change edits the

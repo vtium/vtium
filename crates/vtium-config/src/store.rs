@@ -156,7 +156,7 @@ impl Installed {
 /// A file's text, `None` when it does not exist; a file that cannot be read
 /// is exit 5's failure, naming its path.
 fn read(path: &Path) -> Result<Option<String>, Fail> {
-    crate::tui::read_conf(path).map_err(Fail::File)
+    crate::places::read_conf(path).map_err(Fail::File)
 }
 
 /// The temporary file [`write()`] writes before it renames the file over

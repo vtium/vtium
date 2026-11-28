@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use crate::apply::{Ask, Runner};
 use crate::draft::{FileEdit, Plan, changes};
 use crate::outcome::Fail;
+use crate::places::Paths;
 use crate::store::{Store, hash};
-use crate::tui::Paths;
 
 /// The shipped example vtium.conf: the key table's commented lines and the
 /// compiled-in flow's sections. vtium installs it as
@@ -286,7 +286,7 @@ impl Session<'_> {
 
     /// The installed vtium.conf's text, `None` when none is installed.
     pub fn installed(&self) -> Result<Option<String>, Fail> {
-        crate::tui::read_conf(&self.installed_path()).map_err(Fail::File)
+        crate::places::read_conf(&self.installed_path()).map_err(Fail::File)
     }
 
     /// The current draft's name and text. When the settings name no draft,
@@ -423,7 +423,7 @@ impl Session<'_> {
         let old = match &installed {
             Installed::Missing => None,
             Installed::Read(_) => text.map(str::to_owned),
-            Installed::Refused(why) => crate::tui::read_conf(&path).map_err(|e| {
+            Installed::Refused(why) => crate::places::read_conf(&path).map_err(|e| {
                 Fail::File(format!(
                     "{why} vtium-config cannot replace the file: {e}. Remove it as root, and the install then writes a new one."
                 ))
@@ -860,7 +860,7 @@ impl Session<'_> {
             match unrouted {
                 Unrouted::Install => {}
                 Unrouted::Refuse => {
-                    return Err(Fail::Check(crate::tui::words::no_route_force()));
+                    return Err(Fail::Check(crate::words::no_route_force()));
                 }
                 Unrouted::Ask(ask) => {
                     let installed = self.installed()?;
@@ -870,16 +870,14 @@ impl Session<'_> {
                     } else {
                         0
                     };
-                    let question = crate::tui::words::no_route_question(
+                    let question = crate::words::no_route_question(
                         added,
                         removed,
                         batch,
                         ready.plan.font_sets(),
                     );
                     if !ask(out, &question) {
-                        return Err(Fail::Check(
-                            crate::tui::words::NO_ROUTE_NOT_INSTALLED.to_owned(),
-                        ));
+                        return Err(Fail::Check(crate::words::NO_ROUTE_NOT_INSTALLED.to_owned()));
                     }
                 }
             }

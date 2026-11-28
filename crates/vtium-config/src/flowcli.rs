@@ -23,8 +23,8 @@ use crate::drafts::{Checked, From, Session, State, Unrouted, Verdict, diff, run_
 use crate::flowmodel::{self, Present};
 use crate::ops::{self, RuleChange, To};
 use crate::outcome::Fail;
+use crate::places::Paths;
 use crate::store::{Store, valid_name};
-use crate::tui::Paths;
 
 /// Where the devices present are read: sysfs and udev's database, and
 /// udev's control socket.
@@ -197,17 +197,13 @@ impl Command<'_, '_> {
 
     /// The draft's flow and its check: the flow, the check, and what a
     /// complete route still lacks.
-    fn judged(
-        &self,
-        name: &str,
-        text: &str,
-    ) -> Result<(crate::tui::flow::Flow, State, Checked), Fail> {
+    fn judged(&self, name: &str, text: &str) -> Result<(crate::flow::Flow, State, Checked), Fail> {
         let state = self.session.state(name, text)?;
         let checked = self
             .session
             .check(name, text, &self.session.store.draft_path(name)?)?;
         let (added, removed) = state.counts();
-        let draft = crate::tui::flow::Draft {
+        let draft = crate::flow::Draft {
             name: name.to_owned(),
             changes: added.max(removed),
             problems: checked.count(),
@@ -349,7 +345,7 @@ impl Command<'_, '_> {
         let head = heads.first().map(|h| h.name.as_str());
         for look in &flow.looks {
             if !heads.iter().any(|h| h.look == look.name) {
-                self.say(&crate::tui::words::no_head_uses(&look.name, head));
+                self.say(&crate::words::no_head_uses(&look.name, head));
             }
         }
     }
@@ -848,7 +844,7 @@ impl Command<'_, '_> {
         }
         let history = self.session.store.history()?;
         if history.is_empty() {
-            self.say(crate::tui::words::NO_HISTORY);
+            self.say(crate::words::NO_HISTORY);
         }
         for (i, h) in history.iter().enumerate() {
             let when = crate::report::utc_text(h.when);
@@ -879,7 +875,7 @@ impl Command<'_, '_> {
                     "there is no earlier file {n}; vtium config history lists them"
                 ))
             })?;
-        let restored = crate::tui::read_conf(&file.path)
+        let restored = crate::places::read_conf(&file.path)
             .map_err(Fail::File)?
             .unwrap_or_default();
         let (name, text) = self.session.current()?;
@@ -889,7 +885,7 @@ impl Command<'_, '_> {
     /// `library list`, `library add`, `library take` and `library rm`.
     fn library(&mut self, words: &[String]) -> Result<(), Fail> {
         let path = self.session.store.library_path();
-        let library = crate::tui::read_conf(&path)
+        let library = crate::places::read_conf(&path)
             .map_err(Fail::File)?
             .unwrap_or_default();
         let (sub, rest) = words
@@ -981,7 +977,7 @@ impl Command<'_, '_> {
                     "the editor {editor} failed, so the draft is unchanged"
                 )));
             }
-            let edited = crate::tui::read_conf(copy)
+            let edited = crate::places::read_conf(copy)
                 .map_err(Fail::File)?
                 .unwrap_or_default();
             if edited == draft {

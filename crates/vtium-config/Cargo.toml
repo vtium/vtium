@@ -45,6 +45,10 @@ vtium-devices.workspace = true
 # The font helper: the frits, the sources, the decoders, the rasteriser and
 # `serve`, which this crate's binary runs and re-exports at its root.
 vtium-font-helper.workspace = true
+# The TUI's toolkit: its Backend, its rows of styled text, its colors, its
+# shared list and its decoder of keys and replies, which the TUI's `tui`
+# module re-exports.
+vtium-config-widgets.workspace = true
 # Opening a file without following a link, the
 # effective uid, `set`'s raw mode, and the terminal's width for the
 # banner; vtium-platform already builds this version with these features.

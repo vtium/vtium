@@ -30,9 +30,6 @@
 //! - ADR-1205 D1: the six tabs and their order.
 //! - ADR-1403 D7: the Flow view and the paths it draws.
 
-pub mod backend;
-pub mod canvas;
-pub mod color;
 mod console;
 pub mod contract;
 mod contract_text;
@@ -48,9 +45,7 @@ mod flowedit;
 pub mod flowlayout;
 pub mod flowview;
 pub mod fonts_found;
-pub mod input;
 pub mod layout;
-pub mod listbox;
 pub mod model;
 pub mod nav;
 pub mod parts;
@@ -63,108 +58,21 @@ pub mod tabs;
 pub mod view;
 pub mod words;
 
-use std::ffi::OsString;
+// The TUI's toolkit, which vtium-config-widgets holds, at the paths it had
+// in this module.
+pub use vtium_config_widgets::{backend, canvas, color, input, listbox};
+
+// The places the TUI reads and saves and the fonts it lists, which the
+// configuration's modules use too, at the paths they had in this module.
+#[doc(inline)]
+pub use crate::fontlist::{fonts, layers};
+#[doc(inline)]
+pub use crate::places::{CONF_MAX, Paths, default_drafts, read_conf};
+
 use std::path::{Path, PathBuf};
 
-use vtium_font::set::builtin;
-
 use crate::frit::{Frit, RESERVED};
-use model::{DpiFrom, Font, FontState, Inputs};
-
-/// The most bytes the TUI reads of vtium.conf.
-pub const CONF_MAX: u64 = 1 << 20;
-
-/// Where the TUI reads from and saves to, as the command line names them.
-#[derive(Clone, Debug)]
-pub struct Paths {
-    /// The directory of vtium.conf.
-    pub configdir: PathBuf,
-    /// The frits' directory, or why there is none.
-    pub frits: crate::switch::Frits,
-    /// The directory drafts go under.
-    pub drafts: PathBuf,
-    /// The program that runs `apply` as root: `sudo`, or a test's stand-in.
-    pub sudo: OsString,
-    /// The console binary `apply` checks configuration files with.
-    pub vtium: OsString,
-    /// The glyph helper that draws specimens and finds a frit's sources.
-    pub helper: crate::specimen::Helper,
-    /// sysfs, where the displays' modes and EDIDs are read: `/sys`.
-    pub sys: PathBuf,
-}
-
-impl Paths {
-    /// Where a save installs, as `apply` takes it.
-    pub fn targets(&self) -> crate::apply::Targets {
-        crate::apply::Targets {
-            configdir: self.configdir.clone(),
-            frits: self.frits.clone(),
-            vtium: self.vtium.clone(),
-        }
-    }
-}
-
-/// The directory drafts go under: `$XDG_STATE_HOME/vtium/drafts`, else
-/// `~/.local/state/vtium/drafts`.
-pub fn default_drafts() -> PathBuf {
-    let state = std::env::var_os("XDG_STATE_HOME")
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".local/state")))
-        .unwrap_or_else(|| PathBuf::from(".local/state"));
-    state.join("vtium/drafts")
-}
-
-/// A configuration file's text, `None` when it does not exist.
-pub fn read_conf(path: &Path) -> Result<Option<String>, String> {
-    use std::io::Read;
-    let file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("{}: {e}", path.display())),
-    };
-    let mut bytes = Vec::new();
-    file.take(CONF_MAX.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > CONF_MAX {
-        return Err(format!(
-            "{} is too large: the limit is {CONF_MAX} bytes",
-            path.display()
-        ));
-    }
-    String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|_| format!("{} is not UTF-8 text", path.display()))
-}
-
-/// The frits in `dir` and in its category folders, and the built-in fonts,
-/// sorted by name, each with its state. A frit is read as text with the
-/// layers it names, as the console reads it.
-pub fn fonts(dir: &Path) -> Vec<Font> {
-    let mut out: Vec<Font> = RESERVED
-        .iter()
-        .filter(|n| builtin(n).is_some())
-        .map(|n| Font {
-            name: (*n).to_owned(),
-            state: FontState::BuiltIn,
-        })
-        .collect();
-    let layers = dir.join(vtium_font::set::layer::DIR);
-    for (name, path) in crate::switch::frit_files(dir) {
-        if RESERVED.contains(&name.as_str()) {
-            continue;
-        }
-        let state = match Frit::load_in(&path, &layers) {
-            Ok(_) => FontState::Reads,
-            Err(e) if e.line == 0 => FontState::Refused(e.why.clone()),
-            Err(e) => FontState::Refused(format!("line {}: {}", e.line, e.why)),
-        };
-        out.push(Font { name, state });
-    }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    out
-}
+use model::{DpiFrom, Inputs};
 
 /// Each frit installed in `dir` or in its category folders, by its name:
 /// its bytes, which a new frit of that name replaces and a removal
@@ -186,42 +94,6 @@ pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
         }
     }
     out
-}
-
-/// The layers in the `layers/` folder of the frits' directory `dir`, each
-/// by its name with the role its `role=` line names, in the order of their
-/// names. A layer the layer reader refuses is left out, because a font set
-/// cannot use it.
-///
-/// References:
-/// - ADR-1204 D5: the layers' folder, and the roles a layer fills.
-pub fn layers(dir: &Path) -> Vec<(String, vtium_font::set::layer::Role)> {
-    use vtium_font::set::layer;
-    let folder = dir.join(layer::DIR);
-    let Ok(entries) = std::fs::read_dir(&folder) else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = entries
-        .filter_map(Result::ok)
-        .filter_map(|e| {
-            e.file_name()
-                .to_str()?
-                .strip_suffix(layer::SUFFIX)
-                .map(str::to_owned)
-        })
-        .filter(|n| layer::valid_name(n))
-        .collect();
-    names.sort();
-    names
-        .into_iter()
-        .filter_map(|name| {
-            let text = crate::frit::read_layer(&folder, &name).ok()??;
-            let file = crate::frit::layer_file(&folder, &name);
-            // the list of layers has no place to show a layer's warnings
-            let (role, _) = Frit::parse_layer(text.as_bytes(), &file, &name).ok()?;
-            Some((name, role))
-        })
-        .collect()
 }
 
 /// The density pictures are drawn at, in ADR-1200 D17's order:
