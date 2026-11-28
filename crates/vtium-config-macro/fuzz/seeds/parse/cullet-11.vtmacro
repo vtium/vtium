@@ -1,0 +1,20 @@
+# Make the console draw Cullet Mono at 11 pt, and save it.
+# Run it with: vtium config tui --macro cullet-11.vtmacro --live
+Set Live
+Alt+L
+Expect At looks
+Click "console"
+Enter
+Click "Font set"
+Enter
+Click "cullet-mono"
+Enter
+Click "Size"
+Enter
+Click "11 pt"
+Enter
+Expect "cullet-mono"
+Expect "11 pt"
+Ctrl+S
+Enter
+Expect Saved

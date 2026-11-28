@@ -1734,6 +1734,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-config-macro"
+version = "0.1.0-alpha.12"
+
+[[package]]
 name = "vtium-conformance"
 version = "0.1.0-alpha.12"
 dependencies = [
