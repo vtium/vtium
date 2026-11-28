@@ -85,6 +85,8 @@ opt-level = 2
 # both machines, so the tab is built at the same level as the crates it
 # draws through.
 [profile.dev.package.vtium-config-tab-flow]
+opt-level = 2
+
 # The Effects tab's screen tests draw every screen at two sizes on two
 # machines, the large one with 200 vtlooks, so the tab is built at the
 # same level as the toolkit it draws with.
