@@ -185,7 +185,7 @@ fn find_s_match_and_the_tab_the_person_came_from_carry_the_topic() {
             assert!(!item.fact.is_empty());
         }
         assert_eq!(items[0].fact, "32 keys".to_owned());
-        assert_eq!(items[8].fact, "28 commands".to_owned());
+        assert_eq!(items[8].fact, "29 commands".to_owned());
         assert!(
             items[0]
                 .description

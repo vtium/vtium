@@ -1,7 +1,7 @@
 == map 100x30 ==
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help           workstation ● 1 not saved
 ────────────────────────────────────────────────────────────────────────────────────────────────────
- Help                │ Commands  lines 1 to 24 of 91  [PgUp] [PgDn]                                 
+ Help                │ Commands  lines 1 to 24 of 95  [PgUp] [PgDn]                                 
                      │                                                                              
   Fonts              │ Each command works from a shell, in a terminal of any size, as vtium-config  
   Effects            │ COMMAND.                                                                     
@@ -10,9 +10,10 @@
   Settings           │                             devices                                          
   Help               │   diff                      show how the draft differs from the installed    
   Menus and Save     │                             vtium.conf                                       
-  Mouse              │   install [--force]         check the draft and install it as                
-  Commands           │                             /etc/vtium/vtium.conf                            
-  About              │   get KEY                   show a setting's value in the draft              
+  Mouse              │   install [--force] [--overwrite]                                            
+  Commands           │                             check the draft and install it as                
+  About              │                             /etc/vtium/vtium.conf                            
+                     │   get KEY                   show a setting's value in the draft              
                      │   set KEY VALUE             change a setting in the draft                    
                      │   set --unset KEY           put a setting back to its default                
                      │   revert [--dry-run]        throw away the draft's changes                   
@@ -26,7 +27,6 @@
                      │   rule move N --before M | --last                                            
                      │                             move rule N                                      
                      │   rule rm N                 remove rule N                                    
-                     │   head add NAME [--look L]  add a head                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────
  [?] Search  [Ctrl+S] Save  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [Ctrl+F] Find        [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -63,7 +63,7 @@
 == map 80x25 ==
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
 ────────────────────────────────────────────────────────────────────────────────
- Help             │ Commands  lines 1 to 19 of 118  [PgUp] [PgDn]               
+ Help             │ Commands  lines 1 to 19 of 123  [PgUp] [PgDn]               
                   │                                                             
   Fonts           │ Each command works from a shell, in a terminal of any size, 
   Effects         │ as vtium-config COMMAND.                                    
@@ -72,9 +72,10 @@
   Settings        │                             displays and input devices      
   Help            │   diff                      show how the draft differs from 
   Menus and Save  │                             the installed vtium.conf        
-  Mouse           │   install [--force]         check the draft and install it  
-  Commands        │                             as /etc/vtium/vtium.conf        
-  About           │   get KEY                   show a setting's value in the   
+  Mouse           │   install [--force] [--overwrite]                           
+  Commands        │                             check the draft and install it  
+  About           │                             as /etc/vtium/vtium.conf        
+                  │   get KEY                   show a setting's value in the   
                   │                             draft                           
                   │   set KEY VALUE             change a setting in the draft   
                   │   set --unset KEY           put a setting back to its       
@@ -83,7 +84,6 @@
                   │   new [--dry-run]           start the draft over from the   
                   │                             defaults                        
                   │   rule add [--before N] 'KIND MATCH -> TARGET'              
-                  │                             add a rule                      
 ────────────────────────────────────────────────────────────────────────────────
  [?] Search  [Ctrl+S] Save  [Ctrl+Z] Undo  [.] More        [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -115,7 +115,7 @@
 == large 100x30 ==
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help                   lab ● 1 not saved
 ────────────────────────────────────────────────────────────────────────────────────────────────────
- Help                │ Commands  lines 1 to 24 of 91  [PgUp] [PgDn]                                 
+ Help                │ Commands  lines 1 to 24 of 95  [PgUp] [PgDn]                                 
                      │                                                                              
   Fonts              │ Each command works from a shell, in a terminal of any size, as vtium-config  
   Effects            │ COMMAND.                                                                     
@@ -124,9 +124,10 @@
   Settings           │                             devices                                          
   Help               │   diff                      show how the draft differs from the installed    
   Menus and Save     │                             vtium.conf                                       
-  Mouse              │   install [--force]         check the draft and install it as                
-  Commands           │                             /etc/vtium/vtium.conf                            
-  About              │   get KEY                   show a setting's value in the draft              
+  Mouse              │   install [--force] [--overwrite]                                            
+  Commands           │                             check the draft and install it as                
+  About              │                             /etc/vtium/vtium.conf                            
+                     │   get KEY                   show a setting's value in the draft              
                      │   set KEY VALUE             change a setting in the draft                    
                      │   set --unset KEY           put a setting back to its default                
                      │   revert [--dry-run]        throw away the draft's changes                   
@@ -140,7 +141,6 @@
                      │   rule move N --before M | --last                                            
                      │                             move rule N                                      
                      │   rule rm N                 remove rule N                                    
-                     │   head add NAME [--look L]  add a head                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────
  [?] Search  [Ctrl+S] Save  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [Ctrl+F] Find        [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -177,7 +177,7 @@
 == large 80x25 ==
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
 ────────────────────────────────────────────────────────────────────────────────
- Help             │ Commands  lines 1 to 19 of 118  [PgUp] [PgDn]               
+ Help             │ Commands  lines 1 to 19 of 123  [PgUp] [PgDn]               
                   │                                                             
   Fonts           │ Each command works from a shell, in a terminal of any size, 
   Effects         │ as vtium-config COMMAND.                                    
@@ -186,9 +186,10 @@
   Settings        │                             displays and input devices      
   Help            │   diff                      show how the draft differs from 
   Menus and Save  │                             the installed vtium.conf        
-  Mouse           │   install [--force]         check the draft and install it  
-  Commands        │                             as /etc/vtium/vtium.conf        
-  About           │   get KEY                   show a setting's value in the   
+  Mouse           │   install [--force] [--overwrite]                           
+  Commands        │                             check the draft and install it  
+  About           │                             as /etc/vtium/vtium.conf        
+                  │   get KEY                   show a setting's value in the   
                   │                             draft                           
                   │   set KEY VALUE             change a setting in the draft   
                   │   set --unset KEY           put a setting back to its       
@@ -197,7 +198,6 @@
                   │   new [--dry-run]           start the draft over from the   
                   │                             defaults                        
                   │   rule add [--before N] 'KIND MATCH -> TARGET'              
-                  │                             add a rule                      
 ────────────────────────────────────────────────────────────────────────────────
  [?] Search  [Ctrl+S] Save  [Ctrl+Z] Undo  [.] More        [F10] Menu  [q] Quit 
 -- attributes without color --

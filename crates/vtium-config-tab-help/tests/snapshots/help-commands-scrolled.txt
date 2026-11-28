@@ -1,18 +1,19 @@
 == map 100x30 ==
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help           workstation ● 1 not saved
 ────────────────────────────────────────────────────────────────────────────────────────────────────
- Help                │ Commands  lines 25 to 48 of 91  [PgUp] [PgDn]                                
+ Help                │ Commands  lines 25 to 48 of 95  [PgUp] [PgDn]                                
                      │                                                                              
-  Fonts              │   head set NAME [--name NEW] [--look L] [--consoles N] [--login CMD]         
-  Effects            │   [--when-display-lost V] [--isolated yes|no] [--switch-on-enter yes|no]     
-  Looks              │                             change a head's settings                         
-  Flow               │   head rm NAME              delete a head, keeping its rules                 
-  Settings           │   head active NAME          make NAME the active head of the running vtium   
-  Help               │   look add NAME [--frit F] [--size PT] [--cell WxH]                          
-  Menus and Save     │                             add a look                                       
-  Mouse              │   look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine   
-  Commands           │   E] [--hinting H] [--line-spacing PCT] [--ligatures L] [--display-depth D]  
-  About              │   [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT]           
+  Fonts              │   head add NAME [--look L]  add a head                                       
+  Effects            │   head set NAME [--name NEW] [--look L] [--consoles N] [--login CMD]         
+  Looks              │   [--when-display-lost V] [--isolated yes|no] [--switch-on-enter yes|no]     
+  Flow               │                             change a head's settings                         
+  Settings           │   head rm NAME              delete a head, keeping its rules                 
+  Help               │   head active NAME          make NAME the active head of the running vtium   
+  Menus and Save     │   look add NAME [--frit F] [--size PT] [--cell WxH]                          
+  Mouse              │                             add a look                                       
+  Commands           │   look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine   
+  About              │   E] [--hinting H] [--line-spacing PCT] [--ligatures L] [--display-depth D]  
+                     │   [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT]           
                      │   [--login-image-rows N] [--login-image-position P] [--login-image-scale     
                      │   PCT] [--palette NAME] [--pointer-theme PATH] [--smooth-scroll S]           
                      │   [--partial-row P] [--vtlook NAME]                                          
@@ -22,11 +23,10 @@
                      │   draft new [NAME] [--from installed|empty|DRAFT]                            
                      │                             make a draft and make it current                 
                      │   draft switch NAME         make another draft current                       
+                     │   draft rename NAME NEW     rename a draft                                   
                      │   draft rm [NAME]           delete a draft                                   
                      │   history                   list the earlier vtium.conf files that installs  
                      │                             replaced                                         
-                     │   restore [N] [--dry-run]   copy an earlier vtium.conf into the draft        
-                     │   library list              list the saved looks, heads and rules            
 ────────────────────────────────────────────────────────────────────────────────────────────────────
  [?] Search  [Ctrl+S] Save  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [Ctrl+F] Find        [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -63,18 +63,19 @@
 == map 80x25 ==
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
 ────────────────────────────────────────────────────────────────────────────────
- Help             │ Commands  lines 25 to 43 of 118  [PgUp] [PgDn]              
+ Help             │ Commands  lines 25 to 43 of 123  [PgUp] [PgDn]              
                   │                                                             
-  Fonts           │   rule move N --before M | --last                           
-  Effects         │                             move rule N                     
-  Looks           │   rule rm N                 remove rule N                   
-  Flow            │   head add NAME [--look L]  add a head                      
-  Settings        │   head set NAME [--name NEW] [--look L] [--consoles N]      
-  Help            │   [--login CMD] [--when-display-lost V] [--isolated yes|no] 
-  Menus and Save  │   [--switch-on-enter yes|no]                                
-  Mouse           │                             change a head's settings        
-  Commands        │   head rm NAME              delete a head, keeping its      
-  About           │                             rules                           
+  Fonts           │                             where it sends                  
+  Effects         │   rule move N --before M | --last                           
+  Looks           │                             move rule N                     
+  Flow            │   rule rm N                 remove rule N                   
+  Settings        │   head add NAME [--look L]  add a head                      
+  Help            │   head set NAME [--name NEW] [--look L] [--consoles N]      
+  Menus and Save  │   [--login CMD] [--when-display-lost V] [--isolated yes|no] 
+  Mouse           │   [--switch-on-enter yes|no]                                
+  Commands        │                             change a head's settings        
+  About           │   head rm NAME              delete a head, keeping its      
+                  │                             rules                           
                   │   head active NAME          make NAME the active head of    
                   │                             the running vtium               
                   │   look add NAME [--frit F] [--size PT] [--cell WxH]         
@@ -83,7 +84,6 @@
                   │   WxH] [--engine E] [--hinting H] [--line-spacing PCT]      
                   │   [--ligatures L] [--display-depth D] [--display-dpi DPI]   
                   │   [--login-image FILE] [--login-image-fit FIT]              
-                  │   [--login-image-rows N] [--login-image-position P]         
 ────────────────────────────────────────────────────────────────────────────────
  [?] Search  [Ctrl+S] Save  [Ctrl+Z] Undo  [.] More        [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -115,18 +115,19 @@
 == large 100x30 ==
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help                   lab ● 1 not saved
 ────────────────────────────────────────────────────────────────────────────────────────────────────
- Help                │ Commands  lines 25 to 48 of 91  [PgUp] [PgDn]                                
+ Help                │ Commands  lines 25 to 48 of 95  [PgUp] [PgDn]                                
                      │                                                                              
-  Fonts              │   head set NAME [--name NEW] [--look L] [--consoles N] [--login CMD]         
-  Effects            │   [--when-display-lost V] [--isolated yes|no] [--switch-on-enter yes|no]     
-  Looks              │                             change a head's settings                         
-  Flow               │   head rm NAME              delete a head, keeping its rules                 
-  Settings           │   head active NAME          make NAME the active head of the running vtium   
-  Help               │   look add NAME [--frit F] [--size PT] [--cell WxH]                          
-  Menus and Save     │                             add a look                                       
-  Mouse              │   look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine   
-  Commands           │   E] [--hinting H] [--line-spacing PCT] [--ligatures L] [--display-depth D]  
-  About              │   [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT]           
+  Fonts              │   head add NAME [--look L]  add a head                                       
+  Effects            │   head set NAME [--name NEW] [--look L] [--consoles N] [--login CMD]         
+  Looks              │   [--when-display-lost V] [--isolated yes|no] [--switch-on-enter yes|no]     
+  Flow               │                             change a head's settings                         
+  Settings           │   head rm NAME              delete a head, keeping its rules                 
+  Help               │   head active NAME          make NAME the active head of the running vtium   
+  Menus and Save     │   look add NAME [--frit F] [--size PT] [--cell WxH]                          
+  Mouse              │                             add a look                                       
+  Commands           │   look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine   
+  About              │   E] [--hinting H] [--line-spacing PCT] [--ligatures L] [--display-depth D]  
+                     │   [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT]           
                      │   [--login-image-rows N] [--login-image-position P] [--login-image-scale     
                      │   PCT] [--palette NAME] [--pointer-theme PATH] [--smooth-scroll S]           
                      │   [--partial-row P] [--vtlook NAME]                                          
@@ -136,11 +137,10 @@
                      │   draft new [NAME] [--from installed|empty|DRAFT]                            
                      │                             make a draft and make it current                 
                      │   draft switch NAME         make another draft current                       
+                     │   draft rename NAME NEW     rename a draft                                   
                      │   draft rm [NAME]           delete a draft                                   
                      │   history                   list the earlier vtium.conf files that installs  
                      │                             replaced                                         
-                     │   restore [N] [--dry-run]   copy an earlier vtium.conf into the draft        
-                     │   library list              list the saved looks, heads and rules            
 ────────────────────────────────────────────────────────────────────────────────────────────────────
  [?] Search  [Ctrl+S] Save  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [Ctrl+F] Find        [F10] Menu  [q] Quit 
 -- attributes without color --
@@ -177,18 +177,19 @@
 == large 80x25 ==
  File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
 ────────────────────────────────────────────────────────────────────────────────
- Help             │ Commands  lines 25 to 43 of 118  [PgUp] [PgDn]              
+ Help             │ Commands  lines 25 to 43 of 123  [PgUp] [PgDn]              
                   │                                                             
-  Fonts           │   rule move N --before M | --last                           
-  Effects         │                             move rule N                     
-  Looks           │   rule rm N                 remove rule N                   
-  Flow            │   head add NAME [--look L]  add a head                      
-  Settings        │   head set NAME [--name NEW] [--look L] [--consoles N]      
-  Help            │   [--login CMD] [--when-display-lost V] [--isolated yes|no] 
-  Menus and Save  │   [--switch-on-enter yes|no]                                
-  Mouse           │                             change a head's settings        
-  Commands        │   head rm NAME              delete a head, keeping its      
-  About           │                             rules                           
+  Fonts           │                             where it sends                  
+  Effects         │   rule move N --before M | --last                           
+  Looks           │                             move rule N                     
+  Flow            │   rule rm N                 remove rule N                   
+  Settings        │   head add NAME [--look L]  add a head                      
+  Help            │   head set NAME [--name NEW] [--look L] [--consoles N]      
+  Menus and Save  │   [--login CMD] [--when-display-lost V] [--isolated yes|no] 
+  Mouse           │   [--switch-on-enter yes|no]                                
+  Commands        │                             change a head's settings        
+  About           │   head rm NAME              delete a head, keeping its      
+                  │                             rules                           
                   │   head active NAME          make NAME the active head of    
                   │                             the running vtium               
                   │   look add NAME [--frit F] [--size PT] [--cell WxH]         
@@ -197,7 +198,6 @@
                   │   WxH] [--engine E] [--hinting H] [--line-spacing PCT]      
                   │   [--ligatures L] [--display-depth D] [--display-dpi DPI]   
                   │   [--login-image FILE] [--login-image-fit FIT]              
-                  │   [--login-image-rows N] [--login-image-position P]         
 ────────────────────────────────────────────────────────────────────────────────
  [?] Search  [Ctrl+S] Save  [Ctrl+Z] Undo  [.] More        [F10] Menu  [q] Quit 
 -- attributes without color --
