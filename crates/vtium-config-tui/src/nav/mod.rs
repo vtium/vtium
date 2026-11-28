@@ -277,6 +277,8 @@ impl Nav {
                 self.question = None;
                 Step::Nothing
             }
+            // a list box's `?` is its own search, which the tab holds
+            "question.layer.list" => Step::Tab(carrying(id, key)),
             // `?` opens the search row wherever the node's `search`
             // column names fields, and does nothing elsewhere
             _ if id.starts_with("question.") => {

@@ -29,7 +29,7 @@ use vtium_config_core::document::{self, Document, Edit};
 use vtium_config_core::drafts::{Checked, Verdict};
 use vtium_config_core::flowmodel::Present;
 use vtium_config_core::preview::{Place, Previewed, Shows};
-use vtium_config_core::ui::{Action, Change, Command, Effect, Live, Shared};
+use vtium_config_core::ui::{Action, Change, Command, Effect, Live, Request, Shared};
 use vtium_config_tui::BoxTab;
 use vtium_config_tui::app::{App, Event, Size};
 use vtium_config_tui::live::machine::{Machine as Desk, Ready};
@@ -53,6 +53,10 @@ struct Seen {
     highlighted: Option<usize>,
     /// What the tab previews.
     preview: Option<(&'static str, Place)>,
+    /// The rows the Looks tab was handed, and the names it was asked to
+    /// show.
+    looks: Vec<&'static str>,
+    shown: Vec<String>,
 }
 
 /// A Fonts tab that answers every seam from what the test sets in `seen`.
@@ -80,6 +84,10 @@ impl Tab<Shared, Action, Command> for Seamed {
                     Edit::Text(text),
                 )))]
             }
+            "enter.view.fonts" => vec![Command::Request(Request::Show {
+                tab: "looks",
+                name: "proof".to_owned(),
+            })],
             _ => Vec::new(),
         }
     }
@@ -137,9 +145,12 @@ impl Searchable for Seamed {
     }
 }
 
-/// A Looks tab whose list box has a search of its own open.
+/// A Looks tab whose list box has a search of its own open, on the node
+/// `node`.
 struct ListBoxed {
     search: Search,
+    node: &'static str,
+    seen: Rc<RefCell<Seen>>,
 }
 
 impl Tab<Shared, Action, Command> for ListBoxed {
@@ -150,14 +161,18 @@ impl Tab<Shared, Action, Command> for ListBoxed {
         'l'
     }
     fn node(&self) -> &'static str {
-        "looks"
+        self.node
     }
     fn draw(&self, _shared: &Shared, _frame: &mut Frame<'_>, _area: Rect) {}
-    fn update(&mut self, _shared: &Shared, _action: Action) -> Vec<Command> {
+    fn update(&mut self, _shared: &Shared, action: Action) -> Vec<Command> {
+        self.seen.borrow_mut().looks.push(action.row);
         Vec::new()
     }
     fn search(&self) -> Option<&Search> {
         Some(&self.search)
+    }
+    fn show(&mut self, _shared: &Shared, name: &str) {
+        self.seen.borrow_mut().shown.push(name.to_owned());
     }
 }
 
@@ -168,6 +183,11 @@ fn app() -> (App, Rc<RefCell<Seen>>) {
 }
 
 fn app_on(shared: Shared) -> (App, Rc<RefCell<Seen>>) {
+    app_with(shared, "looks")
+}
+
+/// The same App, with the Looks tab on `looks`.
+fn app_with(shared: Shared, looks: &'static str) -> (App, Rc<RefCell<Seen>>) {
     let seen = Rc::new(RefCell::new(Seen::default()));
     let mut search = Search::open(
         &Seamed {
@@ -182,7 +202,11 @@ fn app_on(shared: Shared) -> (App, Rc<RefCell<Seen>>) {
         Box::new(Seamed {
             seen: Rc::clone(&seen),
         }),
-        Box::new(ListBoxed { search }),
+        Box::new(ListBoxed {
+            search,
+            node: looks,
+            seen: Rc::clone(&seen),
+        }),
     ];
     let app = App::new(tabs, shared, Size::grid(100, 30), true);
     (app, seen)
@@ -507,4 +531,21 @@ fn the_walk_s_reads_reach_the_shared_state() {
     assert!(app.shared().batch().is_none());
     app.event(Event::FontReads(reads.clone()));
     assert_eq!(app.shared().batch(), Some(&reads.view));
+}
+
+#[test]
+fn a_list_box_s_question_mark_reaches_the_tab_and_opens_no_search_of_the_shell_s() {
+    let (mut app, seen) = app_with(Machine::Map.shared(), "looks.look.list");
+    press(&mut app, plain(Code::Tab));
+    press(&mut app, Key::char('?'));
+    assert!(app.nav().search().is_none());
+    assert_eq!(seen.borrow().looks, ["question.layer.list"]);
+}
+
+#[test]
+fn another_tab_s_request_to_show_an_item_reaches_the_tab_on_any_of_its_nodes() {
+    let (mut app, seen) = app_with(Machine::Map.shared(), "looks-resources");
+    press(&mut app, plain(Code::Enter));
+    assert_eq!(app.nav().tab(), 1, "the request goes to Looks");
+    assert_eq!(seen.borrow().shown, ["proof"]);
 }

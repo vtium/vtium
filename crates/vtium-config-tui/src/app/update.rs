@@ -585,7 +585,7 @@ impl App {
             Request::Close => self.nav.close_level(),
             Request::Ask { question, then } => self.nav.ask(question, then),
             Request::Show { tab, name } => {
-                if let Some(i) = self.tabs.iter().position(|t| t.node() == tab) {
+                if let Some(i) = self.tab_at(tab) {
                     self.nav.go_to(i, self.tabs.len());
                     if let Some(t) = self.tabs.get_mut(i) {
                         t.show(&self.shared, &name);
@@ -593,6 +593,13 @@ impl App {
                 }
             }
         }
+    }
+
+    /// The tab whose own node is `tab`, such as `looks`, whatever level is
+    /// open in it or whichever node it is on now, such as
+    /// `looks-resources`.
+    fn tab_at(&self, tab: &str) -> Option<usize> {
+        self.tabs.iter().position(|t| tab_of(t.node()) == tab)
     }
 
     /// Leaves with `status`. The draft already holds every change, so
@@ -802,7 +809,7 @@ impl App {
                     None => Vec::new(),
                 }
             }
-            Act::GoNode { tab, action } => match self.tabs.iter().position(|t| t.node() == tab) {
+            Act::GoNode { tab, action } => match self.tab_at(tab) {
                 Some(tab) => self.sheet(Act::Go { tab, action }),
                 None => Vec::new(),
             },
@@ -812,7 +819,7 @@ impl App {
             }
             Act::Shell(action) => self.shell(action),
             Act::Activate(n) => {
-                if let Some(fonts) = self.tabs.iter().position(|t| t.node() == "fonts") {
+                if let Some(fonts) = self.tab_at("fonts") {
                     self.nav.go_clear(fonts, self.tabs.len());
                     self.nav.ask(
                         vtium_config_core::fontuse::activate::words::question(n),
@@ -931,3 +938,20 @@ impl App {
         }
     }
 }
+
+/// The tab's own node that `node` belongs to: `node` itself where it is a
+/// tab's, else the first of its parents in the interface tree that is.
+fn tab_of(node: &'static str) -> &'static str {
+    let mut at = node;
+    // the tree is a few levels deep, and the bound keeps a cycle finite
+    for _ in 0..TREE_DEPTH {
+        match vtium_config_widgets::contract::node(at) {
+            Some(n) if !matches!(n.parent, "tui" | "-" | "") => at = n.parent,
+            _ => break,
+        }
+    }
+    at
+}
+
+/// More levels than the interface tree has under a tab.
+const TREE_DEPTH: usize = 8;
