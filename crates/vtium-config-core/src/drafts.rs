@@ -422,7 +422,8 @@ impl Session<'_> {
         let path = self.batch_file();
         let installed = self.installed_batch();
         let text = installed.text(&path).map_err(Fail::Check)?;
-        let Some(new) = crate::batch::applied(text, &crate::batch::fresh(), &changes) else {
+        let Some(new) = crate::batch::applied(text, &crate::batch::start(self.paths), &changes)
+        else {
             return Ok(None);
         };
         // the file the install replaces, as apply finds it, for the check
@@ -447,7 +448,11 @@ impl Session<'_> {
         if changes.is_empty() {
             return Ok(());
         }
-        changes.settle(&self.installed_batch().base(&crate::batch::fresh()));
+        changes.settle(
+            &self
+                .installed_batch()
+                .base(&crate::batch::start(self.paths)),
+        );
         self.store.set_batch_changes(name, &changes)
     }
 

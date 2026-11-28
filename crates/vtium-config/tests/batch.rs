@@ -943,3 +943,55 @@ list\tROOT/etc/package-lists/vtium-fonts.conf\tread\tROOT/etc/package-lists/vtiu
         active.out
     );
 }
+
+/// An install writes a `-` line to deactivate a font that a package's
+/// list activates, and takes the line out to activate it again, adding no
+/// line of its own; the first batch file, written from the list of a
+/// fresh install, copies none of the list's paths.
+///
+/// References:
+/// - ADR-1205 D4, as amended on 2026-11-27: how vtium-config deactivates a package's font, and never copies a package's list into batch.conf.
+#[test]
+fn an_install_turns_a_listed_font_off_with_a_dash_line_and_copies_no_list() {
+    let f = fixture("install-lists");
+    std::fs::create_dir_all(f.path("etc/package-lists")).expect("the packages' folder");
+    std::fs::write(
+        f.path("etc/package-lists/vtium-fonts.conf"),
+        format!("{}\n{}\n", f.arg("res/mine.ttf"), f.arg("res/other.ttf")),
+    )
+    .expect("a package's list");
+    f.desk();
+    let mine = f.arg("res/mine.ttf");
+    f.ok(&["deactivate", &mine]);
+    f.ok(&["install"]);
+    let listed = f.listed();
+    assert!(listed.contains(&format!("-{mine}")), "{listed:?}");
+    assert!(!listed.contains(&mine), "{listed:?}");
+    assert!(!listed.contains(&f.arg("res/other.ttf")), "{listed:?}");
+    for font in fresh_fonts() {
+        assert!(listed.contains(&font), "{font} missing from {listed:?}");
+    }
+    let active = f.ok(&["active"]);
+    assert!(
+        active
+            .out
+            .contains("font\tROOT/res/mine.ttf\tnot active\tbatch.conf\n"),
+        "{}",
+        active.out
+    );
+    f.ok(&["activate", &mine]);
+    f.ok(&["install"]);
+    let listed = f.listed();
+    assert!(
+        !listed.iter().any(|l| l.ends_with("res/mine.ttf")),
+        "{listed:?}"
+    );
+    let active = f.ok(&["active"]);
+    assert!(
+        active
+            .out
+            .contains("font\tROOT/res/mine.ttf\tactive\tvtium-fonts\n"),
+        "{}",
+        active.out
+    );
+}
