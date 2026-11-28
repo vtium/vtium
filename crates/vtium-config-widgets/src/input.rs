@@ -125,7 +125,7 @@ pub enum Input {
 
 /// The most bytes a string sequence (DCS, OSC, APC) holds before the
 /// decoder drops it.
-const STRING_MAX: usize = 4096;
+pub(crate) const STRING_MAX: usize = 4096;
 
 /// The decoder: bytes in, [`Input`]s out, a sequence cut by a read kept for
 /// the next.
@@ -270,7 +270,7 @@ impl Decoder {
 }
 
 /// How the string that starts at `body` ends.
-enum StringEnd {
+pub(crate) enum StringEnd {
     /// At ST (`ESC \`) or, for OSC, BEL: the string's length and the end's.
     At(usize, usize),
     /// At an ESC, this far in, that does not begin ST.
@@ -279,7 +279,7 @@ enum StringEnd {
 
 /// Where the string that starts at `body` ends, or `None` while it has not
 /// ended, an ESC at the very end included, since it may begin ST.
-fn string_end(body: &[u8], bel: bool) -> Option<StringEnd> {
+pub(crate) fn string_end(body: &[u8], bel: bool) -> Option<StringEnd> {
     body.iter().enumerate().find_map(|(i, &b)| match b {
         0x07 if bel => Some(StringEnd::At(i, 1)),
         0x1b => match body.get(i.saturating_add(1)) {
@@ -352,24 +352,28 @@ fn escape(rest: &[u8]) -> Front {
                 Some(StringEnd::At(end, end_len)) => (end, end_len),
             };
             let content = body.get(..end).unwrap_or_default();
-            let input = match kind {
-                b'P' => content
-                    .strip_prefix(b">|")
-                    .map(|t| Input::Reply(Reply::Version(text(t)))),
-                b']' => content
-                    .strip_prefix(b"50;")
-                    .map(|t| Input::Reply(Reply::Font(text(t)))),
-                _ => content.strip_prefix(b"G").map(|g| {
-                    let message = g.iter().position(|&b| b == b';').map_or(&[][..], |i| {
-                        g.get(i.saturating_add(1)..).unwrap_or_default()
-                    });
-                    Input::Reply(Reply::Graphics(message == b"OK"))
-                }),
-            };
+            let input = string_reply(kind, content).map(Input::Reply);
             took(end.saturating_add(end_len), input)
         }
         // another escape sequence, such as Alt and a key: dropped
         _ => took(0, None),
+    }
+}
+
+/// The reply a whole DCS (`kind` `P`), OSC (`]`) or APC (`_`) string
+/// holds, from its `content` between the introducer and the end: `None`
+/// for a string that answers none of the TUI's requests.
+pub(crate) fn string_reply(kind: u8, content: &[u8]) -> Option<Reply> {
+    match kind {
+        b'P' => content.strip_prefix(b">|").map(|t| Reply::Version(text(t))),
+        b']' => content.strip_prefix(b"50;").map(|t| Reply::Font(text(t))),
+        b'_' => content.strip_prefix(b"G").map(|g| {
+            let message = g.iter().position(|&b| b == b';').map_or(&[][..], |i| {
+                g.get(i.saturating_add(1)..).unwrap_or_default()
+            });
+            Reply::Graphics(message == b"OK")
+        }),
+        _ => None,
     }
 }
 
@@ -429,11 +433,7 @@ fn csi(body: &[u8]) -> Front {
         let Some(&[b, x, y]) = body.get(end.saturating_add(1)..end.saturating_add(4)) else {
             return Front::Short;
         };
-        let mouse = button(u16::from(b.saturating_sub(32)), false).map(|button| Mouse {
-            button,
-            col: usize::from(x.saturating_sub(33)),
-            row: usize::from(y.saturating_sub(33)),
-        });
+        let mouse = x10_mouse(b, x, y);
         return Front::Took(
             end.saturating_add(6),
             mouse.map(|m| Input::Key(Key::Mouse(m))),
@@ -458,9 +458,20 @@ fn csi(body: &[u8]) -> Front {
     Front::Took(end.saturating_add(3), key.map(Input::Key))
 }
 
+/// A mode 1000 report's three bytes after `ESC [ M`: the button, the
+/// column and the row, each its value plus 32, the cell counted from 1.
+/// `None` for motion, which the TUI never asks for.
+pub(crate) fn x10_mouse(b: u8, x: u8, y: u8) -> Option<Mouse> {
+    button(u16::from(b.saturating_sub(32)), false).map(|button| Mouse {
+        button,
+        col: usize::from(x.saturating_sub(33)),
+        row: usize::from(y.saturating_sub(33)),
+    })
+}
+
 /// The width and height in XTWINOPS 14's reply, from its parameters
 /// `4;HEIGHT;WIDTH`; `None` for any other report.
-fn text_area(params: &[u8]) -> Option<(u32, u32)> {
+pub(crate) fn text_area(params: &[u8]) -> Option<(u32, u32)> {
     let text = std::str::from_utf8(params).ok()?;
     let mut parts = text.split(';');
     if parts.next()? != "4" {
@@ -495,7 +506,7 @@ fn button(cb: u16, released: bool) -> Option<Button> {
 }
 
 /// A mode 1006 report's parameters, `Cb;Cx;Cy`, the cell counted from 1.
-fn sgr_mouse(params: &[u8], released: bool) -> Option<Mouse> {
+pub(crate) fn sgr_mouse(params: &[u8], released: bool) -> Option<Mouse> {
     let text = std::str::from_utf8(params).ok()?;
     let mut n = text.split(';').map(|p| p.parse::<u16>().ok());
     let (cb, x, y) = (n.next()??, n.next()??, n.next()??);
