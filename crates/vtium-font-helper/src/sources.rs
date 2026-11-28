@@ -82,7 +82,7 @@ pub enum Gate {
     /// every resource passes. Its mount table is `None`, so the helper
     /// reads the system's table at each open, and a filesystem mounted
     /// since counts as it is now.
-    Active(cullet::Gate),
+    Active(Box<cullet::Gate>),
 }
 
 /// Why a file the batch does not list is refused, as what follows
@@ -1805,11 +1805,11 @@ mod tests {
     fn active(t: &Tree, paths: &[&Path]) -> Gate {
         use vtium_settings::batch::Entry;
         let me = rustix::process::geteuid().as_raw();
-        Gate::Active(cullet::Gate::new(
+        Gate::Active(Box::new(cullet::Gate::new(
             Rule::running_as(me).below(&t.0),
             None,
             Batch::new(paths.iter().map(|p| Entry::Path(p.to_path_buf())).collect()),
-        ))
+        )))
     }
 
     fn host_through<'a>(t: &Tree, consoles: &'a dyn Consoles, gate: &'a Gate) -> Host<'a> {
@@ -1958,11 +1958,11 @@ mod tests {
                 format!("{head} - nfs4 {rest}\n")
             })
             .collect();
-        let gate = Gate::Active(cullet::Gate::new(
+        let gate = Gate::Active(Box::new(cullet::Gate::new(
             Rule::running_as(me).below(&t.0),
             Some(Mounts::parse(table, Path::new("/nonexistent-sys"))),
             Batch::new(vec![vtium_settings::batch::Entry::Path(font.clone())]),
-        ));
+        )));
         let e = refused(&t, &gate, Origin::File(font));
         assert!(
             matches!(&e, SourceError::Refused { because, .. } if because.contains("nfs4")),
@@ -2006,11 +2006,11 @@ mod tests {
         );
         // listed, under the rule of a console that runs as root, the
         // user's folder fails the owner check
-        let gate = Gate::Active(cullet::Gate::new(
+        let gate = Gate::Active(Box::new(cullet::Gate::new(
             Rule::new(Trust::ROOT).below(&t.0),
             None,
             Batch::new(vec![Entry::Path(font.clone())]),
-        ));
+        )));
         h.gate = &gate;
         let e = resolve(&family(), &h).unwrap_err();
         assert!(
@@ -2066,11 +2066,11 @@ mod tests {
         let t = Tree::new("gate-family-blame");
         let other = t.file("a/b.ttf", &outline_font("B", "Regular"));
         let consoles = Graphics;
-        let gate = Gate::Active(cullet::Gate::new(
+        let gate = Gate::Active(Box::new(cullet::Gate::new(
             Rule::new(Trust::ROOT).below(&t.0),
             None,
             Batch::new(vec![Entry::Path(other.clone())]),
-        ));
+        )));
         let mut h = host_through(&t, &consoles, &gate);
         h.font_dirs = vec![t.0.join("a")];
         let family = |name: &str| source("font:x", Origin::Font(name.into()), None);

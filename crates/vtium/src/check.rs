@@ -440,4 +440,6 @@ pub fn main(
 }
 
 #[cfg(test)]
+mod lists_tests;
+#[cfg(test)]
 mod tests;

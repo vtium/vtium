@@ -4017,11 +4017,11 @@ fn opened_in_sandbox(
             return None;
         }
         let table = vtium_settings::mounts::Mounts::system().is_ok_and(|m| !m.list().is_empty());
-        let gate = Gate::Active(cullet::Gate::new(
+        let gate = Gate::Active(Box::new(cullet::Gate::new(
             Rule::running_as(me()),
             None,
             Batch::new(vec![Entry::Path(font.clone())]),
-        ));
+        )));
         let opened = crate::sources::resolve(
             &crate::frit::Frit::parse(
                 format!("source=outline:{}\n", font.display()).as_bytes(),

@@ -127,7 +127,7 @@ Tier 3 measures minspec in a virtual machine guest with 1 vCPU and 512 MB of mem
 
 | Measure | Value |
 |---|---|
-| Console binary | 4,356,352 bytes. A tier 3 run fails past a budget of 4,390,912 bytes (4 MiB + 192 KiB). |
+| Console binary | 4,356,352 bytes. A tier 3 run fails past a budget of 4,456,448 bytes (4 MiB + 256 KiB). |
 | Install tree, the font helper included | 7.63 MiB |
 | Peak resident memory at 320×240, 8×8 cells | 5.81 MiB |
 | Peak resident memory at 640×480, 8×16 cells | 7.77 MiB |

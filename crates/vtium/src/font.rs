@@ -300,6 +300,10 @@ pub fn own_face(cell: Cell) -> Option<DisplayFace> {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+mod lists_tests;
+
+#[cfg(test)]
 #[expect(
     clippy::unwrap_used,
     clippy::expect_used,

@@ -17,7 +17,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use vtium_font::Doubled;
 use vtium_font::set::Set;
-use vtium_settings::batch::{Batch, Entry};
+use vtium_settings::batch::{BATCH_MAX, Batch, Entry, MERGED_BATCH_MAX};
 
 /// Not a test of the helper: run by a trap of [`undumpable`] with
 /// [`DIE_BY`] set, it turns off this process's core dumps and ends the
@@ -589,12 +589,28 @@ fn a_helper_begun_again_takes_no_answer_to_an_earlier_ask() {
 // - ADR-1205 D4: the console tells each font helper the active fonts.
 #[test]
 fn the_active_fonts_stop_at_the_helpers_bound() {
-    let long = |i: usize| Entry::Path(PathBuf::from(format!("/{i:03}{}", "x".repeat(996))));
-    let batch = Batch::new((0..70).map(long).collect());
+    let long = |i: usize| Entry::Path(PathBuf::from(format!("/{i:04}{}", "x".repeat(995))));
+    let batch = Batch::new((0..MERGED_BATCH_MAX / 1000 + 10).map(long).collect());
     let bytes = active_request(0, &batch);
     let count = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
     assert_eq!(count as usize, ACTIVE_BYTES_MAX / 1000);
     assert!(bytes.len() - 20 <= ACTIVE_BYTES_MAX + 4 * count as usize);
+}
+
+// The helper's bound is the merged batch's, so every path of a batch
+// that the packages' lists take past batch.conf's own bound reaches the
+// font helper
+//
+// References:
+// - ADR-1205 D4, as amended on 2026-11-27: the merged batch's bound of 1 MiB bounds the request of active fonts.
+#[test]
+fn the_active_fonts_carry_the_whole_merged_batch() {
+    let long = |i: usize| Entry::Path(PathBuf::from(format!("/{i:03}{}", "x".repeat(996))));
+    let paths = BATCH_MAX / 1000 + 10;
+    let batch = Batch::new((0..paths).map(long).collect());
+    let bytes = active_request(0, &batch);
+    let count = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
+    assert_eq!(count as usize, paths);
 }
 
 // A batch path that the helper would refuse, one holding a NUL byte or

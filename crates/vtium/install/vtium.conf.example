@@ -1001,7 +1001,8 @@
 # == Running vtium ===========================================================
 #
 # Where vtium finds its configuration, its log, the font helper that draws a
-# font's characters, the helpers' sandbox, and the character cache.
+# font's characters, the helpers' sandbox, the character cache, and
+# vtium-config's live macro runs.
 
 # -- Debug log ---------------------------------------------------------------
 
@@ -1044,6 +1045,13 @@
 ## (small), or `performance` in a build with the `performance-cache` feature.
 
 #glyph-cache=
+
+# -- Live macro runs in vtium-config -----------------------------------------
+
+## Let `vtium-config tui --macro FILE --live` play a macro on the real
+## configuration and run its real commands.
+
+#allow-macro-live
 
 # == Looks, heads and rules ==================================================
 #

@@ -45,8 +45,15 @@ pub(super) const ACTIVE: u32 = 10;
 /// The sources the helper leaves out, a bit for each `source=` line.
 pub(super) const LEAVE_OUT: u32 = 12;
 /// The most bytes the paths of the active fonts hold together, the
-/// helper's bound: the batch file's own.
-pub(super) const ACTIVE_BYTES_MAX: usize = vtium_settings::batch::BATCH_MAX;
+/// helper's bound. The request carries every path of the merged batch,
+/// batch.conf's and the lists', so the bound is the merged batch's: a
+/// smaller one would cut the request short and hide the fonts of the last
+/// lists from the font helper, and the bound keeps the memory the font
+/// helper spends reading the request in check.
+///
+/// References:
+/// - ADR-1205 D4, as amended on 2026-11-27: the merged batch's bound of 1 MiB, which bounds the request of active fonts.
+pub(super) const ACTIVE_BYTES_MAX: usize = vtium_settings::batch::MERGED_BATCH_MAX;
 /// The longest path the active fonts name, the helper's bound.
 pub(super) const ACTIVE_PATH_MAX: usize = 4096;
 pub(super) const FRAME_GLYPHS: u32 = 1;
