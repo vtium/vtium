@@ -23,10 +23,6 @@ vtium-config-core.workspace = true
 # A font's format and groups as the font helper describes them, which the
 # tab's words name; the crate vtium-config-core already links.
 vtium-font-helper.workspace = true
-# The name of the layers' folder beside the font sets, which the walk of
-# the fonts a configuration uses reads; the crate vtium-config-core
-# already links.
-vtium-font.workspace = true
 # The rule for a font path the console takes on a live trial; the crate
 # vtium-config-core already links.
 vtium-settings.workspace = true
