@@ -1804,6 +1804,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-config-tab-looks"
+version = "0.1.0-alpha.12"
+dependencies = [
+ "ratatui-core",
+ "ratatui-widgets",
+ "vtium-config-core",
+ "vtium-config-widgets",
+ "vtium-font-helper",
+ "vtium-settings",
+ "vtium-term",
+]
+
+[[package]]
 name = "vtium-config-tab-settings"
 version = "0.1.0-alpha.12"
 dependencies = [
