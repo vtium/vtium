@@ -1,7 +1,9 @@
 //! The sheets the shell opens over a tab: F1's help ([`about`]), Ctrl+F's
 //! Find ([`find`]), the Problems list ([`problems`]), File › New…
 //! ([`new`]) and Manage configurations… ([`manage`]); [`open`] opens a
-//! configuration from File › Open › or the Manage sheet.
+//! configuration from File › Open › or the Manage sheet. Show changes
+//! ([`crate::changes`]) and a version from History ([`crate::history`])
+//! are sheets too, kept in their own modules.
 //!
 //! The navigation state keeps the open sheets as a stack, the top last,
 //! so F1 on a problem opens its whole line over the Problems list and Esc
@@ -49,6 +51,10 @@ pub enum Sheet {
     Problems(Problems),
     New(New),
     Manage(Manage),
+    /// Show changes over the whole viewer, or a version's View changes.
+    Changes(crate::changes::Changes),
+    /// The sheet of a version chosen from File › History.
+    Version(crate::history::Sheet),
 }
 
 /// What a key or a click on a sheet asks for.
@@ -95,6 +101,8 @@ impl Sheet {
             Sheet::Problems(_) => "any.problems",
             Sheet::New(_) => new::NODE,
             Sheet::Manage(m) => m.node(),
+            Sheet::Changes(c) => c.node(),
+            Sheet::Version(_) => crate::history::sheet::NODE,
         }
     }
 
@@ -103,6 +111,8 @@ impl Sheet {
     pub fn bar(&self) -> Bar {
         match self {
             Sheet::New(n) => n.bar(),
+            Sheet::Changes(c) => c.bar(),
+            Sheet::Version(v) => v.bar(),
             _ => Bar::from_rows(contract::buttons(self.node())),
         }
     }
@@ -116,6 +126,8 @@ impl Sheet {
             Sheet::Problems(p) => p.key(key, id),
             Sheet::New(n) => n.key(key),
             Sheet::Manage(m) => m.key(key, id),
+            Sheet::Changes(c) => c.key(key, id),
+            Sheet::Version(v) => v.key(key, id),
         }
     }
 
@@ -132,18 +144,22 @@ impl Sheet {
             Sheet::Find(f) => f.click(line),
             Sheet::Problems(p) => p.click(line, rows),
             Sheet::Manage(m) => m.click(line, rows),
+            Sheet::Changes(c) => c.click(at, placed.inner),
+            Sheet::Version(v) => v.click(line),
             Sheet::About(_) | Sheet::New(_) => Act::Stay,
         }
     }
 
     /// The sheet's name, as F1's list of its keys names the screen.
-    pub fn title(&self) -> &str {
+    pub fn title(&self) -> std::borrow::Cow<'_, str> {
         match self {
-            Sheet::About(a) => &a.title,
-            Sheet::Find(_) => "Find",
-            Sheet::Problems(_) => problems::TITLE,
-            Sheet::New(_) => new::TITLE,
-            Sheet::Manage(_) => manage::TITLE,
+            Sheet::About(a) => a.title.as_str().into(),
+            Sheet::Find(_) => "Find".into(),
+            Sheet::Problems(_) => problems::TITLE.into(),
+            Sheet::New(_) => new::TITLE.into(),
+            Sheet::Manage(_) => manage::TITLE.into(),
+            Sheet::Changes(c) => c.title().0.into(),
+            Sheet::Version(v) => v.title().into(),
         }
     }
 
@@ -182,6 +198,8 @@ impl Sheet {
             Sheet::Problems(p) => Placed::sheet(p.area(viewer), problems::TITLE),
             Sheet::New(n) => Placed::sheet(n.area(viewer), new::TITLE),
             Sheet::Manage(m) => Placed::sheet(m.area(viewer), manage::TITLE),
+            Sheet::Changes(_) => Placed::rows(viewer),
+            Sheet::Version(v) => Placed::sheet(v.area(viewer), &v.title()),
         }
     }
 
@@ -196,6 +214,8 @@ impl Sheet {
             Sheet::Problems(p) => p.draw(buf, placed.inner, color),
             Sheet::New(n) => n.draw(buf, placed.inner, color),
             Sheet::Manage(m) => m.draw(buf, placed.inner, color),
+            Sheet::Changes(c) => c.draw(buf, placed.inner, color),
+            Sheet::Version(v) => v.draw(buf, placed.inner, color),
         }
     }
 }

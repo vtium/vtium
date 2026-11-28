@@ -3,13 +3,16 @@
 //! out with "nothing to undo" or "nothing to redo" where there is none.
 //! The shortcuts `n`, `v`, `r` and `o` show only where the open screen's
 //! rows give them, which is the Flow tab, since on the Looks tab `n` and
-//! `r` make and remove a look.
+//! `r` make and remove a look. With nothing changed since the last save,
+//! Show changes and Revert to saved are greyed out with their reasons.
 //!
 //! References:
 //! - ADR-1403 D11, "The menus": File's items, letters, shortcuts and
 //!   separators.
 //! - ADR-1403 D11, "Undo and redo": the menu names each step and greys an
 //!   item with nothing to act on.
+//! - ADR-1403 D11, "One flow for every change": History lists the versions
+//!   installed before, newest first, and its sheet opens on Enter.
 
 use vtium_config_core::ui::Action;
 use vtium_config_widgets::menu::Item;
@@ -22,6 +25,9 @@ pub const NOTHING_TO_UNDO: &str = "nothing to undo";
 
 /// Redo with nothing to redo.
 pub const NOTHING_TO_REDO: &str = "nothing to redo";
+
+/// Show changes with nothing changed since the last save.
+pub const NO_CHANGES: &str = "none";
 
 /// The File menu's lines.
 pub fn lines(cx: &Context<'_>) -> Vec<Line> {
@@ -44,6 +50,11 @@ pub fn lines(cx: &Context<'_>) -> Vec<Line> {
     if redo.is_none() {
         redo_item = redo_item.greyed(NOTHING_TO_REDO);
     }
+    // with nothing changed, there is nothing to show or to drop
+    let unchanged = !cx.shared.document().changed();
+    let unless = |item: Item, why: &str| {
+        if unchanged { item.greyed(why) } else { item }
+    };
     vec![
         acting(cx, Item::new("New…").letter('n'), "n.view.flow"),
         Line::Choice(Choice {
@@ -58,13 +69,24 @@ pub fn lines(cx: &Context<'_>) -> Vec<Line> {
             Item::new("Save…").letter('s').shortcut("Ctrl+S"),
             "ctrl-s.view",
         )),
-        acting(cx, Item::new("Show changes").letter('c'), "v.view.flow"),
+        acting(
+            cx,
+            unless(Item::new("Show changes").letter('c'), NO_CHANGES),
+            crate::changes::OPEN,
+        ),
         Line::Choice(Choice::acting(
             Item::new("Edit as text…").letter('e'),
             "e.layer.changes",
         )),
         Line::Separator,
-        acting(cx, Item::new("Revert to saved…").letter('r'), "r.view.flow"),
+        acting(
+            cx,
+            unless(
+                Item::new("Revert to saved…").letter('r'),
+                crate::revert::words::NOTHING_TO_DROP,
+            ),
+            crate::revert::OPEN,
+        ),
         Line::Choice(Choice {
             item: Item::new("History").letter('h').submenu(),
             then: Then::Sub(Submenu::History),
@@ -111,16 +133,26 @@ pub fn open(cx: &Context<'_>) -> Vec<Line> {
 }
 
 /// File › History's lines: the versions installed before, newest first,
-/// by the date and time each was installed.
+/// by the date and time each was replaced, or one greyed line where there
+/// is none.
 pub fn history(cx: &Context<'_>) -> Vec<Line> {
     let versions = cx.shared.documents.desk().versions().unwrap_or_default();
+    if versions.is_empty() {
+        let none = crate::history::words::NONE;
+        return vec![Line::Choice(Choice {
+            item: Item::new(none).greyed(crate::history::words::NONE_WHY),
+            then: Then::Nothing,
+        })];
+    }
+    // each entry carries its place among the versions, which update opens
+    // the version's sheet by
     versions
         .iter()
-        .map(|v| {
-            Line::Choice(Choice::acting(
-                Item::new(when(v.when)),
-                "enter.layer.menu.history",
-            ))
+        .enumerate()
+        .map(|(i, v)| {
+            let mut choice = Choice::acting(Item::new(when(v.when)), crate::history::PICK);
+            choice.then = Then::Act(Action::item(crate::history::PICK, i));
+            Line::Choice(choice)
         })
         .collect()
 }

@@ -6,8 +6,9 @@
 //!
 //! [`Machine`] is the seam. [`System`] is this machine: sysfs and udev's
 //! database for the devices, and `vtium-config apply` through sudo for the
-//! font, the command that a save runs. [`Nowhere`] reads and installs
-//! nothing, for a loop that has no machine to act on.
+//! font, the command that a save runs. It also runs the person's editor
+//! for Edit as text ([`crate::editor`]). [`Nowhere`] reads, installs and
+//! edits nothing, for a loop that has no machine to act on.
 //!
 //! References:
 //! - ADR-1206 D2: the loop is the only place that reads the machine or
@@ -51,6 +52,14 @@ pub trait Machine {
     /// terminal the loop has handed back, so sudo can ask for the
     /// password. `Err` says why the font was not installed.
     fn install_font(&mut self) -> Result<(), String>;
+
+    /// Runs the person's editor on a copy of `text`, the configuration
+    /// `name`'s vtium.conf, on the terminal the loop has handed back, then
+    /// checks the copy. `Err` says why the editor did not run. A machine
+    /// with no editor says so.
+    fn edit(&mut self, _name: &str, _text: &str) -> Result<crate::editor::Edited, String> {
+        Err(crate::editor::words::NO_EDITOR.to_owned())
+    }
 }
 
 /// A machine with nothing to read or install.
@@ -148,5 +157,14 @@ impl Machine for System {
         } else {
             Err(format!("{shown} ended with {status}."))
         }
+    }
+
+    fn edit(&mut self, name: &str, text: &str) -> Result<crate::editor::Edited, String> {
+        let store = vtium_config_core::store::Store::system().map_err(|f| f.text().to_owned())?;
+        let session = vtium_config_core::drafts::Session {
+            store,
+            paths: &self.paths,
+        };
+        crate::editor::run(&session, name, text, &|k| std::env::var(k).ok())
     }
 }

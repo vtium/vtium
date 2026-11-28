@@ -105,7 +105,13 @@ fn updown_layer_menu_moves_past_separators_and_greyed_items() {
     press(&mut app, plain(Code::Down));
     assert_eq!(at(&app), Some(1), "Open");
     press(&mut app, plain(Code::Down));
-    assert_eq!(at(&app), Some(11), "History, past the greyed items");
+    assert_eq!(at(&app), Some(7), "Show changes, past the greyed items");
+    press(&mut app, plain(Code::Down));
+    assert_eq!(at(&app), Some(8), "Edit as text");
+    press(&mut app, plain(Code::Down));
+    assert_eq!(at(&app), Some(10), "Revert to saved, past the separator");
+    press(&mut app, plain(Code::Down));
+    assert_eq!(at(&app), Some(11), "History");
     press(&mut app, plain(Code::Down));
     assert_eq!(at(&app), Some(13), "Quit");
     press(&mut app, plain(Code::Down));
@@ -183,19 +189,17 @@ fn enter_layer_menu_chooses_the_highlighted_item() {
 }
 
 #[test]
-fn enter_layer_menu_history_lists_its_entries_greyed_until_built() {
+fn enter_layer_menu_history_opens_the_sheet_of_the_version_chosen() {
     for machine in Machine::BOTH {
         let (mut app, ..) = common::app(machine, MAP);
         keys(&mut app, &["Alt-F", "h"]);
         assert_eq!(app.node(), "any.menu.file.history");
         let screen = text(&app);
-        assert!(screen.contains("· not built yet"), "{screen}");
+        // each entry is a time on the hour, and none is greyed
+        assert!(screen.contains("│ 2026-"), "{screen}");
+        assert!(!screen.contains(":00 · not built"), "{screen}");
         press(&mut app, plain(Code::Enter));
-        assert_eq!(
-            app.node(),
-            "any.menu.file.history",
-            "Enter on a greyed entry stays"
-        );
+        assert_eq!(app.node(), "any.history.version", "{}", machine.name());
     }
 }
 
@@ -268,14 +272,11 @@ fn click_button_any_does_what_the_button_s_key_does() {
 }
 
 #[test]
-fn click_facts_view_on_the_count_not_saved_says_show_changes_is_not_built_yet() {
+fn click_facts_view_on_the_count_not_saved_opens_show_changes() {
     let (mut app, ..) = common::app(Machine::Map, MAP);
     let (x, y) = locate(&app, "not saved");
     click(&mut app, x, y);
-    assert_eq!(
-        message(&app).as_deref(),
-        Some("Show changes is not built yet.")
-    );
+    assert_eq!(app.node(), "any.changes");
 }
 
 // Undo and redo.
@@ -593,13 +594,12 @@ fn the_file_menu_greys_each_item_not_built_yet() {
     let (mut app, ..) = common::app(Machine::Map, MAP);
     press(&mut app, alt('f'));
     let screen = text(&app);
-    for item in [
-        "Save… · not built yet",
-        "Show changes · not built yet",
-        "Edit as text… · not built yet",
-        "Revert to saved… · not built yet",
-    ] {
-        assert!(screen.contains(item), "{item:?}:\n{screen}");
+    assert!(screen.contains("Save… · not built yet"), "{screen}");
+    for item in ["Show changes", "Edit as text…", "Revert to saved…"] {
+        assert!(
+            !screen.contains(&format!("{item} · ")),
+            "{item:?} acts:\n{screen}"
+        );
     }
 }
 
