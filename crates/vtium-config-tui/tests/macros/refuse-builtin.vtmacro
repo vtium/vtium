@@ -1,0 +1,8 @@
+# ADR-1208 D2's second macro: the built-in font is always active, so
+# Space on it changes nothing.
+Alt+N
+Expect At fonts
+Click "built-in"
+Space
+Expect "always active"
+Expect Saved

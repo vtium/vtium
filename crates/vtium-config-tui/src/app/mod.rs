@@ -10,6 +10,7 @@
 pub mod update;
 
 use vtium_config_core::ui::Shared;
+use vtium_config_widgets::frame::Mode;
 use vtium_config_widgets::keys::{Key, Mouse, Reply};
 
 use crate::BoxTab;
@@ -73,6 +74,9 @@ pub enum Event {
     /// The person's editor exited: the copy's text and what the check
     /// found in it, or why the editor could not run.
     Edited(Result<crate::editor::Edited, String>),
+    /// A line for the message row from the macro player: where a macro
+    /// stopped, ended or failed, with the failure report behind F1.
+    Said(vtium_config_core::ui::Message),
 }
 
 /// The TUI's model.
@@ -88,6 +92,9 @@ pub struct App {
     /// The live console's state: the questions at start, the trial, and
     /// the font readied as a system font.
     live: crate::live::State,
+    /// What a macro's run makes of the document, which the top row says:
+    /// a scratch copy, or LIVE. `None` while no macro plays.
+    macro_mode: Option<Mode>,
 }
 
 impl App {
@@ -102,7 +109,22 @@ impl App {
             color,
             leaving: None,
             live: crate::live::State::default(),
+            macro_mode: None,
         }
+    }
+
+    /// Says on the top row that a macro plays on a scratch copy, or live.
+    ///
+    /// References:
+    /// - ADR-1208 D5: "scratch copy" or LIVE on the top row.
+    pub fn set_macro_mode(&mut self, mode: Option<Mode>) {
+        self.macro_mode = mode;
+    }
+
+    /// What a macro's run makes of the document, `None` while no macro
+    /// plays.
+    pub fn macro_mode(&self) -> Option<Mode> {
+        self.macro_mode
     }
 
     /// Where the person is.
@@ -162,7 +184,14 @@ impl App {
     /// References:
     /// - ADR-1403 D11, "Quitting, Ctrl-C and the signals": one line on
     ///   leaving says how many changes wait.
+    /// - ADR-1208 D5: quitting a scratch copy throws it away without a
+    ///   question, so no line follows.
     pub fn farewell(&self) -> Option<String> {
+        // a scratch copy goes with the run, so nothing of the person's
+        // waits
+        if self.macro_mode == Some(Mode::ScratchCopy) {
+            return None;
+        }
         let document = self.shared.document();
         let n = document.count();
         (n > 0).then(|| {

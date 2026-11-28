@@ -1,0 +1,13 @@
+# The first macro of ADR-1208 D2 as a live run. Only the test of the
+# live run's log plays it, against a stand-in machine that runs nothing.
+Set Live
+Alt+L
+Click "console"
+Enter
+Click "Size"
+Enter
+Click "11 pt"
+Enter
+Escape
+Ctrl+S
+Enter
