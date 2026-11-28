@@ -10,6 +10,7 @@
 //! | `$XDG_CONFIG_HOME/vtium/vtium-config.conf` | `draft = NAME`, the current draft, and `history = N` |
 //! | `$XDG_CONFIG_HOME/vtium/installed/DRAFT-N.conf` | each installed file an install replaced |
 //! | `$XDG_STATE_HOME/vtium/bases/NAME.base` | each draft's base: the SHA-256 of the installed file it was made from or installed as, or `none` |
+//! | `$XDG_STATE_HOME/vtium/bases/NAME.conf` | the base's text beside its hash, which Update merges from; absent when no file was installed |
 //!
 //! Run as root, vtium-config finds root's home from the password database
 //! and never from `$HOME` or the XDG variables, which `sudo` can carry
@@ -529,6 +530,14 @@ impl Store {
             .join(format!("{}.base", named(name)?)))
     }
 
+    /// Where the draft `name`'s base keeps its text, beside its hash.
+    fn base_text_path(&self, name: &str) -> Result<PathBuf, Fail> {
+        Ok(self
+            .state
+            .join("bases")
+            .join(format!("{}.conf", named(name)?)))
+    }
+
     /// Where `install` writes the install bundles that `apply DIR` takes:
     /// `$XDG_STATE_HOME/vtium/drafts/<time>/` (ADR-1201 D2).
     pub fn bundles(&self) -> PathBuf {
@@ -627,12 +636,52 @@ impl Store {
     }
 
     /// Removes the draft `name`, its changes to the active resources, its
-    /// font set folder and its base.
+    /// font set folder and its base, the base's text with it.
     pub fn remove_draft(&self, name: &str) -> Result<(), Fail> {
         remove(&self.draft_path(name)?)?;
         remove(&self.batch_path(name)?)?;
         self.drop_frits(name)?;
+        remove(&self.base_text_path(name)?)?;
         remove(&self.base_path(name)?)
+    }
+
+    /// Renames the draft `name` to `new`, with its changes to the active
+    /// resources, its font set folder and its base, and keeps it current
+    /// when it was. It refuses a name another draft has, since
+    /// vtium-config never overwrites a draft, and a draft that does not
+    /// exist. The files beside the draft move first and the draft's own
+    /// file last, so a draft is never listed under the new name without
+    /// them.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "vtium-config's store: drafts and the library": `draft rename` renames a draft with its font set folder and its base.
+    pub fn rename_draft(&self, name: &str, new: &str) -> Result<(), Fail> {
+        let (from, to) = (self.draft_path(name)?, self.draft_path(new)?);
+        if read(&from)?.is_none() {
+            return Err(Fail::Usage(format!("there is no draft named {name}")));
+        }
+        if read(&to)?.is_some() {
+            return Err(Fail::Usage(format!(
+                "a draft named {new} already exists, and vtium-config never overwrites a draft"
+            )));
+        }
+        for (a, b) in [
+            (self.batch_path(name)?, self.batch_path(new)?),
+            (self.frits_path(name)?, self.frits_path(new)?),
+            (self.base_text_path(name)?, self.base_text_path(new)?),
+            (self.base_path(name)?, self.base_path(new)?),
+            (from, to),
+        ] {
+            match std::fs::rename(&a, &b) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(Fail::File(format!("{}: {e}", a.display()))),
+            }
+        }
+        if self.settings()?.draft.as_deref() == Some(name) {
+            self.set_current(Some(new))?;
+        }
+        Ok(())
     }
 
     /// The draft `name`'s base, `None` when it has none recorded.
@@ -644,10 +693,34 @@ impl Store {
     }
 
     /// Records `installed`, the installed file's bytes or `None`, as the
-    /// draft `name`'s base.
+    /// draft `name`'s base: its hash, and its text beside it, so Update can
+    /// merge a change made on disk later. The text goes first, so a write
+    /// cut short between the two leaves a text whose hash is not the
+    /// base's, which [`Store::base_text`] never gives.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "When the installed file changed on disk": the draft keeps the base's text beside its hash, and vtium-config writes both whenever it writes the base.
     pub fn set_base(&self, name: &str, installed: Option<&[u8]>) -> Result<(), Fail> {
-        let text = installed.map_or_else(|| "none".to_owned(), hash);
-        write(&self.base_path(name)?, &format!("{text}\n"))
+        let text_path = self.base_text_path(name)?;
+        match installed.map(std::str::from_utf8) {
+            Some(Ok(text)) => write(&text_path, text)?,
+            // vtium reads only a vtium.conf of UTF-8 text, so a base of any
+            // other bytes keeps its hash alone
+            Some(Err(_)) | None => remove(&text_path)?,
+        }
+        let hash = installed.map_or_else(|| "none".to_owned(), hash);
+        write(&self.base_path(name)?, &format!("{hash}\n"))
+    }
+
+    /// The text of the draft `name`'s base, when the store keeps it and its
+    /// hash is the recorded base's: `None` for a base of no installed file,
+    /// for a draft made before vtium-config kept the text, and for a text
+    /// left by a write cut short.
+    pub fn base_text(&self, name: &str) -> Result<Option<String>, Fail> {
+        let Some(Some(base)) = self.base(name)? else {
+            return Ok(None);
+        };
+        Ok(read(&self.base_text_path(name)?)?.filter(|t| hash(t.as_bytes()) == base))
     }
 
     /// The installed history, newest first: each file `DRAFT-N.conf` with
@@ -868,5 +941,101 @@ mod tests {
         assert_eq!(name_from("..."), "draft");
         assert!(!valid_name("../x"));
         assert!(!valid_name("-x"));
+    }
+
+    /// A store in a scratch directory of the test's own.
+    fn scratch(name: &str) -> (crate::scratch::Scratch, Store) {
+        let dir = crate::scratch::Scratch::new(name);
+        let store = Store {
+            config: dir.join("config"),
+            state: dir.join("state"),
+        };
+        (dir, store)
+    }
+
+    #[test]
+    fn a_base_keeps_its_text_beside_its_hash() {
+        let (_dir, store) = scratch("store-base-text");
+        assert_eq!(store.base_text("desk").unwrap(), None);
+        store.set_base("desk", Some(b"version = 1\n")).unwrap();
+        assert_eq!(
+            store.base("desk").unwrap(),
+            Some(Some(hash(b"version = 1\n")))
+        );
+        assert_eq!(
+            store.base_text("desk").unwrap().as_deref(),
+            Some("version = 1\n")
+        );
+        // a text whose hash is not the base's is never given, as after a
+        // write cut short between the two files
+        write(&store.base_text_path("desk").unwrap(), "other\n").unwrap();
+        assert_eq!(store.base_text("desk").unwrap(), None);
+        // a base of no installed file keeps no text
+        store.set_base("desk", Some(b"a\n")).unwrap();
+        store.set_base("desk", None).unwrap();
+        assert_eq!(store.base("desk").unwrap(), Some(None));
+        assert!(!store.base_text_path("desk").unwrap().exists());
+        // and removing the draft removes the text
+        store.set_base("desk", Some(b"a\n")).unwrap();
+        store.remove_draft("desk").unwrap();
+        assert!(!store.base_text_path("desk").unwrap().exists());
+    }
+
+    #[test]
+    fn a_draft_is_renamed_with_everything_beside_it() {
+        let (_dir, store) = scratch("store-rename");
+        store.write_draft("desk", "version = 1\n").unwrap();
+        store
+            .keep_frit("desk", "mine", "source=builtin:unifont\n")
+            .unwrap();
+        let mut changes = Changes::default();
+        changes.set(
+            PathBuf::from("/usr/share/fonts/Terminus.otb"),
+            Some(crate::batch::Change::Activate),
+        );
+        store.set_batch_changes("desk", &changes).unwrap();
+        store.set_base("desk", Some(b"version = 1\n")).unwrap();
+        store.set_current(Some("desk")).unwrap();
+        store.write_draft("spare", "").unwrap();
+        // a name another draft has is refused, and nothing moves
+        assert_eq!(
+            store.rename_draft("desk", "spare").map_err(|f| f.code()),
+            Err(2)
+        );
+        assert_eq!(
+            store.rename_draft("nosuch", "other").map_err(|f| f.code()),
+            Err(2)
+        );
+        assert_eq!(store.drafts().unwrap(), ["desk", "spare"]);
+        store.rename_draft("desk", "laptop").unwrap();
+        assert_eq!(store.drafts().unwrap(), ["laptop", "spare"]);
+        assert_eq!(
+            store.read_draft("laptop").unwrap().as_deref(),
+            Some("version = 1\n")
+        );
+        assert!(
+            store
+                .frit_changes("laptop")
+                .unwrap()
+                .kept
+                .contains_key("mine")
+        );
+        assert_eq!(store.batch_changes("laptop").unwrap(), changes);
+        assert_eq!(
+            store.base_text("laptop").unwrap().as_deref(),
+            Some("version = 1\n")
+        );
+        assert_eq!(store.settings().unwrap().draft.as_deref(), Some("laptop"));
+        for gone in [
+            store.batch_path("desk").unwrap(),
+            store.frits_path("desk").unwrap(),
+            store.base_path("desk").unwrap(),
+            store.base_text_path("desk").unwrap(),
+        ] {
+            assert!(!gone.exists(), "{}", gone.display());
+        }
+        // renaming a draft that is not current leaves the current one
+        store.rename_draft("spare", "kiosk").unwrap();
+        assert_eq!(store.settings().unwrap().draft.as_deref(), Some("laptop"));
     }
 }
