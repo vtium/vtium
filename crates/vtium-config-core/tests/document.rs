@@ -1,6 +1,6 @@
 //! The one open document: every change passes one function, which writes
 //! the draft at once, and the count not saved is the count Save's review
-//! shows.
+//! shows. Also the two fixtures the TUI's crates test their screens on.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -235,4 +235,52 @@ fn switching_documents_keeps_each_ones_history() {
     assert_eq!(docs.history().made(), 0, "spare's history starts empty");
     docs.switch(padnoir);
     assert_eq!(docs.history().made(), 1, "padnoir's history comes back");
+}
+
+#[cfg(feature = "fixture")]
+mod fixtures {
+    use vtium_config_core::fixture::{large, padnoir};
+    use vtium_settings::Kind;
+
+    #[test]
+    fn the_screen_maps_machine_holds_one_change_not_saved() {
+        let shared = padnoir::shared();
+        let document = shared.document();
+        assert_eq!(document.name(), padnoir::NAME);
+        assert_eq!(document.count(), 1);
+        let desk = shared.documents.desk();
+        assert_eq!(
+            desk.configurations().expect("listed"),
+            ["spare", "workstation"]
+        );
+        assert_eq!(desk.versions().expect("listed").len(), 1);
+        assert_eq!(shared.present.devices.len(), 4);
+    }
+
+    #[test]
+    fn the_large_machine_has_dozens_of_everything() {
+        let shared = large::shared();
+        let devices = &shared.present.devices;
+        let displays = devices.iter().filter(|d| d.kind == Kind::Display).count();
+        assert_eq!(displays, 40);
+        assert_eq!(devices.len().saturating_sub(displays), 60);
+        let desk = shared.documents.desk();
+        assert_eq!(desk.configurations().expect("listed").len(), 12);
+        let versions = desk.versions().expect("listed");
+        assert_eq!(versions.len(), 30);
+        assert!(
+            versions.windows(2).all(|w| w[0].when > w[1].when),
+            "the versions are newest first"
+        );
+        assert_eq!(shared.document().count(), 1);
+    }
+
+    #[test]
+    fn each_fixture_is_the_same_each_time_it_is_built() {
+        for build in [padnoir::shared, large::shared] {
+            let once = format!("{:#?}", build());
+            let twice = format!("{:#?}", build());
+            assert_eq!(once, twice);
+        }
+    }
 }

@@ -27,10 +27,11 @@
 //! [`document`] is the configuration as the TUI's one open document, with
 //! its undo history and the desk its draft is written through, and [`ui`]
 //! holds the shared state, the action and the commands that
-//! vtium-config-widgets' `Tab` trait names. [`found`], [`preview`],
-//! [`fontuse`] and [`versions`] are the resources found on the machine,
-//! the pictures, the fonts a configuration uses, and the document's
-//! versions.
+//! vtium-config-widgets' `Tab` trait names. `fixture`, behind the
+//! feature of that name, holds the machines the TUI's crates test their
+//! screens on. [`found`], [`preview`], [`fontuse`] and [`versions`] are
+//! the resources found on the machine, the pictures, the fonts a
+//! configuration uses, and the document's versions.
 //!
 //! vtium-config re-exports each module that its own code used before the
 //! split at its root, so `vtium_config::drafts` and the rest keep their
@@ -44,6 +45,8 @@ pub mod discover;
 pub mod document;
 pub mod draft;
 pub mod drafts;
+#[cfg(feature = "fixture")]
+pub mod fixture;
 pub mod flow;
 pub mod flowcli;
 pub mod flowmodel;
