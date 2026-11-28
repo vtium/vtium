@@ -5,7 +5,7 @@
 //! color maps, shaders and pointer themes that the batch file,
 //! `/etc/vtium/batch.conf`, lists one path on each line, and those that
 //! the lists packages and root keep in the `batch.d` folders name, less
-//! what a `-` line of batch.conf turns off ([`lists`]). The built-in
+//! what a `-` line of batch.conf turns off ([`View`]). The built-in
 //! font is always active and never appears there. A change to the batch
 //! waits beside the draft, in `drafts/NAME.batch`, until the draft is
 //! installed, so it installs with the draft and goes when the draft is
