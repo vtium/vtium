@@ -6,7 +6,10 @@
 //! The frame is vtium-config-widgets' own, with the Looks tab open and
 //! the action bar of the tab's node, so a screen reads as the rebuilt TUI
 //! draws it. The search row is drawn where the frame puts it, above the
-//! action bar, from the tab's search.
+//! action bar, from the tab's list box's search or from the shell's `?`
+//! search, which these helpers hold and drive as the shell does: opened
+//! on the tab's highlighted item, fed each key, and handed to the tab
+//! after each one.
 //!
 //! The tab is driven to an item through Find's request to highlight it,
 //! so each test names the item and not its place, which differs between
@@ -31,9 +34,11 @@ use vtium_config_tab_looks::Looks;
 use vtium_config_tab_looks::list::{self, Item};
 use vtium_config_widgets::backend::console_width;
 use vtium_config_widgets::canvas;
+use vtium_config_widgets::contract;
 use vtium_config_widgets::frame::{Bar, Count, Facts, FrameLayout, Options, TabName, TopRow};
 use vtium_config_widgets::input::{Button, Key, Mouse};
-use vtium_config_widgets::search;
+use vtium_config_widgets::keys::Key as SearchKey;
+use vtium_config_widgets::search::{self, Outcome, Search};
 use vtium_config_widgets::tab::Tab;
 
 /// A machine's name in the snapshots, and what builds its shared state.
@@ -109,10 +114,54 @@ pub fn click(tab: &mut Looks, shared: &Shared, row: &'static str, x: u16, y: u16
     tab.update(shared, Action::key(row, Key::Mouse(mouse)))
 }
 
+/// The shell's `?` search opened over the tab's list, with its highlight
+/// on the item the tab highlights, as the shell opens it on `?`.
+pub fn open_search(tab: &Looks) -> Search {
+    let Some(list) = tab.searchable() else {
+        panic!("the tab offers no search");
+    };
+    Search::open(list, list.highlighted())
+}
+
+/// `key` fed to the shell's `search`, which the tab is handed after a key
+/// that changed it, or `None` where the key closed it, as the shell does.
+pub fn search_key(tab: &mut Looks, shared: &Shared, search: &mut Option<Search>, key: SearchKey) {
+    let Some(s) = search.as_mut() else { return };
+    match s.key(&key) {
+        Outcome::Closed => {
+            *search = None;
+            tab.filtered(shared, None);
+        }
+        Outcome::Ignored => {}
+        _ => tab.filtered(shared, Some(s)),
+    }
+}
+
+/// The characters of `text` typed into the shell's `search`.
+pub fn search_type(tab: &mut Looks, shared: &Shared, search: &mut Option<Search>, text: &str) {
+    for c in text.chars() {
+        search_key(tab, shared, search, SearchKey::char(c));
+    }
+}
+
 /// The screen of `w`×`h` cells: the frame on the Looks tab, its action
 /// bar from the tab's node, and the tab drawn in the viewer, with the
-/// search row above the bar while the tab has a search.
+/// search row above the bar while the tab has a list box's search.
 pub fn screen(tab: &Looks, shared: &Shared, w: u16, h: u16, color: bool) -> Buffer {
+    screen_searching(tab, shared, None, w, h, color)
+}
+
+/// The screen as [`screen`] draws it, with the row of the shell's `?`
+/// search `shell` above the bar while it is open, and the bar of the
+/// search row's node while the person types in it.
+pub fn screen_searching(
+    tab: &Looks,
+    shared: &Shared,
+    shell: Option<&Search>,
+    w: u16,
+    h: u16,
+    color: bool,
+) -> Buffer {
     let area = Rect::new(0, 0, w, h);
     let document = shared.document();
     let top = TopRow {
@@ -126,9 +175,13 @@ pub fn screen(tab: &Looks, shared: &Shared, w: u16, h: u16, color: bool) -> Buff
             problems: Count::opening(0),
         },
     };
-    let bar = Bar::from_rows(tab.bar());
+    let bar = match shell {
+        Some(s) if s.typing() => Bar::from_rows(contract::buttons("any.search")),
+        _ => Bar::from_rows(tab.bar(shared)),
+    };
+    let row = tab.search().or(shell);
     let options = Options {
-        search_rows: u16::from(tab.search().is_some()),
+        search_rows: u16::from(row.is_some()),
         message: false,
     };
     let frame = FrameLayout::new(area, options, &top, &bar);
@@ -136,7 +189,7 @@ pub fn screen(tab: &Looks, shared: &Shared, w: u16, h: u16, color: bool) -> Buff
     let drawn = terminal.draw(|f| {
         frame.draw(f.buffer_mut(), None, color);
         tab.draw(shared, f, frame.regions().viewer);
-        if let (Some(s), Some(r)) = (tab.search(), frame.regions().search) {
+        if let (Some(s), Some(r)) = (row, frame.regions().search) {
             search::row::draw(s, f.buffer_mut(), r, color);
         }
     });

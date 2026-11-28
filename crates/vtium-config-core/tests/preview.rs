@@ -9,7 +9,8 @@
 use vtium_config_core::fixture::{large, padnoir};
 use vtium_config_core::preview::console::{self, Shown};
 use vtium_config_core::preview::{
-    Applied, Covered, Facts, Pictures, Place, Preview, Source, Unpictured, readable,
+    Applied, Covered, Facts, Machine, Pictures, Place, Preview, Previewed, Shows, Source,
+    Unpictured, readable,
 };
 use vtium_config_core::specimen::{Filter, Picture, Shot};
 use vtium_config_core::ui::{Effect, Live, Shared};
@@ -481,4 +482,77 @@ fn a_vtium_console_draws_the_detailed_specimen_s_lines() {
     let want = vtium_config_core::specimen::detail_lines("");
     assert_eq!(lines.len(), want.len());
     assert_eq!(lines[0][0].text, want[0]);
+}
+
+#[test]
+fn what_a_tab_previews_reads_as_the_source_the_previews_take() {
+    let shared = padnoir::shared();
+    let effect = shared.found.effects.vtlooks.first().expect("a vtlook");
+    let looks = |shows| Previewed {
+        font: Some("proof".to_owned()),
+        shows,
+        in_document: Some("proof".to_owned()),
+        place: Some(Place::new(1, 2, 30, 8)),
+    };
+    let read = |p: &Previewed<'_>| format!("{:?}", p.source());
+    assert_eq!(
+        read(&looks(Shows::Font { detail: true })),
+        format!(
+            "{:?}",
+            Source::Font {
+                font: Some("proof"),
+                detail: true
+            }
+        )
+    );
+    assert_eq!(
+        read(&looks(Shows::Size { points: 14 })),
+        format!(
+            "{:?}",
+            Source::Size {
+                font: Some("proof"),
+                points: 14
+            }
+        )
+    );
+    assert_eq!(
+        read(&looks(Shows::Effect(Applied::Vtlook(effect)))),
+        format!(
+            "{:?}",
+            Source::Effect {
+                font: Some("proof"),
+                effect: Applied::Vtlook(effect)
+            }
+        )
+    );
+    let facts = facts((100, 30));
+    let size = looks(Shows::Size { points: 14 });
+    let preview = size.on(&shared, &facts);
+    assert_eq!(preview.in_document, Some("proof"));
+    assert_eq!(preview.font(), Some("proof"));
+}
+
+#[test]
+fn the_facts_join_the_terminal_to_what_the_machine_says() {
+    let machine = Machine {
+        dpi: 120,
+        locale: "de_DE.UTF-8".to_owned(),
+        display: Some(DISPLAY),
+        head: Some("seat0-hdmi".to_owned()),
+    };
+    let facts = Facts::of(&machine, (80, 25), Some(CELL_PX), false, None);
+    assert_eq!(
+        facts,
+        Facts {
+            grid: (80, 25),
+            cell_px: Some(CELL_PX),
+            dpi: 120,
+            locale: "de_DE.UTF-8".to_owned(),
+            color: false,
+            display: Some(DISPLAY),
+            text_area: None,
+            head: Some("seat0-hdmi".to_owned()),
+        }
+    );
+    assert_eq!(Machine::default().dpi, 96, "where no display says");
 }

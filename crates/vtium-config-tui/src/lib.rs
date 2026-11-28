@@ -28,8 +28,12 @@
 //! asked, runs the live trial, gives the console its font back on leaving,
 //! and reads the machine for the Actions menu.
 //!
-//! The modules [`sheets`], [`save`], [`changes`], [`history`], [`editor`],
-//! [`revert`] and [`player`] are filled by the cards after this one.
+//! [`sheets`] holds the sheets over a tab, such as F1's help, Find and the
+//! Problems list. [`save`] is Save: its review, the screen for a file
+//! changed on disk, and the privileged step. [`changes`], [`editor`],
+//! [`history`] and [`revert`] hold Show changes, Edit as text, File ›
+//! History and Revert to saved. [`player`] is filled by a card after this
+//! one.
 //!
 //! References:
 //! - ADR-1206 D9: the shell is a crate of its own and holds the tabs as

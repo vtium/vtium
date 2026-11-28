@@ -407,6 +407,10 @@ pub fn space_missing(name: &str) -> String {
     format!("{name} is not installed, so it cannot be activated.")
 }
 
+/// Space's button in the action bar while the list highlights an active
+/// font, which Space deactivates.
+pub const DEACTIVATE: &str = "Deactivate";
+
 /// The change Space makes, as Undo names it.
 pub fn activate_step(name: &str) -> String {
     format!("Activate {name}")

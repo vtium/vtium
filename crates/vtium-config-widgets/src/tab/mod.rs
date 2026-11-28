@@ -8,7 +8,17 @@
 //!
 //! The trait names the shared state, the action and the commands through
 //! the type parameters `S`, `A` and `C`, because this crate sits below the
-//! crate that defines them.
+//! crate that defines them. The shared state also names, through
+//! [`Previews`], the type a tab's preview is, so the shell asks the open
+//! tab what to preview through the trait as it asks everything else.
+//!
+//! The shell owns the `?` search. Its navigation state holds the one
+//! search component and draws its row, opened only where the node's
+//! `search` column names fields. The tab hands the component its items and
+//! fields through [`Searchable`], and the shell hands the tab the matches
+//! after each key through [`Tab::filtered`]. A list box's own search lives
+//! in the list box (ADR-1206 D8), and [`Tab::search`] gives it to the shell
+//! to draw.
 //!
 //! References:
 //! - ADR-1206 D9: the shell and the tabs are crates joined by traits with
@@ -19,24 +29,31 @@
 //!   full text behind its highlighted line and the items Find searches.
 //! - ADR-1206 D3: the navigation state holds the search, and each tab
 //!   keeps the indexes that match.
+//! - ADR-1206 D3, "The navigation module owns F1's help and Find": F1's
+//!   list of every key of a screen is the Help tab's topic for that tab.
 //! - ADR-1403 D11, "The menus": Actions › Install as a system font… acts
 //!   on a font of the person's own, and is greyed out elsewhere.
+//! - ADR-1201 D4: the Fonts, Looks and Effects tabs preview a font or an
+//!   effect as a picture of the console.
 
 mod choices;
+mod previews;
 mod search;
 
 pub use choices::Choices;
+pub use previews::Previews;
 pub use search::{Haystack, Searchable};
 
 use ratatui_core::layout::Rect;
 use ratatui_core::terminal::Frame;
 
 use crate::contract::{self, Row};
+use crate::roles::Role;
 
 /// What every tab of the TUI answers. `S` is the shared state every tab
 /// reads, `A` the action the navigation module hands the open tab, and `C`
 /// a command the tab's update returns.
-pub trait Tab<S, A, C> {
+pub trait Tab<S: Previews, A, C> {
     /// The tab's name on the top row, such as `Fonts`.
     fn name(&self) -> &'static str;
 
@@ -67,10 +84,18 @@ pub trait Tab<S, A, C> {
     }
 
     /// The buttons of the action bar on the tab's node, in order of
-    /// priority, from the compiled tables. The bar leaves out the lowest
-    /// first where they do not fit.
-    fn bar(&self) -> Vec<&'static Row> {
+    /// priority, from the compiled tables, as they stand on `shared`. The
+    /// bar leaves out the lowest first where they do not fit.
+    fn bar(&self, _shared: &S) -> Vec<&'static Row> {
         contract::buttons(self.node())
+    }
+
+    /// The labels the tab gives its buttons on `shared` in place of their
+    /// rows' own, by the row's id, such as `Activate missing (3)` for
+    /// `shift-a.view.fonts`. A tab whose buttons say what their rows say
+    /// gives none.
+    fn bar_labels(&self, _shared: &S) -> Vec<(&'static str, String)> {
+        Vec::new()
     }
 
     /// The items the tab adds to the Actions menu, after the menu's own.
@@ -98,24 +123,43 @@ pub trait Tab<S, A, C> {
         None
     }
 
-    /// The `?` search row that the tab keeps itself, while one is open or
-    /// kept, which the shell draws where the frame puts the search row. A
-    /// tab whose search the shell holds, or that has none, answers `None`.
+    /// The search of the tab's open list box, while one is open or its
+    /// filter is kept, which the shell draws where the frame puts the
+    /// search row. A tab with no list box open answers `None`; the `?`
+    /// search over the tab's own list is the shell's.
     fn search(&self) -> Option<&crate::search::Search> {
         None
     }
 
-    /// Hands the tab the items that the shell's `?` search matches, by the
-    /// tab's own indexes, after each key typed into the search row, so the
-    /// tab lists only those. `None` clears the filter, and the tab lists
-    /// every item again. A tab that offers no search ignores it.
-    fn filtered(&mut self, _matches: Option<&[usize]>) {}
+    /// Hands the tab the shell's `?` search over its list after each key
+    /// that changed it: what matches, the highlighted match, the entry and
+    /// whether the person still types in it. The tab keeps the copy and
+    /// lists only the items that match, with the highlight on the one the
+    /// search highlights. `None` clears the filter, and the tab lists every
+    /// item again. A tab that offers no search ignores it.
+    fn filtered(&mut self, _shared: &S, _search: Option<&crate::search::Search>) {}
 
     /// Highlights the item named `name`, as another tab or Find asked when
     /// it sent the person here, such as a look's font set shown in the
     /// Fonts tab. A tab with no item of that name leaves its highlight
     /// where it is.
     fn show(&mut self, _shared: &S, _name: &str) {}
+
+    /// What the tab previews on `shared` and where: a font or an effect
+    /// as the shared state's [`Previews::Preview`] names it. A tab that
+    /// previews nothing, or nothing now, answers `None`.
+    fn preview<'a>(&self, _shared: &'a S) -> Option<S::Preview<'a>> {
+        None
+    }
+
+    /// The lines of F1's list of every key of the screen on `node`, laid
+    /// out `width` columns wide, each with the role it is drawn in, where
+    /// the tab gives a topic for that screen: the Help tab answers for the
+    /// node of every tab and of each level open over one. Every other tab
+    /// answers `None`, and the shell lists the node's keys itself.
+    fn keys_help(&self, _node: &'static str, _width: u16) -> Option<Vec<(String, Role)>> {
+        None
+    }
 
     /// The font file from the person's own folders that the tab
     /// highlights, which Actions › Install as a system font… copies into

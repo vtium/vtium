@@ -111,7 +111,7 @@ pub fn screen(shared: &Shared, tab: &FlowTab, cols: u16, rows: u16, color: bool)
             problems: Count::default(),
         },
     };
-    let bar = Bar::from_rows(tab.bar());
+    let bar = Bar::from_rows(tab.bar(shared));
     let message = shared.message.as_ref().map(|m| Message {
         text: m.line.clone(),
         role: Role::Row,

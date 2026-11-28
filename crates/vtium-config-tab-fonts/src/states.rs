@@ -9,14 +9,15 @@
 //! `● always active`, so the list, the facts and the detail mark a font in
 //! the same words as every other screen.
 //!
-//! The states of the fonts the configuration uses come from
-//! [`Used::of`], the one walk that also gives Activate missing its list,
-//! and the other files are judged against the same batch by the same
-//! rules. Building the batch view reads the batch file and the lists, and
-//! the walk reads a font set's layers, so [`Known`] is built again only
-//! when the document or the fonts found change, never on a key that only
-//! moves, filters or searches. [`builds`] counts the builds, which the
-//! tests check stays put while the person types.
+//! The states of the fonts the configuration uses come from the shared
+//! state's walk of the fonts in use ([`Shared::fonts_used`]), which also
+//! gives Activate missing its list. The shared state judges every other
+//! file by the same rule against the same batch ([`Shared::font_state`]).
+//! Until the loop has read the batch, the tab judges a file as not active.
+//! [`Known`] is built again only when the document or the fonts found
+//! change, never on a key that only moves, filters or searches.
+//! [`builds`] counts the builds, which the tests check stays put while the
+//! person types.
 //!
 //! References:
 //! - ADR-1205 D4, "Fonts a configuration uses but has not activated": the
@@ -32,9 +33,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use vtium_config_core::batch::{self, Change, Changes, Folders, Start, View};
-use vtium_config_core::fontuse::{self, Counts, Machine, Off, State, Used};
-use vtium_config_core::found::Origin;
+use vtium_config_core::batch::Change;
+use vtium_config_core::fontuse::{self, Counts, State, Used};
 use vtium_config_core::found::fonts::FontFile;
 use vtium_config_core::ui::Shared;
 
@@ -81,8 +81,8 @@ thread_local! {
     static BUILDS: Cell<usize> = const { Cell::new(0) };
 }
 
-/// How many times this thread has built what the tab knows: read the
-/// batch, walked the configuration and judged every font.
+/// How many times this thread has built what the tab knows: judged every
+/// font against the batch and the fonts the configuration uses.
 pub fn builds() -> usize {
     BUILDS.with(Cell::get)
 }
@@ -97,31 +97,7 @@ impl Known {
     pub fn of(shared: &Shared) -> Known {
         BUILDS.with(|b| b.set(b.get().saturating_add(1)));
         let fonts = &shared.found.fonts;
-        let view = batch_view(shared);
-        let production = shared.found.places.as_ref();
-        let euid = production.map_or(0, |p| p.euid);
-        let judge = move |path: &Path| batch::trusted(path, euid);
-        let fixture_judge = |_: &Path| Ok(());
-        let layers = production.and_then(|_| layers_folder(shared));
-        let kbd = if production.is_some() {
-            fontuse::kbd_dirs()
-        } else {
-            Vec::new()
-        };
-        let machine = Machine {
-            fonts,
-            view: &view,
-            layers: layers.as_deref(),
-            kbd_dirs: &kbd,
-            judge: if production.is_some() {
-                &judge
-            } else {
-                &fixture_judge
-            },
-        };
-        let document = shared.document();
-        let used = Used::of(document, &machine);
-        let changes = &document.content().active;
+        let used = shared.fonts_used();
         let used_at: BTreeMap<PathBuf, usize> = used
             .fonts
             .iter()
@@ -133,7 +109,7 @@ impl Known {
         for (i, f) in fonts.files().iter().enumerate() {
             let state = match used_at.get(f.path()).and_then(|&u| used.fonts.get(u)) {
                 Some(u) => u.state.clone(),
-                None => judge_file(f, changes, &view),
+                None => shared.font_state(f.path()).unwrap_or(State::NotActive),
             };
             rows.push((Group::of(f.place), Item::File(i), Some(state)));
         }
@@ -158,9 +134,11 @@ impl Known {
         // a stable sort, so each group keeps the scan's order
         rows.sort_by_key(|(g, _, _)| *g);
 
+        let batch = shared.batch().map(|view| view.batch());
         let mut installed = BTreeMap::new();
         for f in fonts.files() {
-            installed.insert(f.path().to_path_buf(), view.batch().holds(f.path()));
+            let holds = batch.is_some_and(|b| b.holds(f.path()));
+            installed.insert(f.path().to_path_buf(), holds);
         }
         let fields = rows
             .iter()
@@ -226,40 +204,6 @@ impl Known {
     }
 }
 
-/// The state of the found file `f`, which no font set of the
-/// configuration names, judged as vtium-config-core judges a file that
-/// one names: the trust rule first, then the document's change, then the
-/// installed batch and what root turned off.
-fn judge_file(f: &FontFile, changes: &Changes, view: &View) -> State {
-    let path = f.path();
-    let own = f.resource.own;
-    if let Err(check) = &f.resource.trust {
-        return State::FailsTrust {
-            check: check.clone(),
-            own,
-        };
-    }
-    if own {
-        return State::FailsTrust {
-            check: format!(
-                "{}: this file is in your own folders, where vtium takes no font. Install it as a system font to use it.",
-                path.display()
-            ),
-            own,
-        };
-    }
-    match changes.get(path) {
-        Some(Change::Activate) => State::Active,
-        Some(Change::Deactivate) => State::TurnedOff(Off::Document),
-        None if view.batch().holds(path) => State::Active,
-        None => match view.off(path) {
-            Some(batch::Off::BatchFile) => State::TurnedOff(Off::BatchFile),
-            Some(batch::Off::List(by)) => State::TurnedOff(Off::List(by)),
-            None => State::NotActive,
-        },
-    }
-}
-
 /// The family and file name of `item`, which the `?` search matches.
 fn fields_of(shared: &Shared, used: &Used, item: Item) -> [String; 2] {
     match item {
@@ -287,8 +231,9 @@ fn fields_of(shared: &Shared, used: &Used, item: Item) -> [String; 2] {
 }
 
 /// A digest of what the states depend on: the document's text, its font
-/// sets and its changes to the active resources, what is installed, and
-/// the fonts found with what the font helper has said of them.
+/// sets and its changes to the active resources, what is installed, the
+/// fonts found with what the font helper has said of them, and each read
+/// of the batch the loop handed the shared state.
 fn key(shared: &Shared) -> u64 {
     let mut h = DefaultHasher::new();
     let document = shared.document();
@@ -307,61 +252,6 @@ fn key(shared: &Shared) -> u64 {
     let fonts = &shared.found.fonts;
     fonts.files().len().hash(&mut h);
     fonts.waiting().count().hash(&mut h);
-    shared.found.places.is_some().hash(&mut h);
+    shared.in_use.read().hash(&mut h);
     h.finish()
-}
-
-/// The batch vtium reads. On this machine it is the batch file, or the
-/// list of a fresh install, with the lists of both folders, read as the
-/// console reads them, under root's trust. Where the fonts found carry no
-/// places, as on a test's machine, it is the batch their origins record:
-/// each path a list or the batch file activates, and each path the batch
-/// file turns off.
-fn batch_view(shared: &Shared) -> View {
-    let trust = vtium_settings::Trust::running_as(0);
-    match &shared.found.places {
-        Some(places) => {
-            let start = Start {
-                fresh: vtium_settings::batch::Batch::fresh(&places.batch),
-                folders: Folders {
-                    package: places.batch.package_lists(),
-                    admin: places.batch.admin_lists(),
-                },
-                trust,
-            };
-            batch::Installed::read(&places.batch.file, 0).view(&start)
-        }
-        None => {
-            let mut text = String::new();
-            for f in shared.found.fonts.files() {
-                let line = match &f.resource.origin {
-                    Origin::BatchFile | Origin::FreshInstall | Origin::List { .. } => {
-                        f.path().display().to_string()
-                    }
-                    Origin::TurnedOff { .. } => format!("-{}", f.path().display()),
-                    Origin::Nothing => continue,
-                };
-                text.push_str(&line);
-                text.push('\n');
-            }
-            let start = Start {
-                fresh: vtium_settings::batch::Batch::default(),
-                folders: Folders {
-                    package: PathBuf::new(),
-                    admin: PathBuf::new(),
-                },
-                trust,
-            };
-            View::new(Some(text.as_bytes()), &start)
-        }
-    }
-}
-
-/// The layers' folder of the font sets' directory that the document's
-/// `font-frits` names, else the build's.
-fn layers_folder(shared: &Shared) -> Option<PathBuf> {
-    let dir = vtium_settings::setting(shared.document().text(), "font-frits")
-        .filter(|d| Path::new(d).is_absolute())
-        .unwrap_or_else(|| vtium_settings::keys::FRITS.to_owned());
-    Some(PathBuf::from(dir).join(vtium_font::set::layer::DIR))
 }

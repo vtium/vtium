@@ -37,6 +37,9 @@ pub struct Tty {
     saved: Termios,
     events: Loop<Woken>,
     deadline: Option<Instant>,
+    /// What came while the loop asked whether input was pending, which
+    /// the next wait hands over first.
+    held: Vec<Wake>,
     /// The port's entry in [`RESTORE`].
     id: u64,
 }
@@ -132,6 +135,7 @@ impl Tty {
             saved,
             events,
             deadline: None,
+            held: Vec::new(),
             id,
         };
         tty.write(ENTER)?;
@@ -181,9 +185,22 @@ impl Port for Tty {
     }
 
     fn wait(&mut self) -> io::Result<Vec<Wake>> {
+        if !self.held.is_empty() {
+            return Ok(std::mem::take(&mut self.held));
+        }
         let mut woken = Woken::default();
         wait_on(&mut self.events, &mut self.deadline, &mut woken)?;
         Ok(woken.wakes)
+    }
+
+    fn pending(&mut self, within: Duration) -> io::Result<bool> {
+        if !self.held.is_empty() {
+            return Ok(true);
+        }
+        let mut woken = Woken::default();
+        self.events.dispatch(Some(within), &mut woken)?;
+        self.held = woken.wakes;
+        Ok(!self.held.is_empty())
     }
 
     fn step_aside(&mut self, aside: &mut dyn FnMut() -> io::Result<()>) -> io::Result<()> {

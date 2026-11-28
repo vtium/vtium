@@ -21,11 +21,12 @@
 mod common;
 
 use common::{
-    SIZES, act, check_rows, check_without_color, machines, repeat, rows_of, screen, snapshot,
-    snapshot_text, type_in,
+    SIZES, act, check_rows, check_without_color, machines, open_search, repeat, rows_of, screen,
+    screen_searching, search_type, snapshot, snapshot_text, type_in,
 };
 use vtium_config_core::ui::{Change, Command, Shared};
 use vtium_config_tab_settings::Settings;
+use vtium_config_widgets::search::Search;
 
 /// Goes from the list of sections to the key `name`, with the keys'
 /// pane in focus, drawing first so the moves act on a drawn screen.
@@ -48,20 +49,25 @@ fn go_to_key(tab: &mut Settings, shared: &Shared, name: &str, w: u16, h: u16) {
 
 /// Draws `name`'s screen four times, sets it up with `set`, checks each,
 /// and compares the four with the snapshot `name`. `must` lists what the
-/// screen still shows at 80×25.
-fn check_screen(name: &str, must: &[&str], set: impl Fn(&mut Settings, &mut Shared, u16, u16)) {
+/// screen still shows at 80×25. `set` returns the shell's `?` search,
+/// where it leaves one open.
+fn check_screen(
+    name: &str,
+    must: &[&str],
+    set: impl Fn(&mut Settings, &mut Shared, u16, u16) -> Option<Search>,
+) {
     let mut text = String::new();
     for (machine, build) in machines() {
         for (w, h) in SIZES {
             let mut shared = build();
             let mut tab = Settings::new(true);
-            set(&mut tab, &mut shared, w, h);
-            let with = screen(&tab, &shared, w, h, true);
+            let search = set(&mut tab, &mut shared, w, h);
+            let with = screen_searching(&tab, &shared, search.as_ref(), w, h, true);
             check_rows(&with, w, h);
             let mut mono = Settings::new(false);
             let mut mono_shared = build();
-            set(&mut mono, &mut mono_shared, w, h);
-            let without = screen(&mono, &mono_shared, w, h, false);
+            let mono_search = set(&mut mono, &mut mono_shared, w, h);
+            let without = screen_searching(&mono, &mono_shared, mono_search.as_ref(), w, h, false);
             check_without_color(&with, &without);
             let all = rows_of(&with).join("\n");
             for m in must {
@@ -90,6 +96,7 @@ fn the_sections_sit_at_the_left_and_the_first_section_s_keys_at_the_right() {
         ],
         |tab, shared, w, h| {
             screen(tab, shared, w, h, true);
+            None
         },
     );
 }
@@ -103,7 +110,10 @@ fn a_section_s_keys_take_the_focus_with_the_key_s_line_at_the_foot() {
             "Fonts and text",
             "default",
         ],
-        |tab, shared, w, h| go_to_key(tab, shared, "font-name", w, h),
+        |tab, shared, w, h| {
+            go_to_key(tab, shared, "font-name", w, h);
+            None
+        },
     );
 }
 
@@ -120,6 +130,7 @@ fn a_key_s_values_open_in_the_list_box_under_its_line() {
         |tab, shared, w, h| {
             go_to_key(tab, shared, "glyph-source", w, h);
             act(tab, shared, "enter.layer.settings-section");
+            None
         },
     );
 }
@@ -133,6 +144,7 @@ fn a_typed_value_shows_in_its_line_with_the_cursor_after_it() {
             go_to_key(tab, shared, "font-name", w, h);
             act(tab, shared, "enter.layer.settings-section");
             type_in(tab, shared, "char.typing", "proof");
+            None
         },
     );
 }
@@ -154,6 +166,7 @@ fn a_changed_value_is_marked_by_a_word() {
                 }
             }
             act(tab, shared, "up.layer.settings-section");
+            None
         },
     );
 }
@@ -170,8 +183,9 @@ fn the_search_for_bright_keeps_display_depth_by_its_description() {
         ],
         |tab, shared, w, h| {
             screen(tab, shared, w, h, true);
-            act(tab, shared, "question.view");
-            type_in(tab, shared, "char.typing.search", "*bright");
+            let mut search = Some(open_search(tab));
+            search_type(tab, shared, &mut search, "*bright");
+            search
         },
     );
 }

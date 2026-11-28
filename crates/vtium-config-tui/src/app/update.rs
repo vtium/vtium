@@ -189,8 +189,19 @@ impl App {
     /// Acts on `event`, and returns what the loop is to do. The first
     /// resize, which the loop hands over before anything else, asks the
     /// terminal what it is. While the TUI leaves, only the replies due, the
-    /// end of the wait and a signal still count.
+    /// end of the wait and a signal still count. After each event the open
+    /// tab gets the `?` search as it now stands, and its preview is asked
+    /// for.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
+        let mut effects = self.handle(event);
+        if self.leaving.is_none() {
+            self.hand_search();
+            effects.extend(self.preview());
+        }
+        effects
+    }
+
+    fn handle(&mut self, event: Event) -> Vec<Effect> {
         if let Some(status) = self.leaving {
             return match event {
                 Event::Reply(reply) => live::reply(&mut self.shared, &mut self.live, reply),
@@ -262,7 +273,84 @@ impl App {
                 self.edited(done);
                 Vec::new()
             }
+            Event::Checked { document, found } => {
+                if let Ok((checked, shown)) = found
+                    && &document == self.shared.document()
+                {
+                    self.shared.checked(checked, shown);
+                }
+                self.checked = Some(document);
+                Vec::new()
+            }
+            Event::FontReads(reads) => {
+                self.shared.read_fonts(reads);
+                Vec::new()
+            }
         }
+    }
+
+    /// Hands the open tab the `?` search after a key or a click changed it,
+    /// and `None` once it closes. The search filters the tab it opened
+    /// over, so going to another tab closes it and clears that tab's
+    /// filter.
+    ///
+    /// References:
+    /// - ADR-1206 D3, "One search component": the navigation state holds
+    ///   the search, and each tab keeps the indexes that match.
+    fn hand_search(&mut self) {
+        let tab = self.nav.tab();
+        if let Some((left, _)) = self.handed.take_if(|(t, _)| *t != tab) {
+            self.nav.close_search();
+            if let Some(t) = self.tabs.get_mut(left) {
+                t.filtered(&self.shared, None);
+            }
+        }
+        let now = self.nav.search();
+        if now == self.handed.as_ref().map(|(_, s)| s) {
+            return;
+        }
+        if let Some(t) = self.tabs.get_mut(tab) {
+            t.filtered(&self.shared, now);
+        }
+        self.handed = now.map(|s| (tab, s.clone()));
+    }
+
+    /// Asks for the picture of what the open tab previews, where nothing
+    /// covers the tab: the pictures ask the loop for the font helper's
+    /// steps, and say on the message line why no picture shows, unless the
+    /// live trial's countdown holds the line.
+    ///
+    /// References:
+    /// - ADR-1201 D4: the preview of a font or an effect as a picture of
+    ///   the console, which leaves the live console alone.
+    /// - ADR-1206 D2: update hands a picture to the pictures, and the loop
+    ///   alone asks the font helper.
+    fn preview(&mut self) -> Vec<Effect> {
+        let covered = !self.nav.sheets().is_empty()
+            || self.nav.menu().is_some()
+            || self.nav.question().is_some()
+            || self.size.too_small();
+        let Some(tab) = self.tabs.get(self.nav.tab()).filter(|_| !covered) else {
+            return Vec::new();
+        };
+        let facts = self.facts();
+        // the pictures change while the preview reads the rest of the
+        // shared state
+        let mut pictures = std::mem::take(&mut self.shared.pictures);
+        let answer = tab.preview(&self.shared).and_then(|wanted| {
+            let place = wanted.place?;
+            Some(pictures.ask(&wanted.on(&self.shared, &facts), place))
+        });
+        self.shared.pictures = pictures;
+        let Some(answer) = answer else {
+            return Vec::new();
+        };
+        if let Some(say) = answer.say
+            && self.live.trial.is_none()
+        {
+            self.shared.say(say);
+        }
+        answer.effects
     }
 
     /// A key while the live trial counts down: `k` keeps the font, Ctrl+C
@@ -590,12 +678,17 @@ impl App {
     }
 }
 
+/// The columns of the viewer that F1's sheet keeps for its box and its
+/// borders around the lines of a Help topic.
+const ABOUT_MARGIN: u16 = 6;
+
 /// The shell's handlers of the sheets' rows and of what the sheets ask
 /// for; the sheets themselves are in [`crate::sheets`].
 impl App {
     /// F1: the rest of the message where it has more, else the full text
     /// behind the highlighted line of the sheet on top or of the open tab,
-    /// else every key of the screen the person is on.
+    /// else every key of the screen the person is on: the Help tab's topic
+    /// for the screen where a tab gives one, else the node's keys.
     fn about(&mut self) {
         let under = self.nav.under_menu(&self.tabs, self.size.too_small());
         let top = self.nav.sheets().last();
@@ -610,9 +703,20 @@ impl App {
             }
         } else {
             let name = tab.map_or("", |t| t.name());
+            // the sheet's lines fit inside its box in the viewer
+            let width = view::layout(self)
+                .frame
+                .regions()
+                .viewer
+                .width
+                .saturating_sub(ABOUT_MARGIN);
+            let topic = || self.tabs.iter().find_map(|t| t.keys_help(under, width));
             match tab.and_then(|t| t.full_text(&self.shared)) {
                 Some(text) => sheets::About::text(name, &text),
-                None => sheets::About::keys(name, under),
+                None => match topic() {
+                    Some(lines) => sheets::About::topic(name, lines),
+                    None => sheets::About::keys(name, under),
+                },
             }
         };
         self.nav.open_sheet(Sheet::About(about));

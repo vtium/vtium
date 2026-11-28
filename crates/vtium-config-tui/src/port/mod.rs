@@ -15,7 +15,10 @@
 //!
 //! The loop reads the machine for the Actions menu's items through
 //! [`crate::live::machine::Machine`], and hands the App what it found as a
-//! message. It runs the install of a system font while it steps aside, so
+//! message. It reads what the walk of the fonts in use needs at start and
+//! on Read devices again, and runs `vtium check-config` on the open
+//! document once the document changed and the person paused for
+//! [`CHECK_QUIET`], so a run of keys runs no check. It runs the install of a system font while it steps aside, so
 //! sudo can ask for the password on the terminal, and runs the person's
 //! editor for Edit as text the same way.
 //!
@@ -63,12 +66,24 @@ pub trait Port {
     fn arm(&mut self, after: Duration);
     /// Waits for what comes next.
     fn wait(&mut self) -> io::Result<Vec<Wake>>;
+    /// Whether anything comes within `within`, waiting no longer; what
+    /// came, the next [`Port::wait`] hands over. The loop runs the check
+    /// only once this says the person paused. A port that cannot tell
+    /// answers `false`.
+    fn pending(&mut self, _within: Duration) -> io::Result<bool> {
+        Ok(false)
+    }
     /// Gives the terminal back as it was before the TUI took it, with
     /// mouse reporting off and the normal screen shown, runs `aside`, such
     /// as the person's editor or sudo, then takes the terminal again. The
     /// next frame is drawn whole, since `aside` may have written anything.
     fn step_aside(&mut self, aside: &mut dyn FnMut() -> io::Result<()>) -> io::Result<()>;
 }
+
+/// How long the person pauses before the loop checks a document that
+/// changed: long enough that held keys and a paste run no check, short
+/// enough that the problems count follows each change.
+pub const CHECK_QUIET: Duration = Duration::from_millis(250);
 
 /// How the TUI left: its exit status, and the line it prints on the shell
 /// once the terminal is back, where it has one.
@@ -120,6 +135,9 @@ pub fn drive_on(port: &mut dyn Port, machine: &mut dyn Machine, mut app: App) ->
     let mut painter = Painter::new(app.color())?;
     let mut decoder = Decoder::new();
     let mut queue = app.event(Event::Resize(port.size()));
+    if let Some(reads) = machine.font_reads() {
+        queue.extend(app.event(Event::FontReads(reads)));
+    }
     loop {
         // an effect the loop performs can hand the App an event whose
         // effects follow at once
@@ -137,6 +155,9 @@ pub fn drive_on(port: &mut dyn Port, machine: &mut dyn Machine, mut app: App) ->
                     Effect::Desk(Op::Devices) => {
                         let present = machine.devices();
                         queue.extend(app.event(Event::Devices(present)));
+                        if let Some(reads) = machine.font_reads() {
+                            queue.extend(app.event(Event::FontReads(reads)));
+                        }
                     }
                     Effect::Desk(Op::SystemFont(path)) => {
                         let ready = machine.ready_font(&path);
@@ -194,11 +215,24 @@ pub fn drive_on(port: &mut dyn Port, machine: &mut dyn Machine, mut app: App) ->
                     | Effect::Summary { .. }
                     | Effect::Sources(_)
                     | Effect::Describe(_)
-                    | Effect::Desk(Op::Check | Op::Versions) => {}
+                    | Effect::Desk(Op::Versions) => {}
+                    // a check asked for runs at once
+                    Effect::Desk(Op::Check) => {
+                        let document = app.shared().document().clone();
+                        let found = machine.check(&document);
+                        queue.extend(app.event(Event::Checked { document, found }));
+                    }
                 }
             }
         }
         port.write(&painter.frame(&app)?)?;
+        // the check runs once the person pauses, and never on each key
+        if app.check_due() && !port.pending(CHECK_QUIET)? {
+            let document = app.shared().document().clone();
+            let found = machine.check(&document);
+            queue.extend(app.event(Event::Checked { document, found }));
+            continue;
+        }
         for wake in port.wait()? {
             match wake {
                 Wake::Bytes(bytes) => decoder.push(&bytes),
