@@ -1,7 +1,8 @@
 //! The one navigation module: where the person is, and what each key and
 //! click does there. The state holds the open tab, each tab's stack of
 //! the levels open in it, the question over everything, the menu that is
-//! open with its highlighted item and submenu, and the search row.
+//! open with its highlighted item and submenu, the search row, and the
+//! sheets open over the tab ([`crate::sheets`]), the top last.
 //!
 //! For the node that is open, [`Nav::key`] looks up the key's row in the
 //! compiled key table. It handles itself the rows that are the same
@@ -34,6 +35,7 @@ use vtium_config_widgets::search::{Outcome, Search};
 
 use crate::BoxTab;
 use crate::menus::{Line, Submenu, Then};
+use crate::sheets::{Act, Sheet};
 use levels::Kind;
 use menus::{Done, Open, Which};
 
@@ -55,6 +57,8 @@ pub enum Step {
     Tab(Action),
     /// The shell's own handler takes the action, such as Undo or Quit.
     Shell(Action),
+    /// The shell carries out what a sheet asked for.
+    Sheet(Act),
 }
 
 /// What the navigation module reads besides its own state: the tabs, for
@@ -80,6 +84,9 @@ pub struct Nav {
     question: Option<Question>,
     menu: Option<Open>,
     search: Option<Search>,
+    /// The sheets open over the tab, the top last: F1's help over the
+    /// Problems list, say, or Find over a sheet.
+    sheets: Vec<Sheet>,
 }
 
 impl Nav {
@@ -117,6 +124,45 @@ impl Nav {
         self.search.as_ref()
     }
 
+    /// The sheets open over the tab, the top last.
+    pub fn sheets(&self) -> &[Sheet] {
+        &self.sheets
+    }
+
+    /// The sheet on top, to change.
+    pub fn sheet_mut(&mut self) -> Option<&mut Sheet> {
+        self.sheets.last_mut()
+    }
+
+    /// Opens `sheet` over everything open, closing a menu, as a menu
+    /// closes when the person turns to something else.
+    pub fn open_sheet(&mut self, sheet: Sheet) {
+        self.menu = None;
+        self.sheets.push(sheet);
+    }
+
+    /// Closes the sheet on top.
+    pub fn close_sheet(&mut self) {
+        self.sheets.pop();
+    }
+
+    /// Closes the open menu.
+    pub fn close_menu(&mut self) {
+        self.menu = None;
+    }
+
+    /// Closes every sheet, the search row and the levels open over the tab
+    /// at `index`, and goes to that tab, as Find's Enter does.
+    pub fn go_clear(&mut self, index: usize, tabs: usize) {
+        self.sheets.clear();
+        self.search = None;
+        self.menu = None;
+        if let Some(levels) = self.levels.get_mut(index) {
+            levels.clear();
+        }
+        self.go_to(index, tabs);
+    }
+
     /// The node of the interface tree the person is on: the question, the
     /// screen below the minimum size, the open menu or submenu, the search
     /// row, the level open at the top of the tab, or the tab's own node.
@@ -143,6 +189,9 @@ impl Nav {
         if too_small {
             return "any.too-small";
         }
+        if let Some(sheet) = self.sheets.last() {
+            return sheet.node();
+        }
         if let Some(search) = &self.search {
             return if search.typing() {
                 "any.search"
@@ -168,6 +217,9 @@ impl Nav {
         let kind = levels::kind(node);
         if kind == Kind::Menu {
             return self.menu_key(key, node, here);
+        }
+        if let Some(step) = self.sheet_key(key, node) {
+            return step;
         }
         if matches!(node, "any.search" | "any.filter")
             && let Some(step) = self.search_key(key, node)
@@ -209,8 +261,10 @@ impl Nav {
             "alt-f.view" | "f10.view" => self.open_menu(Which::File, here),
             "alt-a.view" => self.open_menu(Which::Actions, here),
             "period.view" | "period.layer" => self.open_menu(Which::More, here),
+            // a yes goes where its action's row goes: the tab's question
+            // to the tab, a sheet's to the shell
             "y.question" => match self.question.take() {
-                Some(q) => Step::Tab(q.then),
+                Some(q) => self.row_of_item(q.then),
                 None => Step::Nothing,
             },
             "n.question" | "esc.question" | "ctrl-c.question" => {
@@ -378,6 +432,21 @@ impl Nav {
         }
     }
 
+    /// A key on the sheet on top, while nothing is over it: what the sheet
+    /// asks for, or `None` for a key the sheet leaves to its row.
+    fn sheet_key(&mut self, key: &Key, node: &'static str) -> Option<Step> {
+        let sheet = self.sheets.last_mut().filter(|s| s.node() == node)?;
+        match sheet.key(key, levels::row_for(node, key)) {
+            Act::Pass => None,
+            Act::Stay => Some(Step::Nothing),
+            Act::Close => {
+                self.sheets.pop();
+                Some(Step::Nothing)
+            }
+            act => Some(Step::Sheet(act)),
+        }
+    }
+
     /// A key while the search row is open: the row's own keys, or `None`
     /// for a key the row leaves to the list.
     fn search_key(&mut self, key: &Key, node: &'static str) -> Option<Step> {
@@ -417,6 +486,26 @@ impl Nav {
             Kind::Question | Kind::TooSmall => return Step::Nothing,
             _ => {}
         }
+        // a click on the sheet on top is the sheet's, and one elsewhere in
+        // the viewer reaches nothing under it
+        if let Some(sheet) = self.sheets.last_mut() {
+            let placed = sheet.place(&places.regions);
+            let on = placed.inner.contains(at)
+                || placed.frame.as_ref().is_some_and(|f| f.area().contains(at));
+            if on {
+                return match sheet.click(at, &placed) {
+                    Act::Pass | Act::Stay => Step::Nothing,
+                    Act::Close => {
+                        self.sheets.pop();
+                        Step::Nothing
+                    }
+                    act => Step::Sheet(act),
+                };
+            }
+            if places.regions.viewer.contains(at) {
+                return Step::Nothing;
+            }
+        }
         let listed = |id| levels::listed(node, id).is_some();
         match places.hit(at) {
             Some(Hit::Menu(name)) if listed("click-menu.view") => {
@@ -426,7 +515,11 @@ impl Nav {
                 self.tab = i;
                 Step::Nothing
             }
-            Some(Hit::NotSaved | Hit::Problems) if listed("click-facts.view") => {
+            // a click on the problems count does what Alt+P does
+            Some(Hit::Problems) if listed("click-facts.view") => {
+                Step::Shell(Action::of("alt-p.view"))
+            }
+            Some(Hit::NotSaved) if listed("click-facts.view") => {
                 Step::Shell(Action::of("click-facts.view"))
             }
             Some(Hit::More) => self.open_menu(Which::More, here),

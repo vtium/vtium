@@ -11,6 +11,7 @@
 //! - ADR-1403 D11, "Undo and redo": the menu names each step and greys an
 //!   item with nothing to act on.
 
+use vtium_config_core::ui::Action;
 use vtium_config_widgets::menu::Item;
 
 use super::{Choice, Context, Line, NOT_BUILT, Submenu, Then};
@@ -86,14 +87,19 @@ pub fn open(cx: &Context<'_>) -> Vec<Line> {
         .desk()
         .configurations()
         .unwrap_or_default();
+    // each entry carries its place among the configurations, which
+    // update opens by
     let mut lines: Vec<Line> = names
         .iter()
-        .map(|name| {
+        .enumerate()
+        .map(|(i, name)| {
             let mut item = Item::new(name.as_str());
             if name == open {
                 item = item.check(true);
             }
-            Line::Choice(Choice::acting(item, "enter.layer.menu.open"))
+            let mut choice = Choice::acting(item, "enter.layer.menu.open");
+            choice.then = Then::Act(Action::item("enter.layer.menu.open", i));
+            Line::Choice(choice)
         })
         .collect();
     lines.push(Line::Separator);

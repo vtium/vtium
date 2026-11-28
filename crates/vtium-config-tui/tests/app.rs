@@ -98,16 +98,18 @@ fn esc_layer_menu_closes_the_submenu_first_then_the_menu() {
 fn updown_layer_menu_moves_past_separators_and_greyed_items() {
     let (mut app, ..) = common::app(Machine::Map, MAP);
     // the screen map's document has a step neither to undo nor to redo,
-    // and New is not built yet, so Open is the first item that acts
+    // so New is the first item that acts
     press(&mut app, alt('f'));
     let at = |app: &vtium_config_tui::app::App| app.nav().menu().and_then(|m| m.highlight);
+    assert_eq!(at(&app), Some(0), "New");
+    press(&mut app, plain(Code::Down));
     assert_eq!(at(&app), Some(1), "Open");
     press(&mut app, plain(Code::Down));
     assert_eq!(at(&app), Some(11), "History, past the greyed items");
     press(&mut app, plain(Code::Down));
     assert_eq!(at(&app), Some(13), "Quit");
     press(&mut app, plain(Code::Down));
-    assert_eq!(at(&app), Some(1), "round to Open");
+    assert_eq!(at(&app), Some(0), "round to New");
     press(&mut app, plain(Code::Up));
     assert_eq!(at(&app), Some(13));
 }
@@ -116,6 +118,7 @@ fn updown_layer_menu_moves_past_separators_and_greyed_items() {
 fn leftright_layer_menu_opens_a_submenu_or_the_menu_beside() {
     let (mut app, ..) = common::app(Machine::Map, MAP);
     press(&mut app, alt('f'));
+    press(&mut app, plain(Code::Down));
     press(&mut app, plain(Code::Right));
     assert_eq!(
         app.node(),
@@ -166,6 +169,7 @@ fn enter_layer_menu_chooses_the_highlighted_item() {
     let before = count(&app);
     press(&mut app, alt('f'));
     press(&mut app, plain(Code::Down));
+    press(&mut app, plain(Code::Down));
     assert_eq!(app.nav().menu().and_then(|m| m.highlight), Some(3), "Undo");
     press(&mut app, plain(Code::Enter));
     assert_eq!(app.node(), "fonts");
@@ -173,23 +177,19 @@ fn enter_layer_menu_chooses_the_highlighted_item() {
 }
 
 #[test]
-fn enter_layer_menu_open_and_history_list_their_entries_greyed_until_built() {
+fn enter_layer_menu_history_lists_its_entries_greyed_until_built() {
     for machine in Machine::BOTH {
         let (mut app, ..) = common::app(machine, MAP);
-        keys(&mut app, &["Alt-F", "o"]);
+        keys(&mut app, &["Alt-F", "h"]);
+        assert_eq!(app.node(), "any.menu.file.history");
         let screen = text(&app);
-        assert!(
-            screen.contains("Manage configurations… · not built yet"),
-            "{screen}"
-        );
+        assert!(screen.contains("· not built yet"), "{screen}");
         press(&mut app, plain(Code::Enter));
         assert_eq!(
             app.node(),
-            "any.menu.file.open",
+            "any.menu.file.history",
             "Enter on a greyed entry stays"
         );
-        keys(&mut app, &["Esc", "h"]);
-        assert_eq!(app.node(), "any.menu.file.history");
     }
 }
 
@@ -262,13 +262,13 @@ fn click_button_any_does_what_the_button_s_key_does() {
 }
 
 #[test]
-fn click_facts_view_says_what_it_opens_is_not_built_yet() {
+fn click_facts_view_on_the_count_not_saved_says_show_changes_is_not_built_yet() {
     let (mut app, ..) = common::app(Machine::Map, MAP);
     let (x, y) = locate(&app, "not saved");
     click(&mut app, x, y);
     assert_eq!(
         message(&app).as_deref(),
-        Some("Opening the top row's counts is not built yet.")
+        Some("Show changes is not built yet.")
     );
 }
 
@@ -573,17 +573,10 @@ fn period_view_opens_more_with_what_the_bar_leaves_out_and_an_item_does_what_its
 }
 
 #[test]
-fn the_rows_not_built_yet_say_so() {
-    for (key, what) in [
-        ("Ctrl-S", "Save is not built yet."),
-        ("F1", "Help on F1 is not built yet."),
-        ("Ctrl-F", "Find is not built yet."),
-        ("Alt-P", "The Problems list is not built yet."),
-    ] {
-        let (mut app, ..) = common::app(Machine::Map, MAP);
-        keys(&mut app, &[key]);
-        assert_eq!(message(&app).as_deref(), Some(what), "{key}");
-    }
+fn ctrl_s_is_not_built_yet_and_says_so() {
+    let (mut app, ..) = common::app(Machine::Map, MAP);
+    keys(&mut app, &["Ctrl-S"]);
+    assert_eq!(message(&app).as_deref(), Some("Save is not built yet."));
 }
 
 #[test]
@@ -592,7 +585,6 @@ fn the_file_menu_greys_each_item_not_built_yet() {
     press(&mut app, alt('f'));
     let screen = text(&app);
     for item in [
-        "New… · not built yet",
         "Save… · not built yet",
         "Show changes · not built yet",
         "Edit as text… · not built yet",

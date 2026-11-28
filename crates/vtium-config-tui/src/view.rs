@@ -1,6 +1,6 @@
 //! The view: the frame of every screen around the open tab, the search row
-//! where one is open, the message on the viewer's last row, and an open
-//! menu over everything. [`layout`] is the one pure function that places
+//! where one is open, the sheets open over the tab, the message on the
+//! viewer's last row, and an open menu over everything. [`layout`] is the one pure function that places
 //! it all, which [`draw`] draws from and which update reads where a click
 //! lands, so a click lands on what it hits.
 //!
@@ -87,11 +87,13 @@ pub fn layout(app: &App) -> Layout {
             name: document.name(),
             mode: None,
             not_saved: Count::opening(document.count()),
-            problems: Count::default(),
+            problems: Count::opening(crate::sheets::problems::gather(shared).len()),
         },
     };
+    // Find takes the rows of its matches and its row; the search row one
+    let find_rows = nav.sheets().last().map_or(0, |s| s.search_rows());
     let options = Options {
-        search_rows: u16::from(nav.search().is_some()),
+        search_rows: find_rows.max(u16::from(nav.search().is_some())),
         message: shared.message.is_some() || nav.question().is_some(),
     };
     let frame = FrameLayout::new(area, options, &top, &bar);
@@ -184,8 +186,12 @@ pub fn draw(app: &App, frame: &mut Frame<'_>) {
     let color = app.color();
     let buf = frame.buffer_mut();
     shown.frame.draw(buf, message.as_ref(), color);
-    if let (Some(search), Some(area)) = (nav.search(), regions.search) {
+    let find = nav.sheets().last().is_some_and(|s| s.search().is_some());
+    if let (Some(search), Some(area), false) = (nav.search(), regions.search, find) {
         search::row::draw(search, buf, area, color);
+    }
+    for sheet in nav.sheets() {
+        sheet.draw(buf, &sheet.place(&regions), color);
     }
     if let Some(menu) = &shown.menu {
         menu.layout.draw(buf, color);
@@ -227,6 +233,10 @@ fn too_small(app: &App, frame: &mut Frame<'_>) {
 /// while there is a step to undo and Redo only while there is one to
 /// redo.
 fn bar_of(app: &App, node: &'static str, tab_node: &'static str) -> Bar {
+    // a sheet on top names its own buttons
+    if let Some(sheet) = app.nav().sheets().last().filter(|s| s.node() == node) {
+        return sheet.bar();
+    }
     let rows = match app.tabs().get(app.nav().tab()) {
         Some(tab) if node == tab_node => tab.bar(),
         _ => contract::buttons(node),

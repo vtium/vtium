@@ -28,7 +28,9 @@ use super::{App, Event, menu_lines};
 use crate::menus::{self, Line, Submenu};
 use crate::nav::menus::Which;
 use crate::nav::{Here, Step, pressed};
+use crate::sheets::{self, Act, Sheet};
 use crate::view;
+use vtium_config_widgets::keys::{Code, Key};
 
 /// Who acts on a row of the key table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +43,19 @@ pub enum Route {
     Redo,
     /// The shell quits at once.
     Quit,
+    /// F1: help for what is highlighted.
+    About,
+    /// Ctrl+F: Find, which closes a menu first.
+    Find,
+    /// Alt+P, or a click on the problems count: the Problems list.
+    Problems,
+    /// File › New….
+    New,
+    /// File › Open ›'s entry, or Manage configurations….
+    Open,
+    /// A yes to the Manage sheet's question: deletes the configuration it
+    /// named.
+    Delete,
     /// The row is the shell's, and does nothing where it acts, as Ctrl+Z
     /// while a value is typed.
     Nothing,
@@ -56,18 +71,24 @@ pub fn route(id: &str) -> Route {
         "ctrl-y.view" | "ctrl-y.layer" => Route::Redo,
         "q.view" | "q.layer" | "q.too-small" | "ctrl-c.any" | "ctrl-c.too-small" => Route::Quit,
         // the Flow view's letters for the File menu's items
-        "n.view.flow" => Route::Unbuilt("New…"),
+        "n.view.flow" => Route::New,
         "r.view.flow" => Route::Unbuilt("Revert to saved…"),
         "v.view.flow" => Route::Unbuilt("Show changes"),
         "o.view.flow" | "enter.layer.menu.history" => Route::Unbuilt("History"),
         "e.layer.changes" => Route::Unbuilt("Edit as text…"),
-        "enter.layer.menu.open" => Route::Unbuilt("Opening a configuration"),
-        "alt-p.view" => Route::Unbuilt("The Problems list"),
-        "click-facts.view" => Route::Unbuilt("Opening the top row's counts"),
+        "enter.layer.menu.open" => Route::Open,
+        "alt-p.view" => Route::Problems,
+        // the count not saved, which opens Show changes
+        "click-facts.view" => Route::Unbuilt("Show changes"),
+        crate::sheets::manage::DELETE => Route::Delete,
         "q.typing" => Route::Tab,
         _ if id.starts_with("ctrl-s.") => Route::Unbuilt("Save"),
-        _ if id.starts_with("f1.") => Route::Unbuilt("Help on F1"),
-        _ if id.starts_with("ctrl-f.") => Route::Unbuilt("Find"),
+        // F1 does nothing while a value is typed, in a menu, over its own
+        // help, and on the Help tab, whose topics are in view
+        "f1.typing" | "f1.layer.menu" | "f1.layer.about" | "f1.view.help" => Route::Nothing,
+        _ if id.starts_with("f1.") => Route::About,
+        "ctrl-f.typing" => Route::Nothing,
+        _ if id.starts_with("ctrl-f.") => Route::Find,
         _ if SHELL.iter().any(|p| id.starts_with(p)) || id.ends_with(".too-small") => {
             Route::Nothing
         }
@@ -114,8 +135,16 @@ impl App {
         }
         match event {
             Event::Key(key) => {
-                // the message says what the last key did, until the next
-                self.shared.message = None;
+                // the message says what the last key did, until the next,
+                // and F1 opens the rest of a message that has more
+                let more = self
+                    .shared
+                    .message
+                    .as_ref()
+                    .is_some_and(|m| m.more.is_some());
+                if !(more && key == Key::plain(Code::F(1))) {
+                    self.shared.message = None;
+                }
                 let step = self.navigate(|nav, here, _| nav.key(&key, here));
                 self.follow(step)
             }
@@ -193,6 +222,7 @@ impl App {
                 self.apply(commands)
             }
             Step::Shell(action) => self.shell(action),
+            Step::Sheet(act) => self.sheet(act),
         }
     }
 
@@ -202,6 +232,32 @@ impl App {
             Route::Undo => self.apply(vec![Command::Change(Change::Undo)]),
             Route::Redo => self.apply(vec![Command::Change(Change::Redo)]),
             Route::Quit => self.quit(0),
+            Route::About => {
+                self.about();
+                Vec::new()
+            }
+            Route::Find => {
+                self.find();
+                Vec::new()
+            }
+            Route::Problems => {
+                let problems = crate::sheets::problems::gather(&self.shared);
+                self.nav
+                    .open_sheet(Sheet::Problems(sheets::Problems::new(problems)));
+                Vec::new()
+            }
+            Route::New => {
+                self.new_sheet();
+                Vec::new()
+            }
+            Route::Open => {
+                self.open(action);
+                Vec::new()
+            }
+            Route::Delete => {
+                self.delete();
+                Vec::new()
+            }
             Route::Nothing => Vec::new(),
             Route::Unbuilt(what) => {
                 self.shared.say(format!("{what} is not built yet."));
@@ -268,5 +324,163 @@ impl App {
     fn quit(&mut self, status: u8) -> Vec<Effect> {
         self.leaving = Some(status);
         vec![Effect::Exit(status)]
+    }
+}
+
+/// The shell's handlers of the sheets' rows and of what the sheets ask
+/// for; the sheets themselves are in [`crate::sheets`].
+impl App {
+    /// F1: the rest of the message where it has more, else the full text
+    /// behind the highlighted line of the sheet on top or of the open tab,
+    /// else every key of the screen the person is on.
+    fn about(&mut self) {
+        let under = self.nav.under_menu(&self.tabs, self.size.too_small());
+        let top = self.nav.sheets().last();
+        let tab = self.tabs.get(self.nav.tab());
+        let more = self.shared.message.as_ref().and_then(|m| m.more.clone());
+        let about = if let Some(more) = more {
+            sheets::About::text(sheets::about::MESSAGE, &more)
+        } else if let Some(sheet) = top {
+            match sheet.full_text() {
+                Some((title, text)) => sheets::About::text(title, &text),
+                None => sheets::About::keys(sheet.title(), under),
+            }
+        } else {
+            let name = tab.map_or("", |t| t.name());
+            match tab.and_then(|t| t.full_text(&self.shared)) {
+                Some(text) => sheets::About::text(name, &text),
+                None => sheets::About::keys(name, under),
+            }
+        };
+        self.nav.open_sheet(Sheet::About(about));
+    }
+
+    /// Ctrl+F: closes a menu, then opens Find over what is open, with
+    /// every tab's items read once.
+    fn find(&mut self) {
+        self.nav.close_menu();
+        let found = self
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (i, t.name(), t.find_items(&self.shared)))
+            .collect();
+        self.nav.open_sheet(Sheet::Find(sheets::Find::new(found)));
+    }
+
+    /// File › New…, offering the machine's hostname as the name.
+    fn new_sheet(&mut self) {
+        let doc = self.shared.document();
+        let taken = self
+            .shared
+            .documents
+            .desk()
+            .configurations()
+            .unwrap_or_default();
+        let new = sheets::New::open(
+            &vtium_config_core::store::hostname(),
+            doc.name(),
+            doc.count(),
+            taken,
+            doc.installed().text.is_some(),
+        );
+        self.nav.open_sheet(Sheet::New(new));
+    }
+
+    /// File › Open ›'s entry `action` carries, by its place among the
+    /// configurations, or Manage configurations…, which carries none.
+    fn open(&mut self, action: Action) {
+        match action.carries {
+            vtium_config_core::ui::Carries::Item(i) => {
+                let names = self.shared.documents.desk().configurations();
+                match names.map(|n| n.get(i).cloned()) {
+                    Ok(Some(name)) => {
+                        self.sheet(Act::Open(name));
+                    }
+                    Ok(None) => {}
+                    Err(why) => self.shared.say(why),
+                }
+            }
+            _ => {
+                let states = sheets::open::states(&self.shared);
+                let manage = sheets::Manage::new(states, self.shared.document().name());
+                self.nav.open_sheet(Sheet::Manage(manage));
+            }
+        }
+    }
+
+    /// A yes to the Manage sheet's question: deletes the configuration it
+    /// named, never the open one.
+    fn delete(&mut self) {
+        let open = self.shared.document().name().to_owned();
+        let asked = match self.nav.sheets().last() {
+            Some(Sheet::Manage(m)) => m.asked().map(str::to_owned),
+            _ => None,
+        };
+        if asked.is_some_and(|name| name != open) {
+            self.shared.say(sheets::manage::NOT_BUILT_DELETE.to_owned());
+        }
+    }
+
+    /// Carries out what a sheet asked for.
+    fn sheet(&mut self, act: Act) -> Vec<Effect> {
+        match act {
+            Act::Pass | Act::Stay => Vec::new(),
+            Act::Close => {
+                self.nav.close_sheet();
+                Vec::new()
+            }
+            Act::Go { tab, action } => {
+                self.nav.go_clear(tab, self.tabs.len());
+                match action {
+                    Some(action) => self.follow(Step::Tab(action)),
+                    None => Vec::new(),
+                }
+            }
+            Act::GoNode { tab, action } => match self.tabs.iter().position(|t| t.node() == tab) {
+                Some(tab) => self.sheet(Act::Go { tab, action }),
+                None => Vec::new(),
+            },
+            Act::Ask { question, then } => {
+                self.nav.ask(question, then);
+                Vec::new()
+            }
+            Act::Shell(action) => self.shell(action),
+            Act::Activate(n) => {
+                if let Some(fonts) = self.tabs.iter().position(|t| t.node() == "fonts") {
+                    self.nav.go_clear(fonts, self.tabs.len());
+                    self.nav.ask(
+                        vtium_config_core::fontuse::activate::words::question(n),
+                        Action::of("shift-a.view.fonts"),
+                    );
+                }
+                Vec::new()
+            }
+            Act::Open(name) => {
+                match sheets::open::open(&mut self.shared, &name) {
+                    Ok(said) => {
+                        let len = self.tabs.len();
+                        let tab = self.nav.tab();
+                        self.nav.go_clear(tab, len);
+                        if let Some(said) = said {
+                            self.shared.say(said);
+                        }
+                    }
+                    Err(why) => self.shared.say(why),
+                }
+                Vec::new()
+            }
+            Act::Rename { .. } => {
+                self.shared.say(sheets::manage::NOT_BUILT_RENAME.to_owned());
+                Vec::new()
+            }
+            Act::New { name, start } => {
+                let said = sheets::open::make(&mut self.shared, &name, start);
+                let (tab, len) = (self.nav.tab(), self.tabs.len());
+                self.nav.go_clear(tab, len);
+                self.shared.say(said);
+                Vec::new()
+            }
+        }
     }
 }
