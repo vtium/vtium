@@ -77,6 +77,16 @@ pub enum Event {
     /// A line for the message row from the macro player: where a macro
     /// stopped, ended or failed, with the failure report behind F1.
     Said(vtium_config_core::ui::Message),
+    /// What `vtium check-config` found in `document`, the open document as
+    /// it stood when the loop checked it, with the path its lines name the
+    /// draft by; or why the check could not run.
+    Checked {
+        document: vtium_config_core::document::Document,
+        found: Result<(vtium_config_core::drafts::Checked, std::path::PathBuf), String>,
+    },
+    /// What the walk of the fonts in use reads on this machine, which the
+    /// loop read at start and again on Read devices again.
+    FontReads(vtium_config_core::ui::shared::FontReads),
 }
 
 /// The TUI's model.
@@ -95,6 +105,11 @@ pub struct App {
     /// What a macro's run makes of the document, which the top row says:
     /// a scratch copy, or LIVE. `None` while no macro plays.
     macro_mode: Option<Mode>,
+    /// The `?` search as the open tab was last handed it, and that tab.
+    handed: Option<(usize, vtium_config_widgets::search::Search)>,
+    /// The document as it stood when the loop last checked it, whether or
+    /// not the check could run, so a document is checked once.
+    checked: Option<vtium_config_core::document::Document>,
 }
 
 impl App {
@@ -110,6 +125,8 @@ impl App {
             leaving: None,
             live: crate::live::State::default(),
             macro_mode: None,
+            handed: None,
+            checked: None,
         }
     }
 
@@ -166,6 +183,25 @@ impl App {
     /// The live console's state.
     pub fn live(&self) -> &crate::live::State {
         &self.live
+    }
+
+    /// Whether the open document waits for `vtium check-config`: it
+    /// changed since the loop last checked it. The loop checks it once the
+    /// person pauses, never on each key.
+    pub fn check_due(&self) -> bool {
+        self.leaving.is_none() && self.checked.as_ref() != Some(self.shared.document())
+    }
+
+    /// The facts the previews read: this terminal's grid and cell, whether
+    /// it draws color, and what the shared state holds of the machine.
+    pub fn facts(&self) -> vtium_config_core::preview::Facts {
+        vtium_config_core::preview::Facts::of(
+            &self.shared.machine,
+            (usize::from(self.size.cols), usize::from(self.size.rows)),
+            self.size.cell_px,
+            self.color,
+            None,
+        )
     }
 
     /// The node of the interface tree the person is on: the live trial's

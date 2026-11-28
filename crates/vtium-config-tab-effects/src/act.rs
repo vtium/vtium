@@ -1,18 +1,19 @@
 //! What each action does to the tab: the moves through the list, Enter on
 //! the filter line or an item, Space on a color map or a shader and the
 //! question before one a look uses is deactivated, the list box's keys and
-//! clicks, the detail's scrolling, the keys of the search row, and Find's
-//! request to highlight an item. The navigation module hands the tab an
-//! action by its row of the key table, so each arm here answers rows of
-//! the tab's nodes.
+//! clicks, the detail's scrolling, and Find's request to highlight an
+//! item. The navigation module hands the tab an action by its row of the
+//! key table, so each arm here answers rows of the tab's nodes. The shell
+//! holds the `?` search and takes the keys of its row, and with a filter
+//! kept the moves here step among the matches of the tab's copy.
 //!
 //! References:
 //! - ADR-1206 D2: update hands the open tab an action from the key
 //!   table, and the tab returns commands.
 //! - ADR-1205 D1 and D8: Space activates or deactivates a resource, and
 //!   asks first when a look uses it.
-//! - ADR-1403 D11, "Search, on ?" and "The list box": their keys and
-//!   clicks.
+//! - ADR-1403 D11, "Search, on ?" and "The list box": the moves among
+//!   a kept filter's matches, and the list box's keys and clicks.
 //! - ADR-1206 D4: Find's Enter is a request to the item's tab to
 //!   highlight it.
 
@@ -25,7 +26,6 @@ use vtium_config_core::ui::{Action, Carries, Change, Command, Message, Request, 
 use vtium_config_widgets::input::{self, Button};
 use vtium_config_widgets::keys::{Code, Key, Mods};
 use vtium_config_widgets::list_box::{ListBox, Outcome as BoxOutcome};
-use vtium_config_widgets::search::{Outcome as SearchOutcome, Search};
 
 use crate::list::{self, Item};
 use crate::{Effects, NODE_GROUPS, Open, Panes, detail, words};
@@ -54,10 +54,6 @@ pub fn update(tab: &mut Effects, shared: &Shared, action: Action) -> Vec<Command
         }
         Open::Groups(_) => {
             groups(tab, &action);
-            Vec::new()
-        }
-        Open::Nothing if tab.filter.as_ref().is_some_and(Search::typing) => {
-            searching(tab, &action);
             Vec::new()
         }
         Open::Nothing => browse(tab, shared, &action),
@@ -147,10 +143,6 @@ fn browse(tab: &mut Effects, shared: &Shared, action: &Action) -> Vec<Command> {
         "pgdn" => step(tab, shared, page(tab)),
         "enter" => enter(tab, shared),
         "space" => return space(tab, shared),
-        "question" => open_search(tab),
-        "esc" => {
-            tab.filter = None;
-        }
         _ => {}
     }
     Vec::new()
@@ -184,35 +176,6 @@ fn enter(tab: &mut Effects, shared: &Shared) {
     }
 }
 
-/// `?`: puts the cursor back in a kept filter's entry, or opens the
-/// search row over the items of the groups shown, on the highlighted one.
-fn open_search(tab: &mut Effects) {
-    if let Some(filter) = tab.filter.as_mut() {
-        filter.key(&Key::char('?'));
-        return;
-    }
-    let search = Search::open(&*tab, tab.highlight);
-    tab.highlight = search.highlighted().or(tab.highlight);
-    tab.filter = Some(search);
-}
-
-/// A key typed in the search row: the entry changes and the list
-/// filters, Up and Down move among the matches, Enter keeps the filter,
-/// and Esc or Backspace on an empty entry clear it.
-fn searching(tab: &mut Effects, action: &Action) {
-    let Some(key) = pressed(action) else { return };
-    let Some(filter) = tab.filter.as_mut() else {
-        return;
-    };
-    match filter.key(&key) {
-        SearchOutcome::Typed | SearchOutcome::Moved | SearchOutcome::Kept => {
-            tab.highlight = filter.highlighted().or(tab.highlight);
-        }
-        SearchOutcome::Closed => tab.filter = None,
-        SearchOutcome::Resumed | SearchOutcome::Ignored => {}
-    }
-}
-
 /// A click on the filter line or an item: the first highlights it, and a
 /// click on what is highlighted acts as Enter does.
 fn clicked(tab: &mut Effects, shared: &Shared, at: Position) -> Vec<Command> {
@@ -232,20 +195,10 @@ fn clicked(tab: &mut Effects, shared: &Shared, at: Position) -> Vec<Command> {
         }
         tab.highlight = Some(item);
         if let Some(filter) = tab.filter.as_mut() {
-            move_filter_to(filter, item);
+            filter.highlight(item);
         }
     }
     Vec::new()
-}
-
-/// Moves the filter's highlight to the item `item`, which it matches.
-fn move_filter_to(filter: &mut Search, item: usize) {
-    let at = |i: usize| filter.matches().iter().position(|&m| m == i);
-    let (Some(from), Some(to)) = (filter.highlighted().and_then(at), at(item)) else {
-        return;
-    };
-    let by = isize::try_from(to).unwrap_or(0) - isize::try_from(from).unwrap_or(0);
-    filter.step(by);
 }
 
 /// Find's Enter on an item, by its place in the list of every group: the

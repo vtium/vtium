@@ -1,15 +1,18 @@
 //! The Fonts tab driven through its `Tab` methods on the screen map's
 //! machine and on the large one: every row of the tab's nodes, Space and
 //! Activate missing and the changes they return, the action bar's
-//! button and its count, Try live's command, the picture's switch, the
-//! filters, the search, the detail and the install of a font of your own,
-//! the clicks on the places the tab returns, F1's text and Find's items,
-//! and that a key that filters or searches reads no folder and builds
-//! nothing again on 3,000 fonts.
+//! button and its count, Try live's command, the picture's switch and
+//! the preview, the filters, the shell's search handed to the tab, the
+//! detail and the install of a font of your own, the clicks on the places
+//! the tab returns, F1's text and Find's items, and that a key that
+//! filters or searches reads no folder and builds nothing again on 3,000
+//! fonts.
 //!
 //! References:
 //! - ADR-1206 D9: the tab implements `Tab` and `Searchable` over the
 //!   shared state, the action and the commands.
+//! - ADR-1206 D3: the navigation state holds the search, and each tab
+//!   keeps the indexes that match.
 //! - ADR-1403 D11, "Fonts the configuration uses but has not activated":
 //!   Activate missing, its count and its message, and fonts turned off on
 //!   purpose staying off.
@@ -19,17 +22,23 @@ mod common;
 
 use std::path::PathBuf;
 
-use common::{DEJAVU, act, apply, click, every_state, machines, rows_of, screen, type_in, viewer};
+use common::{
+    DEJAVU, act, apply, bar, click, every_state, machines, open_search, rows_of, screen,
+    search_key, search_type, viewer,
+};
 use vtium_config_core::batch::Change as Batch;
 use vtium_config_core::document::Edit;
 use vtium_config_core::found;
 use vtium_config_core::found::fonts::Filter;
+use vtium_config_core::preview::Shows;
 use vtium_config_core::ui::{Action, Change, Command, Effect, Op, Request, Shared};
 use vtium_config_tab_fonts::list::Sel;
 use vtium_config_tab_fonts::states::{self, Item};
 use vtium_config_tab_fonts::{Fonts, words};
 use vtium_config_widgets::contract;
-use vtium_config_widgets::tab::Tab;
+use vtium_config_widgets::keys::{Code, Key};
+use vtium_config_widgets::search::Search;
+use vtium_config_widgets::tab::{Searchable, Tab};
 
 /// The screen map's machine.
 fn map() -> Shared {
@@ -260,7 +269,7 @@ fn the_bar_counts_activate_missing_while_a_font_waits_and_drops_it_otherwise() {
     let tab = Fonts::new(true);
     screen(&tab, &shared, 100, 30, true);
     let labels = |tab: &Fonts, shared: &Shared| -> Vec<String> {
-        tab.action_bar(shared)
+        bar(tab, shared)
             .buttons
             .iter()
             .map(|b| format!("[{}] {}", b.key, b.label))
@@ -271,17 +280,50 @@ fn the_bar_counts_activate_missing_while_a_font_waits_and_drops_it_otherwise() {
         "{:?}",
         labels(&tab, &shared)
     );
-    assert!(!tab.bar().iter().any(|r| r.id == "shift-a.view.fonts"));
+    assert!(
+        !tab.bar(&shared)
+            .iter()
+            .any(|r| r.id == "shift-a.view.fonts")
+    );
+    // the change counts at once, before the tab is drawn again
     every_state(&mut shared);
+    assert!(
+        tab.bar(&shared)
+            .iter()
+            .any(|r| r.id == "shift-a.view.fonts")
+    );
+    assert!(
+        tab.bar_labels(&shared)
+            .contains(&("shift-a.view.fonts", "Activate missing (1)".to_owned())),
+        "{:?}",
+        tab.bar_labels(&shared)
+    );
     let rows = rows_of(&screen(&tab, &shared, 100, 30, true));
     assert!(labels(&tab, &shared).contains(&"[A] Activate missing (1)".to_owned()));
-    assert!(tab.bar().iter().any(|r| r.id == "shift-a.view.fonts"));
     let last = rows.last().cloned().unwrap_or_default();
     assert!(last.contains("[A] Activate missing (1)"), "{last}");
     // at 80 columns the bar moves it behind More, so it stays reachable
     let rows = rows_of(&screen(&tab, &shared, 80, 25, true));
     let last = rows.last().cloned().unwrap_or_default();
     assert!(last.contains("[.] More"), "{last}");
+}
+
+#[test]
+fn space_s_button_says_deactivate_only_on_an_active_font_file() {
+    let shared = map();
+    let mut tab = Fonts::new(true);
+    let space = |tab: &Fonts, shared: &Shared| {
+        tab.bar_labels(shared)
+            .into_iter()
+            .find(|(id, _)| *id == "space.view.resources")
+            .map(|(_, label)| label)
+    };
+    go_to(&mut tab, &shared, "DejaVuSansMono.ttf");
+    assert_eq!(space(&tab, &shared).as_deref(), Some(words::DEACTIVATE));
+    go_to(&mut tab, &shared, "ter-u16n.otb");
+    assert_eq!(space(&tab, &shared), None, "ter-u16n.otb is not active");
+    go_to(&mut tab, &shared, "unifont");
+    assert_eq!(space(&tab, &shared), None, "a built-in font is not a file");
 }
 
 #[test]
@@ -314,8 +356,40 @@ fn p_switches_the_picture_or_says_this_terminal_shows_none() {
     assert!(act(&mut tab, &shared, "p.view.fonts").is_empty());
     assert!(tab.picture());
     let preview = tab.preview(&shared);
-    assert_eq!(preview.as_ref().map(|p| p.font.as_str()), Some(DEJAVU));
-    assert_eq!(preview.map(|p| p.detail), Some(false));
+    assert_eq!(
+        preview.as_ref().and_then(|p| p.font.as_deref()),
+        Some(DEJAVU)
+    );
+    assert!(matches!(
+        preview.as_ref().map(|p| p.shows),
+        Some(Shows::Font { detail: false })
+    ));
+    assert_eq!(preview.as_ref().and_then(|p| p.in_document.clone()), None);
+    // the picture goes inside the box under the list
+    let view = viewer(&shared, &tab, 100, 30);
+    let Some(place) = preview.and_then(|p| p.place) else {
+        panic!("no place for the picture at 100×30");
+    };
+    assert!(
+        place.x > view.x && place.y > view.y + 2,
+        "{place:?} in {view:?}"
+    );
+    assert!(
+        place.x + place.width < view.x + view.width,
+        "{place:?} in {view:?}"
+    );
+    assert!(
+        place.y + place.height < view.y + view.height,
+        "{place:?} in {view:?}"
+    );
+    act(&mut tab, &shared, "p.view.fonts");
+    assert!(matches!(
+        tab.preview(&shared).map(|p| p.shows),
+        Some(Shows::Font { detail: true })
+    ));
+    // the filter line previews nothing
+    act(&mut tab, &shared, "home.view");
+    assert!(tab.preview(&shared).is_none());
     shared.console.live = vtium_config_core::ui::Live::NotVtium;
     shared.console.graphics = false;
     let made = act(&mut tab, &shared, "p.view.fonts");
@@ -353,23 +427,58 @@ fn the_search_matches_a_font_s_family_and_its_file_name() {
         panic!("the tab offers no search");
     };
     assert_eq!(s.fields(), ["family", "file"]);
+    // `?` on the list is the shell's, and opens no search of the tab's
     act(&mut tab, &shared, "question.view");
-    assert_eq!(tab.node(), "any.search");
+    assert!(tab.filtered_by().is_none() && tab.search().is_none());
+    let mut search = open_search(&mut tab, &shared);
+    assert_eq!(
+        tab.node(),
+        "fonts",
+        "the shell answers the search row's node"
+    );
     // Terminus is ter-u16n.otb's family, which its file name does not say
-    type_in(&mut tab, &shared, "char.typing.search", "terminus");
+    search_type(&mut tab, &shared, &mut search, "terminus");
     assert_eq!(tab.sel(), Sel::Item(Item::File(1)));
     let rows = rows_of(&screen(&tab, &shared, 100, 30, true)).join("\n");
     assert!(
         rows.contains("ter-u16n.otb") && !rows.contains("DejaVu"),
         "{rows}"
     );
-    act(&mut tab, &shared, "enter.typing.search");
-    assert_eq!(tab.node(), "fonts");
-    // a kept filter's Esc clears it
-    act(&mut tab, &shared, "esc.view");
-    assert!(tab.search().is_none());
+    search_key(&mut tab, &shared, &mut search, Key::plain(Code::Enter));
+    assert!(tab.filtered_by().is_some_and(|s| !s.typing()));
+    // a kept filter's Esc reaches the shell's search, which clears it
+    search_key(&mut tab, &shared, &mut search, Key::plain(Code::Escape));
+    assert!(tab.filtered_by().is_none());
     let rows = rows_of(&screen(&tab, &shared, 100, 30, true)).join("\n");
     assert!(rows.contains("DejaVu"), "{rows}");
+}
+
+#[test]
+fn a_kept_filter_moves_the_highlight_among_the_matches_and_resumes_on_it() {
+    let shared = map();
+    let mut tab = Fonts::new(true);
+    screen(&tab, &shared, 100, 30, true);
+    let mut search = open_search(&mut tab, &shared);
+    search_type(&mut tab, &shared, &mut search, "mono");
+    search_key(&mut tab, &shared, &mut search, Key::plain(Code::Enter));
+    let matches = search.matches().to_vec();
+    assert!(matches.len() > 2, "{matches:?}");
+    let first = tab.highlighted();
+    assert_eq!(first, matches.first().copied());
+    // the list's own keys reach the tab while the filter is kept
+    act(&mut tab, &shared, "down.view");
+    let moved = tab.highlighted();
+    assert_ne!(moved, first);
+    assert!(moved.is_some_and(|at| matches.contains(&at)), "{moved:?}");
+    // `?` resumes the search on the font the list highlights now
+    search_key(&mut tab, &shared, &mut search, Key::char('?'));
+    assert_eq!(search.highlighted(), moved);
+    assert_eq!(tab.highlighted(), moved);
+    assert!(tab.filtered_by().is_some_and(Search::typing));
+    // the search closing lists every font again with the highlight kept
+    tab.filtered(&shared, None);
+    assert_eq!(tab.highlighted(), moved);
+    assert!(tab.filtered_by().is_none());
 }
 
 #[test]
@@ -381,9 +490,13 @@ fn a_font_s_detail_scrolls_and_enter_installs_only_a_font_of_your_own() {
         tab.system_font(&shared),
         Ok(PathBuf::from(vtium_config_core::fixture::found::OWN_FONT))
     );
+    assert_eq!(
+        tab.own_font(&shared),
+        Some(PathBuf::from(vtium_config_core::fixture::found::OWN_FONT))
+    );
     act(&mut tab, &shared, "enter.view.fonts");
     assert_eq!(tab.node(), "fonts.font");
-    assert!(tab.bar().iter().any(|r| r.id == "enter.layer.font"));
+    assert!(tab.bar(&shared).iter().any(|r| r.id == "enter.layer.font"));
     let made = act(&mut tab, &shared, "enter.layer.font");
     assert!(matches!(
         made.as_slice(),
@@ -393,8 +506,9 @@ fn a_font_s_detail_scrolls_and_enter_installs_only_a_font_of_your_own() {
     act(&mut tab, &shared, "esc.layer");
     assert_eq!(tab.node(), "fonts");
     go_to(&mut tab, &shared, "NotoColorEmoji.ttf");
+    assert_eq!(tab.own_font(&shared), None, "not a font of your own");
     act(&mut tab, &shared, "enter.view.fonts");
-    assert!(!tab.bar().iter().any(|r| r.id == "enter.layer.font"));
+    assert!(!tab.bar(&shared).iter().any(|r| r.id == "enter.layer.font"));
     let made = act(&mut tab, &shared, "enter.layer.font");
     assert_eq!(said(&made).as_deref(), Some(words::SYSTEM_FONT_NOT_YOURS));
     // a detail taller than the viewer scrolls, and stops at its last row
@@ -538,22 +652,17 @@ fn a_filter_or_a_search_on_3000_fonts_reads_no_folder_and_builds_nothing_again()
     act(&mut tab, &shared, "down.layer.list");
     act(&mut tab, &shared, "enter.layer.list");
     screen(&tab, &shared, 100, 30, true);
-    act(&mut tab, &shared, "question.view");
+    let mut search = open_search(&mut tab, &shared);
     for c in "family 00".chars() {
-        tab.update(
-            &shared,
-            Action::key(
-                "char.typing.search",
-                vtium_config_widgets::input::Key::Char(c),
-            ),
-        );
+        search_key(&mut tab, &shared, &mut search, Key::char(c));
         screen(&tab, &shared, 100, 30, true);
     }
     for _ in 0..5 {
-        act(&mut tab, &shared, "backspace.typing.search");
-        act(&mut tab, &shared, "updown.typing.search");
+        search_key(&mut tab, &shared, &mut search, Key::plain(Code::Backspace));
+        search_key(&mut tab, &shared, &mut search, Key::plain(Code::Down));
         screen(&tab, &shared, 100, 30, true);
     }
+    search_key(&mut tab, &shared, &mut search, Key::plain(Code::Enter));
     for _ in 0..50 {
         act(&mut tab, &shared, "down.view");
     }

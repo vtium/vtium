@@ -13,16 +13,18 @@
 
 mod common;
 
-use common::{SIZES, act, click, machines, repeat, rows_of, screen, type_in};
+use common::{SIZES, Searching, act, click, machines, repeat, rows_of, screen, screen_searching};
 use vtium_config_core::batch::Change as BatchChange;
 use vtium_config_core::document::{Change as DocChange, Edit};
 use vtium_config_core::fixture;
 use vtium_config_core::found::effects::Group;
-use vtium_config_core::preview::Applied;
+use vtium_config_core::preview::{Applied, Previewed, Shows};
 use vtium_config_core::ui::{Action, Change, Command, Request, Shared};
 use vtium_config_tab_effects::Effects;
 use vtium_config_tab_effects::list::{self, Item};
 use vtium_config_widgets::contract;
+use vtium_config_widgets::keys::{Code, Key};
+use vtium_config_widgets::search::Outcome;
 use vtium_config_widgets::tab::Tab;
 
 /// The place in the list of every group of the first item named `name`.
@@ -157,25 +159,39 @@ fn the_large_machine_s_list_scrolls_to_its_last_item_and_back() {
 fn the_search_filters_the_large_list_as_the_person_types() {
     let shared = fixture::large::shared();
     let mut tab = Effects::new(true);
+    let mut shell = Searching::default();
     screen(&tab, &shared, 80, 25, true);
-    act(&mut tab, &shared, "question.view");
-    assert_eq!(tab.node(), "any.search");
-    assert_eq!(tab.search().map(|s| s.help()), Some("name"));
-    type_in(&mut tab, &shared, "char.typing.search", "^admin");
-    let Some(search) = tab.search() else {
+    shell.open(&mut tab, &shared);
+    assert_eq!(tab.node(), "effects", "the shell answers the search's node");
+    assert!(tab.search().is_none(), "the tab keeps no search row");
+    assert_eq!(shell.search.as_ref().map(|s| s.help()), Some("name"));
+    shell.type_in(&mut tab, &shared, "^admin");
+    let Some(search) = &shell.search else {
         panic!("no search");
     };
     assert_eq!(search.matches().len(), 90);
     let first = tab.highlighted(&shared);
     assert!(matches!(first, Some(Item::Vtlook(_))));
-    act(&mut tab, &shared, "down.typing.search");
+    shell.key(&mut tab, &shared, Key::plain(Code::Down));
     assert_ne!(tab.highlighted(&shared), first);
-    act(&mut tab, &shared, "enter.typing.search");
+    let second = tab.highlighted(&shared);
+    assert_eq!(
+        shell.key(&mut tab, &shared, Key::plain(Code::Enter)),
+        Outcome::Kept
+    );
     assert_eq!(tab.node(), "effects");
-    let text = rows_of(&screen(&tab, &shared, 80, 25, true)).join("\n");
+    let text = rows_of(&screen_searching(
+        &tab,
+        &shared,
+        80,
+        25,
+        true,
+        shell.search.as_ref(),
+    ))
+    .join("\n");
     assert!(text.contains("matching ^admin"), "{text}");
     assert!(!text.contains("look-001"), "{text}");
-    let Some(search) = tab.search() else {
+    let Some(search) = &shell.search else {
         panic!("the filter is not kept");
     };
     let places = tab.places(&shared).items;
@@ -184,8 +200,57 @@ fn the_search_filters_the_large_list_as_the_person_types() {
         places.iter().all(|(_, at)| search.is_match(*at)),
         "the list shows an item the search does not match"
     );
-    act(&mut tab, &shared, "esc.view");
-    assert!(tab.search().is_none());
+    // with the filter kept, the list's own Down steps among the matches,
+    // and `?` resumes the shell's search on the item the tab highlights
+    act(&mut tab, &shared, "down.view");
+    assert_ne!(tab.highlighted(&shared), second);
+    // a click highlights a listed match, and Down steps on from it
+    let Some(&(rect, clicked)) = places.first() else {
+        panic!("no rows");
+    };
+    click(&mut tab, &shared, "click-row.view", rect.x + 3, rect.y);
+    act(&mut tab, &shared, "down.view");
+    let after = search.matches().iter().find(|&&m| m > clicked).copied();
+    let all = list::items(&shared.found.effects, Group::All);
+    let third = tab.highlighted(&shared);
+    assert_eq!(third, after.and_then(|m| all.get(m).copied()));
+    shell.open(&mut tab, &shared);
+    assert_eq!(tab.highlighted(&shared), third);
+    assert_eq!(
+        shell.search.as_ref().map(|s| s.typing()),
+        Some(true),
+        "`?` resumes the entry"
+    );
+    // Esc closes the row, clears the filter and lists every item again
+    assert_eq!(
+        shell.key(&mut tab, &shared, Key::plain(Code::Escape)),
+        Outcome::Closed
+    );
+    assert!(shell.search.is_none());
+    assert_eq!(tab.highlighted(&shared), third, "the highlight stays");
+    let text = rows_of(&screen(&tab, &shared, 80, 25, true)).join("\n");
+    assert!(!text.contains("matching"), "{text}");
+}
+
+#[test]
+fn a_search_that_matches_nothing_highlights_and_previews_nothing() {
+    let shared = fixture::padnoir::shared();
+    let mut tab = Effects::new(true);
+    let mut shell = Searching::default();
+    screen(&tab, &shared, 100, 30, true);
+    act(&mut tab, &shared, "down.view");
+    shell.open(&mut tab, &shared);
+    shell.type_in(&mut tab, &shared, "zzzz");
+    assert_eq!(shell.search.as_ref().map(|s| s.matches().len()), Some(0));
+    assert_eq!(tab.highlighted(&shared), None);
+    let Some(wanted) = tab.preview(&shared) else {
+        panic!("no preview");
+    };
+    assert!(matches!(wanted.shows, Shows::Effect(Applied::Nothing)));
+    assert!(wanted.place.is_none());
+    // the tab's own keys reach it while the row is open, and act on no item
+    assert!(act(&mut tab, &shared, "question.view").is_empty());
+    assert_eq!(tab.node(), "effects");
 }
 
 #[test]
@@ -412,12 +477,19 @@ fn the_tab_offers_the_search_by_name() {
     assert_eq!(tab.name(), "Effects");
 }
 
+/// What the tab previews now, which it always answers.
+fn previewed<'a>(tab: &Effects, shared: &'a Shared) -> Previewed<'a> {
+    tab.preview(shared)
+        .unwrap_or_else(|| panic!("the tab previews nothing"))
+}
+
 #[test]
 fn the_preview_applies_the_highlighted_item_in_the_picture_s_frame() {
     let shared = fixture::padnoir::shared();
     let tab = on(&shared, "amber");
-    let wanted = tab.preview(&shared, None);
-    assert!(matches!(wanted.effect, Applied::Vtlook(v) if v.name == "amber"));
+    let wanted = previewed(&tab, &shared);
+    assert!(matches!(wanted.shows, Shows::Effect(Applied::Vtlook(v)) if v.name == "amber"));
+    assert_eq!(wanted.in_document, None);
     let Some(place) = wanted.place else {
         panic!("no place");
     };
@@ -432,15 +504,32 @@ fn the_preview_applies_the_highlighted_item_in_the_picture_s_frame() {
     }
     let mut tab = tab;
     act(&mut tab, &shared, "enter.view.effects");
-    let wanted = tab.preview(&shared, None);
-    assert!(matches!(wanted.effect, Applied::Nothing));
+    let wanted = previewed(&tab, &shared);
+    assert!(matches!(wanted.shows, Shows::Effect(Applied::Nothing)));
     assert!(wanted.place.is_none());
     // a shader has no picture, since the picture is drawn on the CPU
     let shared = fixture::large::shared();
     let tab = on(&shared, "shader-00.vtshader");
-    let wanted = tab.preview(&shared, None);
-    assert!(matches!(wanted.effect, Applied::Shader(_)));
+    let wanted = previewed(&tab, &shared);
+    assert!(matches!(wanted.shows, Shows::Effect(Applied::Shader(_))));
     assert!(wanted.place.is_none());
+}
+
+#[test]
+fn the_preview_draws_in_the_font_of_the_console_s_terminal_s_look() {
+    let mut shared = fixture::padnoir::shared();
+    let tab = on(&shared, "amber");
+    let top = previewed(&tab, &shared).font;
+    assert!(top.is_some(), "no font for the sample screen");
+    assert_ne!(top.as_deref(), Some("proof"));
+    // the head desk's look big names the font set proof
+    shared.machine.head = Some("desk".to_owned());
+    assert_eq!(previewed(&tab, &shared).font.as_deref(), Some("proof"));
+    // the head panel has no look, and no head is named tty9
+    for head in ["panel", "tty9"] {
+        shared.machine.head = Some(head.to_owned());
+        assert_eq!(previewed(&tab, &shared).font, top, "{head}");
+    }
 }
 
 #[test]

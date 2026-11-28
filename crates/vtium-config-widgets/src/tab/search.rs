@@ -5,7 +5,9 @@
 //!
 //! References:
 //! - ADR-1206 D3, the search component: one component and one matcher,
-//!   which each list hands its items and the fields to match.
+//!   which each list hands its items and the fields to match. The
+//!   navigation state holds the component, and the tab keeps the matches
+//!   that [`crate::tab::Tab::filtered`] hands it.
 //! - ADR-1206 D9: `Searchable` and its methods with defaults.
 //! - ADR-1403 D11, "Search, on ?": each screen says what its items are
 //!   matched on, and the help names those fields.
@@ -32,6 +34,13 @@ pub trait Searchable {
     /// `file` for a font, from the node's `search` column.
     fn fields(&self) -> &'static [&'static str] {
         contract::search(self.search_node())
+    }
+
+    /// The item the list highlights now, by its index, where the search
+    /// row opens with the highlight on it. `None` puts it on the first
+    /// match.
+    fn highlighted(&self) -> Option<usize> {
+        None
     }
 
     /// The help's words for what the search matches, as in

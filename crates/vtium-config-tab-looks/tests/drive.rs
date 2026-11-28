@@ -12,16 +12,24 @@
 
 mod common;
 
-use common::{act, apply, click, go_to, machines, one_change, screen, type_in};
-use vtium_config_core::batch::Change as Batch;
+use common::{
+    act, apply, click, go_to, machines, one_change, open_search, screen, search_key, search_type,
+    type_in,
+};
+use std::path::PathBuf;
+
+use vtium_config_core::batch::{Change as Batch, Folders, Start, View};
 use vtium_config_core::document::{Change, ConfEdit, Edit, FontSetEdit};
 use vtium_config_core::found;
+use vtium_config_core::preview::Shows;
+use vtium_config_core::ui::shared::FontReads;
 use vtium_config_core::ui::{Action, Carries, Change as UiChange, Command, Live, Request, Shared};
 use vtium_config_tab_looks::Looks;
 use vtium_config_tab_looks::card::{self, Line};
 use vtium_config_tab_looks::list::{self, Item, Scheme};
 use vtium_config_widgets::contract;
-use vtium_config_widgets::tab::{Choices, Tab};
+use vtium_config_widgets::keys::{Code, Key};
+use vtium_config_widgets::tab::{Choices, Searchable, Tab};
 
 /// The first look.
 fn a_look(i: &Item) -> bool {
@@ -375,6 +383,33 @@ fn a_look_whose_fonts_are_not_all_active_says_so_and_activates_them_as_one_chang
 }
 
 #[test]
+fn a_look_s_fonts_are_judged_against_the_batch_the_shared_state_holds() {
+    let (mut shared, _) = bitmap_machine();
+    let tab = card_on(&shared, 0);
+    let all = common::rows_of(&screen(&tab, &shared, 100, 30, true)).join("\n");
+    assert!(all.contains("1 font not active · [A] Activate"), "{all}");
+    // the loop reads the batch again, which now activates the Terminus
+    // strike, and the card judges against it without a change of the
+    // document
+    let Some(reads) = shared.in_use.reads().cloned() else {
+        panic!("the fixture holds no batch");
+    };
+    let start = Start {
+        fresh: vtium_settings::batch::Batch::default(),
+        folders: Folders {
+            package: PathBuf::new(),
+            admin: PathBuf::new(),
+        },
+        trust: vtium_settings::Trust::running_as(0),
+    };
+    let view = View::new(Some(b"/usr/share/fonts/misc/ter-u16n.otb\n"), &start);
+    shared.read_fonts(FontReads { view, ..reads });
+    let all = common::rows_of(&screen(&tab, &shared, 100, 30, true)).join("\n");
+    assert!(!all.contains("not active · [A] Activate"), "{all}");
+    assert!(all.contains("● active"), "{all}");
+}
+
+#[test]
 fn what_a_look_misses_says_why_for_each_font() {
     let (shared, _) = bitmap_machine();
     let mut tab = card_on(&shared, 6);
@@ -446,13 +481,18 @@ fn p_switches_the_preview_and_the_preview_names_its_font() {
     screen(&tab, &shared, 100, 30, true);
     go_to(&mut tab, &shared, a_look);
     let p = tab.preview(&shared).unwrap_or_else(|| panic!("no preview"));
-    assert_eq!(
-        (p.font.as_deref(), p.points, p.picture),
-        (Some("proof"), 11, false)
+    assert_eq!(p.font.as_deref(), Some("proof"));
+    assert!(
+        matches!(p.shows, Shows::Size { points: 11 }),
+        "{:?}",
+        p.shows
     );
     assert!(p.place.is_some());
     act(&mut tab, &shared, "p.view.looks");
-    assert!(tab.preview(&shared).is_some_and(|p| p.picture));
+    assert!(
+        tab.preview(&shared)
+            .is_some_and(|p| matches!(p.shows, Shows::Font { detail: false }))
+    );
     go_to(&mut tab, &shared, |i| matches!(i, Item::Pointer(_)));
     assert!(tab.preview(&shared).is_none());
 }
@@ -482,16 +522,21 @@ fn w_asks_first_and_only_a_yes_lets_programs_resize_the_grid() {
 }
 
 #[test]
-fn the_search_filters_by_name_and_esc_clears_it() {
+fn the_shell_s_search_filters_by_name_and_clearing_it_lists_every_item() {
     for (machine, build) in machines() {
         let shared = build();
         let mut tab = Looks::new(true);
         screen(&tab, &shared, 100, 30, true);
-        act(&mut tab, &shared, "question.view");
-        assert_eq!(tab.node(), "any.search");
-        type_in(&mut tab, &shared, "char.typing", "^sol");
-        let kept = tab
-            .search()
+        go_to(&mut tab, &shared, |i| matches!(i, Item::FontSet(_)));
+        let at = list::items(&shared)
+            .iter()
+            .position(|i| matches!(i, Item::FontSet(_)));
+        assert_eq!(Searchable::highlighted(&tab), at, "{machine}");
+        let mut search = Some(open_search(&tab));
+        assert_eq!(search.as_ref().and_then(|s| s.highlighted()), at);
+        search_type(&mut tab, &shared, &mut search, "^sol");
+        let kept = search
+            .as_ref()
             .map(|s| s.matches().to_vec())
             .unwrap_or_default();
         let items = list::items(&shared);
@@ -501,15 +546,72 @@ fn the_search_filters_by_name_and_esc_clears_it() {
                 .all(|&i| items[i].name(&shared).starts_with("sol")),
             "{machine}"
         );
-        act(&mut tab, &shared, "enter.typing");
-        assert_eq!(tab.node(), "looks-resources");
+        // the shell draws its own row, so the tab gives no search of its own
+        assert!(tab.search().is_none(), "{machine}");
+        search_key(&mut tab, &shared, &mut search, Key::plain(Code::Enter));
+        assert_eq!(tab.node(), "looks-resources", "{machine}");
+        let shown: Vec<usize> = tab.places(&shared).items.iter().map(|p| p.1).collect();
+        assert_eq!(shown, kept, "{machine}: the list shows only the matches");
+        // with the filter kept, the list's own keys move among the matches
+        act(&mut tab, &shared, "end.view");
+        assert_eq!(Searchable::highlighted(&tab), kept.last().copied());
+        act(&mut tab, &shared, "home.view");
+        assert_eq!(Searchable::highlighted(&tab), kept.first().copied());
+        tab.filtered(&shared, None);
+        screen(&tab, &shared, 100, 30, true);
         assert!(
-            items[tab.places(&shared).items[0].1]
-                .name(&shared)
-                .starts_with("sol")
+            tab.places(&shared).items.len() > kept.len(),
+            "{machine}: clearing lists every item again"
         );
-        act(&mut tab, &shared, "esc.view");
-        assert!(tab.search().is_none());
+        assert_eq!(Searchable::highlighted(&tab), kept.first().copied());
+    }
+}
+
+#[test]
+fn another_tab_s_request_highlights_a_font_set_or_a_look_by_its_name() {
+    for (machine, build) in machines() {
+        let shared = build();
+        let items = list::items(&shared);
+        let at = |want: &Item| items.iter().position(|i| i == want);
+        let mut tab = Looks::new(true);
+        screen(&tab, &shared, 100, 30, true);
+        // a font set, with a look's card open over the list
+        let Some(Item::FontSet(set)) = items
+            .iter()
+            .rev()
+            .find(|i| matches!(i, Item::FontSet(_)))
+            .cloned()
+        else {
+            panic!("{machine} has no font set");
+        };
+        go_to(&mut tab, &shared, a_look);
+        act(&mut tab, &shared, "enter.view.looks");
+        tab.show(&shared, &set);
+        assert!(tab.card().is_none(), "{machine}: the card stays open");
+        assert_eq!(tab.node(), "looks");
+        assert_eq!(
+            Searchable::highlighted(&tab),
+            at(&Item::FontSet(set.clone())),
+            "{machine}"
+        );
+        // a look, where no font set has the name
+        let Some(Item::Look(look)) = items.iter().find(|i| matches!(i, Item::Look(_))).cloned()
+        else {
+            panic!("{machine} has no look");
+        };
+        tab.show(&shared, &look);
+        assert_eq!(Searchable::highlighted(&tab), at(&Item::Look(look)));
+        // a name the list does not hold leaves the highlight where it is
+        let before = Searchable::highlighted(&tab);
+        tab.show(&shared, "no-such-font-set");
+        assert_eq!(Searchable::highlighted(&tab), before, "{machine}");
+        // a name the kept filter leaves out is not listed either
+        let mut search = Some(open_search(&tab));
+        search_type(&mut tab, &shared, &mut search, "^sol");
+        search_key(&mut tab, &shared, &mut search, Key::plain(Code::Enter));
+        let kept = Searchable::highlighted(&tab);
+        tab.show(&shared, &set);
+        assert_eq!(Searchable::highlighted(&tab), kept, "{machine}");
     }
 }
 

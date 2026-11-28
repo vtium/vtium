@@ -1,8 +1,14 @@
 //! The view: the frame of every screen around the open tab, the search row
 //! where one is open, the sheets open over the tab, the message on the
-//! viewer's last row, and an open menu over everything. [`layout`] is the one pure function that places
-//! it all, which [`draw`] draws from and which update reads where a click
-//! lands, so a click lands on what it hits.
+//! viewer's last row, and an open menu over everything. [`layout`] is the
+//! one pure function that places it all, which [`draw`] draws from and
+//! which update reads where a click lands, so a click lands on what it
+//! hits.
+//!
+//! The search row shows the navigation state's `?` search over the tab's
+//! list, or else the search of the list box open in the tab, which the tab
+//! answers through `Tab::search`. The action bar shows the open tab's
+//! buttons with the labels the tab gives them, such as a count.
 //!
 //! References:
 //! - ADR-1206 D4, "One frame for every screen": one layout function
@@ -93,7 +99,7 @@ pub fn layout(app: &App) -> Layout {
     // Find takes the rows of its matches and its row; the search row one
     let find_rows = nav.sheets().last().map_or(0, |s| s.search_rows());
     let options = Options {
-        search_rows: find_rows.max(u16::from(nav.search().is_some())),
+        search_rows: find_rows.max(u16::from(search_shown(app).is_some())),
         message: shared.message.is_some() || nav.question().is_some(),
     };
     let frame = FrameLayout::new(area, options, &top, &bar);
@@ -188,7 +194,7 @@ pub fn draw(app: &App, frame: &mut Frame<'_>) {
     shown.frame.draw(buf, message.as_ref(), color);
     crate::live::sheet::draw(app, buf, regions.viewer, color);
     let find = nav.sheets().last().is_some_and(|s| s.search().is_some());
-    if let (Some(search), Some(area), false) = (nav.search(), regions.search, find) {
+    if let (Some(search), Some(area), false) = (search_shown(app), regions.search, find) {
         search::row::draw(search, buf, area, color);
     }
     for sheet in nav.sheets() {
@@ -197,6 +203,14 @@ pub fn draw(app: &App, frame: &mut Frame<'_>) {
     if let Some(menu) = &shown.menu {
         menu.layout.draw(buf, color);
     }
+}
+
+/// The search the search row shows: the navigation state's `?` search
+/// over the tab's list, else the search of the list box open in the tab.
+fn search_shown(app: &App) -> Option<&search::Search> {
+    let nav = app.nav();
+    nav.search()
+        .or_else(|| app.tabs().get(nav.tab()).and_then(|t| t.search()))
 }
 
 /// The message on the viewer's last row: the question while one is open,
@@ -229,25 +243,33 @@ fn too_small(app: &App, frame: &mut Frame<'_>) {
         .set_stringn(0, 0, &line, usize::from(area.width), style);
 }
 
-/// The action bar on `node`: the open tab's own bar while nothing of the
-/// shell is open over it, otherwise the node's buttons, with Undo only
-/// while there is a step to undo and Redo only while there is one to
-/// redo.
+/// The action bar on `node`: the open tab's own bar, with the labels the
+/// tab gives its buttons, while nothing of the shell is open over it,
+/// otherwise the node's buttons, with Undo only while there is a step to
+/// undo and Redo only while there is one to redo.
 fn bar_of(app: &App, node: &'static str, tab_node: &'static str) -> Bar {
     // a sheet on top names its own buttons
     if let Some(sheet) = app.nav().sheets().last().filter(|s| s.node() == node) {
         return sheet.bar();
     }
-    let rows = match app.tabs().get(app.nav().tab()) {
-        Some(tab) if node == tab_node => tab.bar(),
-        _ => contract::buttons(node),
+    let shared = app.shared();
+    let tab = app.tabs().get(app.nav().tab()).filter(|_| node == tab_node);
+    let rows = match tab {
+        Some(tab) => tab.bar(shared),
+        None => contract::buttons(node),
     };
-    let history = app.shared().documents.history();
+    let history = shared.documents.history();
     let (undo, redo) = (history.to_undo().is_some(), history.to_redo().is_some());
-    Bar::from_rows(rows.into_iter().filter(|r| {
+    let mut bar = Bar::from_rows(rows.into_iter().filter(|r| {
         let id = r.id;
         !(id.starts_with("ctrl-z.") && !undo || id.starts_with("ctrl-y.") && !redo)
-    }))
+    }));
+    for (row, label) in tab.map(|t| t.bar_labels(shared)).unwrap_or_default() {
+        if let Some(button) = bar.buttons.iter_mut().find(|b| b.action == Some(row)) {
+            button.label = label;
+        }
+    }
+    bar
 }
 
 /// The first entry a menu of `len` entries shows so that `highlight`

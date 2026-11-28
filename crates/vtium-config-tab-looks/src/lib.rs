@@ -56,7 +56,7 @@ use std::cell::{Cell, Ref, RefCell};
 use ratatui_core::layout::Rect;
 use ratatui_core::terminal::Frame;
 use vtium_config_core::fontuse::Used;
-use vtium_config_core::preview::{Place, Source};
+use vtium_config_core::preview::{Previewed, Shows};
 use vtium_config_core::ui::{Action, Command, Shared};
 use vtium_config_widgets::list_box::{self, ListBox};
 use vtium_config_widgets::search::Search;
@@ -82,7 +82,7 @@ const NODE_FONT_SET: &str = "looks.font-set";
 const NODE_PALETTE: &str = "looks.palette";
 /// A pointer theme's detail.
 const NODE_POINTER: &str = "looks.pointer";
-/// The search row while the person types in it.
+/// The search row while the person types in a list box's search.
 const NODE_SEARCH: &str = "any.search";
 
 /// What a look's card has open over its lines.
@@ -129,8 +129,8 @@ enum Open {
 }
 
 /// The Looks tab: the highlighted item, what is open over the list, the
-/// `?` filter, and whether the preview shows a picture of the console or
-/// sample characters.
+/// shell's `?` search as the tab was last handed it, and whether the
+/// preview shows a picture of the console or sample characters.
 #[derive(Debug)]
 pub struct Looks {
     color: bool,
@@ -143,6 +143,8 @@ pub struct Looks {
     offset: usize,
     picture: bool,
     open: Open,
+    /// The shell's `?` search over the list, which keeps only its matches
+    /// in the list while it is open or its filter is kept.
     filter: Option<Search>,
     /// The viewer the tab was last drawn in, which a click and a page's
     /// step are read against.
@@ -170,38 +172,6 @@ pub struct Places {
     pub list: Option<list_box::Places>,
     /// Each row of the new font set's form, and the row's number.
     pub form: Vec<(Rect, usize)>,
-}
-
-/// What the preview shows, which the shell hands the pictures with the
-/// facts of the terminal it knows: the font, whether as a picture of the
-/// console or as sample characters at a size, and where.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Previewed {
-    pub font: Option<String>,
-    pub picture: bool,
-    pub points: u32,
-    /// The font set, where only the document adds it, so the console
-    /// cannot draw it before Save.
-    pub in_document: Option<String>,
-    pub place: Option<Place>,
-}
-
-impl Previewed {
-    /// The preview's source, as the previews read it.
-    pub fn source(&self) -> Source<'_> {
-        let font = self.font.as_deref();
-        if self.picture {
-            Source::Font {
-                font,
-                detail: false,
-            }
-        } else {
-            Source::Size {
-                font,
-                points: self.points,
-            }
-        }
-    }
 }
 
 impl Looks {
@@ -258,23 +228,6 @@ impl Looks {
         self.picture
     }
 
-    /// The search whose row shows above the action bar: an open list
-    /// box's, or the tab's over its list. The shell draws its row with
-    /// `vtium_config_widgets::search::row::draw`.
-    pub fn search(&self) -> Option<&Search> {
-        if let Some(form) = &self.form {
-            return form.search();
-        }
-        match &self.open {
-            Open::Card(Card {
-                open: CardOpen::List { list, .. },
-                ..
-            }) => list.filter(),
-            Open::Nothing => self.filter.as_ref(),
-            _ => None,
-        }
-    }
-
     /// The fonts the document uses, walked again where the document or
     /// the fonts found changed since the last walk.
     pub fn used(&self, shared: &Shared) -> Ref<'_, Used> {
@@ -295,42 +248,6 @@ impl Looks {
                 && items.get(self.highlight).is_some_and(Item::is_resource),
         );
         *self.names.borrow_mut() = items.iter().map(|i| i.name(shared)).collect();
-    }
-
-    /// What the preview shows: the highlighted look's font set at its
-    /// size, or the highlighted font set at vtium.conf's size, while the
-    /// list is the screen. Nothing on a color scheme or a pointer theme,
-    /// and while a card or a detail fills the viewer.
-    pub fn preview(&self, shared: &Shared) -> Option<Previewed> {
-        if !matches!(self.open, Open::Nothing) || self.form.is_some() {
-            return None;
-        }
-        let text = shared.document().text();
-        let size = |s: Option<String>| {
-            s.or_else(|| vtium_settings::setting(text, "font-size"))
-                .and_then(|s| s.parse::<u32>().ok())
-                .unwrap_or(0)
-        };
-        let (font, points) = match self.highlighted(shared)? {
-            Item::Look(name) => {
-                let look = list::look(text, &name)?;
-                (card::font_set(shared, &look), size(look.size.clone()))
-            }
-            Item::FontSet(name) => (Some(name), size(None)),
-            _ => return None,
-        };
-        let document = shared.document();
-        let in_document = font.clone().filter(|f| {
-            document.content().font_sets.kept.contains_key(f)
-                && !document.installed().frits.contains_key(f)
-        });
-        Some(Previewed {
-            font,
-            picture: self.picture,
-            points,
-            in_document,
-            place: draw::Panes::of(self.seen.get()).place(),
-        })
     }
 
     /// Where each part of the tab is drawn on `shared`, in the viewer
@@ -362,14 +279,13 @@ impl Tab<Shared, Action, Command> for Looks {
     /// The list, `looks` on a look or a font set and `looks-resources` on
     /// a color scheme or a pointer theme; a card and what is open on it;
     /// a detail; the new font set's form and what is open on it; or the
-    /// search row while the person types in the list's or a list box's
-    /// search.
+    /// search row while the person types in a list box's search. The
+    /// shell answers the node of its own `?` search over the list.
     fn node(&self) -> &'static str {
         if let Some(form) = &self.form {
             return form.node();
         }
         match &self.open {
-            Open::Nothing if self.filter.as_ref().is_some_and(Search::typing) => NODE_SEARCH,
             Open::Nothing if self.on_resource.get() => NODE_RESOURCES,
             Open::Nothing => NODE_LIST,
             Open::Card(c) => match &c.open {
@@ -432,6 +348,96 @@ impl Tab<Shared, Action, Command> for Looks {
     fn searchable(&self) -> Option<&dyn Searchable> {
         Some(self)
     }
+
+    /// The search of the open list box: a card line's, or a role's on the
+    /// new font set's form.
+    fn search(&self) -> Option<&Search> {
+        if let Some(form) = &self.form {
+            return form.search();
+        }
+        match &self.open {
+            Open::Card(Card {
+                open: CardOpen::List { list, .. },
+                ..
+            }) => list.filter(),
+            _ => None,
+        }
+    }
+
+    /// Keeps the shell's `?` search, so the list shows only its matches,
+    /// and puts the highlight on the match it highlights. `None` lists
+    /// every item again, with the highlight where it was.
+    fn filtered(&mut self, shared: &Shared, search: Option<&Search>) {
+        self.filter = search.cloned();
+        if let Some(h) = self.filter.as_ref().and_then(Search::highlighted) {
+            self.highlight = h;
+        }
+        self.follow(shared);
+        self.offset = view::settled_offset(self, shared, self.seen.get());
+    }
+
+    /// Highlights the font set `name`, or the look `name` where no font
+    /// set has it, in the list, closing a card or a detail open over it.
+    /// A name the list does not show, as one the kept filter leaves out,
+    /// leaves the highlight where it is.
+    fn show(&mut self, shared: &Shared, name: &str) {
+        let items = list::items(shared);
+        let find = |want: &Item| items.iter().position(|i| i == want);
+        let Some(at) = find(&Item::FontSet(name.to_owned()))
+            .or_else(|| find(&Item::Look(name.to_owned())))
+            .filter(|&at| self.filter.as_ref().is_none_or(|f| f.is_match(at)))
+        else {
+            return;
+        };
+        self.highlight = at;
+        self.open = Open::Nothing;
+        if let Some(filter) = self.filter.as_mut() {
+            filter.highlight(at);
+        }
+        self.follow(shared);
+        self.offset = view::settled_offset(self, shared, self.seen.get());
+    }
+
+    /// The highlighted look's font set at its size, or the highlighted
+    /// font set at vtium.conf's size, as a picture of the console where
+    /// `p` turned it on, while the list is the screen. Nothing on a color
+    /// scheme or a pointer theme, and while a card, a detail or the form
+    /// fills the viewer.
+    fn preview<'a>(&self, shared: &'a Shared) -> Option<Previewed<'a>> {
+        if !matches!(self.open, Open::Nothing) || self.form.is_some() {
+            return None;
+        }
+        let text = shared.document().text();
+        let size = |s: Option<String>| {
+            s.or_else(|| vtium_settings::setting(text, "font-size"))
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0)
+        };
+        let (font, points) = match self.highlighted(shared)? {
+            Item::Look(name) => {
+                let look = list::look(text, &name)?;
+                (card::font_set(shared, &look), size(look.size.clone()))
+            }
+            Item::FontSet(name) => (Some(name), size(None)),
+            _ => return None,
+        };
+        let document = shared.document();
+        let in_document = font.clone().filter(|f| {
+            document.content().font_sets.kept.contains_key(f)
+                && !document.installed().frits.contains_key(f)
+        });
+        let shows = if self.picture {
+            Shows::Font { detail: false }
+        } else {
+            Shows::Size { points }
+        };
+        Some(Previewed {
+            font,
+            shows,
+            in_document,
+            place: draw::Panes::of(self.seen.get()).place(),
+        })
+    }
 }
 
 /// The `?` search over the list, by each item's name.
@@ -446,6 +452,11 @@ impl Searchable for Looks {
 
     fn count(&self) -> usize {
         self.names.borrow().len()
+    }
+
+    /// The highlighted item, where the search row opens.
+    fn highlighted(&self) -> Option<usize> {
+        Some(self.highlight)
     }
 
     fn text(&self, item: usize, field: usize) -> Option<Cow<'_, str>> {

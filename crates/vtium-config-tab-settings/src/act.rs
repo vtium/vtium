@@ -1,15 +1,16 @@
 //! What each action does to the tab: the moves through the sections and
 //! the keys, Enter on a section or a key, the list box's keys and clicks,
-//! the keys of a value being typed and of the search row, and Find's
-//! request to highlight a key. The navigation module hands the tab an
-//! action by its row of the key table, so each arm here answers rows of
-//! the tab's nodes.
+//! the keys of a value being typed, the moves among a kept filter's
+//! matches, and Find's request to highlight a key. The navigation module
+//! hands the tab an action by its row of the key table, so each arm here
+//! answers rows of the tab's nodes. The shell feeds the keys of the `?`
+//! search row to its own search, and hands the tab a copy of it.
 //!
 //! References:
 //! - ADR-1206 D2: update hands the open tab an action from the key
 //!   table, and the tab returns commands.
-//! - ADR-1403 D11, "Search, on ?": the search row's keys, and a kept
-//!   filter's first Esc.
+//! - ADR-1403 D11, "Search, on ?": a kept filter's keys act on what
+//!   matches.
 //! - ADR-1403 D11, "The list box": its keys and clicks.
 //! - ADR-1206 D4: Find's Enter is a request to the item's tab to
 //!   highlight it, which the tab answers as it answers a move.
@@ -20,7 +21,7 @@ use vtium_config_widgets::input::{self, Button};
 use vtium_config_widgets::keys::{Code, Key, Mods};
 use vtium_config_widgets::list_box::ListBox;
 use vtium_config_widgets::list_box::Outcome as BoxOutcome;
-use vtium_config_widgets::search::{Outcome as SearchOutcome, Search};
+use vtium_config_widgets::search::Search;
 
 use crate::layout::Panes;
 use crate::value::{self, Pick, Values};
@@ -38,10 +39,6 @@ pub fn update(tab: &mut Settings, shared: &Shared, action: Action) -> Vec<Comman
     let out = match &tab.open {
         Open::Typing(_) => typing(tab, shared, &action),
         Open::Values { .. } => values(tab, shared, &action),
-        Open::Nothing if tab.filter.as_ref().is_some_and(Search::typing) => {
-            searching(tab, &action);
-            Vec::new()
-        }
         Open::Nothing => browse(tab, shared, &action),
     };
     tab.settle();
@@ -139,7 +136,6 @@ fn browse(tab: &mut Settings, shared: &Shared, action: &Action) -> Vec<Command> 
         "pgup" => step(tab, -page(tab)),
         "pgdn" => step(tab, page(tab)),
         "enter" | "list" => return enter(tab, shared),
-        "question" => open_search(tab),
         "esc" => back(tab),
         _ => {}
     }
@@ -173,12 +169,10 @@ fn enter(tab: &mut Settings, shared: &Shared) -> Vec<Command> {
     Vec::new()
 }
 
-/// Esc: clears a kept filter first, then goes from the keys back to the
-/// sections, with the same section highlighted.
+/// Esc: goes from the keys back to the sections, with the same section
+/// highlighted. The shell's search takes the Esc that clears a kept
+/// filter.
 fn back(tab: &mut Settings) {
-    if tab.filter.take().is_some() {
-        return;
-    }
     tab.focus = Focus::Sections;
 }
 
@@ -208,7 +202,7 @@ fn step(tab: &mut Settings, by: isize) {
 
 /// The highlight follows the filter's, with the section of the key it
 /// stands on.
-fn follow(tab: &mut Settings) {
+pub fn follow(tab: &mut Settings) {
     let Some(at) = tab.filter.as_ref().and_then(Search::highlighted) else {
         return;
     };
@@ -216,37 +210,6 @@ fn follow(tab: &mut Settings) {
     tab.focus = Focus::Keys;
     if let Some(e) = tab.table.entry(at) {
         tab.section = e.section;
-    }
-}
-
-/// `?`: puts the cursor back in a kept filter's entry, or opens the
-/// search row over every key, on the highlighted key or the section's
-/// first.
-fn open_search(tab: &mut Settings) {
-    if let Some(filter) = tab.filter.as_mut() {
-        filter.key(&Key::char('?'));
-        return;
-    }
-    let from = match tab.focus {
-        Focus::Keys => Some(tab.key),
-        Focus::Sections => tab.table.section(tab.section).map(|s| s.keys.start),
-    };
-    tab.filter = Some(Search::open(&*tab, from));
-    follow(tab);
-}
-
-/// A key typed in the search row: the entry changes and the keys filter,
-/// Up and Down move among the matches, Enter keeps the filter, and Esc or
-/// Backspace on an empty entry clear it.
-fn searching(tab: &mut Settings, action: &Action) {
-    let Some(key) = pressed(action) else { return };
-    let Some(filter) = tab.filter.as_mut() else {
-        return;
-    };
-    match filter.key(&key) {
-        SearchOutcome::Typed | SearchOutcome::Moved | SearchOutcome::Kept => follow(tab),
-        SearchOutcome::Closed => tab.filter = None,
-        SearchOutcome::Resumed | SearchOutcome::Ignored => {}
     }
 }
 
@@ -269,7 +232,7 @@ fn clicked(tab: &mut Settings, shared: &Shared, at: Position) -> Vec<Command> {
                 .section(section)
                 .and_then(|s| s.keys.clone().find(|&k| filter.is_match(k)))
             {
-                move_filter_to(filter, first);
+                filter.highlight(first);
                 follow(tab);
             }
         }
@@ -282,20 +245,10 @@ fn clicked(tab: &mut Settings, shared: &Shared, at: Position) -> Vec<Command> {
         tab.focus = Focus::Keys;
         tab.key = key;
         if let Some(filter) = tab.filter.as_mut() {
-            move_filter_to(filter, key);
+            filter.highlight(key);
         }
     }
     Vec::new()
-}
-
-/// Moves the filter's highlight to the item `item`, which it matches.
-fn move_filter_to(filter: &mut Search, item: usize) {
-    let at = |i: usize| filter.matches().iter().position(|&m| m == i);
-    let (Some(from), Some(to)) = (filter.highlighted().and_then(at), at(item)) else {
-        return;
-    };
-    let by = isize::try_from(to).unwrap_or(0) - isize::try_from(from).unwrap_or(0);
-    filter.step(by);
 }
 
 /// Find's Enter on a key: the key is highlighted in its section, and the

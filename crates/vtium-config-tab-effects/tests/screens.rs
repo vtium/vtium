@@ -23,8 +23,8 @@
 mod common;
 
 use common::{
-    SIZES, act, check_rows, check_without_color, machines, repeat, rows_of, screen, snapshot,
-    snapshot_text, type_in,
+    SIZES, Searching, act, check_rows, check_without_color, machines, repeat, rows_of, screen,
+    screen_searching, snapshot, snapshot_text,
 };
 use vtium_config_core::ui::Shared;
 use vtium_config_tab_effects::Effects;
@@ -50,18 +50,32 @@ fn check_screen(
     must: &[(&str, &[&str])],
     set: impl Fn(&mut Effects, &mut Shared, &str, u16, u16),
 ) {
+    check_search_screen(name, must, |tab, shared, machine, w, h, _| {
+        set(tab, shared, machine, w, h);
+    });
+}
+
+/// Checks the screen `set` leaves as [`check_screen`] does, with the
+/// search row of the shell's search that `set` opens.
+fn check_search_screen(
+    name: &str,
+    must: &[(&str, &[&str])],
+    set: impl Fn(&mut Effects, &mut Shared, &str, u16, u16, &mut Searching),
+) {
     let mut text = String::new();
     for (machine, build) in machines() {
         for (w, h) in SIZES {
             let mut shared = build();
             let mut tab = Effects::new(true);
-            set(&mut tab, &mut shared, machine, w, h);
-            let with = screen(&tab, &shared, w, h, true);
+            let mut shell = Searching::default();
+            set(&mut tab, &mut shared, machine, w, h, &mut shell);
+            let with = screen_searching(&tab, &shared, w, h, true, shell.row(&tab));
             check_rows(&with, w, h);
             let mut mono = Effects::new(false);
             let mut mono_shared = build();
-            set(&mut mono, &mut mono_shared, machine, w, h);
-            let without = screen(&mono, &mono_shared, w, h, false);
+            let mut mono_shell = Searching::default();
+            set(&mut mono, &mut mono_shared, machine, w, h, &mut mono_shell);
+            let without = screen_searching(&mono, &mono_shared, w, h, false, mono_shell.row(&mono));
             check_without_color(&with, &without);
             let all = rows_of(&without).join("\n");
             for (m, strings) in must {
@@ -342,22 +356,22 @@ fn a_shader_waits_for_the_spatial_layer_as_planned() {
 
 #[test]
 fn the_search_keeps_the_items_whose_names_match() {
-    check_screen(
+    check_search_screen(
         "effects-search",
         &[
             ("*", &["matching"]),
             ("map", &["matching *green", "green"]),
             ("large", &["matching ^admin", "admin-011"]),
         ],
-        |tab, shared, machine, w, h| {
+        |tab, shared, machine, w, h, shell| {
             screen(tab, shared, w, h, true);
-            act(tab, shared, "question.view");
+            shell.open(tab, shared);
             let typed = if machine == "map" {
                 "*green"
             } else {
                 "^admin-01"
             };
-            type_in(tab, shared, "char.typing.search", typed);
+            shell.type_in(tab, shared, typed);
         },
     );
 }

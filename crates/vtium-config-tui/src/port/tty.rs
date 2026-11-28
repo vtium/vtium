@@ -39,6 +39,9 @@ pub struct Tty {
     deadline: Option<Instant>,
     /// When the macro player's pause ends.
     step: Option<Instant>,
+    /// What came while the loop asked whether input was pending, which
+    /// the next wait hands over first.
+    held: Vec<Wake>,
     /// The port's entry in [`RESTORE`].
     id: u64,
 }
@@ -135,6 +138,7 @@ impl Tty {
             events,
             deadline: None,
             step: None,
+            held: Vec::new(),
             id,
         };
         tty.write(ENTER)?;
@@ -184,6 +188,9 @@ impl Port for Tty {
     }
 
     fn wait(&mut self) -> io::Result<Vec<Wake>> {
+        if !self.held.is_empty() {
+            return Ok(std::mem::take(&mut self.held));
+        }
         let mut woken = Woken::default();
         // the player's pause and the update's wait share the one wait,
         // and whichever ends first ends it
@@ -210,6 +217,16 @@ impl Port for Tty {
     fn arm_step(&mut self, after: Duration) -> bool {
         self.step = now().checked_add(after);
         true
+    }
+
+    fn pending(&mut self, within: Duration) -> io::Result<bool> {
+        if !self.held.is_empty() {
+            return Ok(true);
+        }
+        let mut woken = Woken::default();
+        self.events.dispatch(Some(within), &mut woken)?;
+        self.held = woken.wakes;
+        Ok(!self.held.is_empty())
     }
 
     fn step_aside(&mut self, aside: &mut dyn FnMut() -> io::Result<()>) -> io::Result<()> {
