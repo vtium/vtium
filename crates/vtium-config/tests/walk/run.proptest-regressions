@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6c452aa52b083e5e8379f4e54e80e9f727604f9508ae7764840194101154c4cd # shrinks to (initial_state, transitions, seen_counter) = (RefState { term: Vtium, node: "fonts", tab: "fonts", under: [], left: false }, ["Tab"], None)
