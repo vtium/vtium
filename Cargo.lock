@@ -1745,6 +1745,20 @@ name = "vtium-config-macro"
 version = "0.1.0-alpha.12"
 
 [[package]]
+name = "vtium-config-tui"
+version = "0.1.0-alpha.12"
+dependencies = [
+ "ratatui-core",
+ "ratatui-widgets",
+ "rustix",
+ "vtium-config-core",
+ "vtium-config-macro",
+ "vtium-config-widgets",
+ "vtium-platform",
+ "vtium-term",
+]
+
+[[package]]
 name = "vtium-config-widgets"
 version = "0.1.0-alpha.12"
 dependencies = [
