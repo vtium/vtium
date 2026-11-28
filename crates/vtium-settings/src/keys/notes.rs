@@ -5,8 +5,8 @@
 //! They live in this table, apart from the key table, so that the console
 //! binary carries none of this text: no code the binary runs reads
 //! [`NOTES`], so the linker leaves the table and its strings out. That
-//! saves about 12 KB of the console's size budget, the 4,390,912 bytes
-//! (4 MiB + 192 KiB) that tier 3 holds the minspec binary to. Each note
+//! saves about 12 KB of the console's size budget, the 4,456,448 bytes
+//! (4 MiB + 256 KiB) that tier 3 holds the minspec binary to. Each note
 //! names its key by the key's constant. [`NOTES`] holds exactly as many
 //! notes as [`KEYS`] has keys, so a key added without a note fails the
 //! build, and a test fails on a note that names a key twice or names no key.
