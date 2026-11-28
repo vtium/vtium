@@ -35,6 +35,7 @@ nav = [
   ] },
   { "How-to guides" = [
       "managing-vtium.md",
+      { "Set up vtium on an Arch desktop" = "express-setup.md" },
       { "Install vtium and give it VTs" = "install.md" },
       { "Configure vtium" = "configure.md" },
       { "Choose a font" = "fonts.md" },

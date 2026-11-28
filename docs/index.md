@@ -51,6 +51,7 @@ Once vtium is installed, it reads its settings from `/etc/vtium/vtium.conf`. Rul
 
 | If you want to | Start here |
 |---|---|
+| set vtium up quickly on an Arch desktop with KDE Plasma and SDDM | [Set up vtium on an Arch desktop](express-setup.md) |
 | try vtium on one VT and get back to your desktop afterward | [Try vtium on one VT](tutorial-try-vtium.md) |
 | install vtium, configure it, choose a font, set up heads, or fix a problem | [Install vtium and give it VTs](install.md), [Configure vtium](configure.md), [Choose a font](fonts.md), [Set up heads](heads.md), or [Find out what went wrong](troubleshooting.md) |
 | look up a feature, a key, or a setting | [What vtium does](features.md), [Keys](keys.md), [Configuration keys](config.md), [The head file](head-file.md), [Modes](modes.md), or [systemd, logind and PID 1](systemd.md) |
