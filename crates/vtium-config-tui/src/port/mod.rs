@@ -16,7 +16,8 @@
 //! The loop reads the machine for the Actions menu's items through
 //! [`crate::live::machine::Machine`], and hands the App what it found as a
 //! message. It runs the install of a system font while it steps aside, so
-//! sudo can ask for the password on the terminal.
+//! sudo can ask for the password on the terminal, and runs the person's
+//! editor for Edit as text the same way.
 //!
 //! References:
 //! - ADR-1206 D2: the loop turns every wake into a message, and performs
@@ -171,6 +172,17 @@ pub fn drive_on(port: &mut dyn Port, machine: &mut dyn Machine, mut app: App) ->
                         })?;
                         port.write(&painter.forget()?)?;
                         queue.extend(app.event(Event::Save(Came::Saved(done))));
+                    }
+                    // the person's editor takes the terminal, so it runs
+                    // while the TUI steps aside, as the install does
+                    Effect::Editor { name, text } => {
+                        let mut done = Err(crate::editor::words::NO_EDITOR.to_owned());
+                        port.step_aside(&mut || {
+                            done = machine.edit(&name, &text);
+                            Ok(())
+                        })?;
+                        port.write(&painter.forget()?)?;
+                        queue.extend(app.event(Event::Edited(done)));
                     }
                     // the previews and the font helper's answers (the tab
                     // cards) and the desk's other ops are performed by the

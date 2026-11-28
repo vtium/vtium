@@ -65,6 +65,10 @@ pub enum Effect {
     Describe(Vec<PathBuf>),
     /// Hands the op to the desk.
     Desk(Op),
+    /// Edit as text: runs the person's editor on a copy of `text`, the
+    /// configuration `name`'s vtium.conf, while the TUI steps aside, then
+    /// checks the copy with `vtium check-config`.
+    Editor { name: String, text: String },
     /// Leaves, with this exit status.
     Exit(u8),
 }
