@@ -1771,6 +1771,18 @@ name = "vtium-config-macro"
 version = "0.1.0-alpha.12"
 
 [[package]]
+name = "vtium-config-tab-effects"
+version = "0.1.0-alpha.12"
+dependencies = [
+ "ratatui-core",
+ "ratatui-widgets",
+ "vtium-config-core",
+ "vtium-config-widgets",
+ "vtium-render",
+ "vtium-settings",
+]
+
+[[package]]
 name = "vtium-config-widgets"
 version = "0.1.0-alpha.12"
 dependencies = [
