@@ -50,6 +50,42 @@ impl Drop for Scratch {
     }
 }
 
+/// A machine's places for the batch under `dir`: the batch file
+/// `etc/batch.conf`, root's lists in `etc/batch.d`, the packages' lists in
+/// `share/batch.d` beside the package's font folder `share/fonts`, and no
+/// console font. The folders it names do not exist until a test writes
+/// into them with [`file`].
+pub fn batch_places(dir: &Path) -> vtium_settings::batch::Places {
+    vtium_settings::batch::Places {
+        file: dir.join("etc/batch.conf"),
+        vconsole_conf: PathBuf::from("/dev/null"),
+        cmdline: PathBuf::from("/dev/null"),
+        fonts: dir.join("share/fonts"),
+        palettes: dir.join("share/palettes"),
+        ..vtium_settings::batch::Places::system()
+    }
+}
+
+/// Writes `text` to `path` with the mode `mode`, after making each folder
+/// on the way with the mode 0755, so that the owner and mode check passes
+/// the folders.
+#[expect(clippy::panic, reason = "a test's set-up fails loudly")]
+pub fn file(path: &Path, text: &[u8], mode: u32) {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let made = path.parent().map_or(Ok(()), |folder| {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o755)
+            .create(folder)
+    });
+    let written = made
+        .and_then(|()| std::fs::write(path, text))
+        .and_then(|()| std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)));
+    if let Err(e) = written {
+        panic!("{}: {e}", path.display());
+    }
+}
+
 #[cfg(test)]
 #[expect(
     clippy::unwrap_used,

@@ -160,8 +160,8 @@ fn held<T>(f: impl Fn(&Held) -> T) -> T {
 
 /// Reads the batch the way a start does, at `places` under `trust` with
 /// `rule` for each resource, unless the console already holds one; what
-/// vtium found reading the batch file, for the caller to log, or `None`
-/// when the console already held a batch.
+/// vtium found reading the batch file and the lists, for the caller to
+/// log, or `None` when the console already held a batch.
 pub fn start_batch(places: &batch::Places, trust: &Trust, rule: Rule) -> Option<Found> {
     if HELD.with_borrow(Option::is_some) {
         return None;
@@ -190,9 +190,9 @@ pub fn package_palettes() -> PathBuf {
 /// `rule`, the trust rule each resource passes. vtium calls this at the
 /// start and at each new login. When the batch differs from the one the
 /// console held, which it does at the first read, the result is what vtium
-/// found reading the batch file, for the caller to log. The result is
-/// `None` when the batch is the same, so a login that changes nothing logs
-/// nothing.
+/// found reading the batch file and the lists, for the caller to log. The
+/// result is `None` when the batch is the same, so a login that changes
+/// nothing logs nothing.
 ///
 /// References:
 /// - ADR-1205 D4, its note of 2026-11-19: the console reads the batch again at each new login, so an activation takes effect at the next login.
@@ -230,34 +230,62 @@ pub(super) fn load_batch_with(
     (!same).then_some(Found {
         findings: read.findings,
         more,
+        list_findings: read.list_findings,
     })
 }
 
-/// What vtium found reading the batch file, for the caller to log.
+/// What vtium found reading the batch file and the lists of the two list
+/// folders, for the caller to log.
 #[derive(Debug)]
 pub struct Found {
-    /// The findings, in the file's order, at most the first
+    /// The batch file's findings, in the file's order, at most the first
     /// [`vtium_settings::ERRORS_MAX`] lines vtium ignores.
     pub findings: Vec<batch::Finding>,
     /// The line that counts the ignored lines past those listed, when
     /// there are more ([`batch::Read::more_line`]).
     pub more: Option<String>,
+    /// The lists' findings: the lists vtium refused or left out, and the
+    /// lines of lists it ignores ([`batch::Read::list_findings`]).
+    pub list_findings: Vec<batch::ListFinding>,
 }
 
 impl Found {
-    /// Logs the findings: a missing file as information, since a machine
-    /// upgraded from an earlier vtium has none, and a file vtium cannot
-    /// use, or a line it ignores, as a warning. The count of the ignored
-    /// lines past those listed comes last, as a warning too.
+    /// The lines [`Found::log`] writes, each with its level: a missing
+    /// batch file as information, since a machine upgraded from an earlier
+    /// vtium has none, and a file vtium cannot use, or a line it ignores,
+    /// as a warning. The count of the ignored lines past those listed
+    /// comes after the batch file's findings, as a warning too, and each
+    /// finding of the lists comes last, as a warning.
+    ///
+    /// References:
+    /// - ADR-1205 D4, as amended on 2026-11-27: a list vtium refuses or leaves out, and a line of a list it ignores, each get a finding.
+    pub(super) fn lines(&self) -> Vec<(log::Level, String)> {
+        let mut lines: Vec<(log::Level, String)> = self
+            .findings
+            .iter()
+            .map(|finding| match finding {
+                batch::Finding::Missing { .. } => (log::Level::Info, finding.to_string()),
+                _ => (log::Level::Warn, finding.to_string()),
+            })
+            .collect();
+        lines.extend(
+            self.more
+                .iter()
+                .map(|more| (log::Level::Warn, more.clone())),
+        );
+        lines.extend(
+            self.list_findings
+                .iter()
+                .map(|finding| (log::Level::Warn, finding.to_string())),
+        );
+        lines
+    }
+
+    /// Logs what vtium found reading the batch, once for each batch the
+    /// console reads that differs from the one it held.
     pub fn log(&self) {
-        for finding in &self.findings {
-            match finding {
-                batch::Finding::Missing { .. } => log::info!(target: "batch", "{finding}"),
-                _ => log::warn!(target: "batch", "{finding}"),
-            }
-        }
-        if let Some(more) = &self.more {
-            log::warn!(target: "batch", "{more}");
+        for (level, line) in self.lines() {
+            log::log!(target: "batch", level, "{line}");
         }
     }
 }
