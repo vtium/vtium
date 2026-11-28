@@ -447,7 +447,11 @@ fn a_submenu_with_no_room_at_the_right_opens_at_the_left_and_stays_on_the_screen
     let mut buf = Buffer::empty(Rect::new(0, 0, 80, 25));
     layout.draw(&mut buf, false);
     let text = rows(&buf);
-    assert!(text[1].ends_with('┐') && text[1].contains('┌'), "{}", text[1]);
+    assert!(
+        text[1].ends_with('┐') && text[1].contains('┌'),
+        "{}",
+        text[1]
+    );
     assert!(text[2].ends_with('│'), "{}", text[2]);
     // Where neither side has room, as at 80 columns, the submenu keeps to
     // the screen's right edge, over the right of the menu, so the
