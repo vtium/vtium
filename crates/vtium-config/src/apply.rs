@@ -1166,6 +1166,22 @@ fn apply(
             return Err(FRITS_MOVE_FIRST.to_owned());
         }
     }
+    // a frit vtium.conf names after the save is never removed. This
+    // refusal comes before the console's check, which would refuse the
+    // same removal as a font-name that names no font, in fewer words
+    let conf_text = match &conf {
+        Some(c) => String::from_utf8_lossy(c.bytes.as_deref().unwrap_or_default()).into_owned(),
+        None => std::fs::read_to_string(targets.configdir.join("vtium.conf")).unwrap_or_default(),
+    };
+    for path in &removals {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        if let Some(by) = naming(stem, Some(&conf_text)) {
+            return Err(format!("{} is not removed: {by} uses it", path.display()));
+        }
+    }
     // step 3: the console's own check, on copies root made, so what is
     // checked is what is written. A bundle that changes font sets but
     // holds no vtium.conf is checked too, with the installed vtium.conf,
@@ -1181,20 +1197,6 @@ fn apply(
             accept_no_route,
             out,
         )?;
-    }
-    // a frit vtium.conf names after the save is never removed
-    let conf_text = match &conf {
-        Some(c) => String::from_utf8_lossy(c.bytes.as_deref().unwrap_or_default()).into_owned(),
-        None => std::fs::read_to_string(targets.configdir.join("vtium.conf")).unwrap_or_default(),
-    };
-    for path in &removals {
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default();
-        if let Some(by) = naming(stem, Some(&conf_text)) {
-            return Err(format!("{} is not removed: {by} uses it", path.display()));
-        }
     }
     // step 4: frits, the batch file, vtium.conf, then removals
     let order: Vec<Staged> = frits
