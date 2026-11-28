@@ -17,13 +17,16 @@
 //!
 //! The crate knows nothing of the TUI. Its keys are names with modifiers,
 //! and the player in vtium-config turns them into the TUI's own key type,
-//! refusing a key the TUI cannot read. A macro may come over ssh from
-//! another machine, so the parser treats its input as untrusted: it never
-//! panics, and it holds every bound in [`bounds`].
+//! refusing a key the TUI cannot read. The crate already takes a key as a
+//! terminal sends it: Ctrl+I is Tab, and a chord that no terminal can
+//! send as a key, such as Alt+[, does not parse. A macro may come over ssh
+//! from another machine, so the parser treats its input as untrusted: it
+//! never panics, and it holds every bound in [`bounds`].
 //!
 //! References:
 //! - ADR-1208 D1: a macro as a short text file of steps, and its limits.
 //! - ADR-1208 D2: the grammar and the two example macros.
+//! - ADR-1208 D3: a key as a terminal sends it.
 //! - ADR-1208 D6: the key path that names a failure.
 //! - ADR-1208 D7: the format's crate, with no dependency beyond std.
 
@@ -42,12 +45,14 @@
     clippy::todo
 )]
 
+mod chord;
 mod parse;
 mod path;
 mod write;
 
 use std::time::Duration;
 
+pub use chord::Unpressable;
 pub use parse::{Error, Parser, parse, parse_bytes};
 pub use path::{KeyPath, failure_name, failure_report};
 
@@ -55,12 +60,15 @@ pub use path::{KeyPath, failure_name, failure_report};
 pub mod bounds {
     use std::time::Duration;
 
-    /// The most bytes a macro holds, counting a newline after each line.
-    /// A macro is read whole before its first step plays, so this bounds
-    /// the memory a macro sent over ssh can take.
+    /// The most bytes a macro file holds, counting a newline after each
+    /// line. A file is read whole before its first step plays, so this
+    /// bounds the memory it can take. A stream, as `--macro -` reads, is
+    /// bounded by [`STEPS_MAX`] and [`LINE_MAX`] instead, since its parser
+    /// keeps one line at a time.
     ///
     /// References:
-    /// - ADR-1208 D1: a file of at most 1 MiB.
+    /// - ADR-1208 D1: a file of at most 1 MiB, which does not bound a
+    ///   stream.
     pub const FILE_MAX: usize = 1024 * 1024;
 
     /// The most bytes one line holds, without its newline. It keeps the
@@ -71,9 +79,13 @@ pub mod bounds {
     /// - ADR-1208 D1: a line of at most 4,096 bytes.
     pub const LINE_MAX: usize = 4096;
 
-    /// The most lines a macro holds, comments and blank lines included. A
-    /// macro of this many keys at their highest count presses a million
-    /// keys, which bounds how long a test or a remote run can take.
+    /// The most lines a macro holds, comments and blank lines included,
+    /// whether it comes from a file or a stream. A macro of this many keys
+    /// at their highest count presses a million keys, which bounds how
+    /// long a test or a remote run can take.
+    ///
+    /// References:
+    /// - ADR-1208 D1: at most 10,000 steps, which bound `--macro -`.
     pub const STEPS_MAX: usize = 10_000;
 
     /// The highest count after a key, as in `Down 3`. A typo such as
@@ -225,11 +237,13 @@ impl Mods {
     }
 }
 
-/// A key with the modifiers held while it is pressed, as in `Ctrl+Alt+X`.
+/// A key with the set of modifiers held while it is pressed, as in
+/// `Alt+Shift+L`.
 ///
 /// The crate keeps a key as the macro wrote it: `Shift+a` and `A` are two
 /// different presses here, and the player decides that both type a
-/// capital A.
+/// capital A. A key step is the one exception: it takes a chord that
+/// shares its byte with another key as that key (see [`KeyStep::new`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct KeyPress {
     pub mods: Mods,
@@ -274,12 +288,15 @@ pub struct KeyStep {
 }
 
 impl KeyStep {
-    /// The step, or `None` for `#` with no modifier. A line that starts
-    /// with `#` is a comment, so a macro cannot press `#` alone as a key
-    /// step, and types it with `Type "#"` instead.
-    pub fn new(press: KeyPress, count: Count) -> Option<KeyStep> {
-        let comment = press.mods.is_empty() && press.key == Key::Char(Character('#'));
-        (!comment).then_some(KeyStep { press, count })
+    /// The step that presses the key as a terminal sends it. Ctrl+I,
+    /// Ctrl+M, Ctrl+H and Ctrl+[ send the bytes of Tab, Enter, Backspace
+    /// and Escape, so the step presses those keys. Alt and `[`, `]`, `_` or
+    /// a capital `P` open a control sequence or a control string, which no
+    /// terminal sends as a key, so those are refused. `#` with no modifier
+    /// is refused too, because a line that starts with `#` is a comment: a
+    /// macro types it with `Type "#"` instead.
+    pub fn new(press: KeyPress, count: Count) -> Result<KeyStep, Unpressable> {
+        chord::as_sent(press).map(|press| KeyStep { press, count })
     }
 
     /// The key and its modifiers.
@@ -297,8 +314,8 @@ impl KeyStep {
 /// macro wrote it.
 ///
 /// It holds 1 to [`bounds::TYPE_MAX`] characters, no control character,
-/// and not both kinds of quote, because the text sits between double or
-/// single quotes and has no escapes.
+/// and not all three kinds of quote, because the text sits between double
+/// quotes, single quotes or backticks and has no escapes.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Text(String);
 
@@ -321,7 +338,7 @@ impl Text {
 /// The player reads the screen with one space between each word, so a
 /// label holds words with one space between each, and no space at its
 /// start or end. It holds 1 to [`bounds::LABEL_MAX`] characters, no
-/// control character, and not both kinds of quote.
+/// control character, and not all three kinds of quote.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Label(String);
 
@@ -339,10 +356,14 @@ impl Label {
     }
 }
 
+/// The quotes a text can sit between, in the order the canonical text
+/// prefers them: double quotes, single quotes, then backticks, as in VHS.
+pub(crate) const QUOTES: [char; 3] = ['"', '\'', '`'];
+
 /// Whether a text can sit between quotes: no control character, and not
-/// both kinds of quote, since a macro has no escapes.
+/// all three kinds of quote, since a macro has no escapes.
 fn quotable(s: &str) -> bool {
-    !s.chars().any(char::is_control) && !(s.contains('"') && s.contains('\''))
+    !s.chars().any(char::is_control) && !QUOTES.iter().all(|&q| s.contains(q))
 }
 
 /// Whether a text is words with one space between each, as the player
@@ -382,29 +403,35 @@ impl Node {
 /// It holds 1 to [`bounds::NAME_MAX`] bytes of ASCII letters, digits, `-`,
 /// `_` and `.`, and does not start with a dot, so it names a file inside
 /// the debug folder and never a hidden file or a path. It is not
-/// `failure` or `step-` and digits, the names of the files that debug
-/// mode writes itself.
+/// `failure` or `live`, and does not start with `step-`, because debug
+/// mode writes the files of those names itself. A macro uses each name
+/// once, which the parser checks.
+///
+/// References:
+/// - ADR-1208 D2: the rule for a Screenshot's name.
+/// - ADR-1208 D6: debug mode's own files.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Name(String);
 
 impl Name {
     /// The name, or `None` when it breaks one of the rules above.
     pub fn new(s: &str) -> Option<Name> {
+        (Name::plain(s) && !Name::reserved(s)).then(|| Name(s.to_owned()))
+    }
+
+    /// Whether a name is one plain file name: 1 to [`bounds::NAME_MAX`]
+    /// bytes of the characters above, not starting with a dot.
+    pub(crate) fn plain(s: &str) -> bool {
         let chars = s
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.');
-        let ok =
-            (1..=NAME_MAX).contains(&s.len()) && chars && !s.starts_with('.') && !Name::reserved(s);
-        ok.then(|| Name(s.to_owned()))
+        (1..=NAME_MAX).contains(&s.len()) && chars && !s.starts_with('.')
     }
 
-    /// Whether debug mode writes a file of this name itself: `failure`, or
-    /// `step-` and the digits of a line number.
+    /// Whether debug mode writes a file of this name itself: `failure`,
+    /// `live`, or a name that starts with `step-`.
     pub fn reserved(s: &str) -> bool {
-        let step = s
-            .strip_prefix("step-")
-            .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
-        s == "failure" || step
+        s == "failure" || s == "live" || s.starts_with("step-")
     }
 
     /// The name.
@@ -488,7 +515,7 @@ pub enum Step {
     ClickMouse(Label),
     /// `Expect ...`: checks the screen or the TUI's state.
     Expect(Expectation),
-    /// `Sleep 500ms` or `Sleep 2s`: waits in visible play.
+    /// `Sleep 500ms`, `Sleep 2s` or `Sleep 0.5`: waits in visible play.
     Sleep(Pause),
     /// `Screenshot NAME`: writes the screen in debug mode.
     Screenshot(Name),
@@ -514,8 +541,8 @@ impl Step {
 ///
 /// Every `Macro` writes canonical text that parses back into the same
 /// `Macro`, so a macro holds at most [`bounds::STEPS_MAX`] lines whose
-/// text fits in [`bounds::FILE_MAX`] bytes, and `Set Live` comes only
-/// before any step that acts.
+/// text fits in [`bounds::FILE_MAX`] bytes, `Set Live` comes only before
+/// any step that acts, and no two screenshots share a name.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Macro {
     steps: Vec<Step>,
@@ -525,7 +552,7 @@ impl Macro {
     /// The macro of these lines, or the first error that its text would
     /// meet when parsed.
     pub fn new(steps: Vec<Step>) -> Result<Macro, Error> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::file();
         for step in &steps {
             parser.accept(step)?;
         }

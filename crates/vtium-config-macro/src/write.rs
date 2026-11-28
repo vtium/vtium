@@ -5,11 +5,12 @@
 //! space between them, writes the modifiers in the order Ctrl, Alt,
 //! Shift, writes `Escape` for `Esc` and no count of 1, writes a pause in
 //! seconds when it is whole seconds, and puts a text in double quotes
-//! unless it holds one.
+//! unless it holds one, then in single quotes unless it holds one, and
+//! otherwise in backticks.
 
 use std::fmt;
 
-use crate::{Expectation, Key, KeyPress, KeyStep, Macro, Step};
+use crate::{Expectation, Key, KeyPress, KeyStep, Macro, QUOTES, Step};
 
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -49,10 +50,10 @@ impl fmt::Display for KeyStep {
     }
 }
 
-/// A text between quotes: double quotes, or single quotes when the text
-/// holds a double quote.
+/// A text between the first kind of quote it does not hold. A text or a
+/// label never holds all three kinds.
 fn quoted(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
-    let q = if s.contains('"') { '\'' } else { '"' };
+    let q = QUOTES.into_iter().find(|&q| !s.contains(q)).unwrap_or('"');
     write!(f, "{q}{s}{q}")
 }
 

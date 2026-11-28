@@ -34,7 +34,7 @@ impl Rng {
 
 /// Characters that stress the quoting, the spacing and the comment rules.
 const CHARS: &[char] = &[
-    'a', 'Z', '0', ' ', ' ', '"', '\'', '#', '+', '\\', 'é', '中', '🙂', '.', '-', '\t',
+    'a', 'Z', '0', ' ', ' ', '"', '\'', '`', '#', '+', '\\', 'é', '中', '🙂', '.', '-', '\t',
 ];
 
 fn text(rng: &mut Rng, max: usize) -> String {
@@ -45,7 +45,10 @@ fn text(rng: &mut Rng, max: usize) -> String {
 
 fn key(rng: &mut Rng) -> Key {
     if rng.below(3) == 0 {
-        Key::Char(Character::new(rng.pick(&['a', 'Q', '#', '+', '3', '"', 'é'])).unwrap())
+        Key::Char(
+            Character::new(rng.pick(&['a', 'Q', '#', '+', '3', '"', 'é', 'I', 'P', '[', ']', '_']))
+                .unwrap(),
+        )
     } else {
         rng.pick(&Key::NAMED).1
     }
@@ -68,6 +71,7 @@ fn step(rng: &mut Rng) -> Step {
                     },
                     count,
                 )
+                .ok()
                 .map(Step::Key)
             }
             1 => Text::new(&text(rng, TYPE_MAX)).map(Step::Type),
@@ -102,7 +106,19 @@ fn step(rng: &mut Rng) -> Step {
 }
 
 fn generated(rng: &mut Rng) -> Macro {
-    let mut steps: Vec<Step> = (0..rng.below(30)).map(|_| step(rng)).collect();
+    let mut names = Vec::new();
+    let mut steps: Vec<Step> = (0..rng.below(30))
+        .map(|_| step(rng))
+        .filter(|s| match s {
+            // A macro uses each screenshot's name once.
+            Step::Screenshot(n) if names.contains(n) => false,
+            Step::Screenshot(n) => {
+                names.push(n.clone());
+                true
+            }
+            _ => true,
+        })
+        .collect();
     if rng.below(4) == 0 {
         let at = steps.iter().position(Step::acts).unwrap_or(steps.len());
         steps.insert(rng.below(at + 1), Step::SetLive);
@@ -153,6 +169,13 @@ const PIECES: &[&str] = &[
     "500ms",
     "2s",
     "61s",
+    "0.5",
+    "@500ms",
+    "`",
+    "I",
+    "[",
+    "_",
+    "P",
     "Screenshot",
     "Set",
     "Live",
@@ -163,6 +186,8 @@ const PIECES: &[&str] = &[
     "+",
     "é",
     "failure",
+    "live",
+    "step-1",
     "Hide",
 ];
 

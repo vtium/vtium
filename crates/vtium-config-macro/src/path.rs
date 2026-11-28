@@ -7,7 +7,7 @@ use std::fmt;
 
 use crate::bounds::COUNT_MAX;
 use crate::parse::parse_key;
-use crate::{Character, Count, Error, Key, KeyPress, KeyStep, Macro, Step, Text};
+use crate::{Count, Error, KeyPress, KeyStep, Macro, Step, Text, Unpressable};
 
 /// The keys pressed from the start of a run, in order.
 ///
@@ -36,25 +36,35 @@ impl KeyPath {
 
     /// The path as a macro of key steps, one line for each run of the same
     /// key, with the run's length as its count. `#` with no modifier, which
-    /// a line would read as a comment, becomes `Type "#"`.
+    /// a line would read as a comment, becomes `Type "#"`, and a chord that
+    /// shares its byte with another key becomes that key, as
+    /// [`KeyStep::new`] takes it.
     ///
     /// A path longer than a macro holds is an error, which names the line
-    /// that would pass the bound.
+    /// that would pass the bound, and so is a chord that no terminal can
+    /// send as a key, on the line it would take.
     pub fn to_macro(&self) -> Result<Macro, Error> {
-        let hash = KeyPress::plain(Key::Char(Character('#')));
         let mut steps = Vec::new();
         let mut keys = self.keys.iter().peekable();
         while let Some(&key) = keys.next() {
-            if key == hash {
-                steps.push(Step::Type(Text("#".to_owned())));
-                continue;
-            }
             let mut n = 1u8;
             while n < COUNT_MAX && keys.next_if_eq(&&key).is_some() {
                 n = n.saturating_add(1);
             }
             let count = Count::new(n).unwrap_or(Count::ONE);
-            steps.extend(KeyStep::new(key, count).map(Step::Key));
+            match KeyStep::new(key, count) {
+                Ok(step) => steps.push(Step::Key(step)),
+                Err(Unpressable::Hash) => {
+                    // Each # is a step of its own, since Type has no count.
+                    for _ in 0..n {
+                        steps.push(Step::Type(Text("#".to_owned())));
+                    }
+                }
+                Err(u) => {
+                    let line = steps.len().saturating_add(1);
+                    return Err(Error::new(line, u.message(&key.to_string())));
+                }
+            }
         }
         Macro::new(steps)
     }

@@ -4,8 +4,10 @@
 //! never panic. A macro that parses writes canonical text that parses back
 //! into the same macro, and that text is its own canonical text. A macro
 //! that fails names a line the input has, in one line with no control
-//! character, and reading the input line by line stops at the same line
-//! with the same message.
+//! character. Reading the input line by line, and as a stream through
+//! the parser's bounded reader, stops at the same line with the same
+//! message. A stream has no bound on its size in bytes, so the three agree
+//! for any input no larger than a file may be.
 //!
 //! References:
 //! - ADR-1208 D7: the parser treats its input as untrusted, holds to the
@@ -13,6 +15,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use vtium_config_macro::bounds::FILE_MAX;
 use vtium_config_macro::{Parser, parse, parse_bytes};
 
 fuzz_target!(|data: &[u8]| {
@@ -41,5 +44,25 @@ fuzz_target!(|data: &[u8]| {
             }
         }
     }
-    assert_eq!(whole.err(), first);
+    // As a stream, through the reader that bounds each line.
+    let mut parser = Parser::new();
+    let mut reader = data;
+    let mut steps = Vec::new();
+    let mut streamed = None;
+    while let Some(step) = parser.read(&mut reader) {
+        match step {
+            Ok(s) => steps.push(s),
+            Err(e) => {
+                streamed = Some(e);
+                break;
+            }
+        }
+    }
+    if data.len() <= FILE_MAX {
+        if let Ok(m) = &whole {
+            assert_eq!(m.steps(), steps.as_slice());
+        }
+        assert_eq!(whole.err(), first.clone());
+        assert_eq!(first, streamed);
+    }
 });

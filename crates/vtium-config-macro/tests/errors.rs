@@ -306,12 +306,13 @@ fn expect_takes_one_of_its_forms() {
 
 #[test]
 fn sleep_lasts_from_1_ms_to_60_s() {
-    let form =
-        "Sleep takes a whole number of milliseconds or seconds, as in Sleep 500ms or Sleep 2s.";
+    let form = "Sleep takes a number of seconds or a whole number of milliseconds, as in Sleep 2, Sleep 0.5s or Sleep 500ms.";
     for line in [
         "Sleep",
-        "Sleep 500",
-        "Sleep 0.5s",
+        "Sleep 0.5ms",
+        "Sleep .5",
+        "Sleep 2.",
+        "Sleep 1.2.3",
         "Sleep 2 s",
         "Sleep 2m",
         "Sleep ms",
@@ -321,17 +322,50 @@ fn sleep_lasts_from_1_ms_to_60_s() {
         assert_eq!(msg(line), form, "{line}");
     }
     let long = "This Sleep lasts longer than 60 seconds, the longest a macro waits.";
-    for line in ["Sleep 61s", "Sleep 60001ms", "Sleep 99999999999999999999s"] {
+    for line in [
+        "Sleep 61s",
+        "Sleep 61",
+        "Sleep 60.001",
+        "Sleep 60001ms",
+        "Sleep 99999999999999999999s",
+        "Sleep 99999999999999999999.5",
+    ] {
         assert_eq!(msg(line), long, "{line}");
     }
     assert_eq!(
         msg("Sleep 0ms"),
         "This Sleep lasts no time. A Sleep lasts at least 1 ms."
     );
+    for line in ["Sleep 0s", "Sleep 0", "Sleep 0.000"] {
+        assert_eq!(
+            msg(line),
+            "This Sleep lasts no time. A Sleep lasts at least 1 ms.",
+            "{line}"
+        );
+    }
     assert_eq!(
-        msg("Sleep 0s"),
-        "This Sleep lasts no time. A Sleep lasts at least 1 ms."
+        msg("Sleep 0.0005"),
+        "This Sleep is finer than a millisecond. Write at most three digits after the point, as in Sleep 0.25."
     );
+}
+
+#[test]
+fn a_pace_after_a_steps_name_is_refused() {
+    let tail = "A macro sets no speed for a step, because the player sets its own pace.";
+    assert_eq!(
+        msg("Type@500ms \"cullet\""),
+        format!("Type@500ms gives the step a speed. {tail} Write Type without @500ms.")
+    );
+    assert_eq!(
+        msg("Down@100ms 3"),
+        format!("Down@100ms gives the step a speed. {tail} Write Down without @100ms.")
+    );
+    assert_eq!(
+        msg("Ctrl+S@1s"),
+        format!("Ctrl+S@1s gives the step a speed. {tail} Write Ctrl+S without @1s.")
+    );
+    // Ctrl and @ is a key, and @ alone is one too.
+    assert!(parse("Ctrl+@\n@\n").is_ok());
 }
 
 #[test]
@@ -354,10 +388,30 @@ fn screenshot_names_a_file_of_its_own() {
         msg("Screenshot failure"),
         format!("Screenshot failure {own}")
     );
+    for name in ["step-0007", "step-one", "step-", "live"] {
+        assert_eq!(
+            msg(&format!("Screenshot {name}")),
+            format!("Screenshot {name} {own}")
+        );
+    }
+    // A name with a character a name cannot hold gets the form, even when
+    // it starts like debug mode's own.
+    assert_eq!(msg("Screenshot step-../x"), form);
+}
+
+#[test]
+fn a_screenshot_name_is_used_once() {
     assert_eq!(
-        msg("Screenshot step-0007"),
-        format!("Screenshot step-0007 {own}")
+        err("Screenshot a\nEnter\n# c\nScreenshot b\nScreenshot a\n"),
+        (
+            5,
+            "Screenshot a uses the name of the Screenshot on line 1, so its file would overwrite that one. Choose another name.".to_owned()
+        )
     );
+    // A stream checks the names too.
+    let mut p = Parser::new();
+    p.line(b"Screenshot x").unwrap();
+    assert_eq!(p.line(b"Screenshot x").unwrap_err().line(), 2);
 }
 
 #[test]

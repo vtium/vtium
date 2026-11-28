@@ -7,14 +7,16 @@
 //! modifiers are spelled with a capital letter, as VHS spells them, and a
 //! word in another case is refused with the right spelling.
 
+use std::collections::BTreeMap;
 use std::fmt;
+use std::io::{BufRead, Read};
 
 use crate::bounds::{
     COUNT_MAX, FILE_MAX, LABEL_MAX, LINE_MAX, NAME_MAX, SLEEP_MAX, STEPS_MAX, TYPE_MAX,
 };
 use crate::{
     Character, Comment, Count, Expectation, Key, KeyPress, KeyStep, Label, Macro, Mods, Name, Node,
-    Pause, Step, Text,
+    Pause, QUOTES, Step, Text,
 };
 
 /// The first error in a macro: the number of its line, counted from 1,
@@ -26,7 +28,7 @@ pub struct Error {
 }
 
 impl Error {
-    fn new(line: usize, message: impl Into<String>) -> Error {
+    pub(crate) fn new(line: usize, message: impl Into<String>) -> Error {
         Error {
             line,
             message: message.into(),
@@ -74,21 +76,78 @@ impl fmt::Display for InFile<'_> {
     }
 }
 
+/// The most bytes [`Parser::read`] takes for one line: the line, a
+/// byte-order mark, a carriage return and the newline. A line that reaches
+/// it without a newline is too long, and the bytes after it stay unread.
+const READ_MAX: usize = LINE_MAX.saturating_add("\u{feff}\r\n".len());
+
 /// Reads a macro one line at a time, as `--macro -` reads lines from
-/// standard input as they arrive. It counts the lines and the bytes, so
-/// each line is checked against the bounds of the whole macro, and it
-/// checks that `Set Live` comes before any step that acts.
+/// standard input as they arrive. It counts the lines, so each line is
+/// checked against the step count, and it checks that `Set Live` comes
+/// before any step that acts and that no two screenshots share a name.
+///
+/// A stream is bounded by [`STEPS_MAX`] lines of [`LINE_MAX`] bytes,
+/// and not by a file's [`FILE_MAX`], because the parser keeps only one
+/// line of it at a time.
+///
+/// References:
+/// - ADR-1208 D1: the step count and the line length bound `--macro -`.
+/// - ADR-1208 D2: Set Live first, and each screenshot's name used once.
 #[derive(Clone, Debug, Default)]
 pub struct Parser {
     lines: usize,
-    bytes: usize,
+    /// The bytes read so far, counted only for a file.
+    bytes: Option<usize>,
     acted: bool,
+    /// Each screenshot's name, with the line that used it.
+    names: BTreeMap<String, usize>,
+    /// Set by [`Parser::read`] at its first error, after which the stream
+    /// ends.
+    stopped: bool,
 }
 
 impl Parser {
-    /// A parser at the start of a macro.
+    /// A parser at the start of a stream.
     pub fn new() -> Parser {
         Parser::default()
+    }
+
+    /// A parser at the start of a file, which also holds the macro to
+    /// [`FILE_MAX`] bytes.
+    pub(crate) fn file() -> Parser {
+        Parser {
+            bytes: Some(0),
+            ..Parser::default()
+        }
+    }
+
+    /// Reads the next line from `r` into its step, or `None` once the
+    /// stream has ended. It reads at most one line, and no more than a line
+    /// can hold, so a line too long fails without the rest of it being
+    /// read. After an error the stream ends, and the next call gives
+    /// `None`.
+    pub fn read<R: BufRead>(&mut self, r: &mut R) -> Option<Result<Step, Error>> {
+        if self.stopped {
+            return None;
+        }
+        let mut buf = Vec::new();
+        let read = r
+            .by_ref()
+            .take(u64::try_from(READ_MAX).unwrap_or(u64::MAX))
+            .read_until(b'\n', &mut buf);
+        let step = match read {
+            Ok(0) => return None,
+            Ok(_) => {
+                let raw = buf.strip_suffix(b"\n").unwrap_or(&buf);
+                self.line(raw)
+            }
+            Err(e) => {
+                let n = self.lines.saturating_add(1);
+                Err(Error::new(n, format!("This line cannot be read: {e}.")))
+            }
+        };
+        self.stopped = step.is_err();
+        Some(step)
     }
 
     /// Reads the next line, given without its newline, into its step.
@@ -115,7 +174,7 @@ impl Parser {
             ));
         }
         let step = step(text).map_err(|m| Error::new(n, m))?;
-        self.order(n, &step)?;
+        self.check(n, &step)?;
         Ok(step)
     }
 
@@ -130,7 +189,7 @@ impl Parser {
                 format!("This line is longer than {LINE_MAX} bytes, the most a line holds."),
             ));
         }
-        self.order(n, step)
+        self.check(n, step)
     }
 
     /// Counts one more line of `len` bytes and its newline, and returns
@@ -138,8 +197,8 @@ impl Parser {
     fn count(&mut self, len: usize) -> Result<usize, Error> {
         let n = self.lines.saturating_add(1);
         self.lines = n;
-        self.bytes = self.bytes.saturating_add(len).saturating_add(1);
-        if self.bytes > FILE_MAX {
+        self.bytes = self.bytes.map(|b| b.saturating_add(len).saturating_add(1));
+        if self.bytes.is_some_and(|b| b > FILE_MAX) {
             let mib = FILE_MAX / (1024 * 1024);
             return Err(Error::new(
                 n,
@@ -155,13 +214,26 @@ impl Parser {
         Ok(n)
     }
 
-    /// Checks that `Set Live` comes before any step that acts.
-    fn order(&mut self, n: usize, step: &Step) -> Result<(), Error> {
+    /// Checks what a line cannot know alone: that `Set Live` comes before
+    /// any step that acts, and that a screenshot's name is new.
+    fn check(&mut self, n: usize, step: &Step) -> Result<(), Error> {
         if *step == Step::SetLive && self.acted {
             return Err(Error::new(
                 n,
                 "Set Live must be the first step. Only comments and blank lines may come before it.",
             ));
+        }
+        if let Step::Screenshot(name) = step {
+            if let Some(first) = self.names.get(name.as_str()) {
+                return Err(Error::new(
+                    n,
+                    format!(
+                        "Screenshot {} uses the name of the Screenshot on line {first}, so its file would overwrite that one. Choose another name.",
+                        name.as_str()
+                    ),
+                ));
+            }
+            self.names.insert(name.as_str().to_owned(), n);
         }
         self.acted |= step.acts();
         Ok(())
@@ -184,7 +256,7 @@ pub fn parse_bytes(data: &[u8]) -> Result<Macro, Error> {
         return Ok(Macro::default());
     }
     let body = data.strip_suffix(b"\n").unwrap_or(data);
-    let mut parser = Parser::new();
+    let mut parser = Parser::file();
     let mut steps = Vec::new();
     for line in body.split(|&b| b == b'\n') {
         steps.push(parser.line(line)?);
@@ -288,19 +360,20 @@ fn step(line: &str) -> Result<Step, String> {
         "Expect" => expect(rest).map(Step::Expect),
         "Sleep" => sleep(rest).map(Step::Sleep),
         "Screenshot" => {
-            if Name::reserved(rest) {
+            if !Name::plain(rest) {
                 return Err(format!(
-                    "Screenshot {rest} would overwrite a file that debug mode writes itself. Choose another name."
+                    "Screenshot needs a name for its file, as in Screenshot after-save. A name is up to {NAME_MAX} letters, digits, -, _ and ., and does not start with a dot."
                 ));
             }
             Name::new(rest).map(Step::Screenshot).ok_or_else(|| {
-                format!("Screenshot needs a name for its file, as in Screenshot after-save. A name is up to {NAME_MAX} letters, digits, -, _ and ., and does not start with a dot.")
+                format!("Screenshot {rest} would overwrite a file that debug mode writes itself. Choose another name.")
             })
         }
         "Set" if rest == "Live" => Ok(Step::SetLive),
         "Set" => Err("Set takes only Live in a macro, as in Set Live.".to_owned()),
         _ => {
-            let press = parse_key(word).map_err(|e| e.message(word))?;
+            let press =
+                parse_key(word).map_err(|e| pace(word).unwrap_or_else(|| e.message(word)))?;
             let count = match rest {
                 "" => Some(Count::ONE),
                 _ => digits(rest)
@@ -312,9 +385,25 @@ fn step(line: &str) -> Result<Step, String> {
             })?;
             KeyStep::new(press, count)
                 .map(Step::Key)
-                .ok_or_else(|| "Type # with Type \"#\".".to_owned())
+                .map_err(|u| u.message(&shown(word)))
         }
     }
+}
+
+/// The message for a step's name with VHS's speed after it, as in
+/// `Type@500ms`, or `None` for a word that is not one.
+fn pace(word: &str) -> Option<String> {
+    let (name, speed) = word.split_once('@')?;
+    let step = ["Type", "Click", "Expect", "Sleep", "Screenshot", "Set"].contains(&name);
+    let named = !name.is_empty() && !speed.is_empty() && (step || parse_key(name).is_ok());
+    named.then(|| {
+        format!(
+            "{} gives the step a speed. A macro sets no speed for a step, because the player sets its own pace. Write {} without @{}.",
+            shown(word),
+            shown(name),
+            shown(speed)
+        )
+    })
 }
 
 /// The text between the quotes after a step's name. `missing` is the
@@ -323,7 +412,7 @@ fn step(line: &str) -> Result<Step, String> {
 fn quoted<'a>(rest: &'a str, step: &str, missing: &str, what: &str) -> Result<&'a str, String> {
     let mut chars = rest.chars();
     let q = match chars.next() {
-        Some(q @ ('"' | '\'')) => q,
+        Some(q) if QUOTES.contains(&q) => q,
         _ => return Err(missing.to_owned()),
     };
     let (text, after) = chars
@@ -359,7 +448,7 @@ fn label(rest: &str, step: &str, missing: &str, what: &str) -> Result<Label, Str
 
 /// The words after `Expect`.
 fn expect(rest: &str) -> Result<Expectation, String> {
-    if rest.starts_with(['"', '\'']) {
+    if rest.starts_with(QUOTES) {
         return label(rest, "Expect", "", "text").map(Expectation::Shows);
     }
     match split_word(rest) {
@@ -378,18 +467,36 @@ fn expect(rest: &str) -> Result<Expectation, String> {
     }
 }
 
-/// The words after `Sleep`: a whole number of milliseconds or seconds.
+/// The words after `Sleep`: a whole number of milliseconds, as in
+/// `500ms`, or a number of seconds, as in `2s`, `0.5s` or a bare `2` or
+/// `0.5` as VHS reads it. A number of seconds has at most three digits
+/// after its point, because a pause counts whole milliseconds.
 fn sleep(rest: &str) -> Result<Pause, String> {
     let form = || {
-        "Sleep takes a whole number of milliseconds or seconds, as in Sleep 500ms or Sleep 2s."
+        "Sleep takes a number of seconds or a whole number of milliseconds, as in Sleep 2, Sleep 0.5s or Sleep 500ms."
             .to_owned()
     };
-    let (number, unit) = match (rest.strip_suffix("ms"), rest.strip_suffix('s')) {
-        (Some(n), _) => (n, 1),
-        (None, Some(n)) => (n, 1000),
-        (None, None) => return Err(form()),
+    let ms = match rest.strip_suffix("ms") {
+        Some(n) => digits(n).ok_or_else(form)?,
+        None => {
+            let seconds = rest.strip_suffix('s').unwrap_or(rest);
+            let (whole, frac) = seconds.split_once('.').unwrap_or((seconds, "000"));
+            let whole = digits(whole).ok_or_else(form)?;
+            let frac_ms = digits(frac).ok_or_else(form)?;
+            if frac.len() > 3 {
+                return Err("This Sleep is finer than a millisecond. Write at most three digits after the point, as in Sleep 0.25.".to_owned());
+            }
+            // "5" after the point is 500 ms, "25" is 250 ms.
+            let scale = match frac.len() {
+                1 => 100,
+                2 => 10,
+                _ => 1,
+            };
+            whole
+                .saturating_mul(1000)
+                .saturating_add(frac_ms.saturating_mul(scale))
+        }
     };
-    let ms = digits(number).ok_or_else(form)?.saturating_mul(unit);
     if ms == 0 {
         return Err("This Sleep lasts no time. A Sleep lasts at least 1 ms.".to_owned());
     }
@@ -471,7 +578,7 @@ fn not_step(word: &str) -> String {
     }
 }
 
-/// A key with its modifiers, as in `Ctrl+Alt+X`, `Enter` or `q`. The key
+/// A key with its modifiers, as in `Alt+Shift+L`, `Enter` or `q`. The key
 /// after the last modifier is a key name or one character, so `Ctrl++` is
 /// Ctrl and `+`.
 pub(crate) fn parse_key(word: &str) -> Result<KeyPress, KeyError> {

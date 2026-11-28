@@ -148,6 +148,34 @@ fn type_takes_double_or_single_quotes_and_no_escapes() {
 }
 
 #[test]
+fn backticks_quote_a_text_as_in_vhs() {
+    assert_eq!(one("Type `it's`"), Step::Type(Text::new("it's").unwrap()));
+    assert_eq!(
+        one("Type `say \"hi\", it's`"),
+        Step::Type(Text::new("say \"hi\", it's").unwrap())
+    );
+    assert_eq!(
+        one("Click `Font set`"),
+        Step::Click(Label::new("Font set").unwrap())
+    );
+    assert_eq!(
+        one("Expect Not `it's \"off\"`"),
+        Step::Expect(Expectation::ShowsNot(Label::new("it's \"off\"").unwrap()))
+    );
+    // The canonical line uses backticks only for a text that holds both
+    // other quotes.
+    assert_eq!(line(&one("Type `cullet`")), "Type \"cullet\"");
+    assert_eq!(line(&one("Type `say \"hi\"`")), "Type 'say \"hi\"'");
+    assert_eq!(
+        line(&one("Type `say \"hi\", it's`")),
+        "Type `say \"hi\", it's`"
+    );
+    // A text that holds all three quotes cannot be written.
+    assert!(Text::new("`'\"").is_none());
+    assert!(Label::new("`'\"").is_none());
+}
+
+#[test]
 fn click_takes_a_label() {
     assert_eq!(
         one("Click \"Looks\""),
@@ -238,6 +266,20 @@ fn sleep_takes_milliseconds_or_seconds() {
 }
 
 #[test]
+fn sleep_takes_a_bare_number_of_seconds_as_vhs_does() {
+    let ms = |n| Step::Sleep(Pause::from_millis(n).unwrap());
+    assert_eq!(one("Sleep 2"), ms(2000));
+    assert_eq!(one("Sleep 0.5"), ms(500));
+    assert_eq!(one("Sleep 0.5s"), ms(500));
+    assert_eq!(one("Sleep 1.25"), ms(1250));
+    assert_eq!(one("Sleep 0.001"), ms(1));
+    assert_eq!(one("Sleep 60"), ms(60_000));
+    assert_eq!(one("Sleep 59.999s"), ms(59_999));
+    assert_eq!(line(&one("Sleep 2")), "Sleep 2s");
+    assert_eq!(line(&one("Sleep 0.5")), "Sleep 500ms");
+}
+
+#[test]
 fn screenshot_takes_a_file_name() {
     assert_eq!(
         one("Screenshot after-save"),
@@ -249,8 +291,13 @@ fn screenshot_takes_a_file_name() {
     );
     assert_eq!(line(&one("Screenshot after-save")), "Screenshot after-save");
     // A name may start like debug mode's own files without being one.
-    assert!(Name::new("step-one").is_some());
     assert!(Name::new("failures").is_some());
+    assert!(Name::new("lively").is_some());
+    assert!(Name::new("step").is_some());
+    // Debug mode's own names are not screenshot names.
+    for own in ["step-one", "step-0007", "step-", "failure", "live"] {
+        assert!(Name::new(own).is_none(), "{own}");
+    }
 }
 
 #[test]
