@@ -124,10 +124,17 @@ pub const FRAME_DESCRIPTION: u32 = 18;
 /// why, as text. The file is missing, the helper's gate refuses it, or it
 /// is not a font that vtium reads.
 pub const FRAME_NO_DESCRIPTION: u32 = 19;
-/// The most bytes the paths of an [`ActiveAsk`] hold together: the batch
-/// file's own bound, since the paths come from it or from the shorter list
-/// of a fresh install.
-pub const ACTIVE_BYTES_MAX: usize = vtium_settings::batch::BATCH_MAX;
+/// The most bytes the paths of an [`ActiveAsk`] hold together. The console
+/// sends every path of the merged batch, batch.conf's and the packages'
+/// lists', so the bound is the merged batch's: a smaller one would refuse
+/// the request of a machine whose lists pass batch.conf's own bound, and
+/// every font helper would fail. The bound keeps the memory the helper
+/// spends reading the request in check, and it is checked before each
+/// path is allocated.
+///
+/// References:
+/// - ADR-1205 D4, as amended on 2026-11-27: the merged batch's bound of 1 MiB, which bounds the request of active fonts.
+pub const ACTIVE_BYTES_MAX: usize = vtium_settings::batch::MERGED_BATCH_MAX;
 /// The longest path an [`ActiveAsk`] names: `PATH_MAX`, the longest path
 /// the kernel takes, with its terminating zero.
 pub const ACTIVE_PATH_MAX: usize = 4096;
@@ -760,11 +767,11 @@ impl ActiveAsk {
                 self.owner
             ));
         }
-        Ok(Gate::Active(cullet::Gate::new(
+        Ok(Gate::Active(Box::new(cullet::Gate::new(
             Rule::running_as(self.owner),
             None,
             Batch::new(self.paths.iter().cloned().map(Entry::Path).collect()),
-        )))
+        ))))
     }
 }
 

@@ -151,3 +151,46 @@ fn the_list_of_a_fresh_install_draws_the_default_set() {
         "{left}"
     );
 }
+
+// The real helper takes the whole merged batch: every path of a batch
+// past batch.conf's own bound of 64 KiB, as the packages' lists make one,
+// reaches the helper's gate, the last path too. Each query names 16 of
+// the batch's fonts, the most a font set names, until every font has been
+// named once
+//
+// References:
+// - ADR-1205 D4, as amended on 2026-11-27: the merged batch's bound of 1 MiB bounds the request of active fonts.
+#[test]
+fn the_real_helper_takes_a_merged_batch_past_the_batch_files_bound() {
+    let d = Scratch::new("active-fonts-merged");
+    // three folders with names of 250 bytes, so each font's path is
+    // about 1000 bytes long
+    let mut folder = d.to_path_buf();
+    for c in ['a', 'b', 'c'] {
+        folder.push(c.to_string().repeat(250));
+    }
+    std::fs::create_dir_all(&folder).expect("the font folder");
+    let path = |i: usize| folder.join(format!("{i:03}{}.bdf", "f".repeat(200)));
+    let length = path(0).as_os_str().len();
+    let count = vtium_settings::batch::BATCH_MAX / length + 2;
+    let fonts: Vec<PathBuf> = (0..count).map(path).collect();
+    assert!(
+        fonts.iter().map(|f| f.as_os_str().len()).sum::<usize>() > vtium_settings::batch::BATCH_MAX,
+        "the batch passes batch.conf's own bound"
+    );
+    for font in &fonts {
+        std::fs::write(font, bdf(16)).expect("a font");
+    }
+    let batch = Batch::new(fonts.iter().cloned().map(Entry::Path).collect());
+    for (n, named) in fonts.chunks(16).enumerate() {
+        let text: String = named
+            .iter()
+            .map(|f| format!("source=bdf:{}\n", f.display()))
+            .collect();
+        assert_eq!(
+            sources(&d, &format!("merged-{n}"), &text, &batch),
+            "",
+            "every font of query {n} is active"
+        );
+    }
+}
