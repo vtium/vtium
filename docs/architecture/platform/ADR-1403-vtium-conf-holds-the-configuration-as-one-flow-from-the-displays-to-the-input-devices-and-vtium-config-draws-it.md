@@ -2436,7 +2436,9 @@ The fifth figure shows the Effects tab. At the left are the filter line, Show: A
 
 The maintainer accepted the mock-up catalog of every screen with the adjustments of the notes on it ("ok. I'm accepting those mockups if it's possible to edit them with the adjustments I shared"). The catalog is the target the alpha.13 rebuild builds to. Where a screen of the catalog and this record differ, the record holds, and the difference goes to the maintainer.
 
-The catalog becomes a book of how vtium-config is used, committed under `docs/design-notes/vtium-config/`, so every worktree reads the same reference. The maintainer: "they have a reference - not goldens, but a coherent narrative … I kind of like to think about it as chapters in a book. structured, but the content itself also has to have continuity".
+The catalog becomes a book of how vtium-config is used, committed as [the vtium-config book](../../design-notes/vtium-config/index.md), so every worktree reads the same reference. The maintainer: "they have a reference - not goldens, but a coherent narrative … I kind of like to think about it as chapters in a book. structured, but the content itself also has to have continuity".
+
+> Edited 2026-11-28: the book exists now, so its folder became a link. The sentence read: "The catalog becomes a book of how vtium-config is used, committed under `docs/design-notes/vtium-config/`, so every worktree reads the same reference."
 
 - **Its chapters.** A contents page, then one chapter for each thing a person does with vtium-config, in the order a person meets them: opening it on a first run, choosing a font and its size, saving, a file changed on disk, looks and effects, wiring displays and inputs in Flow, settings, finding things, history and several configurations, problems and fonts not yet active, and the macro player and the live run.
 - **Its continuity.** One person on one machine keeps one configuration from chapter to chapter. Each chapter opens on the state the chapter before it left, and names that state in a line at its top.
