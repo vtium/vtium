@@ -2,7 +2,7 @@
 element	file	symbol
 the list of active resources is /etc/vtium/batch.conf	crates/vtium-settings/src/batch.rs	BATCH_FILE
 a line holds one absolute path, and # starts a comment	crates/vtium-settings/src/batch.rs	Batch::parse
-the five kinds of resource, and a folder or .svg is a pointer theme	crates/vtium-config-core/src/batch.rs	kind
+the five kinds of resource, and a folder or .svg is a pointer theme	crates/vtium-config-core/src/batch/resource.rs	kind
 a missing, refused or too large list means the list of a fresh install	crates/vtium-settings/src/batch.rs	Batch::read
 the list holds at most 64 KiB	crates/vtium-settings/src/bounds.rs	BATCH
 what a fresh install activates	crates/vtium-settings/src/batch.rs	Batch::fresh_install
