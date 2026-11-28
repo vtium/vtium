@@ -626,6 +626,20 @@ impl Session<'_> {
                 self.installed_path().display()
             )));
         }
+        let (frits, notes) = self.frit_changes(name)?;
+        // the privileged step refuses to remove a frit that the vtium.conf
+        // it installs still names. The console's check refuses a font-name
+        // that names a frit the draft removes too, but only by its line, so
+        // the install refuses that removal first, in the privileged step's
+        // own words, which name the frit and the setting
+        for removal in frits.iter().filter(|c| c.new.is_none()) {
+            if let Some(by) = crate::apply::naming(&removal.name, Some(text)) {
+                return Err(Fail::Check(format!(
+                    "nothing installed: {} is not removed: {by} uses it. The draft keeps your changes.",
+                    removal.path.display()
+                )));
+            }
+        }
         let shown = self.store.draft_path(name)?;
         let checked = self.check(name, text, &shown)?;
         for line in checked.problems.iter().chain(&checked.notes) {
@@ -655,7 +669,6 @@ impl Session<'_> {
                 "{why} The install replaces it with the list of a fresh install and the changes of draft {name}."
             );
         }
-        let (frits, notes) = self.frit_changes(name)?;
         for line in &notes {
             let _ = writeln!(out, "{line}");
         }
@@ -672,20 +685,6 @@ impl Session<'_> {
                 "nothing installed: {} The draft keeps your changes.",
                 crate::apply::FRITS_MOVE_FIRST
             )));
-        }
-        // the privileged step refuses to remove a frit that the vtium.conf
-        // it installs still names. The check above catches a look's
-        // font-name, but not the top level's, which the console reads as a
-        // font family once no frit has that name, so the install refuses
-        // that removal here, in the privileged step's own words, before
-        // anything runs as root
-        for removal in frits.iter().filter(|c| c.new.is_none()) {
-            if let Some(by) = crate::apply::naming(&removal.name, Some(text)) {
-                return Err(Fail::Check(format!(
-                    "nothing installed: {} is not removed: {by} uses it. The draft keeps your changes.",
-                    removal.path.display()
-                )));
-            }
         }
         let same = installed.as_deref() == Some(text);
         if same && batch.is_none() && frits.is_empty() {

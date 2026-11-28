@@ -1512,3 +1512,38 @@ fn a_file_that_is_no_font_or_a_target_changed_since_installs_nothing() {
         applied.err
     );
 }
+
+/// The fixture's vtium.conf, which names the fixture's frits' directory so
+/// the console finds the frits there, with a size at the top level.
+fn sized(f: &Fixture, size: u32) -> String {
+    format!(
+        "font-frits={}\nversion = 1\nfont-size={size}\n",
+        f.etc().join("fonts").display()
+    )
+}
+
+/// `install` refuses to remove a font set the top level's `font-name`
+/// names in its own words, which name the font set and the setting, before
+/// the console's check, which names only the line.
+#[test]
+fn install_names_the_setting_that_uses_a_font_set_it_would_remove() {
+    let f = fixture("install-named", None);
+    std::fs::write(
+        f.etc().join("vtium.conf"),
+        format!("{}font-name=tiny\n", sized(&f, 10)),
+    )
+    .expect("vtium.conf");
+    f.kept(&f.run(&["remove-frit", "tiny"]), "tiny.removed");
+    let ran = f.run(&["install", "--force"]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.err.contains(&format!(
+            "{} is not removed: font-name in vtium.conf uses it",
+            f.etc().join("fonts/tiny.vtfrit").display()
+        )),
+        "{}",
+        ran.err
+    );
+    assert!(!ran.err.contains("the check found problems"), "{}", ran.err);
+    assert!(f.etc().join("fonts/tiny.vtfrit").exists());
+}
