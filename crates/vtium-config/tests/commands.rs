@@ -1522,6 +1522,207 @@ fn sized(f: &Fixture, size: u32) -> String {
     )
 }
 
+/// The current draft's text, as the store keeps it.
+fn current_draft(f: &Fixture) -> String {
+    let ran = f.run(&["draft", "list"]);
+    let name = ran
+        .out
+        .lines()
+        .find_map(|l| l.strip_prefix("* "))
+        .and_then(|l| l.split('\t').next())
+        .unwrap_or_else(|| panic!("a current draft in\n{}", ran.out))
+        .to_owned();
+    std::fs::read_to_string(f.root.join(format!("config/vtium/drafts/{name}.conf")))
+        .expect("the draft")
+}
+
+/// `update` merges a change made to the installed file into the draft, so
+/// `install` then installs both; where both changed the same line it
+/// changes nothing, lists the line and exits 1; and with no installed
+/// file, or none changed, it has nothing to do.
+///
+/// References:
+/// - ADR-1403 D8, "When the installed file changed on disk": `vtium config update`.
+#[test]
+fn update_merges_a_change_made_on_disk_into_the_draft() {
+    let f = fixture("update", None);
+    let installed = sized(&f, 10);
+    std::fs::write(f.etc().join("vtium.conf"), &installed).expect("vtium.conf");
+    assert_eq!(f.run(&["set", "palette", "nord"]).status, 0);
+    let ran = f.run(&["update"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    assert!(ran.out.contains("has not changed since"), "{}", ran.out);
+    // root edits the installed file by hand, on a line the draft keeps
+    let by_hand = format!("# root edited this by hand\n{installed}");
+    std::fs::write(f.etc().join("vtium.conf"), &by_hand).expect("an edit by hand");
+    assert_eq!(
+        f.run(&["install", "--force"]).status,
+        3,
+        "the draft is stale"
+    );
+    let dry = f.run(&["update", "--dry-run"]);
+    assert_eq!(dry.status, 0, "{}{}", dry.out, dry.err);
+    assert!(
+        dry.out.contains("+# root edited this by hand"),
+        "{}",
+        dry.out
+    );
+    assert!(
+        !current_draft(&f).contains("by hand"),
+        "--dry-run writes nothing"
+    );
+    let ran = f.run(&["update"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    assert!(ran.out.contains("1 line added"), "{}", ran.out);
+    let draft = current_draft(&f);
+    assert!(draft.starts_with("# root edited this by hand\n"), "{draft}");
+    assert!(draft.contains("palette=nord"), "{draft}");
+    let ran = f.install();
+    assert!(ran.out.contains("installed draft"), "{}", ran.out);
+    assert_eq!(
+        std::fs::read_to_string(f.etc().join("vtium.conf")).expect("installed"),
+        draft
+    );
+    // both sides change the size: nothing changes, the line is listed
+    assert_eq!(f.run(&["set", "font-size", "11"]).status, 0);
+    let before = current_draft(&f);
+    std::fs::write(
+        f.etc().join("vtium.conf"),
+        draft.replace("font-size=10", "font-size=12"),
+    )
+    .expect("an edit by hand");
+    let ran = f.run(&["update"]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.out
+            .contains("  draft      font-size=11\n  installed  font-size=12\n"),
+        "{}",
+        ran.out
+    );
+    assert!(
+        ran.err.contains("changed the same lines in 1 place"),
+        "{}",
+        ran.err
+    );
+    assert_eq!(current_draft(&f), before, "update changed nothing");
+    // with no installed file nothing changed on disk
+    std::fs::remove_file(f.etc().join("vtium.conf")).expect("removed");
+    let ran = f.run(&["update"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    assert!(ran.out.starts_with("Nothing to update"), "{}", ran.out);
+    assert_eq!(f.run(&["update", "--now"]).status, 2);
+}
+
+/// A missing installed file is no change on disk: `install` installs a
+/// draft whose base was a file that is gone, since it overwrites nothing.
+///
+/// References:
+/// - ADR-1403 D8, "When the installed file changed on disk": a missing installed file is no conflict.
+#[test]
+fn install_takes_a_draft_whose_installed_file_is_gone() {
+    let f = fixture("install-gone", None);
+    std::fs::write(f.etc().join("vtium.conf"), sized(&f, 10)).expect("vtium.conf");
+    assert_eq!(f.run(&["set", "font-size", "11"]).status, 0);
+    std::fs::remove_file(f.etc().join("vtium.conf")).expect("removed");
+    f.install();
+    assert!(
+        std::fs::read_to_string(f.etc().join("vtium.conf"))
+            .expect("installed")
+            .contains("font-size=11")
+    );
+}
+
+/// `install --overwrite` installs a draft over a file changed on disk,
+/// which `install` refuses, and the installed history keeps the file it
+/// replaced, so `restore` can bring it back.
+///
+/// References:
+/// - ADR-1403 D8, "When the installed file changed on disk": `vtium config install --overwrite`.
+#[test]
+fn install_overwrite_keeps_the_file_it_replaces_in_the_history() {
+    let f = fixture("overwrite", None);
+    std::fs::write(f.etc().join("vtium.conf"), sized(&f, 10)).expect("vtium.conf");
+    assert_eq!(f.run(&["set", "font-size", "11"]).status, 0);
+    let by_hand = sized(&f, 12);
+    std::fs::write(f.etc().join("vtium.conf"), &by_hand).expect("an edit by hand");
+    assert_eq!(f.run(&["install", "--force"]).status, 3);
+    let ran = f.run(&["install", "--overwrite", "--force"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    assert_eq!(
+        std::fs::read_to_string(f.etc().join("vtium.conf")).expect("installed"),
+        current_draft(&f)
+    );
+    let history = f.run(&["history"]);
+    assert_eq!(history.out.lines().count(), 1, "{}", history.out);
+    let kept = f.kept_history();
+    assert_eq!(std::fs::read_to_string(kept).expect("kept"), by_hand);
+    assert_eq!(f.run(&["install", "--overwrite", "--now"]).status, 2);
+}
+
+impl Fixture {
+    /// The one file of the installed history.
+    fn kept_history(&self) -> PathBuf {
+        let dir = self.root.join("config/vtium/installed");
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .expect("the installed history")
+            .map(|e| e.expect("an entry").path())
+            .collect();
+        assert_eq!(files.len(), 1, "{files:?}");
+        files.pop().expect("one file")
+    }
+}
+
+/// `draft rename` renames a draft with its font set folder and its base,
+/// keeps it current, and refuses a name another draft has.
+///
+/// References:
+/// - ADR-1403 D8, "vtium-config's store: drafts and the library": `vtium config draft rename NAME NEW`.
+#[test]
+fn draft_rename_renames_a_draft_and_refuses_a_name_in_use() {
+    let f = fixture("rename", None);
+    std::fs::write(f.etc().join("vtium.conf"), sized(&f, 10)).expect("vtium.conf");
+    assert_eq!(f.run(&["draft", "new", "travel"]).status, 0);
+    f.kept(&f.run(&["remove-frit", "spare"]), "spare.removed");
+    assert_eq!(f.run(&["draft", "new", "kiosk"]).status, 0);
+    assert_eq!(f.run(&["draft", "switch", "travel"]).status, 0);
+    let taken = f.run(&["draft", "rename", "travel", "kiosk"]);
+    assert_eq!(taken.status, 2, "{}{}", taken.out, taken.err);
+    assert!(
+        taken.err.contains("a draft named kiosk already exists"),
+        "{}",
+        taken.err
+    );
+    for bad in [
+        &["draft", "rename", "travel", "../x"][..],
+        &["draft", "rename", "travel"],
+    ] {
+        assert_eq!(f.run(bad).status, 2, "{bad:?}");
+    }
+    let ran = f.run(&["draft", "rename", "travel", "laptop"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    assert_eq!(ran.out, "renamed draft travel to laptop\n");
+    let list = f.run(&["draft", "list"]);
+    assert_eq!(
+        list.out
+            .lines()
+            .map(|l| l.split('\t').next().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        ["  kiosk", "* laptop"]
+    );
+    let drafts = f.root.join("config/vtium/drafts");
+    assert!(drafts.join("laptop.frits/spare.removed").is_file());
+    assert!(!drafts.join("travel.frits").exists());
+    // the base came along, so the renamed draft is not stale
+    assert_eq!(
+        f.run(&["flow"])
+            .out
+            .lines()
+            .next()
+            .map(|l| l.contains("made before")),
+        Some(false)
+    );
+}
+
 /// `install` refuses to remove a font set the top level's `font-name`
 /// names in its own words, which name the font set and the setting, before
 /// the console's check, which names only the line.

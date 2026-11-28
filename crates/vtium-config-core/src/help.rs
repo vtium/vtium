@@ -31,6 +31,7 @@ pub enum Command {
     Flow,
     Diff,
     Install,
+    Update,
     Get,
     Set,
     Revert,
@@ -60,7 +61,11 @@ pub enum Command {
 
 impl Command {
     /// Every command, in the order the usage lists them.
-    pub const ALL: [Command; 28] = [
+    /// `update` comes last for now: the old TUI's screen for a terminal
+    /// that is too small lists the commands in this order, as far as its
+    /// rows reach, and its snapshots stay as they are until the rebuilt
+    /// TUI replaces it.
+    pub const ALL: [Command; 29] = [
         Command::Flow,
         Command::Diff,
         Command::Install,
@@ -89,6 +94,7 @@ impl Command {
         Command::Apply,
         Command::Serve,
         Command::Report,
+        Command::Update,
     ];
 
     /// The word that runs the command.
@@ -97,6 +103,7 @@ impl Command {
             Command::Flow => "flow",
             Command::Diff => "diff",
             Command::Install => "install",
+            Command::Update => "update",
             Command::Get => "get",
             Command::Set => "set",
             Command::Revert => "revert",
@@ -137,6 +144,7 @@ impl Command {
             Command::Flow
                 | Command::Diff
                 | Command::Install
+                | Command::Update
                 | Command::Get
                 | Command::Set
                 | Command::Revert
@@ -188,11 +196,20 @@ const TOPICS: &[Topic] = &[
     Topic {
         command: Command::Install,
         forms: &[form(
-            "install [--force]",
+            "install [--force] [--overwrite]",
             "check the draft and install it as /etc/vtium/vtium.conf",
         )],
-        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). When the check exits 6, because its only warnings are about fonts that a font set needs and this machine lacks, install shows the warnings and installs the draft anyway. It exits 4 when sudo refuses. A draft whose only problem is that it has no complete path, so that no connected keyboard can type into a terminal on a connected display, is the one exception. At a terminal, install asks before it installs that draft. --force installs it without asking. Without a terminal and without --force, install refuses it (exit 1). vtium-config keeps the file it replaces, so restore can bring it back. vtium reads vtium.conf only when it starts on a VT. So after it installs /etc/vtium/vtium.conf, install enables vtium with sudo vtium console enable on each VT a head names where vtium is not enabled, and shows what vtium console says, refusals included. At a terminal, it then asks whether to start vtium on those VTs and restart it where it runs, so the new file applies now. Each session keeps running through a restart, but its screen is cleared. Without a terminal, install prints those commands instead.",
+        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). A missing installed file has not changed, because installing the draft overwrites nothing. --overwrite installs a draft made before the installed file last changed, over that change; vtium-config keeps the file it replaces, as it keeps every file an install replaces. update brings that change into the draft instead. When the check exits 6, because its only warnings are about fonts that a font set needs and this machine lacks, install shows the warnings and installs the draft anyway. It exits 4 when sudo refuses. A draft whose only problem is that it has no complete path, so that no connected keyboard can type into a terminal on a connected display, is the one exception. At a terminal, install asks before it installs that draft. --force installs it without asking. Without a terminal and without --force, install refuses it (exit 1). vtium-config keeps the file it replaces, so restore can bring it back. vtium reads vtium.conf only when it starts on a VT. So after it installs /etc/vtium/vtium.conf, install enables vtium with sudo vtium console enable on each VT a head names where vtium is not enabled, and shows what vtium console says, refusals included. At a terminal, it then asks whether to start vtium on those VTs and restart it where it runs, so the new file applies now. Each session keeps running through a restart, but its screen is cleared. Without a terminal, install prints those commands instead.",
         example: "vtium-config install",
+    },
+    Topic {
+        command: Command::Update,
+        forms: &[form(
+            "update [--dry-run]",
+            "bring a change made to the installed vtium.conf into the draft",
+        )],
+        detail: "Merges the change made to the installed /etc/vtium/vtium.conf since the current draft was made from it into the draft, keeping the draft's own changes. The draft then counts as made from the installed file as it is now, so install installs it. Where the draft and the installed file changed the same lines, update changes nothing, lists those lines with the draft's text and the installed file's, and exits 1. Settle them in vtium config tui, or edit the draft with vtium config edit. When no vtium.conf is installed, or it has not changed, update says so and changes nothing. A draft made before vtium-config kept the text of the file it was made from cannot be merged unless history holds that file; update then exits 1 and says so. --dry-run shows the change without saving it.",
+        example: "vtium-config update",
     },
     Topic {
         command: Command::Get,
@@ -281,9 +298,10 @@ const TOPICS: &[Topic] = &[
                 "make a draft and make it current",
             ),
             form("draft switch NAME", "make another draft current"),
+            form("draft rename NAME NEW", "rename a draft"),
             form("draft rm [NAME]", "delete a draft"),
         ],
-        detail: "Manages the drafts in ~/.config/vtium/drafts. A draft is your working copy of vtium.conf. A new draft starts as a copy of the installed file unless --from says otherwise. Without a name it is named after the machine, with -2, -3 and so on added so that no draft is overwritten. draft rm without a name deletes the current draft; the next change starts a new one from the installed file.",
+        detail: "Manages the drafts in ~/.config/vtium/drafts. A draft is your working copy of vtium.conf. A new draft starts as a copy of the installed file unless --from says otherwise. Without a name it is named after the machine, with -2, -3 and so on added so that no draft is overwritten. draft rename renames a draft with its font set changes and its changes to the active resources, and does not take a name another draft has. draft rm without a name deletes the current draft; the next change starts a new one from the installed file.",
         example: "vtium-config draft new laptop --from empty",
     },
     Topic {
@@ -479,19 +497,19 @@ pub const DESCRIPTION: [&str; 2] = [
 ];
 
 /// What the commands change, after the list of commands.
-pub const DRAFTS: &str = "The commands from flow to edit change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. activate and deactivate keep their changes beside the draft, in NAME.batch, and install writes them to /etc/vtium/batch.conf. The font set commands (new-frit, remove-frit) keep their changes beside the draft too, in NAME.frits/, and install writes them to the font sets' directory.";
+pub const DRAFTS: &str = "The commands from flow to edit, and update, change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. activate and deactivate keep their changes beside the draft, in NAME.batch, and install writes them to /etc/vtium/batch.conf. The font set commands (new-frit, remove-frit) keep their changes beside the draft too, in NAME.frits/, and install writes them to the font sets' directory.";
 
 /// The statuses vtium-config exits with, and what each means.
 pub const EXIT_STATUS: [(u8, &str); 7] = [
     (0, "The command did what you asked."),
     (
         1,
-        "The command failed. For install, the draft failed vtium check-config. For check, FILE has an error, or a warning about something other than missing fonts.",
+        "The command failed. For install, the draft failed vtium check-config. For update, the draft and the installed vtium.conf changed the same lines. For check, FILE has an error, or a warning about something other than missing fonts.",
     ),
     (2, "The command line is wrong."),
     (
         3,
-        "install did not install the draft, because the installed vtium.conf changed after the draft was made.",
+        "install did not install the draft, because the installed vtium.conf changed after the draft was made. update brings that change into the draft, and install --overwrite installs the draft over it.",
     ),
     (4, "sudo refused to run apply."),
     (5, "A file could not be read or written."),
