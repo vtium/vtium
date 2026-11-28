@@ -39,6 +39,10 @@ rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs"
 # The event loop that holds the signals and reads the terminal, as the
 # old TUI's loop holds them; the crate vtium-config-core already links.
 vtium-platform.workspace = true
+# The top-level key a look falls back to for its font set when the live
+# trial tries the look (the module `live`); the crate vtium-config-core
+# already links.
+vtium-settings.workspace = true
 
 [dev-dependencies]
 # The screen map's machine and the large machine that the shell's tests

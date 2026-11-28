@@ -17,6 +17,10 @@
 //!   and its view draws from the model without changing it.
 //! - ADR-1206 D4: the navigation module asks each tab for its node, the
 //!   full text behind its highlighted line and the items Find searches.
+//! - ADR-1206 D3: the navigation state holds the search, and each tab
+//!   keeps the indexes that match.
+//! - ADR-1403 D11, "The menus": Actions › Install as a system font… acts
+//!   on a font of the person's own, and is greyed out elsewhere.
 
 mod choices;
 mod search;
@@ -91,6 +95,33 @@ pub trait Tab<S, A, C> {
     /// a tab answers `Some(self)`. A tab that offers no search answers
     /// `None`, and `?` then reaches no list in it.
     fn searchable(&self) -> Option<&dyn Searchable> {
+        None
+    }
+
+    /// The `?` search row that the tab keeps itself, while one is open or
+    /// kept, which the shell draws where the frame puts the search row. A
+    /// tab whose search the shell holds, or that has none, answers `None`.
+    fn search(&self) -> Option<&crate::search::Search> {
+        None
+    }
+
+    /// Hands the tab the items that the shell's `?` search matches, by the
+    /// tab's own indexes, after each key typed into the search row, so the
+    /// tab lists only those. `None` clears the filter, and the tab lists
+    /// every item again. A tab that offers no search ignores it.
+    fn filtered(&mut self, _matches: Option<&[usize]>) {}
+
+    /// Highlights the item named `name`, as another tab or Find asked when
+    /// it sent the person here, such as a look's font set shown in the
+    /// Fonts tab. A tab with no item of that name leaves its highlight
+    /// where it is.
+    fn show(&mut self, _shared: &S, _name: &str) {}
+
+    /// The font file from the person's own folders that the tab
+    /// highlights, which Actions › Install as a system font… copies into
+    /// the system's fonts folder. A tab that highlights no such file
+    /// answers `None`, and the menu greys the item out.
+    fn own_font(&self, _shared: &S) -> Option<std::path::PathBuf> {
         None
     }
 }

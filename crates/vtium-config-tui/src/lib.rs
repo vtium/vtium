@@ -24,9 +24,12 @@
 //! the File and Actions menus' items. [`port`] is the loop around the App
 //! and the terminal it reads and writes.
 //!
-//! The modules [`live`], [`sheets`], [`save`], [`changes`], [`history`],
-//! [`editor`], [`revert`] and [`player`] are filled by the cards after
-//! this one.
+//! [`live`] asks the terminal what it is, hands each reply to whoever
+//! asked, runs the live trial, gives the console its font back on leaving,
+//! and reads the machine for the Actions menu.
+//!
+//! The modules [`sheets`], [`save`], [`changes`], [`history`], [`editor`],
+//! [`revert`] and [`player`] are filled by the cards after this one.
 //!
 //! References:
 //! - ADR-1206 D9: the shell is a crate of its own and holds the tabs as
@@ -56,18 +59,25 @@ pub type BoxTab = Box<dyn Tab<Shared, Action, Command>>;
 
 /// Runs the TUI on the terminal of standard input and output, with `tabs`
 /// in the top row's order and `shared` as the state every tab reads, until
-/// the person quits. Returns the exit status. Once the terminal is back as
-/// it was, prints the one line that says how many changes wait unsaved.
+/// the person quits. `machine` is what the Actions menu's items read and
+/// act on, [`live::machine::System`] for this machine. Returns the exit
+/// status. Once the terminal is back as it was, prints the one line that
+/// says how many changes wait unsaved.
 ///
 /// References:
 /// - ADR-1403 D11, "Quitting, Ctrl-C and the signals": one line on leaving
 ///   while changes are not saved.
-pub fn run(tabs: Vec<BoxTab>, shared: Shared, color: bool) -> std::io::Result<u8> {
+pub fn run(
+    tabs: Vec<BoxTab>,
+    shared: Shared,
+    color: bool,
+    machine: &mut dyn live::machine::Machine,
+) -> std::io::Result<u8> {
     let left = {
         let mut tty = port::tty::Tty::open()?;
         let size = port::Port::size(&mut tty);
         let app = app::App::new(tabs, shared, size, color);
-        port::drive(&mut tty, app)?
+        port::drive_on(&mut tty, machine, app)?
     };
     if let Some(line) = left.line {
         println!("{line}");
