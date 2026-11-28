@@ -1,10 +1,11 @@
 //! What each action does to the tab: the moves through the list, Enter
 //! on the filter line, the configuration's row or a font, Space and
 //! Activate missing, `t` and `p`, the list box of the filters, the
-//! detail's scroll and its Enter, the keys of the search row, a click,
-//! and Find's request to highlight a font. The navigation module hands
-//! the tab an action by its row of the key table, so each arm here
-//! answers rows of the tab's nodes.
+//! detail's scroll and its Enter, a click, and Find's request to
+//! highlight a font. The navigation module hands the tab an action by its
+//! row of the key table, so each arm here answers rows of the tab's
+//! nodes. The shell takes the keys of the `?` search's row, and the
+//! highlight follows the search the shell hands the tab ([`follow`]).
 //!
 //! References:
 //! - ADR-1206 D2: update hands the open tab an action from the key
@@ -13,8 +14,8 @@
 //!   Activate missing as one change, its message, and Space as the
 //!   knowing choice that turns on a font turned off on purpose.
 //! - ADR-1205 D8: deactivating a font a look uses asks first.
-//! - ADR-1403 D11, "Search, on ?": the search row's keys, and a kept
-//!   filter's first Esc.
+//! - ADR-1206 D3: the navigation state holds the search, and each tab
+//!   keeps the indexes that match.
 
 use ratatui_core::layout::Position;
 use vtium_config_core::batch::Change as Batch;
@@ -24,7 +25,7 @@ use vtium_config_core::ui::{Action, Carries, Change, Command, Message, Request, 
 use vtium_config_widgets::input::{self, Button};
 use vtium_config_widgets::keys::{Code, Key, Mods};
 use vtium_config_widgets::list_box::{ListBox, Outcome as BoxOutcome};
-use vtium_config_widgets::search::{Outcome as SearchOutcome, Search};
+use vtium_config_widgets::search::Search;
 
 use crate::layout::Panes;
 use crate::list::{self, Sel};
@@ -43,10 +44,6 @@ pub fn update(tab: &mut Fonts, shared: &Shared, action: Action) -> Vec<Command> 
     let out = match &tab.open {
         Open::Detail { .. } => in_detail(tab, shared, &action),
         Open::Filters(_) => in_filters(tab, &action),
-        Open::Nothing if tab.search.as_ref().is_some_and(Search::typing) => {
-            searching(tab, shared, &action);
-            Vec::new()
-        }
         Open::Nothing => browse(tab, shared, &action),
     };
     settle(tab, shared);
@@ -149,11 +146,6 @@ fn browse(tab: &mut Fonts, shared: &Shared, action: &Action) -> Vec<Command> {
         "pgup" => step(tab, shared, -page(tab, shared)),
         "pgdn" => step(tab, shared, page(tab, shared)),
         "enter" => return enter(tab, shared),
-        "question" => open_search(tab, shared),
-        "esc" => {
-            // a kept filter's first Esc clears it
-            tab.search = None;
-        }
         _ => {}
     }
     Vec::new()
@@ -342,40 +334,8 @@ fn try_live(tab: &Fonts, shared: &Shared) -> Vec<Command> {
     }
 }
 
-/// `?`: puts the cursor back in a kept filter's entry, or opens the
-/// search row over every font, on the highlighted one.
-fn open_search(tab: &mut Fonts, shared: &Shared) {
-    if let Some(search) = tab.search.as_mut() {
-        search.key(&Key::char('?'));
-        return;
-    }
-    let known = tab.known(shared);
-    let from = match tab.sel {
-        Sel::Item(item) => known.position(item),
-        _ => None,
-    };
-    drop(known);
-    tab.search = Some(Search::open(&*tab, from));
-    follow(tab, shared);
-}
-
-/// A key typed in the search row: the entry changes and the list
-/// filters, Up and Down move among the matches, Enter keeps the filter,
-/// and Esc or Backspace on an empty entry clear it.
-fn searching(tab: &mut Fonts, shared: &Shared, action: &Action) {
-    let Some(key) = pressed(action) else { return };
-    let Some(search) = tab.search.as_mut() else {
-        return;
-    };
-    match search.key(&key) {
-        SearchOutcome::Typed | SearchOutcome::Moved | SearchOutcome::Kept => follow(tab, shared),
-        SearchOutcome::Closed => tab.search = None,
-        SearchOutcome::Resumed | SearchOutcome::Ignored => {}
-    }
-}
-
 /// The highlight follows the search's.
-fn follow(tab: &mut Fonts, shared: &Shared) {
+pub fn follow(tab: &mut Fonts, shared: &Shared) {
     let Some(at) = tab.search.as_ref().and_then(Search::highlighted) else {
         return;
     };
@@ -485,10 +445,9 @@ fn in_detail(tab: &mut Fonts, shared: &Shared, action: &Action) -> Vec<Command> 
     Vec::new()
 }
 
-/// After an action: the highlight stays on a row the list shows, the
-/// window moves so it shows the highlight, and the action bar's count
-/// follows what the tab knows.
-fn settle(tab: &mut Fonts, shared: &Shared) {
+/// After an action: the highlight stays on a row the list shows, and the
+/// window moves so it shows the highlight.
+pub fn settle(tab: &mut Fonts, shared: &Shared) {
     let known = tab.known(shared);
     let sel = tab.settled_sel(&known, shared);
     let shown = list::shown(&known, shared, tab.filter, tab.search.as_ref());
@@ -496,9 +455,7 @@ fn settle(tab: &mut Fonts, shared: &Shared) {
     let rows = usize::from(Panes::of(tab.seen.get()).list.height)
         .saturating_sub(list::header(&known).len());
     let top = list::settled(&body, &known, sel, tab.top, rows);
-    let missing = known.counts.not_active;
     drop(known);
     tab.sel = sel;
     tab.top = top;
-    tab.missing.set(missing);
 }

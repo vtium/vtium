@@ -1,10 +1,13 @@
-//! What the Help tab's tests share: the two fixtures, a whole screen with
-//! the frame around the tab, the rows of a drawn buffer as text, the
-//! checks every screen passes, and the snapshots.
+//! What the Help tab's tests share: the two fixtures, the `?` search
+//! driven as the shell drives it, a whole screen with the frame around the
+//! tab, the rows of a drawn buffer as text, the checks every screen
+//! passes, and the snapshots.
 //!
 //! References:
 //! - ADR-1206 D10: each screen at 100×30 and 80×25, with the screen map's
 //!   fixture and a large one, readable without color.
+//! - ADR-1206 D3: the navigation state holds the search, and each tab
+//!   keeps the indexes that match.
 
 #![allow(dead_code, reason = "each test binary uses a part of the helpers")]
 
@@ -21,8 +24,9 @@ use vtium_config_tab_help::HelpTab;
 use vtium_config_widgets::backend::console_width;
 use vtium_config_widgets::canvas;
 use vtium_config_widgets::frame::{Bar, Count, Facts, FrameLayout, Options, TabName, TopRow};
-use vtium_config_widgets::search;
-use vtium_config_widgets::tab::Tab;
+use vtium_config_widgets::keys::Key;
+use vtium_config_widgets::search::{self, Outcome, Search};
+use vtium_config_widgets::tab::{Searchable, Tab};
 
 /// The tabs of the top row.
 pub const TABS: [TabName<'static>; 6] = [
@@ -79,6 +83,44 @@ pub fn after(tab: &mut HelpTab, shared: &Shared, rows: &[&'static str]) {
         let commands = tab.update(shared, Action::of(row));
         assert!(commands.is_empty(), "{row} returned {commands:?}");
     }
+}
+
+/// The shell's `?` search over `tab`, opened as the shell opens it, with
+/// the highlight on the line the tab highlights.
+pub fn open_search(tab: &HelpTab) -> Option<Search> {
+    Some(Search::open(tab, tab.highlighted()))
+}
+
+/// Gives the shell's `search` each of `keys`, as the shell gives it the
+/// search row's keys, and hands the tab the search after each key that
+/// changed it, or `None` once a key closes it. `?` resuming a kept filter
+/// puts the search's highlight on the line the tab highlights.
+pub fn search_keys(tab: &mut HelpTab, shared: &Shared, search: &mut Option<Search>, keys: &[Key]) {
+    for key in keys {
+        let Some(s) = search.as_mut() else {
+            return;
+        };
+        match s.key(key) {
+            Outcome::Closed => {
+                *search = None;
+                tab.filtered(shared, None);
+            }
+            Outcome::Ignored => {}
+            outcome => {
+                if outcome == Outcome::Resumed
+                    && let Some(h) = tab.highlighted()
+                {
+                    s.highlight(h);
+                }
+                tab.filtered(shared, Some(s));
+            }
+        }
+    }
+}
+
+/// The keys that type `text` into the search row.
+pub fn typed(text: &str) -> Vec<Key> {
+    text.chars().map(Key::char).collect()
 }
 
 /// The whole screen of `cols` by `rows` with the Help tab open: the

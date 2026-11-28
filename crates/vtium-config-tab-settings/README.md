@@ -4,14 +4,14 @@ This crate holds the Settings tab of vtium-config's TUI, the full-screen program
 
 The sections sit at the left and the highlighted section's keys at the right. Each key shows its value and a word that says whether it is changed or the default. So moving between sections shows their keys without opening them. Enter moves into the keys, and Enter on a key opens its allowed values in the list box under its line, or lets the person type its value. The highlighted key's first sentence sits along the viewer's last row, and F1 opens its whole help, its default and its value now. `?` filters the keys by their names and their descriptions, so a setting is found by what it does as well as by its name.
 
-The tab implements vtium-config-widgets' `Tab` trait over vtium-config-core's shared state, action and commands, and `Searchable` for the `?` search. It draws only into the viewer the frame gives it and reads the shared state only. A change to a value is one command, which the shell's one change function makes, writes into the draft and records as one step that Undo takes back. The tab depends on no other tab's crate and not on the shell, so the binary hands it to the shell as a trait object.
+The tab implements vtium-config-widgets' `Tab` trait over vtium-config-core's shared state, action and commands, and `Searchable` for the `?` search. The shell holds that search and hands the tab a copy after each key, and the tab lists only what matches. It draws only into the viewer the frame gives it and reads the shared state only. A change to a value is one command, which the shell's one change function makes, writes into the draft and records as one step that Undo takes back. The tab depends on no other tab's crate and not on the shell, so the binary hands it to the shell as a trait object.
 
 The tab reads keys, clicks and the configuration's text. The crate forbids unsafe code and denies the lints that find a panic: unchecked indexing, and `unwrap`, `expect`, `panic!`, `unreachable!` and `todo!`.
 
 | Path | What it is |
 |---|---|
-| `src/lib.rs` | The tab's state, its node of the interface tree, its draw, its F1 text, its items for Find, and its search over every key. |
-| `src/act.rs` | What each action does: the moves through the sections and the keys, Enter, the list box's keys and clicks, the keys of a typed value and of the search row, and Find's request to highlight a key. |
+| `src/lib.rs` | The tab's state, its node of the interface tree, its draw, its F1 text, its items for Find, and its filter over every key. |
+| `src/act.rs` | What each action does: the moves through the sections and the keys, Enter, and the list box's keys and clicks. Also the keys of a typed value, the moves among a kept filter's matches, and Find's request to highlight a key. |
 | `src/sections.rs` | The sections and their keys as one flat list, built once from the key table, a key's value and its mark, and the left pane. |
 | `src/keys.rs` | The right pane, the foot's line for a key, the whole help F1 opens, and Find's item for a key. |
 | `src/value.rs` | The allowed values the list box offers, what typing starts from and what a typed value means, and the one change that sets a key. |

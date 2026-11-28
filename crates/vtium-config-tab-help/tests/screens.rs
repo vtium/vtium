@@ -15,8 +15,8 @@
 mod common;
 
 use common::{
-    SIZES, after, check_rows, check_without_color, fixtures, rows_of, screen, snapshot,
-    snapshot_text, tab,
+    SIZES, after, check_rows, check_without_color, fixtures, open_search, rows_of, screen,
+    search_keys, snapshot, snapshot_text, tab, typed,
 };
 use ratatui_core::buffer::Buffer;
 use ratatui_core::style::Modifier;
@@ -24,7 +24,6 @@ use vtium_config_core::ui::{Action, Shared};
 use vtium_config_tab_help::HelpTab;
 use vtium_config_tab_help::page::Layout;
 use vtium_config_tab_help::topics::TOPICS;
-use vtium_config_widgets::input::Key;
 use vtium_config_widgets::tab::Tab;
 
 /// A topic's name as a snapshot's file names it.
@@ -163,10 +162,8 @@ fn a_long_topic_scrolls_by_a_window_and_says_which_lines_show() {
 fn the_search_keeps_the_lines_that_match_under_their_topic() {
     let text = screens(
         &|tab, shared| {
-            after(tab, shared, &["question.view"]);
-            for c in "*activ".chars() {
-                tab.update(shared, Action::key("char.typing.search", Key::Char(c)));
-            }
+            let mut search = open_search(tab);
+            search_keys(tab, shared, &mut search, &typed("*activ"));
         },
         "search *activ",
         &|rows, what| {

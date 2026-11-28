@@ -8,6 +8,11 @@
 //! problem off the list at once, and Undo brings back what the check said
 //! of the document as it was.
 //!
+//! It holds the half of the previews' facts that comes from the machine
+//! ([`crate::preview::Machine`]), and names the type a tab's preview is
+//! ([`Previews`]), so the shell asks the open tab what to preview through
+//! the `Tab` trait.
+//!
 //! References:
 //! - ADR-1206 D2: the model's four parts, and what `shared` holds: the document and its changes not saved, the live console's state, the queue of askers, the pictures, the pending installs and the message line.
 //! - ADR-1206 D3, "The undo history lives in `shared`": one history for each document open while vtium-config runs.
@@ -18,9 +23,12 @@ use std::cell::RefCell;
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 
+use vtium_config_widgets::tab::Previews;
+
 use crate::document::{self, Documents};
 use crate::drafts::Checked;
-use crate::fontuse::Used;
+use crate::fontuse::{State, Used};
+pub use crate::preview::Pictures;
 
 /// What every tab reads.
 #[derive(Debug)]
@@ -34,8 +42,12 @@ pub struct Shared {
     /// The queries sent to the terminal and not yet answered, each with
     /// who asked it.
     pub askers: Askers,
-    /// The pictures of the console the font helper draws.
+    /// The pictures of the console the font helper draws: what was asked,
+    /// what shows, and the line beside it.
     pub pictures: Pictures,
+    /// What the previews read of the machine: the density, the locale, the
+    /// first display's mode and the console's terminal.
+    pub machine: crate::preview::Machine,
     /// The installs under way or waiting.
     pub installs: Installs,
     /// The line for the person on the viewer's last row.
@@ -61,6 +73,7 @@ impl Shared {
             console: Console::default(),
             askers: Askers::default(),
             pictures: Pictures::default(),
+            machine: crate::preview::Machine::default(),
             installs: Installs::default(),
             message: None,
             present,
@@ -141,6 +154,7 @@ impl Shared {
         self.in_use = InUse {
             reads: Some(reads),
             walked: RefCell::default(),
+            read: self.in_use.read.wrapping_add(1),
         };
     }
 
@@ -175,6 +189,39 @@ impl Shared {
         }
         used
     }
+
+    /// The batch the system holds, with the packages' and root's lists,
+    /// as the loop last read it; `None` until it has.
+    pub fn batch(&self) -> Option<&crate::batch::View> {
+        self.in_use.reads.as_ref().map(|r| &r.view)
+    }
+
+    /// The state of the font file at `path` for the open document, which
+    /// no font set of the document need name, judged by the one rule the
+    /// walk of the fonts in use judges by. `None` until the loop has read
+    /// the batch.
+    pub fn font_state(&self, path: &Path) -> Option<State> {
+        let reads = self.in_use.reads.as_ref()?;
+        let judge = |path: &Path| crate::batch::trusted(path, reads.euid);
+        let machine = crate::fontuse::Machine {
+            fonts: &self.found.fonts,
+            view: &reads.view,
+            layers: reads.layers.as_deref(),
+            kbd_dirs: &reads.kbd_dirs,
+            judge: &judge,
+        };
+        Some(crate::fontuse::judge(
+            path,
+            &self.document().content().active,
+            &machine,
+        ))
+    }
+}
+
+/// A tab's preview is what it previews and where, borrowing the effect it
+/// applies from the shared state.
+impl Previews for Shared {
+    type Preview<'a> = crate::preview::Previewed<'a>;
 }
 
 /// What `vtium check-config` found in one state of the open document.
@@ -313,18 +360,51 @@ pub struct FontReads {
     pub euid: u32,
 }
 
+impl FontReads {
+    /// What the walk reads on this machine, for an install to the
+    /// directories `paths` names, with vtium-config running as `euid`:
+    /// the installed batch under the trust rule of the user that install
+    /// accepts files from, the font sets' `layers/` folder, and kbd's
+    /// folders.
+    pub fn read(paths: &crate::places::Paths, euid: u32) -> FontReads {
+        let targets = paths.targets();
+        let installed = crate::batch::Installed::read(
+            &crate::batch::batch_file(&targets),
+            crate::batch::rule_user(&targets, &paths.sudo),
+        );
+        FontReads {
+            view: installed.view(&crate::batch::start(paths)),
+            layers: paths
+                .frits
+                .as_ref()
+                .ok()
+                .map(|f| f.join(vtium_font::set::layer::DIR)),
+            kbd_dirs: crate::fontuse::kbd_dirs(),
+            euid,
+        }
+    }
+}
+
 /// The fonts the open document uses: what the walk reads, and the last
 /// walk with the document it walked.
 #[derive(Debug, Default)]
 pub struct InUse {
     reads: Option<FontReads>,
     walked: RefCell<Option<Walked>>,
+    /// How many times the loop has handed what the walk reads.
+    read: u64,
 }
 
 impl InUse {
     /// What the walk reads, `None` until the loop has read the batch.
     pub fn reads(&self) -> Option<&FontReads> {
         self.reads.as_ref()
+    }
+
+    /// How many times the loop has handed what the walk reads, so a tab
+    /// that keeps what it judged from the batch knows when to judge again.
+    pub fn read(&self) -> u64 {
+        self.read
     }
 }
 
@@ -467,20 +547,6 @@ impl Askers {
     pub fn is_empty(&self) -> bool {
         self.waiting.is_empty()
     }
-}
-
-/// The pictures of the console: one is drawn at a time, and the one asked
-/// for last is not asked for again.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Pictures {
-    /// The picture asked for last.
-    pub asked: Option<crate::specimen::Shot>,
-    /// A picture is being drawn, so the next is asked for once it comes.
-    pub drawing: bool,
-    /// The picture on the screen, while one shows.
-    pub shown: Option<crate::specimen::Picture>,
-    /// Why no picture shows for the one asked for last, if none does.
-    pub unpictured: Option<String>,
 }
 
 /// The installs under way or waiting.
@@ -626,6 +692,42 @@ mod tests {
         );
         shared.documents.switch(other);
         assert_eq!(shared.findings(), None, "another configuration");
+    }
+
+    #[cfg(feature = "fixture")]
+    #[test]
+    fn a_file_no_font_set_names_is_judged_by_the_walk_s_rule_against_its_batch() {
+        use crate::fontuse::State;
+        let mut shared = crate::fixture::padnoir::shared();
+        let batch = shared.batch().unwrap();
+        let dejavu = Path::new("/usr/share/fonts/TTF/DejaVuSansMono.ttf");
+        let cullet = Path::new("/usr/share/vtium/fonts/cullet-mono.otf");
+        let terminus = Path::new("/usr/share/fonts/misc/ter-u16n.otb");
+        assert!(batch.batch().holds(dejavu), "the batch file activates it");
+        assert!(batch.batch().holds(cullet), "a package's list activates it");
+        assert_eq!(shared.font_state(dejavu), Some(State::Active));
+        assert_eq!(shared.font_state(cullet), Some(State::Active));
+        assert_eq!(shared.font_state(terminus), Some(State::NotActive));
+        shared
+            .change(Change::new(
+                "deactivate",
+                Edit::Active {
+                    path: dejavu.to_path_buf(),
+                    change: Some(crate::batch::Change::Deactivate),
+                },
+            ))
+            .unwrap();
+        assert_eq!(
+            shared.font_state(dejavu),
+            Some(State::TurnedOff(crate::fontuse::Off::Document))
+        );
+        assert_eq!(
+            shared.font_state(Path::new("/nowhere/gone.ttf")),
+            Some(State::Missing)
+        );
+        let bare = north();
+        assert!(bare.batch().is_none());
+        assert_eq!(bare.font_state(dejavu), None, "the batch is not read");
     }
 
     #[cfg(feature = "fixture")]

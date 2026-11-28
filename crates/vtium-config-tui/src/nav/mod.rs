@@ -13,6 +13,11 @@
 //! changes a tab's state: it asks a tab only for its name, its letter, its
 //! node and its search.
 //!
+//! The `?` search over the open tab's list is the navigation state's. It
+//! opens with the highlight on the item the list highlights, takes every
+//! key of the search row, and goes back to that item when `?` resumes a
+//! kept filter. The App hands the tab the search after each key.
+//!
 //! References:
 //! - ADR-1206 D3: one navigation module owns where the person is, the
 //!   menus and the search row's state, and reads the compiled tables.
@@ -223,7 +228,7 @@ impl Nav {
             return step;
         }
         if matches!(node, "any.search" | "any.filter")
-            && let Some(step) = self.search_key(key, node)
+            && let Some(step) = self.search_key(key, node, here)
         {
             return step;
         }
@@ -272,6 +277,8 @@ impl Nav {
                 self.question = None;
                 Step::Nothing
             }
+            // a list box's `?` is its own search, which the tab holds
+            "question.layer.list" => Step::Tab(carrying(id, key)),
             // `?` opens the search row wherever the node's `search`
             // column names fields, and does nothing elsewhere
             _ if id.starts_with("question.") => {
@@ -429,8 +436,14 @@ impl Nav {
             return;
         }
         if let Some(list) = here.tabs.get(self.tab).and_then(|t| t.searchable()) {
-            self.search = Some(Search::open(list, None));
+            self.search = Some(Search::open(list, list.highlighted()));
         }
+    }
+
+    /// Closes the `?` search and clears its filter, as when the person
+    /// leaves the tab it filters.
+    pub fn close_search(&mut self) {
+        self.search = None;
     }
 
     /// A key on the sheet on top, while nothing is over it: what the sheet
@@ -450,7 +463,7 @@ impl Nav {
 
     /// A key while the search row is open: the row's own keys, or `None`
     /// for a key the row leaves to the list.
-    fn search_key(&mut self, key: &Key, node: &'static str) -> Option<Step> {
+    fn search_key(&mut self, key: &Key, node: &'static str, here: &Here<'_>) -> Option<Step> {
         // Ctrl+C quits from the search row as from everywhere
         if *key == Key::ctrl('c') {
             return Some(Step::Shell(Action::of("ctrl-c.any")));
@@ -463,9 +476,16 @@ impl Nav {
             }
             Outcome::Ignored if node == "any.search" => Some(Step::Nothing),
             Outcome::Ignored => None,
-            Outcome::Typed | Outcome::Moved | Outcome::Kept | Outcome::Resumed => {
+            // the list moved its highlight while the filter was kept, and
+            // the entry resumes from there
+            Outcome::Resumed => {
+                let list = here.tabs.get(self.tab).and_then(|t| t.searchable());
+                if let Some(item) = list.and_then(|l| l.highlighted()) {
+                    search.highlight(item);
+                }
                 Some(Step::Nothing)
             }
+            Outcome::Typed | Outcome::Moved | Outcome::Kept => Some(Step::Nothing),
         }
     }
 

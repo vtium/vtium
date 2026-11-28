@@ -41,7 +41,7 @@ use crate::found::Fonts;
 use crate::frit::{Frit, Origin};
 
 pub use activate::{Activated, Scope, activate};
-pub use states::{Counts, NOT_ALL_ACTIVE, NOT_INSTALLED, Off, State};
+pub use states::{Counts, NOT_ALL_ACTIVE, NOT_INSTALLED, Off, State, judge};
 
 /// What the walk reads besides the document.
 pub struct Machine<'a> {

@@ -76,7 +76,7 @@ const NODE_KEYS: &str = "settings.section";
 const NODE_TYPING: &str = "settings.section.typing";
 /// The node of the list box of a key's values.
 const NODE_LIST: &str = "settings.section.list";
-/// The node of the search row while the person types in it.
+/// The node of the list box's search row while the person types in it.
 const NODE_SEARCH: &str = "any.search";
 
 /// Which pane has the focus.
@@ -98,7 +98,8 @@ enum Open {
 }
 
 /// The Settings tab: the sections and their keys, the highlighted section
-/// and key, what is open over them, and the `?` filter over the keys.
+/// and key, what is open over them, and the shell's `?` filter over the
+/// keys.
 #[derive(Debug)]
 pub struct Settings {
     color: bool,
@@ -111,8 +112,9 @@ pub struct Settings {
     left_offset: usize,
     right_offset: usize,
     open: Open,
-    /// The search over every key, while its row is open or its filter
-    /// kept.
+    /// The copy of the shell's search over every key, while its row is
+    /// open or its filter kept. The tab moves the copy's highlight among
+    /// the matches while the filter is kept.
     filter: Option<Search>,
     /// The viewer the tab was last drawn in, which a click and a page's
     /// step are read against, so they act on what the person saw.
@@ -164,16 +166,6 @@ impl Settings {
         self.lit_key()
             .and_then(|at| self.table.entry(at))
             .map(|e| e.key)
-    }
-
-    /// The search whose row shows above the action bar: the list box's,
-    /// while it is open, or the tab's over every key. The shell draws its
-    /// row with `vtium_config_widgets::search::row::draw`.
-    pub fn search(&self) -> Option<&Search> {
-        match &self.open {
-            Open::Values { list, .. } => list.filter(),
-            _ => self.filter.as_ref(),
-        }
     }
 
     /// The sections the left pane shows, each with its count: every
@@ -352,14 +344,14 @@ impl Tab<Shared, Action, Command> for Settings {
 
     /// The list of sections, a section's keys, a value being typed, a
     /// key's values in the list box, or the search row while the person
-    /// types in the tab's or the list box's search. A kept filter leaves
-    /// the node of the keys it filters, whose keys act on what matches.
+    /// types in the list box's search. The shell answers the node of its
+    /// own `?` search row, and a kept filter leaves the node of the keys
+    /// it filters, whose keys act on what matches.
     fn node(&self) -> &'static str {
         match &self.open {
             Open::Typing(_) => NODE_TYPING,
             Open::Values { list, .. } if list.filter().is_some_and(Search::typing) => NODE_SEARCH,
             Open::Values { .. } => NODE_LIST,
-            Open::Nothing if self.filter.as_ref().is_some_and(Search::typing) => NODE_SEARCH,
             Open::Nothing => match self.focus {
                 Focus::Keys => NODE_KEYS,
                 Focus::Sections => NODE_SECTIONS,
@@ -443,6 +435,24 @@ impl Tab<Shared, Action, Command> for Settings {
     fn searchable(&self) -> Option<&dyn Searchable> {
         Some(self)
     }
+
+    /// The search of the list box of a key's values, while the box is
+    /// open and its search is open or kept.
+    fn search(&self) -> Option<&Search> {
+        match &self.open {
+            Open::Values { list, .. } => list.filter(),
+            _ => None,
+        }
+    }
+
+    /// Keeps the copy of the shell's search, and the highlight follows
+    /// its highlighted key into the key's section. `None` clears the
+    /// filter, and every section and key shows again.
+    fn filtered(&mut self, _shared: &Shared, search: Option<&Search>) {
+        self.filter = search.cloned();
+        act::follow(self);
+        self.settle();
+    }
 }
 
 /// The `?` search over every key the tab shows, by its name and its
@@ -465,6 +475,15 @@ impl Searchable for Settings {
             0 => Some(Cow::Borrowed(key.name)),
             1 => Some(Cow::Owned(key.what_line())),
             _ => None,
+        }
+    }
+
+    /// The highlighted key, or on the list of sections the highlighted
+    /// section's first key.
+    fn highlighted(&self) -> Option<usize> {
+        match self.focus {
+            Focus::Keys => Some(self.key),
+            Focus::Sections => self.table.section(self.section).map(|s| s.keys.start),
         }
     }
 }

@@ -2,7 +2,8 @@
 //! loop calls, since update never reads the machine: the devices connected
 //! now, for Read devices again, and the copy of a font file of the
 //! person's own into the system's fonts folder, for Install as a system
-//! font….
+//! font…. The loop also reads what the walk of the fonts in use needs, and
+//! runs `vtium check-config` on the open document once the person pauses.
 //!
 //! [`Machine`] is the seam. [`System`] is this machine: sysfs and udev's
 //! database for the devices, and `vtium-config apply` through sudo for the
@@ -18,15 +19,21 @@
 //!   `/usr/local/share/fonts` through the privileged step, on its own.
 //! - ADR-1403 D7: Read devices again reads the connected displays and
 //!   input devices again.
+//! - ADR-1403 D11, "The frame": the Problems list lists each problem the
+//!   check finds.
+//! - ADR-1205 D4, "Fonts a configuration uses but has not activated": the
+//!   walk reads the batch, the layers and kbd's folders, never on a key.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use vtium_config_core::apply::{self, Placement, SystemFont};
-use vtium_config_core::document::Installed;
+use vtium_config_core::document::{Document, Installed};
 use vtium_config_core::draft::Plan;
+use vtium_config_core::drafts::Checked;
 use vtium_config_core::flowmodel::Present;
 use vtium_config_core::places::Paths;
+use vtium_config_core::ui::shared::FontReads;
 use vtium_platform::listing::Roots;
 
 /// A font file readied for the install as a system font: where it comes
@@ -78,7 +85,26 @@ pub trait Machine {
     fn edit(&mut self, _name: &str, _text: &str) -> Result<crate::editor::Edited, String> {
         Err(crate::editor::words::NO_EDITOR.to_owned())
     }
+
+    /// Runs `vtium check-config` on `document` as it stands, with its font
+    /// sets: what it found, and the path its lines name the draft by.
+    /// `Err` says why the check could not run; a machine with no check
+    /// says so.
+    fn check(&mut self, _document: &Document) -> Result<(Checked, PathBuf), String> {
+        Err(NO_CHECK.to_owned())
+    }
+
+    /// What the walk of the fonts in use reads on this machine besides the
+    /// document and the scan: the batch, the layers' folder, kbd's folders
+    /// and the user vtium-config runs as. `None` where the machine has
+    /// nothing to read, and the walk lists no font.
+    fn font_reads(&mut self) -> Option<FontReads> {
+        None
+    }
 }
+
+/// Why a machine with no check of its own checks nothing.
+pub const NO_CHECK: &str = "vtium-config cannot run vtium check-config here.";
 
 /// A machine with nothing to read or install.
 #[derive(Clone, Copy, Debug, Default)]
@@ -192,5 +218,26 @@ impl Machine for System {
             paths: &self.paths,
         };
         crate::editor::run(&session, name, text, &|k| std::env::var(k).ok())
+    }
+
+    fn check(&mut self, document: &Document) -> Result<(Checked, PathBuf), String> {
+        let store = vtium_config_core::store::Store::system().map_err(|f| f.text().to_owned())?;
+        let name = document.name();
+        let shown = store.draft_path(name).map_err(|f| f.text().to_owned())?;
+        let session = vtium_config_core::drafts::Session {
+            store,
+            paths: &self.paths,
+        };
+        let checked = session
+            .check(name, document.text(), &shown)
+            .map_err(|f| f.text().to_owned())?;
+        Ok((checked, shown))
+    }
+
+    fn font_reads(&mut self) -> Option<FontReads> {
+        Some(FontReads::read(
+            &self.paths,
+            rustix::process::geteuid().as_raw(),
+        ))
     }
 }
