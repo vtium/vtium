@@ -22,6 +22,7 @@ use std::rc::Rc;
 use ratatui_core::buffer::Buffer;
 use ratatui_core::layout::Rect;
 use ratatui_core::terminal::Frame;
+use vtium_config_core::fixture;
 use vtium_config_core::ui::{Action, Carries, Change, Command, Message, Request, Shared};
 use vtium_config_tui::BoxTab;
 use vtium_config_tui::app::{App, Size};
@@ -180,6 +181,11 @@ impl Tab<Shared, Action, Command> for Flow {
 /// The App over `machine` at `size`, with the stand-in Fonts, Looks and
 /// Flow tabs, in color where `color`, and each tab's log.
 fn app_in(machine: Machine, size: (u16, u16), color: bool) -> (App, Log, Log, Log) {
+    app_over(machine.shared(), size, color)
+}
+
+/// The App over `shared`, at `size`, with the stand-in tabs.
+fn app_over(shared: Shared, size: (u16, u16), color: bool) -> (App, Log, Log, Log) {
     let (fonts, looks, flow) = (Log::default(), Log::default(), Log::default());
     let tabs: Vec<BoxTab> = vec![
         Box::new(Fonts {
@@ -193,7 +199,7 @@ fn app_in(machine: Machine, size: (u16, u16), color: bool) -> (App, Log, Log, Lo
             log: Rc::clone(&flow),
         }),
     ];
-    let app = App::new(tabs, machine.shared(), Size::grid(size.0, size.1), color);
+    let app = App::new(tabs, shared, Size::grid(size.0, size.1), color);
     (app, fonts, looks, flow)
 }
 
@@ -435,10 +441,132 @@ fn alt_p_opens_the_problems_list_and_esc_closes_it() {
         let (mut app, ..) = app(machine);
         press(&mut app, Key::alt('p'));
         assert_eq!(app.node(), "any.problems");
-        assert!(text(&app).contains("No problems"));
+        assert!(text(&app).contains("No problems listed"), "{}", text(&app));
         press(&mut app, plain(Code::Escape));
         assert_eq!(app.node(), "fonts");
     }
+}
+
+/// `machine`'s shared state after the check ran on its open
+/// configuration, as the fixture says the check finds it.
+fn checked(machine: Machine) -> Shared {
+    let mut shared = machine.shared();
+    match machine {
+        Machine::Map => fixture::padnoir::checked(&mut shared),
+        Machine::Large => fixture::large::checked(&mut shared),
+    }
+    shared
+}
+
+/// The problems the open Problems list holds.
+fn listed(app: &App) -> Vec<Problem> {
+    match top(app) {
+        Some(Sheet::Problems(list)) => list.problems().to_vec(),
+        _ => panic!("the Problems list is open"),
+    }
+}
+
+#[test]
+fn the_problems_list_lists_what_the_check_found_by_its_line_of_vtium_conf() {
+    for (machine, n) in [(Machine::Map, 1), (Machine::Large, 10)] {
+        let (mut app, ..) = app_over(checked(machine), (100, 30), true);
+        let first = text(&app).lines().next().map(str::to_owned);
+        let count = if n == 1 {
+            "1 problem".to_owned()
+        } else {
+            format!("{n} problems")
+        };
+        assert!(
+            first.is_some_and(|row| row.contains(&count)),
+            "the top row counts {count}"
+        );
+        press(&mut app, Key::alt('p'));
+        let problems = listed(&app);
+        assert_eq!(problems.len(), n, "{problems:?}");
+        for p in &problems {
+            assert!(!p.stops, "a missing font leaves Save working");
+            let Goes::Line(line) = p.goes else {
+                panic!("{p:?} goes to its line");
+            };
+            assert_eq!(p.place, format!("vtium.conf line {line}"));
+            let shown = app.shared().document().text().lines().nth(line - 1);
+            assert_eq!(shown, Some("font-name = proof"), "the line the check names");
+            assert!(p.line.contains("JetBrains Mono"), "{}", p.line);
+        }
+    }
+}
+
+#[test]
+fn a_change_takes_the_check_s_findings_off_until_the_check_runs_again() {
+    let mut shared = checked(Machine::Map);
+    let text = shared
+        .document()
+        .text()
+        .replace("font-name = proof", "font-name = tiny5");
+    shared
+        .change(vtium_config_core::document::Change::new(
+            "the font set",
+            vtium_config_core::document::Edit::Text(text),
+        ))
+        .expect("the change");
+    let (mut app, ..) = app_over(shared, (100, 30), true);
+    press(&mut app, Key::alt('p'));
+    assert!(listed(&app).is_empty());
+    assert!(
+        common::text(&app).contains("the check has not run on the configuration yet"),
+        "{}",
+        common::text(&app)
+    );
+}
+
+#[test]
+fn the_fonts_not_active_and_a_font_that_fails_trust_are_each_a_warning() {
+    let mut shared = Machine::Map.shared();
+    let set = "source=outline:/usr/share/fonts/misc/ter-u16n.otb\nsource=outline:/usr/local/share/fonts/NotoColorEmoji.ttf\n";
+    shared
+        .change(vtium_config_core::document::Change::new(
+            "proof",
+            vtium_config_core::document::Edit::FontSet {
+                frit: "proof".to_owned(),
+                edit: vtium_config_core::document::FontSetEdit::Keep(set.to_owned()),
+            },
+        ))
+        .expect("the change");
+    let (mut app, fonts, ..) = app_over(shared, (100, 30), true);
+    press(&mut app, Key::alt('p'));
+    let problems = listed(&app);
+    let lines: Vec<(&str, &Goes)> = problems
+        .iter()
+        .map(|p| (p.line.as_str(), &p.goes))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            (
+                "1 font the configuration uses is not active",
+                &Goes::Activate(1)
+            ),
+            (
+                "NotoColorEmoji.ttf cannot be activated: it fails the trust rule (F1 says why)",
+                &Goes::Item {
+                    tab: "fonts",
+                    item: None
+                }
+            ),
+        ]
+    );
+    assert!(problems.iter().all(|p| !p.stops));
+    // F1 on the font that fails trust says why, in the trust rule's words
+    keys(&mut app, &["Down", "F1"]);
+    assert!(
+        text(&app).contains("belongs to user 1000"),
+        "{}",
+        text(&app)
+    );
+    keys(&mut app, &["Esc", "Up", "Enter"]);
+    assert_eq!(app.node(), "any.question.confirm");
+    press(&mut app, Key::char('y'));
+    assert_eq!(last(&fonts), Some(Action::of("shift-a.view.fonts")));
 }
 
 // File › New….
@@ -533,21 +661,88 @@ fn manage_never_deletes_the_open_configuration_and_never_touches_etc() {
             assert_eq!(app.node(), "any.menu.file.manage", "{key} asks nothing");
             assert!(text(&app).contains("open another first"), "{key}");
         }
+        assert_eq!(app.shared().documents.desk().configurations(), kept);
         if machine == Machine::Large {
             keys(&mut app, &["Down", "d"]);
             assert_eq!(app.node(), "any.question.confirm");
             assert!(text(&app).contains("/etc is untouched"), "{}", text(&app));
             press(&mut app, Key::char('y'));
-            assert_eq!(
-                message(&app).as_deref(),
-                Some("Deleting a configuration is not built yet."),
-                "the yes reaches the shell"
-            );
+            assert_eq!(app.node(), "any.menu.file.manage", "the sheet stays");
+            let names = app
+                .shared()
+                .documents
+                .desk()
+                .configurations()
+                .expect("the desk");
+            assert!(!names.iter().any(|n| n == "lab-01"), "{names:?}");
+            assert_eq!(names.len(), kept.as_ref().map_or(0, Vec::len) - 1);
+            let Some(Sheet::Manage(m)) = top(&app) else {
+                panic!("the sheet is open");
+            };
+            assert!(!m.kept().iter().any(|k| k.name == "lab-01"));
+            assert_eq!(m.highlighted().map(|k| k.name.as_str()), Some("lab-02"));
+            assert!(text(&app).contains("Deleted lab-01."), "{}", text(&app));
         }
         assert_eq!(app.shared().document().name(), open);
         assert_eq!(app.shared().document().installed(), &installed);
-        assert_eq!(app.shared().documents.desk().configurations(), kept);
     }
+}
+
+#[test]
+fn rename_renames_a_kept_configuration_and_the_open_one_on_the_desk() {
+    let (mut app, ..) = app(Machine::Large);
+    manage(&mut app);
+    keys(&mut app, &["Down", "r"]);
+    typed(&mut app, "-old");
+    press(&mut app, plain(Code::Enter));
+    let names = app
+        .shared()
+        .documents
+        .desk()
+        .configurations()
+        .expect("the desk");
+    assert!(names.iter().any(|n| n == "lab-01-old"), "{names:?}");
+    assert!(!names.iter().any(|n| n == "lab-01"), "{names:?}");
+    let Some(Sheet::Manage(m)) = top(&app) else {
+        panic!("the sheet is open");
+    };
+    assert_eq!(m.highlighted().map(|k| k.name.as_str()), Some("lab-01-old"));
+    assert!(
+        text(&app).contains("Renamed lab-01 to lab-01-old."),
+        "{}",
+        text(&app)
+    );
+
+    // the open one: the document and the top row take the new name
+    keys(&mut app, &["Home"]);
+    let Some(Sheet::Manage(m)) = top(&app) else {
+        panic!("the sheet is open");
+    };
+    let up = m
+        .kept()
+        .iter()
+        .position(|k| k.name == "lab")
+        .expect("lab is listed");
+    let at = m
+        .kept()
+        .iter()
+        .position(|k| Some(k) == m.highlighted())
+        .expect("a highlight");
+    for _ in up..at {
+        press(&mut app, plain(Code::Up));
+    }
+    press(&mut app, Key::char('r'));
+    typed(&mut app, "-main");
+    press(&mut app, plain(Code::Enter));
+    assert_eq!(app.shared().document().name(), "lab-main");
+    let names = app
+        .shared()
+        .documents
+        .desk()
+        .configurations()
+        .expect("the desk");
+    assert!(names.iter().any(|n| n == "lab-main") && !names.iter().any(|n| n == "lab"));
+    assert!(text(&app).contains("lab-main"), "the top row names it");
 }
 
 #[test]
