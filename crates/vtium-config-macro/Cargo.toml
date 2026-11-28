@@ -1,0 +1,16 @@
+[package]
+name = "vtium-config-macro"
+description = "The parser and writer of vtium-config's macros, short text files of keys and checks that drive the TUI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# The crate depends on Rust's standard library alone, so macros add no
+# dependency to vtium-config.
+[dependencies]

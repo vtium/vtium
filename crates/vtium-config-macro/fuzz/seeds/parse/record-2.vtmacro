@@ -1,0 +1,10 @@
+# The forms the record's review added.
+Sleep 2
+Sleep 0.5
+Type `say "hi", it's`
+Ctrl+I
+Ctrl+[ 2
+Esc
+Home
+Screenshot one
+Screenshot two
