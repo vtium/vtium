@@ -532,6 +532,95 @@ considered:
     said: "A [look NAME] section can name its own pointer-theme, so each look picks its own theme, and a look with none draws the top-level one."
     via: the maintainer's decision of 2026-11-20, as the steering session's comment on the GitHub issue for a look's pointer theme records it
     paraphrase: true
+  - operator: aaronsb
+    said: "the actual screens we have: fonts, effects, looks, flow, settings, help - they're fine. but there's something broken in the way that we save install revert, new view etc. Let's really consider a typical tui flow for other applications. maybe even some research on well known implementations"
+    via: the maintainer in conversation with the steering session, 2026-11-27, after trying to set Cullet Mono at 11 pt on the test laptop
+  - operator: aaronsb
+    said: "treating vtium-config tui as more of a typical 'application' inside of it would be likely a good direction, . our flow page is well constructed at this point, even if it too, could benefit from shorter descriptions"
+    via: the maintainer in conversation with the steering session, 2026-11-27, after the research report on how terminal programs and configuration tools keep and apply changes
+  - operator: aaronsb
+    said: "viewing the config file could show the diffs (because we technically have the original) and using typical nice tui diff engine (git has a good one for example). there's probably no reason to not allow it to be fully edited in an editor too. ratatui probably has some basic usable editor crates"
+    via: the maintainer in conversation with the steering session, 2026-11-27
+  - operator: aaronsb
+    said: "Drop Save"
+    via: "the question tool, 2026-11-27, after the mock-ups of vtium-config's screens: whether the TUI keeps a Save that writes its changes into the draft; the option read that the draft keeps each edit as it is made, quitting no longer asks, and a menu item throws edits away on purpose"
+  - operator: aaronsb
+    said: "Update, Overwrite, Revert"
+    via: "the question tool, 2026-11-27, after the mock-ups of vtium-config's screens: what the TUI does with a draft made before the installed file changed; the option read that Update merges the installed file's change into the draft, Overwrite installs the draft knowingly with the replaced file kept in Earlier installs, and Revert starts again"
+  - operator: aaronsb
+    said: "I like this. it gives us a CUA model plus something familiar from tools like nano"
+    via: the maintainer in conversation with the steering session, 2026-11-27, after the mock-ups
+  - operator: aaronsb
+    said: "too many differing processes for updating, saving, reverting etc cause confusion. one flow for all changes basically - if someone can use ms word or photoshop or emacs, then they should be comfy with this"
+    via: the maintainer in conversation with the steering session, 2026-11-27, the rule D11 follows
+  - operator: aaronsb
+    said: "Save, Ctrl+S"
+    via: "the question tool, 2026-11-27, after the mock-ups of vtium-config's screens: the name and the key of the one step that writes /etc/vtium/vtium.conf"
+  - operator: aaronsb
+    said: "File"
+    via: "the question tool, 2026-11-27, after the mock-ups of vtium-config's screens: the name of the document's menu, so Alt+F opens it and the Fonts tab takes Alt+N"
+  - operator: aaronsb
+    said: "this also means we can have an actions command like install etc."
+    via: the maintainer in conversation with the steering session, 2026-11-27, which gave D11 its Actions menu
+  - operator: aaronsb
+    said: "looking at your frame mockup looks like, it's following the CUA pattern pretty well which I think is pretty intuitive. we don't necessarily need \"File, Edit, View...\" etc in that order though"
+    via: the maintainer in conversation with the steering session, 2026-11-27, after the mock-up of the frame
+  - operator: aaronsb
+    said: "I see draft is on a line above the other menu items, but I think it was intended to all be on the same line? … perhaps we can combine the buttons and the actions in one row along the bottom? this way they can be both clickable and also serve as what to press, on a keyboard"
+    via: the maintainer in conversation with the steering session, 2026-11-27, on the mock-up of the frame
+  - operator: aaronsb
+    said: "'alt-f' for fonts 'alt-o' for flow etc … using bold letters would be nice too (or even underlined bold, or underlined italic. not sure) … perhaps in the menus, highlighting keys that can be pressed in those menus would be good"
+    via: the maintainer in conversation with the steering session, 2026-11-27; File later took Alt+F, and italic was left out because the kernel's console shows it as a color
+  - operator: aaronsb
+    said: "since we have a mouse, let's make it mouseable … I think we can keep it to picking items, closing, clicking essentially ok or cancel etc."
+    via: the maintainer in conversation with the steering session, 2026-11-27
+  - operator: aaronsb
+    said: "'n problems' should be clickable and enumerate what those problems are … otherwise it's just there to mock the user lol"
+    via: the maintainer in conversation with the steering session, 2026-11-27, on the mock-up of the frame
+  - operator: aaronsb
+    said: "Alpha.13 holds, besides the rearranged screens: undo and redo (Ctrl+Z, Ctrl+Y) over the one document; F1 for Help on the current screen's page and Ctrl+F to find a setting, font, look or effect by name; and the whole TUI rebuilt, every screen of the mock-up catalog."
+    via: the maintainer's answers through the question tool, 2026-11-27, on alpha.13's scope; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Layout-only proposals"
+    via: "the question tool, 2026-11-27, at 23:30: which of the mock-up catalog's proposals the rebuild takes; the option read that it takes the proposals that change only layout and wording, and skips any that change behaviour"
+  - operator: aaronsb
+    said: "All five layout proposals are taken: Fonts' facts beside the list, Looks' card beside the list, Settings in two panes, Help's topics beside the keys, and Effects' filter chain beside the list."
+    via: the maintainer's answer through the question tool, 2026-11-27, on the mock-up catalog of vtium-config's screens; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Both, by context"
+    via: "the question tool, 2026-11-27, on the mock-up catalog: what F1 opens; the option read that F1 opens the full detail behind a highlighted line that the words rule cut to one line, where there is one, and otherwise the Help page for the screen"
+  - operator: aaronsb
+    said: "Offer both"
+    via: "the question tool, 2026-11-27, on the mock-up catalog: where File › New… starts; the option read that New offers what is saved or vtium's defaults"
+  - operator: aaronsb
+    said: "could we use [] around key press hints? [Space] [Enter] [t] [Ctrl]+[s] or is that too much?"
+    via: the maintainer in conversation with the steering session, 2026-11-27, on the mock-up catalog; the steering session settled one bracket for a chord, as [Ctrl+S]
+  - operator: aaronsb
+    said: "I like that the flow view is relatively clean - without a lot of clutter it's just the flow interface. I like how settings explains the settings in the bottom. we might need to add the ability to manage our settings that we have. in the example there's padnoir, travel, and kiosk-test, and while we can create them, we should be able to remove them. we should make sure we can filter fonts. perhaps using '?' to add a filter box. I could type '?^mono' and we'd filter all fonts that start with 'mono' (case insensitive always) '?$vga' to find fonts ending with 'vga' or '?*Nerd' to find any font with nerd in any part of the name (all case insensitive). sort of a mini regex. this search should have a little help card built into search."
+    via: the maintainer in conversation with the steering session, 2026-11-27, on the mock-up catalog of vtium-config's screens
+  - operator: aaronsb
+    said: "this is a search item and lets us even find settings maybe? it might be something that stacks along the bottom row, to avoid trampling on the display. … the help could be justified on the right side and the entry on the left. when someone types ? it shows up, and allows them to type. if they backspace or press esc it goes away. it likely will be contextual to some extent. I'd like to build the code for that once and not multiple times"
+    via: the maintainer in conversation with the steering session, 2026-11-27, on where the filter sits and how it is built
+  - operator: aaronsb
+    said: "history, when opening a version, we should just offer to preview the diff, and not count the lines and tell. just have a '[v]iew diff' or '[a]ccept version' (these are suggestions they may not be the right words) (and a button to click) allowing a diff. no edits there, just view."
+    via: the maintainer in conversation with the steering session, 2026-11-27, on File › History
+  - operator: aaronsb
+    said: "let's consider using a way to allow the ? search on views. while it technically could be used on any screen it might get confusing. this way we can control where it actually shows up"
+    via: "the maintainer in conversation with the steering session, 2026-11-27, on the mock-up catalog; the steering session chose the first screens to declare the search: the Fonts list, the Effects list, the Looks tab's lists, Settings and the Help tab"
+  - operator: aaronsb
+    said: "we need to be way more supportive and indicative of 'activated' fonts, and if any look or config has fonts defined that are not activated. it's frustrating to hit that. we could have an 'activate missing fonts' option in settings or fonts? that would basically take the config, enumerate what's not activated, and activate them through the normal activation path"
+    via: the maintainer in conversation with the steering session, 2026-11-27, on the mock-up catalog of vtium-config's screens
+  - operator: aaronsb
+    said: "ooh I like the list box idea!"
+    via: "the maintainer in conversation with the steering session, 2026-11-27, on the mock-up catalog's screen \"Flow: a card's list box\"; the steering session read it as building the list box in alpha.13 as one widget for every line with choices"
+  - operator: aaronsb
+    said: "ok. I'm accepting those mockups if it's possible to edit them with the adjustments I shared"
+    via: the maintainer in conversation with the steering session, 2026-11-27, on the mock-up catalog of vtium-config's screens, updated with the adjustments of the notes on it
+  - operator: aaronsb
+    said: "I'd like to figure out if we can keep the mockup content in a way that lets worktrees access and review it. this way you can manage the mockups, they have a reference - not goldens, but a coherent narrative - and this way it can be built out so we can keep a coherent story throughout the use of vtium-config. I kind of like to think about it as chapters in a book. structured, but the content itself also has to have continuity"
+    via: the maintainer in conversation with the steering session, 2026-11-27, on keeping the accepted catalog
 status: accepted
 date: 2026-11-04
 deciders:
@@ -543,8 +632,8 @@ related: []
 
 ## Summary
 
-- **Decided:** The maintainer decided on 2026-11-04 that vtium's configuration is one flow, from the displays to the input devices: the displays, the display rules that send each display to a head, the heads, each head's look (its frit and size, the fonts that frit draws with, and the vtlook that holds its filters), the input rules that send each input device to a head, and the input devices. The whole flow lives in one file, `/etc/vtium/vtium.conf`. Its flat `key=value` lines stay, and they are the defaults every head inherits, so a kmscon.conf copied in still reads. Below them come sections with names, as heads.conf writes them: a `[look NAME]` section for each look, a `[head NAME]` section for each head, and one `[rules]` list, which each device tries top to bottom across every head (D4). vtium stops reading the seat file, `seat0.seat.conf`, which is a departure from the C reference, and stops reading heads.conf, with no migration: the two installs that have either file are converted by hand (D6). vtium refuses a vtium.conf that root does not own or that others can write, and says why (D3). vtium-config gains a view, Flow, that shows the configuration as paths, each a row of bordered boxes that joins displays → a terminal ← inputs, with the terminal's font set inside it. The view builds a path in three stages: the person picks parts, made from the machine's own devices and from four templates, into a new path, then adds the path to the configuration, and vtium-config writes its head and rules, most specific first (D7, D8). A part whose device is unplugged stays on screen, greyed out, and nothing leaves the file unless the person takes it out (D7). vtium-config also gains `vtium config edit`, which works as visudo does: it opens the configuration in the user's editor and checks it with `vtium check-config` when the editor exits. Every edit, root's included, goes into the user's draft under the XDG path, `~/.config/vtium/drafts/`, which may be unfinished; only `install` needs a passing check, and installs the draft to `/etc/vtium/vtium.conf` through the privileged step `sudo vtium-config apply DIR`. The view and `vtium config flow` always say how the draft stands, and a draft can be deleted (D8). A draft keeps its font set changes, the frits it adds or replaces and the installed frits it removes, in a folder beside it, `~/.config/vtium/drafts/NAME.frits/`: they survive quitting the TUI, show in `vtium config diff`, travel with the draft to another machine, and install with it, frits before vtium.conf, so a failure part-way leaves a working system (D8). The view shows the draft as text on `v`, and the person can label a part with a name of their own, which vtium.conf keeps in a `[labels]` section. vtium shows a display's label when vtium-config identifies the displays (D4, D7). Every change the view makes is also a `vtium config` command with fixed exit codes, and `vtium config flow --json` prints the flow for scripts, so everything works without the TUI (D8). A valid configuration wires at least one complete route, a display present sent to a head that a keyboard present reaches, and `vtium check-config` refuses a file without one; Install asks before it installs a draft without one, and the shipped default always passes (D3). As soon as a new path is complete, the view asks the person to add it, and Revise takes a path back out to change it and adds it back byte for byte. The view's changes wait until Save writes them into the draft, and Install saves first (D7). D10, added on 2026-11-18, extends the key table and the interface tree to the six tabs that ADR-1205 sets, so each action has one key on every tab, and Enter goes down the tree of use while Esc comes back up. The digits 1 to 6 go straight to a tab, Space activates a font, an effect or a pointer theme, and Esc keeps a card's changes (D10). This record's agent adds what the move forces: the lines above the first section keep vtium.conf's forgiving reading, and the sections keep the head file's strict one, so an error in a section never drops a top-level key (D3).
-- **Trades away:** One file holds two ways of handling a mistake, a forgiving one for the flat keys and a strict one for the sections. A heads.conf or seat file left in place stops working, with no warning. A vtium.conf that root does not own, which vtium reads today, is no longer read at all. While the packaged build and the development build share `/etc/vtium/vtium.conf` (ADR-1500 D4), a build older than this change reads a head section's `login` line and a look section's font lines as if they were top-level keys. The TUI needs a terminal of at least 80 by 25 cells, so a minspec board's 40-column console is configured over ssh, with the commands, or with a draft copied in. Every draft command reads the draft's font set folder as well as its vtium.conf, and a draft carried to another machine is two paths, its file and its folder.
+- **Decided:** The maintainer decided on 2026-11-04 that vtium's configuration is one flow, from the displays to the input devices: the displays, the display rules that send each display to a head, the heads, each head's look (its frit and size, the fonts that frit draws with, and the vtlook that holds its filters), the input rules that send each input device to a head, and the input devices. The whole flow lives in one file, `/etc/vtium/vtium.conf`. Its flat `key=value` lines stay, and they are the defaults every head inherits, so a kmscon.conf copied in still reads. Below them come sections with names, as heads.conf writes them: a `[look NAME]` section for each look, a `[head NAME]` section for each head, and one `[rules]` list, which each device tries top to bottom across every head (D4). vtium stops reading the seat file, `seat0.seat.conf`, which is a departure from the C reference, and stops reading heads.conf, with no migration: the two installs that have either file are converted by hand (D6). vtium refuses a vtium.conf that root does not own or that others can write, and says why (D3). vtium-config gains a view, Flow, that shows the configuration as paths, each a row of bordered boxes that joins displays → a terminal ← inputs, with the terminal's font set inside it. The view builds a path in three stages: the person picks parts, made from the machine's own devices and from four templates, into a new path, then adds the path to the configuration, and vtium-config writes its head and rules, most specific first (D7, D8). A part whose device is unplugged stays on screen, greyed out, and nothing leaves the file unless the person takes it out (D7). vtium-config also gains `vtium config edit`, which works as visudo does: it opens the configuration in the user's editor and checks it with `vtium check-config` when the editor exits. Every edit, root's included, goes into the user's draft under the XDG path, `~/.config/vtium/drafts/`, which may be unfinished; only `install` needs a passing check, and installs the draft to `/etc/vtium/vtium.conf` through the privileged step `sudo vtium-config apply DIR`. The view and `vtium config flow` always say how the draft stands, and a draft can be deleted (D8). A draft keeps its font set changes, the frits it adds or replaces and the installed frits it removes, in a folder beside it, `~/.config/vtium/drafts/NAME.frits/`: they survive quitting the TUI, show in `vtium config diff`, travel with the draft to another machine, and install with it, frits before vtium.conf, so a failure part-way leaves a working system (D8). The view shows the draft as text on `v`, and the person can label a part with a name of their own, which vtium.conf keeps in a `[labels]` section. vtium shows a display's label when vtium-config identifies the displays (D4, D7). Every change the view makes is also a `vtium config` command with fixed exit codes, and `vtium config flow --json` prints the flow for scripts, so everything works without the TUI (D8). A valid configuration wires at least one complete route, a display present sent to a head that a keyboard present reaches, and `vtium check-config` refuses a file without one; Install asks before it installs a draft without one, and the shipped default always passes (D3). As soon as a new path is complete, the view asks the person to add it, and Revise takes a path back out to change it and adds it back byte for byte. D11, added on 2026-11-27, makes vtium-config work like an application, with the configuration as its one open document: every change goes into the draft as it is made, and one Save, on Ctrl+S, shows what saving changes and then installs through sudo once. File and Actions menus beside the tabs, an action bar along the bottom and the mouse reach every action, and the top row's counts open the Problems list and Show changes. When the installed file changed on disk, Save offers Update, Overwrite and Revert, where Install refused (D8, D11). Ctrl+Z and Ctrl+Y undo and redo the document's changes back to the last Save, F1 opens help for what is highlighted, Ctrl+F finds a setting or an item of any tab by name, New… starts from what is saved or from vtium's defaults, and five tabs show the highlighted item's facts beside their list. On the screens whose node of the interface tree declares it, `?` opens a search row over the action bar that filters the list on screen, and elsewhere `?` does nothing. File › Open renames and deletes the configurations, and every key a screen names for pressing is written in brackets, as `[Ctrl+S] Save` (D11). Every place a font appears marks it active, not active or missing, and Activate missing activates, as one change, each font the configuration uses that is installed and trusted but not active (D11; ADR-1205 D4). A line with choices, on a Flow card, a look's card, a setting or the form for a new font set, opens one list box under itself (D11). The rebuild builds to the mock-up catalog the maintainer accepted, which becomes a committed book of vtium-config's use under `docs/design-notes/vtium-config/`, a reference rather than a golden (D11). D10, added on 2026-11-18, extends the key table and the interface tree to the six tabs that ADR-1205 sets, so each action has one key on every tab, and Enter goes down the tree of use while Esc comes back up. The digits 1 to 6 go straight to a tab, Space activates a font, an effect or a pointer theme, and Esc keeps a card's changes (D10). This record's agent adds what the move forces: the lines above the first section keep vtium.conf's forgiving reading, and the sections keep the head file's strict one, so an error in a section never drops a top-level key (D3).
+- **Trades away:** One file holds two ways of handling a mistake, a forgiving one for the flat keys and a strict one for the sections. A heads.conf or seat file left in place stops working, with no warning. A vtium.conf that root does not own, which vtium reads today, is no longer read at all. While the packaged build and the development build share `/etc/vtium/vtium.conf` (ADR-1500 D4), a build older than this change reads a head section's `login` line and a look section's font lines as if they were top-level keys. The TUI needs a terminal of at least 80 by 25 cells, so a minspec board's 40-column console is configured over ssh, with the commands, or with a draft copied in. Every draft command reads the draft's font set folder as well as its vtium.conf, and a draft carried to another machine is two paths, its file and its folder. Overwrite lets a person replace a change made to the installed file after seeing it, and History keeps the replaced file (D8).
 - **One-way?** No, but expensive once a release ships it: users then write their files in the merged form, and a later change of syntax means a migration. Until that release every part of this changes in a session.
 - **Probes:**
   - *Not confident (nested objects):* the recommendation keeps heads.conf's bracketed sections as they are, placed below vtium.conf's flat lines, and adds a `[look NAME]` section for each look, so a head names its look as it does today. The rules stay one ordered list in `[rules]`, outside the heads, because first match depends on their order across all heads. Is that the nesting you meant, or did you mean each head's rules written inside that head? (Answered 2026-11-04: that is the nesting meant; see `considered`.)
@@ -564,6 +653,18 @@ related: []
 
 > Edited 2026-11-09: the maintainer answered the gap-check of the Flow view against the circuit model (`considered`), and D3, D7 and D8 say how. The Summary read: "`vtium check-config` refuses a file without one, so nothing is installed that no one at the machine can type on; the shipped default always passes (D3). In the view, Install, Revert and New each ask before they act, and rules can be tagged with devices and heads (D7)."
 
+> Edited 2026-11-27: the maintainer rearranged vtium-config's screens around one open document and one Save (`considered`, 2026-11-27), and D11 and two subsections of D8 were added. The Summary's sentence read: "The view's changes wait until Save writes them into the draft, and Install saves first (D7)." Trades away gained its sentence on Overwrite.
+
+> Edited 2026-11-27, later the same night: the maintainer set alpha.13's scope and answered the mock-up catalog's questions (`considered`, 2026-11-27), and D11 gained undo and redo, F1, Find, New's two starting points and the tabs' layouts. Later the maintainer's notes on the catalog added the search row on `?`, managing the configurations, History's sheet and keys in brackets. The Summary gained its two sentences on them.
+
+> Edited 2026-11-27, after the mock-up catalog was accepted: the maintainer decided where the search is offered (`considered`). The Summary's sentence on it began: "`?` opens a search row over the action bar that filters the list on screen, File › Open renames".
+
+> Edited 2026-11-27, after the mock-up catalog was accepted: the maintainer asked for Activate missing (`considered`), and the Summary gained its sentence on the fonts' marks.
+
+> Edited 2026-11-27, after the mock-up catalog was accepted: the maintainer took the list box (`considered`), and the Summary gained its sentence on it.
+
+> Edited 2026-11-27, after the mock-up catalog was accepted: the Summary gained its sentence on the catalog and the book (`considered`).
+
 ## Context
 
 vtium's configuration is spread over three files today. vtium.conf holds the keys the C reference's kmscon.conf had, plus vtium's own. `seat0.seat.conf`, beside it, holds the same keys and wins over vtium.conf, because the C reference read a file for each seat over its main file and vtium carried that over without a decision. heads.conf holds the heads and the rules that place each display and each input device (ADR-1401 D3), and looks were to get files of their own (ADR-1200 D16). A head inherits its font from vtium.conf, its frit from its look, and its devices from heads.conf's rules, so no single file shows how a display and a keyboard end up in a terminal with a font.
@@ -574,7 +675,7 @@ The tree constrains the move in four ways, each read from the code on 2026-11-04
 
 ## Decision
 
-D1 to D3 state the maintainer's decisions and what the move forces. D4 to D8 were the open questions of this record's draft, which the maintainer answered on 2026-11-04 (`considered`); each states the answer. D9 lists what the code changes to fit. D10, added on 2026-11-18, sets how a person moves through the six tabs of ADR-1205.
+D1 to D3 state the maintainer's decisions and what the move forces. D4 to D8 were the open questions of this record's draft, which the maintainer answered on 2026-11-04 (`considered`); each states the answer. D9 lists what the code changes to fit. D10, added on 2026-11-18, sets how a person moves through the six tabs of ADR-1205. D11, added on 2026-11-27, makes vtium-config work like an application, with the configuration as its one open document.
 
 ### D1: one flow, from the displays to the input devices
 
@@ -929,6 +1030,8 @@ The key line shows only the keys that fit what the person is doing now (the main
 
 The mouse selects a box with a click and opens it with a second click, and a click on a view's name in the tab bar switches to that view while nothing is open (the maintainer, 2026-11-04). The view turns on mouse reporting, modes 1000 and 1006, which vtium supports (ADR-1000 `DEC-1000`, `DEC-1006`), and turns it off when the TUI leaves the view. In a terminal without mouse reporting, the keys do everything.
 
+> Note 2026-11-27: D11 changes this subsection once its work lands. The key line becomes the action bar. `s` and `i` give way to Ctrl+S, and `r`, `n`, `v` and `o` move into the File menu. `d` and `t` stay, and join the Actions menu. `q` quits at once, and mouse reporting is on for every screen.
+
 #### The same keys in every view
 
 > Edited 2026-11-16: the maintainer set four rules for the keys of every view (`considered`, 2026-11-16), in answer to the work that drives vtium-config's TUI by script and checks how it responds after each key. That work found the same key doing different things in different places: `q` quit from a card but went back from the file view, and the three questions took three sets of answer keys. This subsection and the key table were added. The key line's paragraph above ended "and `PgUp PgDn scroll` where there is room.", the bullet on `q` read "**`q`** quits.", and the file view's paragraph read "and `q` or Esc go back to the configuration with the same box highlighted."
@@ -958,6 +1061,8 @@ These rules hold in every view of the TUI (the maintainer, 2026-11-16):
 
 Ctrl-C and the signals keep the meaning that **What carries over** gives them: they save the changes that are not saved and leave, without a question. At a question, Ctrl-C cancels the question instead, as Esc does. The live trial's countdown keeps its own keys, which ADR-1201 D4 decides: `k` keeps the font, and any other key puts it back. So does the screen below the minimum size, where only `q`, `u` and Ctrl-C act (ADR-1201 D3). There `q` asks the quit question on one row while changes are not saved, and `u` puts back both the start font and the start grid.
 
+> Note 2026-11-27: D11 changes four of these rules once its work lands. `q` quits at once, because the draft keeps every change, and the quit question goes. The action keys `s`, `i`, `r`, `n`, `v` and `o` give way to Ctrl+S and the File menu, and the file view's exception goes with the file view. The key line becomes the action bar, which shows its buttons in pages as the key line does. Ctrl-C and the signals quit as `q` does, since nothing is left to save.
+
 #### One list for every set of items
 
 > Edited 2026-11-16: the maintainer answered the three points the second amendment left open and added a rule for lists (`considered`, 2026-11-16). This subsection was added.
@@ -975,6 +1080,8 @@ The maintainer asked on 2026-11-16 for one kind of list wherever the TUI shows a
   - the defined terminals.
 
 The list's look is the picker's, and this decision designs no other.
+
+> Note 2026-11-27, after the mock-up catalog was accepted: D11's "The list box" builds the list box inside a card as one widget, and the lines of a Flow card, a look's card, a setting with fixed values and the form for a new font set open it under the line. The other sets above keep the shared list.
 
 #### The key table
 
@@ -1028,10 +1135,15 @@ The interface tree, `ADR-1403-tree.tsv` beside this record, lists every place th
 | `status` | `supported` where the code has the node now, and `planned` where it will |
 | `issue` | the issue that carries a planned node |
 | `now` | on a planned node, what the code does today |
+| `search` | the fields that the `?` search matches on the node's items, such as `family, file`, or `-` where the node offers no search (D11, "Search, on ?") |
+
+> Note 2026-11-27, after the mock-up catalog was accepted: the maintainer decided that a screen offers the `?` search only where its node declares it (`considered`), so the tree gains the `search` column. The work that builds the search adds the column to `ADR-1403-tree.tsv`, with each node's value as D11's "The keys and nodes these add" lists them, in one change with the code.
 
 Every row of the key table applies to at least one node, and every key a node names is a row of the key table. A script checks both directions. The contract covers the mouse as well as the keys: a click and the wheel have rows in each node where the TUI reads them. The TUI reads the mouse only while the Flow view is in front, where mouse reporting is on.
 
 > Edited 2026-11-16: the maintainer reviewed the differences between the walk of the code and the hand-built tree (`considered`, 2026-11-16). A part's narrowing choices became a node of their own under a part's detail, and the mouse joined the contract. The paragraph ended at "A script checks both directions."
+
+> Note 2026-11-27: with D11, the TUI reads clicks on every screen, and the work that builds D11 adds their rows to the tables.
 
 > Edited 2026-11-18: the code review of the work that generates the key lines from the contract found key lines that offered keys that did nothing. The detail of a path's display or input offered Up, Down and Enter, NEW PATH's terminal card offered `e`, a card offered `t`, and a question before an action offered `n`. The review's fix round split three nodes so that each key line names only keys that act there. `flow.info` is the read-only detail of a box of a path, `flow.new-card` is NEW PATH's terminal card, and `flow.detail` is a part's detail while its label line is under the cursor, with `flow.detail.choices` below it. `t` on a card became a planned row, which its key line leaves out until the work on the live preview builds it, and a question before an action no longer lists `n`. The scenario test checks that every key a key line names changes something in its node.
 
@@ -1099,6 +1211,8 @@ The site's reference page for people who use vtium-config, "vtium-config's scree
 
 `v` shows the draft's vtium.conf as text, read-only, with the unsaved changes applied, exactly what Install would write (the maintainer, 2026-11-10: "we could drop the rules view and use the same key (v) to view the configuration file. (I don't see an obvious way to just view the file as it is configured)"). It opens at the line of the highlighted box's rule and marks each line the check complains about. `j` and `k` or Up and Down scroll by lines, `h` and `l` or Left and Right scroll sideways, `g` and `G` go to the top and the bottom, Ctrl-d and Ctrl-u move half a page, and Esc goes back to the configuration with the same box highlighted. `q` quits or asks, as it does everywhere (above). The file view saves and installs too (the maintainer, 2026-11-10: "in the viewing config file, we should allow to install/save as well."): `s` and `i` act as they do in the configuration, and the file view then stays open and shows the file as it now stands. The view of six columns, which drew each rule as an item, is gone. The rule order shows in the file, and vtium-config sets that order itself (D8).
 
+> Note 2026-11-27: D11's Show changes takes the place of this view, on File › Show changes. Its Whole file reads as this view does, and `s` and `i` give way to Ctrl+S.
+
 #### Editing an added path, and Revise
 
 **Enter on a path in CONFIGURATION opens its card,** which changes in place what allocates nothing (the maintainer, 2026-11-09: "I think the main reason to restrict changes in the config doc has more to do with resource allocation (displays, input devices, available font resources) than anything else. so altering the default character size in points, or the name of the flow, or the font used (only pickable from defined fonts) when pressing 'enter' (entering into a flow in the doc) maintains the stability of resource conflicts."). The card changes the path's name, which is refused when another path has it; its font set, chosen from the font sets the draft defines and never typed; its character size in points; and the terminal's consoles, login and what happens when its display is unplugged. The card does not change the VTs the terminal runs on. A path's `vt` changes only through Revise, so that vtium-config checks each VT for clashes when the path is added again (the steering session's call, 2026-11-10). The card says in one line how to change the rest: `Which displays and inputs this path joins change only when you revise it: press e.` The same card serves NEW PATH, where it also connects and disconnects parts (the maintainer, 2026-11-09: "and obviously, if it's a net new path never added to the doc, the user has a chance to name it and set those same properties in the pre-document editor before sending it to the config doc"). Enter on a font set opens its preview, the Fonts view's picture of the console in that font set.
@@ -1144,9 +1258,13 @@ On a configuration with no terminal and no rule, the first path's inputs roam, a
 - **The terminal's minimum size** is 80 by 25 cells (the maintainer, 2026-11-05). It stays 80×25 now that the view is one document that reflows (the steering session's call, 2026-11-10). The minimum applies to the terminal vtium-config runs in, not to the machine or its console: a minspec board with a 40-column console is configured over ssh from a terminal at 80 by 25 or larger, with the commands of D8 at any size, or with a draft built on another machine and copied over, since a draft is a complete vtium.conf (D8). Below the minimum, the TUI draws no view: it shows one screen with the size it needs, the `vtium config` commands, and the keys to leave and to undo a font preview that made the grid too small.
 - **How to reach it.** Flow is the first of vtium-config's views, Flow, Looks, Settings and Help, and the one vtium-config opens on (ADR-1201 D3). `vtium config flow` prints the flow as text, or as JSON with `--json`, and exits. Every change the view makes is also a command (D8), and the view is a front end over the same operations. The view reads vtium.conf, the frits and the devices as the user, with no privilege; only Install asks for sudo.
 
+> Note 2026-11-27: D11 changes three of these bullets once its work lands. Under **Changes wait for Save**, every change goes into the draft as it is made, so the save into the draft, the quit question, and the save on Ctrl-C and the signals go. Revert, Restore and New become File › Revert to saved…, File › History › and File › New…, as D11 says. Under **Each view shows its own controls**, the tab bar's actions move into the File menu, and Install gives way to Save and its review (D8). Under **The status line is minimal**, the draft's name and its counts move to the right of the top row, and the facts about what is placed, the complete route and the policy stay in the Flow view's viewer.
+
 #### The words
 
 The view and the docs use these words for one thing each. The maintainer fixed seven of them on 2026-11-10, part, template, path, pick, add, revise and label ("Accept all seven (Recommended)"). The words draft, save, install and restore come from the maintainer's earlier lists of 2026-11-05 and 2026-11-09. A **part** is one display, terminal, input or font set that a path can hold. A **template** is the box that makes parts of one kind. A **path** is a terminal with its displays, inputs and font set. To **pick** is what Space does: it puts a part into NEW PATH. To **add** is what `a` does: it puts the new path into CONFIGURATION. To **revise** is what `e` does: it takes a path out of CONFIGURATION into NEW PATH. A **label** is the person's own name for a part. The **draft** is the user's copy of vtium.conf, which Save writes. To **save** is to write the TUI's unsaved changes into the draft. To **install** is the one action that writes `/etc/vtium/vtium.conf`, through sudo. To **restore** is to copy a file from the installed history into the draft. The word configuration means the paths of the draft and of the installed file. The rule of D3 that a valid file lets a keyboard reach a head with a display is called a complete route, and the match key `path:` of ADR-1401 D4 keeps its name, since it names a USB port's path.
+
+> Note 2026-11-27: D11's words replace draft, save, install and restore on the TUI's screens. The draft stays the word of D8 and of the command line.
 
 #### What the new design replaces
 
@@ -1180,6 +1298,8 @@ vtium-config wrote vtium.conf, heads.conf and frits through install bundles that
 > Edited 2026-11-11: the maintainer chose that a vtium.conf vtium-config writes holds a short header and only what is set, and that an existing file keeps every line (`considered`). The bullet on where the draft comes from read: "or of the shipped example when no vtium.conf is installed." Beside it, under `$XDG_STATE_HOME/vtium/`, vtium-config keeps the SHA-256 of the installed file the draft was last made from or applied as, its base.
 - **The draft may be unfinished** (the maintainer, 2026-11-04). vtium-config writes every change to the draft whatever the check says, when a command runs or when the person saves in the TUI (D7), so New can start empty and a configuration can be built in any order. The view and `vtium config flow` run `vtium check-config` on the draft and list what fails, the complete route of D3 among it. Only Install needs the check to pass, and it accepts a missing complete route once the person confirms it (below).
 - **Which state is shown.** The flow view's status line and the first line of `vtium config flow` always say how the draft stands against the installed file: `draft same as installed`, `draft: 3 lines added, 1 removed`, or `draft made before the installed file changed` when the installed file's hash is no longer the base, and how many problems the check finds. When the draft holds font set changes (below), the line counts them too, as in `draft: 3 lines added, 1 removed, 2 font set changes`. A draft is the same as installed only when its text is the installed file's and it holds no font set change. `vtium config diff` prints the difference between the draft and the installed file, its font set changes included.
+
+  > Note 2026-11-28: in the TUI the top row's facts of D11 replace this status line: the document's name, ● and the count not saved, and the count of problems. A draft made before the installed file changed shows as the changed-on-disk screen when the person saves ("When the installed file changed on disk", below). The first line of `vtium config flow` keeps the words above.
 - **`install` installs the draft.** Install in the TUI saves first (D7). `vtium config install`, and Install in the TUI, check the draft with `vtium check-config FILE`, one run for both parts, refuse it when the installed file is no longer the base, and install it through `sudo vtium-config apply DIR`, as ADR-1201 D5 has it: owned by root with mode 0644, in one rename, keeping the old file as `vtium.conf.bak`. vtium-config builds the install bundle that `sudo vtium-config apply DIR` takes from the draft and its base, so the privileged step stays the one that `crates/vtium-config/src/apply.rs` already has. The install bundle carries the draft's font set changes too, and the privileged step writes the frits first, then vtium.conf, then removes the frits the draft removes, so vtium.conf never names a frit that is not there ("A draft's font set changes", below). After a successful install the base is the new installed file, the draft holds no font set change, and the draft and the installed file are the same. A draft whose only problem is a missing complete route (D3) installs only after the person confirms it: in the TUI by answering yes to Install's question (D7), and on the command line by answering the same question at a terminal, or with `vtium config install --force`, which asks nothing (the maintainer, 2026-11-09: "ask at a terminal no flag, with force flag (that is common, if we have one) to avoid the interactive approach ( you just have to know what you're doing because it will accept the config)"). `--force` is the word vtium-config already uses for `look rm`. It skips that one question and installs the draft, and the person answers for what it accepts. It skips none of the check's other refusals, and never the refusal of a draft made before the installed file changed. Without a terminal and without `--force`, `vtium config install` refuses with exit 1 and says how to install the draft anyway: `This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. To install it anyway, run vtium config install --force.` The install bundle's `MANIFEST` records the confirmation or the `--force`, and `apply` then accepts that one problem from `vtium check-config` and refuses every other, as it does today (the maintainer, 2026-11-09).
 
 > Edited 2026-11-09: the maintainer chose `--force` for the command line and kept the bundle's record of the confirmation (`considered`). The passage read: "and on the command line by answering the same question at a terminal, or with `--no-complete-path` where no terminal can ask; without either, `vtium config install` exits 1 (the agent's call). The install bundle's `MANIFEST` then records the confirmation, and `apply` accepts that one problem from `vtium check-config` and refuses every other, as it does today (the agent's call)."
@@ -1188,6 +1308,117 @@ vtium-config wrote vtium.conf, heads.conf and frits through install bundles that
 - **Editing by hand stays possible.** Root can still edit `/etc/vtium/vtium.conf` with any editor. vtium then reads it as D3 says. A draft made before that edit shows that the installed file changed since, and Install refuses it until the user reverts or merges by hand.
 
 > Edited 2026-11-06: a draft keeps its font set changes in a folder beside it (`considered`; "A draft's font set changes", below). The bullet on install read: "It writes the frits first and vtium.conf after them, so vtium.conf never names a frit that is not there. After a successful install the base is the new installed file, and the draft and the installed file are the same." The status line counted no font set changes, `vtium config diff` showed vtium.conf alone, and deleting a draft removed "the draft and its base".
+
+> Note 2026-11-27: D11 changes two bullets of this list for the TUI. Install becomes Save, on Ctrl+S, after a review, and a draft made before the installed file changed gets Update, Overwrite and Revert in place of a refusal. "Save: the review, then sudo once" and "When the installed file changed on disk", below, say how.
+
+#### Save: the review, then sudo once
+
+> Note 2026-11-27: this subsection was added on this date with D11, which makes Save, on Ctrl+S, the TUI's one step to `/etc/vtium/vtium.conf`. It changes the bullet on `install` above for the TUI: Install no longer saves first, because the draft already holds every change, and its question gives way to the review below. `vtium config install` stays as the bullet says.
+
+The research behind D11 found the preview on the same key as the apply in aptitude, whose `g` first shows the pending changes and then, pressed again, performs them, and in Junos, whose `show | compare` shows the difference before `commit`. Save follows them. Pressing Ctrl+S, choosing File › Save…, or clicking the action bar's Save opens the review screen, titled `Save to /etc/vtium/vtium.conf`. It shows, in order:
+
+- the lines of the document's vtium.conf that differ from the installed file, as a diff with a few lines of context, or the whole file after `w`;
+- the font sets and active fonts the save changes, or `fonts unchanged`;
+- the problems the check reports, one line each, and whether saving still works with them;
+- where the change takes effect: each terminal uses it at its next login;
+- that sudo asks for the password once.
+
+Ctrl+S again, Enter, or a click on Save saves, through the same steps as `vtium config install`: the check, the install bundle built from the draft and its base, and `sudo vtium-config apply DIR` (ADR-1201 D5). Esc cancels and changes nothing. When the check refuses the document, Save on the review screen is greyed out with the reason, and the problems list says what to fix. When the only problem is a missing complete route (D3), the second Ctrl+S asks the question of D7 before it saves, and the install bundle records the answer as it does today. After a save, the document and the installed file are the same, the top row's ● goes, and History holds the file the save replaced.
+
+The figure shows the review screen on the Looks tab, for the look My-Look changed from 10 pt to 11 pt, as in the mock-up the maintainer approved. The title row reads `Save to /etc/vtium/vtium.conf`, and at its right `1 change · fonts unchanged`. Below it, five lines of the file: `[look My-Look]` and `palette = vga` as context, `font-size = 10` removed in red, `font-size = 11` added in green, and `font-name = cullet-mono` as context. Then an amber line, 3 problems the check reports (saving still works), and the three problems, each on a grey line of its own. The last line says that each terminal uses the change at its next login and that sudo asks for the password once. The action bar reads Ctrl+S Save, w Whole file and Esc Cancel.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help        ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Save to /etc/vtium/vtium.conf                                  1 change · fonts unchanged
+
+   [look My-Look]
+   palette = vga
+  -font-size = 10
+  +font-size = 11
+   font-name = cullet-mono
+
+ 3 problems the check reports (saving still works):
+   · the layer nerd-symbols names Symbols Nerd Font Mono, which is not installed
+   · Noto Color Emoji is installed but not active
+   · 1 keyboard and 2 pointers are in no path
+
+ Each terminal uses the change at its next login. sudo asks for your password once.
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Ctrl+S Save  w Whole file  Esc Cancel                                           F10 Menu  q Quit
+```
+
+On screen, the title is bold, the problems' heading amber, and the top row's letters bold and underlined as in D11's figure of the frame.
+
+#### When the installed file changed on disk
+
+> Note 2026-11-27: this subsection was added on this date with D11. It changes the bullet on `install` above, which refuses a draft made before the installed file changed, and the bullet **Editing by hand stays possible**, which says that Install refuses such a draft until the person reverts or merges by hand. In the TUI, the refusal gives way to the choices below. `vtium config install` keeps refusing such a draft, with its message, and the command line gains the choices' own forms (below).
+
+The maintainer met the refusal on 2026-11-27 while setting a font size on the test laptop. The draft there had only activated a font, and `/etc/vtium/vtium.conf` was missing, because vtium had been installed again that day. Its base was the hash of a file that existed on 2026-11-12. So the "changed" installed file was a missing one, and saving the draft would have overwritten nothing. The maintainer chose through the question tool, after the mock-ups, that a draft made before the installed file changed gets a way through ("Update, Overwrite, Revert"). Every editor has this case, a file changed on disk while the person edited it. vim warns and asks before it writes, and Junos's private mode merges the other change in with `update`.
+
+- **What counts as a change on disk.** The installed file changed when its hash is no longer the draft's base. A missing installed file is no conflict, since saving overwrites nothing, and the review shows as above. Two more cases need no choice, because no change of the person's meets the other change. The draft's vtium.conf may still be its base's text, as when only font sets or active fonts changed, or it may already be the installed file's text. In both, vtium-config takes the installed file as the new base, says so in one line of the review, and the review shows as above.
+- **The choices.** Otherwise the review shows the installed file's own change, its difference from the draft's base, beside the person's change, the draft's difference from its base. A line says whether the two touch the same lines. Four choices follow, each a button of the action bar:
+  - **Update,** on `[u]`, merges the installed file's change into the document, three ways, from the base, the draft and the installed file, and then shows the review again. Where both sides changed the same lines, the review lists those lines one by one, each with the person's text beside the installed file's. `[m]` keeps the person's lines and `[i]` keeps the installed file's, and the review moves to the next. Save appears on the action bar once every one is settled, and Esc cancels the update and leaves the document as it was. The merge is one step of the undo history.
+  - **Overwrite,** on `[o]`, saves the document knowingly over the installed file's change. The replaced file stays in History, so File › History brings it back. `w` keeps meaning Whole file on every screen that shows a file, Save's review included.
+
+  > Edited 2026-11-28: the sentence said "on every screen", which is not so: on the Looks tab, `w` lets programs resize the grid.
+
+  > Edited 2026-11-27, at the end of the night: the steering session made two calls in the maintainer's absence, for the morning list. Overwrite moved from `w` to `o`, so one key keeps one meaning, as D10 asks. The lines both sides changed are settled one at a time on `m` and `i`. The two bullets read: "**Update,** on `u`, merges the installed file's change into the document, three ways, from the base, the draft and the installed file, and then shows the review again. Lines that both sides changed are listed first, each with the choice of keeping the person's line or the installed file's, and Save appears once each is settled. **Overwrite,** on `w`, saves the document knowingly over the installed file's change. The replaced file stays in History, so File › History brings it back."
+  - **Revert,** on `r`, asks first, then starts the document again from the installed file and drops the person's changes, as Revert to saved does.
+  - **Cancel,** on Esc, changes nothing.
+- **Each choice records the installed file as the person saw it.** The draft's base becomes the hash of the installed file the review showed, or a record that there was none. Update, Revert and Overwrite are each one step of the undo history, and the step keeps the base from before it. So Ctrl+Z after one brings back the old base, and the next Save shows this screen again (ADR-1206 D3), unless Overwrite's save went through, which makes the base the file it installed (added 2026-11-28). `apply`'s check as root stays as it is, so it still refuses a file that changed after the person looked (ADR-1201 D5).
+- **The command line has the same choices.** `vtium config update` merges the installed file's change into the current draft, three ways, as Update does. Where both sides changed the same lines it changes nothing, lists those lines, and exits 1, so the person settles them in the TUI or with `vtium config edit`. `vtium config install --overwrite` installs the draft over a file changed on disk, and the installed history keeps the file it replaces. `vtium config revert` already starts the draft again from the installed file. These forms are the steering session's call in the maintainer's absence, for the morning list.
+- **Overwrite relaxes a rule.** Until now an install never replaced a change someone else made to the installed file: `apply` refuses, and the message says that installing would undo that change. With Overwrite the person replaces that change, but only after the review has shown it, and the replaced file stays in History. The maintainer chose it through the question tool ("Update, Overwrite, Revert"), on an option that said Overwrite installs the draft knowingly, with the replaced file kept in Earlier installs, History's earlier name.
+- **The draft keeps the text it started from.** Update needs the base's text, and the draft keeps only its hash today. So vtium-config keeps the base's text beside its hash, under `$XDG_STATE_HOME/vtium/`, and writes both whenever it writes the base. For a draft made before this change, which has only the hash, vtium-config looks for the base's text in the installed history by its hash. When it finds none, Update is greyed out with the reason, and Overwrite and Revert remain.
+
+The figure shows the review when the installed file changed on disk, on the Looks tab, as in the mock-up the maintainer approved. Under the title, an amber line says that the file changed on disk since it was opened, and its change follows: `osd=full` removed, `osd=minimal` added. A line says that the person's changes do not touch those lines. Then the person's change: in `[look My-Look]`, `font-size = 10` removed and `font-size = 11` added. Three choices follow, each with a line on what it does: Update brings that change into yours, then reviews again; Overwrite saves yours, and the version it replaces stays in History; Revert reloads the file from disk and drops your changes. The action bar reads [u] Update, [o] Overwrite, [r] Revert and [Esc] Cancel, in the brackets of "The action bar" (D11); the approved mock-up had Overwrite on `w`.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help        ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Save to /etc/vtium/vtium.conf
+
+ The file changed on disk since you opened it. Its change:
+  -osd=full
+  +osd=minimal
+ Your changes do not touch those lines.
+
+ Your change:
+   [look My-Look]
+  -font-size = 10
+  +font-size = 11
+
+   Update      bring that change into yours, then review again
+   Overwrite   save yours; the version it replaces stays in History
+   Revert      reload the file from disk and drop your changes
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [u] Update  [o] Overwrite  [r] Revert  [Esc] Cancel                           [F10] Menu  [q] Quit
+```
+
+On screen, the lines with `-` are red and the lines with `+` green.
 
 #### The writers
 
@@ -1200,6 +1431,8 @@ vtium-config wrote vtium.conf, heads.conf and frits through install bundles that
 - **What each part of the TUI writes,** all into the draft. The Flow view writes heads, looks, rules and labels through the section writer, as "What the Flow view writes" (below) says. The Settings view writes any top-level key. The Looks view writes looks, their look sections and, once ADR-1304 is built, their vtlooks. The Fonts view writes `font-paths` (ADR-1200 D25), and writes the frits it adds, replaces and removes into the draft's font set folder (below). In every view a change waits with the TUI's other unsaved changes until Save writes it into the draft, and Save, Install, Revert and New act as in the flow view (D7).
 
   > Edited 2026-11-10: with D7's rewrite around paths, the Flow view writes labels too, and its writes are listed below. The sentence read: "The Flow view writes rules, heads and looks through the section writer, and the common top-level keys through its base card."
+
+  > Note 2026-11-27: with D11, every view writes each change into the draft as it is made, and Save, on Ctrl+S, installs it.
 
 > Edited 2026-11-09: the maintainer brought in Save, took Delete draft off the view's screen, and decided that Install asks, then allows a draft with no complete route (`considered`). The bullet on an unfinished draft read: "vtium-config writes every change to the draft whatever the check says, so New can start empty and a configuration can be built in any order. … Only Install needs the check to pass." The install bullet did not save first and accepted no draft that failed the check. Deleting a draft read: "`vtium config draft rm`, and Delete draft in the view after a confirmation, remove the draft, its font set folder and its base." This bullet ended: "In every view a change goes into the draft as it is made, and Install, Revert and New act as in the flow view (D7)."
 
@@ -1259,6 +1492,8 @@ Everything the TUI does works without it, so it can be scripted (the maintainer,
 | `vtium config flow [--json]` | Prints the flow of the draft with the devices present placed on it, as the view draws it, under a first line that says which state it shows (above): as text, or as JSON whose top level carries `"version": 1` and the state, so a script can rely on its fields |
 | `vtium config diff` | Prints the difference between the draft and the installed file, then each font set change the draft holds (below) |
 | `vtium config install [--force]` | Installs the draft, as above; with `--force` it installs a draft whose only problem is a missing complete route without asking (edited 2026-11-09; the row read "`vtium config install` \| Installs the draft, as above") |
+| `vtium config update` | Merges the change made to the installed file since the draft's base into the draft, three ways; where both changed the same lines it changes nothing, lists them and exits 1 (added 2026-11-27 with D11) |
+| `vtium config install --overwrite` | Installs the draft over an installed file changed since the draft's base; the installed history keeps the replaced file (added 2026-11-27 with D11) |
 | `vtium config set KEY VALUE`, or `set --unset KEY` | Sets a top-level key, as the Settings view does, or leaves it at its default, through the line editor (edited 2026-11-10: the row named "the base card's (D7)") |
 | `vtium config get KEY` | Prints a top-level key's value in the draft, and its default when the draft leaves it unset; it changes nothing (the maintainer, 2026-11-05) |
 | `vtium config draft rm` | Removes the draft and its font set folder; the next edit starts a new one from the installed file |
@@ -1305,6 +1540,8 @@ vtium-config keeps a store of its own under the user's XDG paths, which holds th
 
 `XDG_CONFIG_HOME` is `~/.config` and `XDG_STATE_HOME` is `~/.local/state` when unset. Root's store lives under root's own home, found from the password database (above).
 
+> Note 2026-11-27: a draft's base under `$XDG_STATE_HOME/vtium/` holds the base's text beside its hash, so Update can merge a change made on disk ("When the installed file changed on disk", above).
+
 - **A draft is a complete vtium.conf,** and can be carried between machines (the maintainer, 2026-11-05). A configuration built in vtium-config on one machine is copied to another, a small board among them, and installed there with `install`. Where the draft's devices are absent, as on the machine that built it, `vtium check-config --no-devices` checks it by its rules alone (D3).
 - **One draft is current.** Every edit, from the TUI, a command or `vtium config edit`, changes the current draft, and the Flow view's status line and the first line of `vtium config flow` name it. `install` installs the current draft.
 - **Nodes move between a draft and the library.** Saving a look, a head or a rule into the library copies it there under its name; taking one from the library copies it into the current draft, where it is checked as any change is.
@@ -1314,6 +1551,7 @@ vtium-config keeps a store of its own under the user's XDG paths, which holds th
 | `vtium config draft list` | Lists the drafts, marking the current one, each with its state against the installed file |
 | `vtium config draft new [NAME] [--from installed\|empty\|DRAFT]` | Makes a draft, from the installed file unless told otherwise, and makes it current. From another draft it copies that draft's font set folder too. Without a name it takes the hostname, with an increment when that name exists (the maintainer, 2026-11-05) |
 | `vtium config draft switch NAME` | Makes another draft current |
+| `vtium config draft rename NAME NEW` | Renames a draft, with its font set folder and its base (added 2026-11-27 with D11, for File › Open's Manage configurations, which the maintainer asked to rename and delete configurations; the command is the steering session's call, for the morning list) |
 | `vtium config draft rm [NAME]` | Deletes a draft and its font set folder, the current one when no name is given; the next edit starts a new draft from the installed file, named as above, when none is left |
 | `vtium config history` | Lists the installed history, newest first, each file with its number, its draft and when it was replaced |
 | `vtium config restore [N]` | Copies installed-history file N, the newest when no number is given, into the current draft, where the check runs and the user installs it as usual |
@@ -1371,7 +1609,9 @@ Each draft command, and each action of the TUI that does the same, does this wit
 | `install` and Install | Installs the folder's changes with vtium.conf, below |
 | `edit`, `library`, `history`, `set`, `get` and the `rule`, `head` and `look` commands | Leave the folder as it is |
 
-vtium-config has no command that renames, exports or imports a draft. `draft new NAME --from DRAFT` is the copy. `--dry-run` on `revert` and `new`, and the question Revert and New ask in the TUI, name each font set change that would be lost.
+vtium-config has no command that exports or imports a draft. `draft new NAME --from DRAFT` is the copy. `--dry-run` on `revert` and `new`, and the question Revert and New ask in the TUI, name each font set change that would be lost.
+
+> Edited 2026-11-28: `vtium config draft rename` renames a draft (above). The paragraph's first sentence read: "vtium-config has no command that renames, exports or imports a draft."
 
 - **Carrying a draft to another machine.** A user carries a draft by copying its file and its folder, `NAME.conf` and `NAME.frits/`, into the other machine's drafts directory. There, a removal of a frit that machine does not have removes nothing, and `install` notes it. A frit in the folder with the text that machine already has is no change. A draft copied without its folder keeps its vtium.conf, and the check warns about each look whose frit that machine does not have, so Install refuses the draft and never installs a look with no font set.
 - **What `install` does.** `install` checks the draft with the folder's changes as above. It then builds the install bundle of ADR-1201 D5 from the draft and the folder: vtium.conf, each frit the folder adds or replaces whose text differs from the installed frit, and a removal for each removed frit that is installed. `apply DIR` checks every file before it writes any, and its run of `vtium check-config` passes `--with-frit` and `--without-frit` for the bundle's frits, so its verdict is the draft's. It writes in this order: the frits the draft adds or replaces, into the frits' directory the installed vtium.conf names; then vtium.conf; then the removals, each frit renamed to `FRIT.vtfrit.bak`, as `apply DIR` keeps every file it replaces. A failure stops at the file that failed, and every stop leaves a working system. Before vtium.conf is written, the installed vtium.conf names only frits that are still there, since nothing has been removed yet. Once it is written, the new vtium.conf names only frits already in place, and a removal that fails leaves behind a frit that nothing names. A draft that changes `font-frits` and also holds font set changes is refused at install, as `apply DIR` refuses it, until the move of the frits' directory is installed on its own (ADR-1201 D5).
@@ -1460,6 +1700,8 @@ A card keeps each change as you make it. Esc closes the card and keeps those cha
 | Quit | `q`, and Ctrl-C saves and quits | everywhere, as D7 decides |
 | Show the key line's next page | `.` | everywhere but typing |
 
+> Note 2026-11-27: D11 changes this table once its work lands. Save and Install on `s` and `i` give way to Save on Ctrl+S, on every tab but Help, and `q` quits at once. D11 adds Alt and a letter for each tab and each menu, F10 for the menu bar, and `?` for every key of the screen, which later moved to F1 while `?` opens the search row ("Search, on ?"). A card's changes go into the draft as they are made, where the paragraph above has them wait for Save.
+
 Space puts the highlighted item into the set that the tab builds, or takes it out. In the Flow view that set is NEW PATH's parts. In the Fonts and Effects tabs it is the active fonts and effects, and among the Looks tab's pointer themes it is the active themes. So Space keeps one meaning on every tab. The key line shows it as `Space activate`, and deactivating an item that a look uses asks first, listing those looks.
 
 Two letters mean something else in the Flow view, as D7 decides. There `n` starts a new configuration and `r` reverts the draft, and both ask first. In the Looks tab, `n` and `r` act on the highlighted look or font set. The key table names each meaning in its own row.
@@ -1474,6 +1716,8 @@ The details are read-only. Up and Down scroll a detail, and Esc goes back. A fon
 - **Flow** (`flow`): as D7 decides. A terminal's card holds a look in place of a font set and a size (ADR-1205 D1). Enter on the card's look line opens the looks as a list, and `t` tries that look.
 - **Settings** (`settings`): as D7 decides, with the sections of vtium.conf's keys.
 - **Help** (`help`): as D7 decides, with the help that the contract generates for the node you came from.
+
+> Note 2026-11-27: D11's "The tabs' layouts" rearranges five of these tabs once its work lands. Fonts, Looks and Effects show the highlighted item's facts beside the list, Settings shows its sections and their keys in two panes, and Help lists its topics beside their text. The levels and keys above stay, except the Help tab's Up and Down, which move through the topics.
 
 This section adds two questions, which open over any tab. One comes before deactivating an item that a look uses (`any.question.deactivate`). The other comes before installing a font as a system font (`any.question.system-font`). Each takes the answer keys of every other question.
 
@@ -1547,6 +1791,895 @@ The two nodes that the code review of the generated key lines split out of the F
 
 > Note 2026-11-19, later the same day: the maintainer answered the two questions the rows left open (`considered`). A look may pick a vtlook that has an error: the card shows the reason beside the choice, and the head draws "No filter" until the file is fixed, because blocking the pick would stop the person mid-task, and showing the reason points to the fix. The key `p` does nothing on a color scheme, since a scheme's preview is already its 16 colors beside text.
 
+### D11: vtium-config works like an application, with the configuration as its one open document
+
+> Note 2026-11-27: this section was added on this date, for an interlude between 0.1.0-alpha.12 and alpha.13 that rearranges vtium-config's screens. It changes D7's Save, Install, Revert, New, View file and Restore, D8's install of a draft made before the installed file changed, and D10's table of keys. Each passage it changes carries a note that points here. The last subsection lists the rows and nodes this section adds to the interface tree and the key table, ready to copy. The work that builds this section adds them to the two tables as supported, in one commit with the code that reads the new keys. ADR-1206 says how the TUI's code draws the frame, the menus and the action bar, and ADR-1201 D5 how the privileged step treats a file that changed on disk.
+
+> Note 2026-11-27, later the same night: the maintainer set what 0.1.0-alpha.13, the vtium-config release, holds, and answered the questions of the mock-up catalog of every screen (`considered`). So this section gained "Undo and redo", "F1, help for what is highlighted", "Find, on Ctrl+F", "New…: what is saved, or vtium's defaults", "The tabs' layouts" and "The keys and nodes these add", and the File menu gained Undo and Redo. ADR-1206 D2 and D3 say how the TUI's code reads the new keys and where the undo history lives.
+
+> Note 2026-11-27, at the end of the night: the maintainer's notes on the mock-up catalog (`considered`) added "Search, on ?" and "Managing configurations", History's sheet, keys written in brackets on the action bar and in hints, and `?` as the search's key in place of the list of every key, which moves to F1. Four calls the steering session made in the maintainer's absence, which wait for the maintainer's morning list, are marked where they stand: the command line's forms of Update and Overwrite and the Overwrite key (D8), the settling of lines both sides changed (D8), and the order of the Problems list ("The frame").
+
+> Note 2026-11-27, after the mock-up catalog was accepted: the maintainer decided where the search is offered (`considered`), so "Search, on ?" offers it only on the screens whose node declares it, and the interface tree gains a `search` column.
+
+> Note 2026-11-27, after the mock-up catalog was accepted: the maintainer asked for fonts that a configuration uses but has not activated to be shown and activated in one step (`considered`), so this section gained "Fonts the configuration uses but has not activated". ADR-1205 D4 says which fonts count.
+
+> Note 2026-11-27, after the mock-up catalog was accepted: the maintainer took the list box that the tree planned for a Flow card (`considered`), so this section gained "The list box", one widget for every line with choices. ADR-1206 D8 says how the code builds it.
+
+> Note 2026-11-27, after the mock-up catalog was accepted: the maintainer accepted the catalog as the rebuild's target and asked for it as a committed book (`considered`), so this section gained "The book the screens are built to".
+
+> Note 2026-11-28: a fresh review of the alpha.13 records found passages that differ from the maintainer's decisions, and the steering session settled them. The draft's letters `r`, `n`, `v` and `o` keep working in the Flow view ("The keys that change"). Ctrl+F opens Find on every screen. The Problems line offers Activate missing in a question rather than acting at once. The fonts' marks are the approved catalog's words, stated once ("Fonts the configuration uses but has not activated"). The Manage sheet deletes on Delete and on `d`. Alt letters match regardless of case. `[.] More` and the compact buttons of the steering session's overnight call join "The action bar". The calls the steering session made in the maintainer's absence, for the morning list, are marked where they stand: undo across a Save, Find's opening over a menu or a level, the several words of a search pattern, `vtium config draft rename`, the compact buttons and More, and fonts turned off on purpose staying off.
+
+The maintainer tried to set Cullet Mono at 11 pt on the test laptop on 2026-11-27, and found the draft's life the broken part of vtium-config: "the actual screens we have: fonts, effects, looks, flow, settings, help - they're fine. but there's something broken in the way that we save install revert, new view etc." Today a change passes through three places: the TUI's memory, where it is "not saved", then the draft, which `s` writes, then `/etc/vtium/vtium.conf`, which `i` installs. Each of the six actions has a letter and a question of its own, and Install refuses a draft made before the installed file changed and sends the person to shell commands. The maintainer asked for vtium-config to behave like a familiar application ("treating vtium-config tui as more of a typical 'application' inside of it would be likely a good direction"), and then set the rule this section follows: "too many differing processes for updating, saving, reverting etc cause confusion. one flow for all changes basically - if someone can use ms word or photoshop or emacs, then they should be comfy with this".
+
+A research report for the steering session on 2026-11-27 compared how well-known terminal programs and system-configuration tools keep, preview, apply, discard and roll back changes: menuconfig and nconfig, aptitude, nmtui, YaST, htop, Midnight Commander, vim, nano, visudo, `crontab -e`, `systemctl edit`, Junos, Cisco IOS XR, `netplan try`, KDE's and GNOME's settings, and lazygit. Every one of them but lazygit keeps one layer of pending changes between the person's edits and the applied state. Where a tool has a second layer, the layer adds something: git's index chooses which changes go into a commit, and visudo's check and `commit check` validate. None of the tools has a Save that only copies the same edits to disk before the real apply, and vtium-config's Save is such a step. The report also found that a tool shows the changes themselves before it applies them (aptitude's `g`, Junos's `show | compare`), and that the tools that meet a target changed underneath either lock it, warn and let the person write anyway (vim), or merge the other change in (Junos's `update`). None of them only refuses and sends the person to another program.
+
+#### One flow for every change
+
+- **The configuration is the one open document.** Every change edits it, whatever its kind: a font set or a size, a look, a path, a setting, a font's activation, an edit as text, or an earlier version brought back from History. While the document holds changes that are not saved, the top row marks it with ●, as in `north ● 35 not saved · 3 problems`. The count is the number of changes the document holds against the installed file, which is the count Save's review shows, so it falls to nothing after a save.
+- **One Save makes it real.** Save, on Ctrl+S, opens a review of what saving changes, and a second Ctrl+S saves through sudo, which asks for the password once (D8). Nothing in the TUI reaches `/etc/vtium` another way.
+- **The draft is invisible.** vtium-config writes each change into the draft as the person makes it, as it already writes each font set change into the draft's folder (D8). The draft keeps the work across a quit, as a word processor's AutoRecover file or Emacs's auto-save file does, and has no step of its own. So Save in today's sense goes, and so do the words "not saved" for changes kept only in memory. The screens say "draft" only where a person keeps several and names one, under File › Open.
+- **Revert to saved** drops every change since the last save: the document becomes the installed file again, font set changes included. It asks first, and its question counts what is lost.
+- **History is the version history.** File › History lists the versions installed before, newest first. Choosing one opens a sheet that offers two buttons, each a key as well: `[v] View changes` shows that version against the open document in Show changes' form, read-only, with Changes only and Whole file, and `[a] Use this version` loads it into the document as one change, which Undo takes back and Save makes real. The sheet counts nothing, and Esc closes it (the maintainer: "history, when opening a version, we should just offer to preview the diff, and not count the lines and tell").
+
+> Edited 2026-11-27, at the end of the night: the maintainer asked for History's sheet (`considered`). The bullet's last two sentences read: "Opening one loads it into the document as a change, which is saved like any other. When the document holds changes that are not saved, a question first counts the changes that the version replaces."
+- **A changed installed file is the familiar "changed on disk" case.** When `/etc/vtium/vtium.conf` changed after the document was opened, Save's review says so and offers Update, Overwrite, Revert and Cancel (D8).
+- **The live trial is a preview, never a change.** Try live, on `t`, tries a font set or a look on the console for ten seconds and puts it back unless the person keeps it (ADR-1201 D4). A kept font set or look stays on the console until the TUI leaves, as ADR-1201 D4 decides, and changes nothing in the document.
+- **Actions act at once,** outside the document, so they never wait for Save (the maintainer: "this also means we can have an actions command like install etc."). They live in the Actions menu, below.
+- **The command line keeps its own verbs.** `vtium config install`, `revert`, `restore`, `draft new` and the rest of D8's commands stay as they are. Only the TUI's words change.
+
+#### The frame
+
+Every screen of the TUI has three regions, as the maintainer asked: "the menu bar across the top, the actions on the bottom , and the viewer panel in the middle (which may get it's own subdivision)".
+
+- **The top row** holds the File and Actions menus, each marked ▾, then a bar, then the six tabs (the maintainer: "I see draft is on a line above the other menu items, but I think it was intended to all be on the same line?"). At the right it holds the open document's facts: its name, ● while it holds changes that are not saved, the count of those changes, and the count of problems the check finds. On a narrow screen the facts shorten: the name goes first, then the words, down to `● 35 · 3 problems`. Each count opens what it counts (the maintainer: "'n problems' should be clickable and enumerate what those problems are … otherwise it's just there to mock the user lol"). A click on the count not saved opens Show changes. A click on the problems count, or Alt+P, opens the Problems list: each problem the check finds, on one line with where it is, as its tab and item or its line of vtium.conf. Enter or a click on a problem goes to that place, so the person can fix it, and Esc closes the list. The list puts the problems that stop Save first, then the warnings, and each group in the tabs' order: Fonts, Effects, Looks, Flow, then Settings. That order is the steering session's call in the maintainer's absence, for the morning list. A count that cannot be opened is not shown.
+- **The viewer** fills the rows between a rule under the top row and a rule over the bottom row, and each tab divides it as it needs. A message, such as what the last action did, takes the viewer's last row, one line long.
+- **The bottom row is the action bar** (below).
+
+The screens stay as they are inside the viewer: the six tabs, their lists, cards and details, and the Flow page's construction (D7). Their words get shorter, by the rule for strings on TUI screens in `crates/AGENTS.md`, and the draft's letters leave their key lines.
+
+The figure shows the frame on the Flow tab, 100×30, on the test laptop's configuration, as the maintainer approved the mock-up on 2026-11-27. The top row reads File ▾ and Actions ▾, a bar, the tabs Fonts, Effects, Looks, Flow, Settings and Help, and at the right `● 35 not saved · 3 problems`, because the name does not fit at this width. A rule runs under it. The viewer shows the Flow page: CONFIGURATION with the display eDP-1 joined to the terminal console, which the keyboard AT Translated Set 2 types into, the grey line that one keyboard and two pointers are in no path yet, NEW PATH with its three empty places, and PARTS with its display template and two displays. A rule runs over the bottom row, which reads Space Pick, Enter Open, a Add path, e Revise and Ctrl+S Save, with F10 Menu and q Quit at the right.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help        ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ CONFIGURATION
+ DISPLAYS                     TERMINALS                                  INPUTS
+ ┏━━━━━━━━━━━━━━━━━━┓         ┌──────────────────────────────┐           ┌────────────────────────┐
+ ┃ eDP-1            ┃━━━━━━━━▶│ console                      │◄──────────│ AT Translated Set 2 k… │
+ ┃ by its connector ┃         │ look My-Look · every VT      │           │ id 0001:0001           │
+ ┗━━━━━━━━━━━━━━━━━━┛         └──────────────────────────────┘           └────────────────────────┘
+ 1 keyboard and 2 pointers are in no path yet.
+ ──────────────────────────────────────────────────────────────────────────────────────────────────
+ NEW PATH     Pick an input and a display.
+ ╔═════════════════╗          ╔══════════════════════════════╗           ╔═════════════════╗
+ ║ Display         ║          ║ Terminal                     ║           ║ Input           ║
+ ║ Choose… [Enter] ║          ║ new: terminal-1              ║           ║ Choose… [Enter] ║
+ ╚═════════════════╝          ╚══════════════════════════════╝           ╚═════════════════╝
+ ──────────────────────────────────────────────────────────────────────────────────────────────────
+ PARTS
+ DISPLAYS
+ ╔══════════════════════╗  ┌─────────────────────────┐  ┌─────────────────────────┐
+ ║ Display              ║  │ eDP-1                   │  │ eDP-1                   │
+ ║ Add display… [Enter] ║  │ in the terminal console │  │ in the terminal console │
+ ╚══════════════════════╝  └─────────────────────────┘  └─────────────────────────┘
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Space Pick  Enter Open  a Add path  e Revise  Ctrl+S Save                       F10 Menu  q Quit
+```
+
+On screen, these letters of the top row are bold and underlined: F of File, A of Actions, N of Fonts, E of Effects, L of Looks, O of Flow, S of Settings and H of Help. On the action bar each key is bold and each action's name is a button in reverse video.
+
+#### The menus
+
+The menus follow IBM's Common User Access conventions, as the maintainer saw in the frame's mock-up ("it's following the CUA pattern pretty well which I think is pretty intuitive"): F10 opens the menu bar, a menu pulls down from its name, Esc closes it, each item's shortcut sits at its right, and "…" marks an item that asks for more before it acts. The menus are named for vtium-config's own work, not by CUA's list of File, Edit and View (the maintainer: "we don't necessarily need \"File, Edit, View...\" etc in that order though"). The maintainer chose File for the document's menu through the question tool, so Alt+F opens File and the Fonts tab takes Alt+N.
+
+- **Opening a menu.** Alt and the menu's letter opens it, F10 opens File, and a click on a menu's name opens that menu. Left and Right move to the next menu while one is open, Up and Down move through the items, Enter or a click chooses the highlighted item, and Esc or a click outside the menu closes it.
+- **What an item shows.** A submenu opens to the right of its item, which ends with ›. An item that turns something on or off carries a check mark while it is on. Separators group the items. Each shortcut sits right-aligned in a column of its own, and the highlighted item is a bar across the menu's whole width. An item that cannot act here is greyed out, with the reason beside it.
+- **Each item's own letter.** Inside an open menu each item has a letter of its own, bold and underlined, which chooses the item while the menu is open (the maintainer: "perhaps in the menus, highlighting keys that can be pressed in those menus would be good"). The letter is separate from the shortcut in the right-hand column, which works with no menu open. Each letter is unique inside its menu.
+
+The File menu holds what a person does with the configuration as a document:
+
+| Item | Its letter in the menu | Shortcut | What it does |
+|---|---|---|---|
+| New… | N | n | Asks for a name, offers the machine's hostname as D8 says, and asks where the new document starts: from what is saved, or from vtium's defaults (below). The document that was open stays under Open. |
+| Open › | O | | Lists the configurations, the open one marked, and opens the one chosen. Its last item, Manage configurations…, renames and deletes them (below). |
+| Undo | U | Ctrl+Z | Undoes the last change, one from before the last save included, and names it, as in "Undo font-size = 11 in My-Look" (below). |
+| Redo | D | Ctrl+Y | Makes again the change the last Undo took back, and names it (below). |
+| Save… | S | Ctrl+S | Opens Save's review, then saves through sudo (D8). |
+| Show changes | C | v | Shows the document's changes against the installed file (below). |
+| Edit as text… | E | | Opens the document in the person's editor (below). |
+| Revert to saved… | R | r | Asks, then drops every change since the last save. |
+| History › | H | o | Lists the versions installed before, newest first, and loads the one chosen into the document as a change. |
+| Quit | Q | q | Quits at once (below). |
+
+Separators sit after Open, after Redo, after Edit as text and after History.
+
+The shortcuts `n`, `v`, `r` and `o` act in the Flow view, where they acted on the draft before, because the maintainer asked that the draft's letters keep working once its actions gathered in one menu. The menu shows them in its shortcut column while the Flow tab is open, since on the Looks tab `n` and `r` make and remove a look (added 2026-11-28). The figures of the File menu below show the menu as the approved mock-up drew it, without these four.
+
+> Edited 2026-11-27, later the same night: the maintainer asked for undo and redo over the one document, and chose that New offers what is saved or vtium's defaults (`considered`). The table gained Undo and Redo, and the separator after Redo. New's row read: "Asks for a name, offers the machine's hostname as D8 says, and opens a new document that holds vtium-config's short header and one look, as New does today. The document that was open stays under Open." Open's row read: "Lists the drafts, the current one marked, and opens the one chosen.", and gained Manage configurations… with the maintainer's notes on the catalog. The figure below shows the menu as it was before Undo and Redo; "Undo and redo" has a figure of the menu with them.
+
+The figure shows the File menu open over the Flow tab, with History highlighted and its submenu open, as in the mock-up the maintainer approved. The menu hangs from File at the top left. Its items read New…, Open ›, a separator, Save… with Ctrl+S at the right, Show changes, Edit as text…, a separator, Revert to saved…, History ›, a separator, and Quit with q at the right. To the right of History, the submenu lists three installed versions by date and time: 2026-11-27 20:24, marked current, 2026-11-22 08:23 and 2026-11-12 08:53. The action bar reads Enter Pick, → Submenu and Esc Close.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help        ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+┌──────────────────────────────┐
+│ New…                         │
+│ Open                     ›   │
+├──────────────────────────────┤
+│ Save…                 Ctrl+S │
+│ Show changes                 │
+│ Edit as text…                │
+├──────────────────────────────┤
+│ Revert to saved…             │┌──────────────────────────────┐
+│ History                  ›   ││ 2026-11-27 20:24  current    │
+├──────────────────────────────┤│ 2026-11-22 08:23             │
+│ Quit                       q ││ 2026-11-12 08:53             │
+└──────────────────────────────┘└──────────────────────────────┘
+ ──────────────────────────────────────────────────────────────────────────────────────────────────
+ PARTS
+ DISPLAYS
+ ╔══════════════════════╗  ┌─────────────────────────┐  ┌─────────────────────────┐
+ ║ Display              ║  │ eDP-1                   │  │ eDP-1                   │
+ ║ Add display… [Enter] ║  │ in the terminal console │  │ in the terminal console │
+ ╚══════════════════════╝  └─────────────────────────┘  └─────────────────────────┘
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Enter Pick  → Submenu  Esc Close                                                F10 Menu  q Quit
+```
+
+On screen, the File menu's item letters are bold and underlined: N of New, O of Open, S of Save, c of Show changes, E of Edit as text, R of Revert to saved, H of History and Q of Quit. History's bar is highlighted across the menu and across its submenu's first entry.
+
+The Actions menu holds what acts at once on the machine or the console, outside the document:
+
+| Item | Its letter in the menu | Shortcut | What it does |
+|---|---|---|---|
+| Try live | T | t | Tries the highlighted font set or look on the console for ten seconds (ADR-1201 D4). |
+| Read devices again | R | d | Reads the connected displays and input devices again (D7). |
+| Install as a system font… | I | | Copies the highlighted font from the person's own folders into `/usr/local/share/fonts`, after it shows the sudo command and asks (ADR-1205 D5). |
+
+Try live is greyed out where it cannot run, with the reason beside it, such as "not a vtium console" or "allow-font-ops is off". So the sentence that says the live trial is off leaves every screen, and shows once, where the person looks for the action. Install as a system font is greyed out unless the highlighted item is a font from the person's own folders.
+
+#### Alt letters
+
+Each menu and each tab has an Alt letter, which acts while nothing is open over a tab. The letters are unique across the top row: Alt+F File, Alt+A Actions, Alt+N Fonts, Alt+E Effects, Alt+L Looks, Alt+O Flow, Alt+S Settings and Alt+H Help (the maintainer: "'alt-f' for fonts 'alt-o' for flow etc"; File then took F). Alt+P opens the Problems list, and P is free across the row. The digits 1 to 6 keep going to the tabs (D10). Each Alt letter and each menu's item letter is drawn bold and underlined. Italic is left out, because the kernel's own console, where vtium-config may run before vtium is set up, shows italic as a color change rather than as slanted letters. Bold and underline are attributes, not colors, so they stay under `NO_COLOR`. The TUI matches an Alt letter regardless of case, so Caps Lock and Shift change nothing, and Alt+O opens Flow as Alt+o does (added 2026-11-28). ADR-1206 D2 says how the key decoder reads Alt and a letter.
+
+#### The action bar
+
+The bottom row is one action bar, which replaces today's key line and status line and the buttons inside sheets (the maintainer: "perhaps we can combine the buttons and the actions in one row along the bottom? this way they can be both clickable and also serve as what to press, on a keyboard"). Each action of the open screen is a button that names its key, such as `[Ctrl+S] Save` or `[Esc] Cancel`, and a click on the button or its key does the same thing, as the bottom bars of Midnight Commander and htop work. `[F10] Menu` and `[q] Quit` sit at the right of the bar on every screen, except while the cursor is in an entry, such as a value being typed or the search row. There `q` is typed into the entry and the menus wait until the entry closes, so the bar leaves both out. The keys that move the highlight stay off the bar. F1 lists every key of the screen where nothing more specific is highlighted ("F1, help for what is highlighted"), and `?` opens the search row ("Search, on ?"). The buttons come from the key table's labels, as the key line's items do today (D7, "The contract"). Each screen's buttons are in an order of priority. Each button is its bracketed key followed by its label, with no padding block, and the two together are the button's click target, so a tab's actions fit at 100 columns. Where they still do not fit, as at 80 columns, the bar leaves out the lowest first, and its last button before Menu and Quit is `[.] More`, which opens the buttons left out as a small menu. So no action is ever unreachable from the bar. The bar keeps `[Ctrl+S] Save` wherever Save acts, and F1's list still names every key. The compact buttons and More are the steering session's call, for the morning list (changed 2026-11-28).
+
+**Keys are written in brackets.** Every key a screen names for pressing is written in square brackets, on the action bar and in a one-line hint, as in `[Space] Pick  [Enter] Open  [t] Try live  [Ctrl+S] Save` (the maintainer: "could we use [] around key press hints?"). A chord is one bracket, `[Ctrl+S]`, not `[Ctrl]+[s]`, because it is one press and costs fewer columns, and a letter after a modifier is a capital, as CUA writes it. The brackets keep a key apart from its label where no color shows, under `NO_COLOR` or on a monochrome console. The right-hand column of shortcuts in a menu stays without brackets, as CUA's menus write it. The figures in this record show the bar as the approved mock-ups drew it, before the brackets, except where a figure says otherwise.
+
+> Edited 2026-11-27, at the end of the night: the maintainer asked for keys in brackets and moved `?` to the search (`considered`). The paragraph read: "Each action of the open screen is a button that names its key, such as `Ctrl+S Save` or `Esc Cancel`, and a click on the button or its key does the same thing, as the bottom bars of Midnight Commander and htop work. `F10 Menu` and `q Quit` sit at the right of the bar on every screen. The keys that move the highlight stay off the bar, and `?` opens the Help tab on every key of the screen it was pressed on. The buttons come from the key table's labels, as the key line's items do today (D7, "The contract"). Where a screen's buttons do not fit on one row at 80 columns, the bar shows them in pages, as the key line does today."
+
+> Edited 2026-11-28: the steering session's overnight call on compact buttons and More was in no record, and the bar showed Menu and Quit while `q` is typed. The paragraph's sentences read: "`[F10] Menu` and `[q] Quit` sit at the right of the bar on every screen." and "Where they do not fit on one row at 80 columns, the bar leaves out the lowest first and keeps `[Ctrl+S] Save`, `[F10] Menu` and `[q] Quit`, and F1's list still names every key."
+
+#### The mouse
+
+Every screen takes clicks (the maintainer: "since we have a mouse, let's make it mouseable"). A click on a menu's or a tab's name opens it, a click on a menu item or a list's row picks it, a click on a button acts, and a click outside an open menu, or on a sheet's close mark, closes it. The maintainer kept it to that ("I think we can keep it to picking items, closing, clicking essentially ok or cancel etc."): the TUI reads no wheel, dragging or other gesture beyond what the Flow view reads today, which stays as it is. So the TUI turns mouse reporting on, modes 1000 and 1006, for every screen, where D7 turns it on for the Flow view alone. It turns reporting off before it runs the person's editor or sudo, and when it leaves. The work that builds this checks how a person selects text to copy while reporting is on, such as whether vtium passes Shift and a drag to its own selection, and the Help tab says how. The keys keep doing everything, so a terminal without mouse reporting loses nothing.
+
+#### Show changes and Edit as text
+
+The maintainer asked for both on 2026-11-27: "viewing the config file could show the diffs (because we technically have the original) and using typical nice tui diff engine (git has a good one for example). there's probably no reason to not allow it to be fully edited in an editor too."
+
+- **Show changes** replaces the file view of D7, on File › Show changes and on `v` in the Flow view, where the file view was. It shows the document's vtium.conf against the installed file as hunks, each with its line numbers and a little context. Removed lines are red, added lines green, and the words that changed inside a line are marked. The font set changes and the active fonts the document changes follow the hunks. A checked pair at the top right, Changes only and Whole file, switches to the whole file, which reads as D7's file view does, with each line the check complains about marked; `w` or a click toggles the pair. The view scrolls with D7's file-view keys. Its action bar holds `w Whole file`, `e Edit as text`, `Esc Back` and `Ctrl+S Save`. The diff engine is the build's choice between the crates `similar` and `imara-diff`, each checked against `deny.toml`. This record picks neither.
+- **Edit as text** runs the path `vtium config edit` already has (D8): it opens a copy of the document in the editor `$VISUAL` names, else `$EDITOR`, else `vi`, and runs `vtium check-config` on the copy when the editor exits. While the editor runs, the TUI steps aside: it turns mouse reporting off, leaves its alternate screen and gives the terminal its own mode back, as it does for sudo (ADR-1201 D5). When the copy has problems, the TUI asks whether to edit again, and the document keeps the text either way, since it may be unfinished. An editor widget inside the TUI waits unless this path falls short.
+
+The figure shows Show changes on the Looks tab, with Changes only checked, as in the mock-up the maintainer approved. Its title row reads "Changes not saved", then "against /etc/vtium/vtium.conf", and at the right the checked pair, ✓ Changes only and Whole file. Three hunks follow, each headed by `@@` and the part of the file it is in. The settings hunk adds lines 7 to 9, `font-size=11`, `font-name=unifont` and `osd=full`. The `[look My-Look]` hunk shows lines 13, 14 and 16 as context, with line 15 changed from `font-size = 10` to `font-size = 11`. The `[head console]` hunk adds lines 18 and 19. Under the hunks, Active fonts adds the JetBrains Mono file. The action bar reads w Whole file, e Edit as text, Esc Back and Ctrl+S Save.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help        ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Changes not saved  against /etc/vtium/vtium.conf                 ✓ Changes only    Whole file
+
+ @@ settings
+   7 +font-size=11
+   8 +font-name=unifont
+   9 +osd=full
+
+ @@ [look My-Look]
+    13  [look My-Look]
+    14  palette = vga
+  15 -font-size = 10
+  15 +font-size = 11
+    16  font-name = cullet-mono
+
+ @@ [head console]
+  18 +[head console]
+  19 +look = My-Look
+
+ Active fonts
+     +/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ w Whole file  e Edit as text  Esc Back  Ctrl+S Save                             F10 Menu  q Quit
+```
+
+On screen, the lines with `-` are red and the lines with `+` green, and the top row's letters are bold and underlined as in the frame's figure.
+
+#### Quitting, Ctrl-C and the signals
+
+Nothing is lost on a quit, because the draft holds every change as it is made. So `q` quits at once, from anywhere but a value being typed, and asks no question. File › Quit does the same. When the document holds changes that are not saved, the TUI prints one line on leaving, which says how many changes wait and that vtium-config opens them again. Ctrl-C and the signals that D7 names quit the same way, since there is nothing left to save. At a question, Ctrl-C still cancels the question, as Esc does. The quit question and its `y` and `n` go.
+
+#### The words
+
+These replace D7's words draft, save, install and restore on the TUI's screens. The **document** is the configuration open in vtium-config, which the screens call by its name. To **save** is the one step that writes `/etc/vtium/vtium.conf`, after Save's review and through sudo. A change is **not saved** while the document holds it and the installed file does not. To **revert to saved** is to drop every change since the last save. **History** is the list of versions installed before. An **action** acts at once on the machine or the console, outside the document. The draft stays the word of D8 and of the command line, for the file under `~/.config/vtium/drafts/` that holds the document. The command line keeps `install`, since the step it names copies a checked file into the system, as visudo and crontab say.
+
+#### What stays
+
+The six tabs, their order and the screens inside them stay as D10 and ADR-1205 set them, and so does the Flow page's construction: its three sections, its paths and parts, its keys, and the mouse it reads today. Their descriptions get shorter, and the draft's letters leave their key lines. The maintainer split the Flow tab's three sections into three screens in an earlier mock-up, then kept them together ("our flow page is well constructed at this point, even if it too, could benefit from shorter descriptions").
+
+> Note 2026-11-27, later the same night: five tabs change how their viewer is divided, as "The tabs' layouts" below decides. Each keeps every fact and every level it has, and only the Help tab's Up and Down change what they do.
+
+#### The keys that change
+
+| Today | With this section |
+|---|---|
+| `s` saves the changes into the draft, on every tab but Help | goes: every change is in the draft as it is made |
+| `i` saves, then asks whether to install | Ctrl+S opens Save's review, and Ctrl+S again saves |
+| `r` reverts, in the Flow view | File › Revert to saved…, and `r` in the Flow view |
+| `n` starts a new configuration, in the Flow view | File › New…, and `n` in the Flow view |
+| `v` views the file, in the Flow view | File › Show changes, and `v` in the Flow view |
+| `o` lists the installed history, in the Flow view | File › History ›, and `o` in the Flow view |
+| `d` reads the devices again, in the Flow view | stays, and Actions › Read devices again |
+| `t` tries live, or says why it cannot | stays, and Actions › Try live, greyed out with its reason where it cannot |
+| `q` asks the quit question while changes are not saved | quits at once |
+| the key line and the status line | the action bar and the top row's facts |
+| mouse reporting on the Flow view alone | mouse reporting on every screen |
+| Ctrl+Z and Ctrl+Y do nothing | Ctrl+Z undoes the last change, and Ctrl+Y redoes it |
+| F1 does nothing | F1 opens help for what is highlighted |
+| Ctrl+F does nothing | Ctrl+F opens Find |
+| Up and Down scroll the Help page | Up and Down move through the Help tab's topics |
+| `?` does nothing | `?` opens the search row over the list on screen |
+| keys written bare on the key line, as `s save` | keys in brackets on the action bar and in hints, as `[Ctrl+S] Save` |
+
+> Note 2026-11-27, later the same night: the table's last six rows were added with "Undo and redo", "F1, help for what is highlighted", "Find, on Ctrl+F", "The tabs' layouts", "Search, on ?" and "The action bar".
+
+In the Looks tab, `n` and `r` keep their meanings, a new look or font set and removing one, because they act on the highlighted item rather than on the document. In the Flow view, `r`, `n`, `v` and `o` keep working, as the maintainer asked when the draft's actions gathered in one menu. They open File › Revert to saved…, New…, Show changes and History ›, and the File menu shows them in its shortcut column (changed 2026-11-28).
+
+> Edited 2026-11-28: a fresh review found that the record had dropped the draft's letters, which the maintainer asked to keep working. The paragraph's last sentence read: "The letters the Flow view frees, `r`, `n`, `v` and `o`, do nothing there." The table's four rows named only the menu items.
+
+#### Undo and redo
+
+Ctrl+Z undoes the last change to the open document, and Ctrl+Y redoes it. The maintainer put undo and redo into alpha.13 (`considered`), They are the keys that a person who uses a word processor or an image editor already knows, as the rule at the top of this section asks.
+
+- **One change is one step.** Each change that edits the document is one step of the undo history: a value kept with Enter, a choice picked from a list, a line stepped with Left or Right, a font, an effect or a color scheme activated or deactivated with Space, a look or a font set made or removed, a path added or taken out to revise, a label typed, and the text that Edit as text brings back. Revert to saved is one step, and so is loading a version from History, so Ctrl+Z after either brings back the changes it replaced. Update, Revert and Overwrite on the changed-on-disk form (D8) are one step each. Every step keeps the draft's base, so undoing one of those three brings back the old base, and the next Save shows the changed-on-disk form again (ADR-1206 D3; added 2026-11-28).
+- **Undo goes on past a Save.** A Save keeps the undo and redo history, as Word, Photoshop and Emacs keep theirs. Save writes `/etc/vtium/vtium.conf` through sudo, so the machine already runs what was saved. Ctrl+Z past a save takes the document back to its text before the saved change, which is then an ordinary change that is not saved: ● comes back, the count not saved counts it, and the next Save writes it. File › History still loads an earlier installed version as a change. Ctrl+Z with nothing to undo leaves the document as it is, and the message line says so. Keeping the history across a Save is the steering session's call, for the morning list (changed 2026-11-28).
+
+  > Edited 2026-11-28: a fresh review found that emptying the history on Save goes against the rule this section follows, since Word, Photoshop and Emacs keep it. The bullet read: "**Undo stops at the last Save.** Save writes `/etc/vtium/vtium.conf` through sudo, so the machine already runs what was saved, and Ctrl+Z never takes the document back past it. Save empties the undo and redo history. To go back past a save, the person loads an earlier version from File › History, which is a change like any other and is saved like any other. Ctrl+Z with nothing to undo leaves the document as it is, and the message line says so. Where a save is what stops it, the line names File › History."
+- **Redo** makes again the change that the last Ctrl+Z took back, one step at a time. A new change after an undo empties the redo history, as a word processor's does.
+- **Undo acts on the document alone.** Where the person is, what is open, and what NEW PATH holds before it is added are not changes to the document, so undo leaves them alone. An action, such as a live trial or a font installed as a system font, acts outside the document, and undo never reaches it either. The screen stays where it is wherever it can, and shows the value that undo brought back. When undo removes the highlighted item, such as a look it unmakes, the highlight moves to the item before it.
+- **Each step has a name.** The message line says what each Ctrl+Z or Ctrl+Y did, in one line, as in "Undid font-size = 11 in My-Look. Ctrl+Y redoes it." The File menu names the step each item would take, as in "Undo font-size = 11 in My-Look", and greys out an item with nothing to act on, with the reason "nothing to undo" or "nothing to redo". The action bar shows `[Ctrl+Z] Undo` while there is a step to undo, and `[Ctrl+Y] Redo` while there is one to redo. The bar's buttons name only the action, because one row at 80 columns has no room for a step's name, and the menu and the message line carry it.
+- **The top row follows.** Undo and redo change the document, so the count of changes not saved and its ● follow them, and the draft keeps each undo and redo as it keeps every change. Undoing every step since the last save brings the count to nothing, and ● goes. One more Ctrl+Z, past the save, brings ● back.
+- **The history lasts while vtium-config runs.** The draft keeps the document across a quit, but vtium-config keeps no undo history across a quit, and each start begins with an empty one. The command line edits the same draft between runs of the TUI, with `vtium config set`, `vtium config edit` and the rest of D8's commands. A history kept across a quit could then undo onto text that is no longer the text it recorded. The applications the rule names also forget a document's undo history when it closes. Revert to saved and History still reach every saved state. While vtium-config runs, each document under File › Open keeps its own history, and New and Open switch between documents without a step of their own.
+- **Where the keys act.** Ctrl+Z and Ctrl+Y act on a tab and on whatever is open over it: a detail, a card, a list, the Flow page's layers, and Show changes, whose diff then shows one change fewer. While a value is typed they do nothing, and Esc drops what was typed. They also do nothing in an open menu, at a question and in Save's review, which shows one fixed set of changes until it closes. vtium-config's raw mode turns off the terminal's signal keys, so Ctrl+Z reaches it as a key and never suspends it (ADR-1206 D2).
+
+The figure shows the File menu open over the Looks tab after a change to My-Look's size, 100×30. The menu hangs from File at the top left. Its items read New…, Open ›, a separator, Undo font-size = 11 in My-Look with Ctrl+Z at the right, Redo greyed out with "nothing to redo" and Ctrl+Y, a separator, then Save… with Ctrl+S, Show changes and Edit as text…, a separator, Revert to saved… and History ›, a separator, and Quit with q. Undo is highlighted. Behind the menu the Looks tab's list and preview show through, and the action bar reads [Enter] Pick, [→] Submenu and [Esc] Close, with [F10] Close at the right, in the brackets of "The action bar". This figure is drawn with the mock-up catalog's own helpers, as a proposal for the maintainer to read, since the catalog has no screen of Undo.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   north ● 35 not saved · 3 problems
+┌────────────────────────────────────────────┐──────────────────────────────────────────────────────
+│ New…                                       │nsole draws it ─────────────────────────────────────┐
+│ Open                                     › │tes$ ls -l                                          │
+├────────────────────────────────────────────┤ user  4096 Nov 27 drafts                           │
+│ Undo font-size = 11 in My-Look    Ctrl+Z   │ user  1823 Nov 27 plan.txt                         │
+│ Redo · nothing to redo            Ctrl+Y   │tes$ colors                                         │
+├────────────────────────────────────────────┤lue magenta cyan white                              │
+│ Save…                             Ctrl+S   │ic text beside plain.                               │
+│ Show changes                               │───┐                                                │
+│ Edit as text…                              │iB │                                                │
+├────────────────────────────────────────────┤───┘                                                │
+│ Revert to saved…                           │m Straße žluťoučký                                  │
+│ History                                  › │─│┌┐└┘ ▀▄█▌▐░▒▓                                     │
+├────────────────────────────────────────────┤                                                    │
+│ Quit                                   q   │────────────────────────────────────────────────────┘
+└────────────────────────────────────────────┘ at 10 pt, color scheme vga · used by console
+ Pointer themes           9×20 px cells, 213×54 characters on eDP-1 · a size applies at restart
+   vtium's own
+   Adwaita
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Enter] Pick  [→] Submenu  [Esc] Close                                                 [F10] Close
+```
+
+On screen, the File menu's item letters are bold and underlined, U of Undo and d of Redo among them, and the greyed Redo is drawn in the `menu-greyed` look.
+
+#### F1, help for what is highlighted
+
+F1 opens help for what is highlighted, since F1 is context help in IBM's Common User Access. The maintainer chose this reading through the question tool ("Both, by context"):
+
+- **The full text behind a line.** The rule for strings on TUI screens in `crates/AGENTS.md` cuts a paragraph to one line and moves the rest behind a key, and F1 is that key. On a highlighted line that the screen cut, F1 opens the full text as a sheet over the screen, and Esc closes the sheet. In the Settings tab, F1 on a key opens the key's whole help as vtium.conf's own reference gives it, with its default and its value now, as the catalog's screen "Settings: F1, all about a key" shows. In the form for a new font set, F1 opens what a font set and each of its roles are, as the button `F1 About font sets` says on the catalog's screen "Looks: the form for a new font set".
+- **The rest of a message.** A message on the viewer's last row that the rule cut ends with "(F1)", as on the catalog's screen "Try live: the console refused the font": "The console refused DejaVuSansMono.ttf: it takes only fonts root installed and trusts (F1)." While such a message shows, F1 opens the rest of it first, because the message is the newest thing on the screen.
+- **Otherwise, every key of the screen.** Where the highlighted line shows all it has and no message waits, F1 opens the list of every key of the screen the person is on, then the keys that work everywhere, as a sheet over the screen. The list is the Help tab's topic for that tab (see "The tabs' layouts"), so the two never differ. Esc closes the sheet, and the person is back where they were. On the Help tab itself F1 does nothing, since the topics are already in view. The list of every key was `?`'s, which now opens the search row (the maintainer's notes on the catalog, `considered`).
+- **Where F1 acts.** F1 acts on a tab and on anything open over it. It does nothing while a value is typed, in an open menu and at a question. The action bar shows F1 where it opens a full text, with the text's name, as in `[F1] About this key`. Elsewhere F1's own list names it.
+
+#### Search, on ?
+
+`?` opens a search row that filters the list on screen, as the maintainer asked on the mock-up catalog: "we should make sure we can filter fonts. perhaps using '?' to add a filter box." The row is built once and serves every list and Find.
+
+- **Where it sits.** The search row is one row stacked on the action bar, as the search prompts of less and vim sit at the bottom (the maintainer: "it might be something that stacks along the bottom row, to avoid trampling on the display"). The viewer gives up that one row while the row is open, so nothing covers the list being filtered. The entry sits at the left, after a `?` prompt. The syntax help sits right-justified on the same row, as `^start  $end  *anywhere · case ignored`, and names the fields the screen matches when there is room.
+- **The patterns.** The pattern language is small and always ignores case. `^mono` matches what starts with "mono", `$vga` what ends with "vga", and `*nerd` or a plain `nerd` what holds "nerd" anywhere. Words separated by spaces each have to match, each with its own mark, so `^dejavu mono` finds DejaVu Sans Mono. An item matches when one of its fields matches every word. Several words, each of which must match, are the steering session's call, beyond the three marks the maintainer named.
+- **Where the search is offered.** A screen offers the search only where its node of the interface tree declares it, in the tree's `search` column, which names the fields its items match on (D7, "The interface tree"). Only such a screen shows `[?] Search` on its action bar and answers `?`, and everywhere else `?` does nothing. The maintainer asked for this control: "while it technically could be used on any screen it might get confusing. this way we can control where it actually shows up". The first screens to declare it are these, and the choice of them is the steering session's call:
+  - the Fonts list, which matches a font's family and file name;
+  - the Effects list, which matches the names of its vtlooks, color maps and shaders;
+  - the Looks tab's lists, which match the names of its looks, font sets, color schemes and pointer themes;
+  - Settings, which matches a key and its description, so a setting is found by what it does as well as by its name;
+  - the Help tab, which matches its topics.
+
+  The Flow page does not offer it, so the page stays uncluttered, and neither do the menus. A list box offers it where its line has more choices than the box shows at once ("The list box"). Ctrl+F's Find searches every tab, Flow's parts included, and stays on every tab.
+- **Its keys.** On a screen that offers the search, `?` opens the row with the cursor in the entry, and the list filters as the person types. Up and Down move the list's highlight while the cursor stays in the entry. Enter keeps the filter and returns to the list, with the row still showing the pattern, and `?` puts the cursor back in the entry. Esc closes the row and clears the filter, and so does Backspace on an empty entry. With the filter kept, the list's first Esc does the same before it does anything else. While a value is typed, `?` is typed like any other character.
+- **Built once.** One search component in the TUI owns the row, the entry, the help and the keys, and one function turns the entry into a matcher. Each list hands it the items and the fields to match, and no screen draws or parses a search of its own, as the maintainer asked: "I'd like to build the code for that once and not multiple times". ADR-1206 D3 and D4 say how.
+
+> Edited 2026-11-27, after the mock-up catalog was accepted: the maintainer decided that a screen offers the search only where its node declares it (`considered`). The bullet "Each screen says what it matches" read: "The Fonts tab matches a font's family and file name, and the Settings tab a key and its description, so a setting is found by what it does as well as by its name. The Looks tab matches the names of its looks, font sets, color schemes and pointer themes, and the Effects tab the names of its vtlooks, color maps and shaders. The Flow page matches its parts' names and labels in PARTS, and the configuration's own paths stay in view. The shared list matches the text of its items, the Problems list each problem's line, and the Help tab its topics." "Its keys" began: "`?` opens the row with the cursor in the entry, on any screen that shows a list".
+
+The figure shows the Fonts tab, 100×30, filtered by `*mono`, as a proposal for the maintainer to read, drawn with the mock-up catalog's helpers. The filter line reads "3 of 8 fonts match · 3 active", and the list holds DejaVuSansMono.ttf, highlighted, and JetBrainsMono-Regular.ttf under System fonts, and cullet-mono.otf under vtium's own fonts. The picture of the console sits under the list. Above the action bar, the search row reads `? *mono` at the left and `^start  $end  *anywhere · case ignored · family, file` at the right. The action bar reads [Enter] Keep, [↑↓] Move and [Esc] Clear, and shows no Menu or Quit while the cursor is in the entry.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   north ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Show: All fonts ▾                                                  3 of 8 fonts match · 3 active
+
+ System fonts
+   DejaVuSansMono.ttf        DejaVu Sans Mono Regular     outline  active · trusted
+   JetBrainsMono-Regular.ttf JetBrains Mono Regular       outline  active · trusted
+ vtium's own fonts
+   cullet-mono.otf           Cullet Mono Regular          outline  active · trusted
+
+
+ ┌ picture of the console ────────────────────────────────────┐
+ │ user@north:~/notes$ ls -l                                  │
+ │ drwxr-xr-x 2 user  user  4096 Nov 27 drafts                │
+ │ -rw-r--r-- 1 user  user  1823 Nov 27 plan.txt              │
+ │ user@north:~/notes$ colors                                 │
+ │ red green yellow blue magenta cyan white                   │
+ │ Bold text and italic text beside plain.                    │
+ │ ┌──────────┬─────────┐                                     │
+ │ │ plan.txt │ 1.8 KiB │                                     │
+ │ └──────────┴─────────┘                                     │
+ │ café naïve Ångström Straße žluťoučký                       │
+ └────────────────────────────────────────────────────────────┘
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ? *mono_                                     ^start  $end  *anywhere · case ignored · family, file
+ [Enter] Keep  [↑↓] Move  [Esc] Clear
+```
+
+#### Find, on Ctrl+F
+
+Ctrl+F opens Find, which finds an item of any tab by its name, as the maintainer asked for alpha.13 (`considered`). Find is the search row with the prompt `Find` and the same patterns, and its matches take the rows just above it.
+
+- **What Find searches.** It searches every tab's items by the fields each tab matches for `?`: the settings by key and description, the fonts by family and file name, the font sets, looks, color schemes, pointer themes and effects by name, and the Flow page's displays, terminals and inputs by name and label.
+- **Its matches.** Up to eight rows above the search row list what matches, and the viewer gives up those rows while Find is open. Each row shows the item, where it lives, such as `Settings › Fonts and text` or `Looks › Font sets`, and one fact about it. The rows follow the tabs' order, and the last row counts what was found. With nothing typed, the rows are empty, and the last row says what Find searches.
+- **Enter goes to the item.** Enter, or a click on a row, closes Find, opens the item's tab and highlights the item there, as if the person had moved to it. A setting opens its section with the key highlighted, and a part of the Flow page highlights its box. Where the tab's filter hides the item, the filter is cleared. Up and Down, PgUp and PgDn move the highlight through the matches. Esc closes Find, and nothing moves, and so does Backspace on an empty entry.
+- **Where Ctrl+F acts.** Ctrl+F opens Find on every screen, as the maintainer decided on the mock-up catalog. On a tab, Find opens over it. Over a menu, Ctrl+F closes the menu first and opens Find over the tab, as a menu closes when the person turns to something else. Over any other level, such as a detail, a card, a sheet, Show changes or Save's review, Find opens above it. Esc from Find goes back to that level, and Enter on a match closes the levels open over the tab and goes to the item. Ctrl+F does nothing while a value is typed, at a question, and inside the search row and Find, where letters, digits, `q` and `?` are typed into the entry. How Find opens over a menu and over a level is the steering session's call (changed 2026-11-28).
+
+  > Edited 2026-11-28: a fresh review found the bullet narrower than the maintainer's decision. It read: "Ctrl+F acts on a tab with nothing open over it, as the Alt letters do. Inside Find, letters, digits, `q` and `?` are typed into the entry, and Ctrl+F does nothing."
+
+The figure shows Find open over the Looks tab, 100×30, as a proposal for the maintainer to read, drawn with the mock-up catalog's helpers. The search row above the action bar reads `Find *mono` at the left and the syntax help at the right. Above it, under a rule, four matches: DejaVu Sans Mono in Fonts, its file DejaVuSansMono.ttf and active; JetBrains Mono in Fonts, JetBrainsMono-Regular.ttf and active; Cullet Mono in Fonts, cullet-mono.otf and vtium's own; and the font set cullet-mono in Looks › Font sets, used by My-Look. The first is highlighted, and the last row reads "4 found among the settings, fonts, font sets, looks, color schemes, effects and parts". The Looks tab's list and preview fill the rows above. The action bar reads [Enter] Go, [↑↓] Match and [Esc] Close, and shows no Menu or Quit while the cursor is in the entry.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   north ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Looks                    ┌ My-Look, as the console draws it ─────────────────────────────────────┐
+   My-Look                │ user@north:~/notes$ ls -l                                             │
+   default                │ drwxr-xr-x 2 user  user  4096 Nov 27 drafts                           │
+ Font sets                │ -rw-r--r-- 1 user  user  1823 Nov 27 plan.txt                         │
+   cullet-mono            │ user@north:~/notes$ colors                                            │
+   jetbrains              │ red green yellow blue magenta cyan white                              │
+   terminus               │ Bold text and italic text beside plain.                               │
+   unifont                │ ┌──────────┬─────────┐                                                │
+ Color schemes            │ │ plan.txt │ 1.8 KiB │                                                │
+   legacy                 │ └──────────┴─────────┘                                                │
+   vga                    │ café naïve Ångström Straße žluťoučký                                  │
+   nord                   │ → ← ↑ ↓ ● ○ ✓ ✗ … ─│┌┐└┘ ▀▄█▌▐░▒▓                                     │
+   solarized              │                                                                       │
+   dusk                   └───────────────────────────────────────────────────────────────────────┘
+   paper                  My-Look: cullet-mono at 10 pt, color scheme vga · used by console
+ Pointer themes           9×20 px cells, 213×54 characters on eDP-1 · a size applies at restart
+   vtium's own
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  DejaVu Sans Mono       Fonts                DejaVuSansMono.ttf · active
+  JetBrains Mono         Fonts                JetBrainsMono-Regular.ttf · active
+  Cullet Mono            Fonts                cullet-mono.otf · vtium's own
+  cullet-mono            Looks › Font sets    used by My-Look
+
+ 4 found among the settings, fonts, font sets, looks, color schemes, effects and parts
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Find *mono_                                                 ^start  $end  *anywhere · case ignored
+ [Enter] Go  [↑↓] Match  [Esc] Close
+```
+
+#### New…: what is saved, or vtium's defaults
+
+File › New… asks for a name and for where the new document starts. The maintainer chose through the question tool that it offers both starting points ("Offer both"), as the catalog's screen "File › New…" shows:
+
+- **From what is saved,** the first choice and the one chosen at first: a copy of `/etc/vtium/vtium.conf` as installed, with no font set changes. The new document holds no changes, so the top row shows its name without ●.
+- **From vtium's defaults:** vtium-config's short header and one look, named default, with every setting at its default, as New does today. Its changes count against the installed file, as every document's do.
+
+When nothing is installed yet, the first choice is greyed out with the reason "nothing is saved yet", and the second is chosen. The document that was open keeps its changes under File › Open, so New never asks whether to throw them away. On the sheet, Up and Down move between the name and the two choices, Enter makes the document, and Esc cancels, as the catalog's action bar reads.
+
+#### Managing configurations
+
+File › Open › lists the configurations the person keeps, such as north, travel and kiosk-test, and its last item, Manage configurations…, opens a sheet that renames and deletes them. The maintainer asked for it on the mock-up catalog: "while we can create them, we should be able to remove them."
+
+- **The sheet** lists each configuration with its state against the installed file, as `vtium config draft list` prints it, the open one marked. Its buttons are `[Enter] Open`, `[r] Rename…`, `[Del] Delete…` and `[Esc] Close`. The Delete key, which `[Del]` names, deletes, and so does `d`. The key decoder reads Delete as ADR-1206 D2 says (added 2026-11-28).
+- **Rename** asks for the new name on the sheet, refuses a name another configuration has, and renames the configuration with its font set folder and its base, as `vtium config draft rename` does (D8).
+- **Delete** asks once, and the question names what is lost: the configuration's changes not saved and its font set changes. `/etc/vtium/vtium.conf` and the installed history stay as they are, since deleting a configuration never touches `/etc`. The command line's form is `vtium config draft rm` (D8).
+- **The open configuration cannot be deleted.** Delete is greyed out on it, with the reason "open now: open another first", so the TUI always has a document open.
+
+A sheet rather than items in Open's submenu, because a submenu item opens one thing, and a sheet can show each configuration's state beside the actions and name what a delete loses.
+
+#### Fonts the configuration uses but has not activated
+
+A font draws on the console only while the batch, the file that lists the active resources, holds it (ADR-1205 D4). A look whose font set names a font that is installed but not active therefore draws without that font, and the maintainer found that frustrating: "we need to be way more supportive and indicative of 'activated' fonts, and if any look or config has fonts defined that are not activated. it's frustrating to hit that." So vtium-config shows each font's state wherever the font appears, and activates the missing ones in one step. ADR-1205 D4 says which fonts count and how vtium-config finds them.
+
+**One set of marks for a font.** Every place a font appears marks it with one of the words below, the same on every screen: the Fonts list, a font set's detail, a look's card and the Flow page's look line. The words carry the meaning, so the marks read the same without color. This table is the one place that states the marks and their color roles, and every other passage points here. ADR-1205 D4 says how vtium-config finds each state, and ADR-1206 D4 gives each role its look.
+
+| Mark | What it means | Role |
+|---|---|---|
+| `● always active` | the built-in font, which needs no batch | `active` |
+| `● active` | the batch holds the font, and its file passes the trust rule | `active` |
+| `○ not active` | the font is installed and passes the trust rule, but nothing in the batch lists it | `inactive` |
+| `○ turned off on purpose` | the font is installed and passes the trust rule, and root turned it off, with a `-PATH` line in batch.conf or a file in `/etc/vtium/batch.d/` that turns off its list | `inactive` |
+| `○ not active · fails trust` | a file of the font is installed but fails the trust rule, and the detail names the check, such as "on removable storage" | `inactive`, and `warning` for `fails trust` |
+| `not usable yet` | the font's file is in the person's own folders, where vtium takes no font, and installing it as a system font makes it usable (ADR-1205 D5) | `warning` |
+| `✗ missing` | a font that a configuration uses and that is not installed, with the reason "not installed" | `missing` |
+| `○ not all active` | a look, or the configuration, whose fonts are not all active | `warning` |
+
+The words are the approved catalog's, which the steering session took on 2026-11-28 over the three words `active`, `not active` and `missing` this section first had, because `missing` on a file that sits in the Fonts list misleads. The Fonts tab's figure in "The tabs' layouts" cuts `not active · fails trust` to `not active · trust` to fit its column.
+
+- **A look's and the configuration's own mark.** A look whose fonts are not all active says so in its own row of the Looks list and on its card, as in `My-Look · 2 fonts not active`, with the mark `○ not all active`. The configuration says so in its row under File › Open and on the Manage configurations sheet. So the gap shows before the console draws without the fonts.
+- **Activate missing.** The Fonts tab's action bar shows `[A] Activate missing (3)`, with the count, while the configuration uses a font that is installed and trusted but not active. The Fonts list shows the same action as its first item, `Activate missing fonts (3)`, and Enter on that item does what `A` does. Activate missing puts every such font into the document's batch as one change, through the normal path of activation, which Undo takes back and Save makes real. Nothing is activated outside Save. The message line says what it did, as in "Activated 3 fonts the configuration uses. [Ctrl+Z] undoes it."
+- **Fonts turned off on purpose stay off.** A font that root turned off, with a `-PATH` line in batch.conf or a file in `/etc/vtium/batch.d/` that turns off its list, is never turned on by Activate missing. The action's count leaves such fonts out, and its message and Save's review name them apart, as in "1 turned off on purpose stays off". Space on such a font in the Fonts list, the normal activation, turns it on by itself, so turning it back on is a knowing choice. A look that uses such a font shows it as turned off on purpose, and the Problems list gives it no warning. This is the steering session's call, for the morning list (ADR-1205 D4; added 2026-11-28).
+- **On a look's card.** A look's card whose fonts are not all active shows a line `2 fonts not active · [A] Activate`. `A` there activates that look's fonts only, as one change.
+- **In the Problems list.** A configuration that uses fonts that are not active shows one warning line, such as "3 fonts the configuration uses are not active". Enter on that line offers Activate missing, as the maintainer asked: a question counts the fonts, as in "Activate the 3 fonts the configuration uses that are not active?", and `y` activates them as one change, after which the line leaves the list. Esc leaves them as they are. A warning does not stop Save (changed 2026-11-28; Enter activated them at once).
+- **Fonts that cannot be activated.** An installed font that fails the trust rule is never activated by this action. The Fonts list marks it `not active · fails trust`, or `not usable yet` in the person's own folders, with its reason, such as "on removable storage", and the Problems list gives it a warning line of its own with the reason, where Enter goes to the font in the Fonts tab. When Activate missing leaves such fonts behind, its message ends "2 more cannot be activated (F1)", and F1 lists each one with its reason.
+
+#### The list box
+
+A line that holds one of several choices opens a list box under itself, inside the card or the pane that holds the line. The interface tree planned this for a Flow card as `flow.card.list`, and the maintainer, shown it on the mock-up catalog's screen "Flow: a card's list box", answered "ooh I like the list box idea!" So alpha.13 builds it, as one widget in vtium-config-widgets that every line with choices uses (ADR-1206 D8):
+
+- a line of a Flow card: its displays, devices, VTs, font set files or terminals (`flow.card.list`);
+- a line of a look's card: its font set, size, color scheme, vtlook or pointer theme (`looks.look.list`);
+- a setting with a fixed set of values (`settings.section.list`);
+- a role in the form for a new font set (`looks.new-frit.list`).
+
+The list box replaces the separate list screens these lines open today, which the screen map shows as screens of their own.
+
+- **Its keys and clicks.** Enter or a click on the line opens the list box under it, with the highlight on the line's choice now. Up and Down, or a click on a choice, pick a choice. Enter, or a click on the choice already picked, keeps the pick as one change, which Undo takes back, and closes the list box. In the form for a new font set the pick fills the role, and the form makes the font set as one change. Esc closes the list box and changes nothing.
+- **A long list.** A list box shows as many choices as its place allows and scrolls the rest, with Home, End, PgUp and PgDn. While its line has more choices than the box shows at once, the list box offers the `?` search on the choices' text, and `[?] Search` shows on the action bar ("Search, on ?").
+- **The tree keeps the four nodes.** A list box open under a line is a level open over the card, with keys of its own, so each of the four keeps its node and its id. Each node's text now names a list box under its line, and the map of screens draws the list box inside its parent's screen.
+
+The other sets of items that "One list for every set of items" names, such as the filter picker's devices, keep the shared list as it is.
+
+#### The tabs' layouts
+
+The maintainer took the mock-up catalog's proposals that change only layout and wording ("Layout-only proposals"), and took all five of them (`considered`). Each tab keeps every fact it shows and every level of D10's tree of use, and only the place where the facts sit changes. The catalog names each proposal by a title, given here with each.
+
+- **Fonts shows the highlighted font's facts beside the list** ("Proposal: Fonts list and detail side by side"). The right of the list holds the font's file, folder, kind, coverage, sizes, state, the looks that use it, and the cell and grid at the look's size. Moving through the fonts shows each one's facts without Enter, and Enter still opens the full detail (`fonts.font`). The picture of the console stays under the list.
+- **Looks shows the look's card beside the list, above the preview** ("Proposal: the look's card beside the list"). The highlighted look's card fills the right of the list: its font set, size, color scheme, vtlook, pointer theme and the roles it still misses. The preview sits under the card. Enter still edits the card (`looks.look`). On a font set, a color scheme or a pointer theme, the same place shows the facts its detail lists.
+- **Settings shows its sections at the left and their keys at the right** ("Proposal: sections beside their keys"). The sections stay at the left, and the highlighted section's keys show at the right, each with its value and whether it is changed. So moving between sections shows their keys without Enter and Esc, as the settings apps of desktop systems arrange it. Enter still moves into the keys (`settings.section`), and Esc back to the sections. The highlighted key's one-line description sits at the foot of the right pane, and F1 opens its whole help.
+- **Help shows its topics at the left and the topic's keys at the right** ("Proposal: Help by topic"). The topics are the six tabs, then Menus and Save, Mouse, Commands and About. Up and Down move through the topics, and the right shows the highlighted topic, for a tab its keys and what each does, so the page needs no long scroll. PgUp and PgDn scroll the right where a topic is longer than the pane. Left and Right still switch between the Help and About pages, and the About topic shows the About page at the right. Help opens on the topic of the tab the person came from, as D10 has it open on the help for the node they came from.
+- **Effects shows the highlighted vtlook's filter chain beside the list, left to right** ("Proposal: a vtlook's filter chain beside the list"). The chain reads left to right in the order vtium runs it, as in `frame → spatial: none → turn → tint → contrast → screen`. Under the chain, one line for each filter gives its settings, and the picture of the sample screen follows. On a color map or a shader, the same place shows the facts its detail lists. Enter still opens the detail (`effects.effect`).
+
+The five figures follow, each 100×30 as the catalog draws it, with the test laptop's name and the person's name in the previews replaced.
+
+The first figure shows the Fonts tab. At the left are the filter line, Show: All fonts, and the fonts in three groups, System fonts, vtium's own fonts and Your own fonts, each row with its kind and state, with DejaVuSansMono.ttf highlighted. A bar divides the viewer at column 62. At its right, DejaVu Sans Mono Regular heads its facts: file, folder, kind, covers, sizes, state and used by, then the cell and grid at 10 pt. The picture of the console sits under the list. The action bar reads Space Activate, Enter Full detail, t Try live and Ctrl+S Save.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   north ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Show: All fonts ▾                           8 fonts · 4 activ│ DejaVu Sans Mono Regular
+                                                              │
+ System fonts                                                 │ file    DejaVuSansMono.ttf
+   DejaVuSansMono.ttf          outline  active                │ folder  /usr/share/fonts/TTF
+   JetBrainsMono-Regular.ttf   outline  active                │ kind    outline, monospaced
+   NotoColorEmoji.ttf          color    not active · trust    │ covers  Latin, Greek, Cyrillic,
+   ter-u16n.otb                bitmap   not active            │         box drawing
+ vtium's own fonts                                            │ sizes   any
+   cullet-mono.otf             outline  active                │ state   active · trusted
+   unifont                     bitmap   always active         │ used by My-Look's fallback
+ Your own fonts                                               │
+   MyMono-Regular.ttf          outline  not usable yet        │ 10 pt: 9×20 px cells,
+                                                              │ 213×54 characters
+                                                              │
+ ┌ picture of the console ──────────────────────────────────┐ │
+ │ user@north:~/notes$ ls -l                                │ │
+ │ drwxr-xr-x 2 user  user  4096 Nov 27 drafts              │ │
+ │ -rw-r--r-- 1 user  user  1823 Nov 27 plan.txt            │ │
+ │ user@north:~/notes$ colors                               │ │
+ │ red green yellow blue magenta cyan white                 │ │
+ │ Bold text and italic text beside plain.                  │ │
+ │ ┌──────────┬─────────┐                                   │ │
+ │ │ plan.txt │ 1.8 KiB │                                   │ │
+ │ └──────────┴─────────┘                                   │ │
+ │ café naïve Ångström Straße žluťoučký                     │ │
+ └──────────────────────────────────────────────────────────┘ │
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Space Activate  Enter Full detail  t Try live  Ctrl+S Save                       F10 Menu  q Quit
+```
+
+The second figure shows the Looks tab. At the left is the list in four groups, Looks, Font sets, Color schemes and Pointer themes, with My-Look highlighted. At the right, the card reads My-Look, used by console, then Font set cullet-mono, Size 10 pt, Color scheme vga, vtlook No filter, Pointer theme vtium's own pictures and Missing 2. The preview, "as the console draws it", sits under the card. The action bar reads Enter Edit, n New, r Remove, t Try live, p Picture and Ctrl+S Save.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   north ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Looks                   │ My-Look                          used by console
+   My-Look               │
+   default               │ Font set       cullet-mono
+ Font sets               │ Size           10 pt
+   cullet-mono           │ Color scheme   vga
+   jetbrains             │ vtlook         No filter
+   terminus              │ Pointer theme  vtium's own pictures
+   unifont               │ Missing        2
+ Color schemes           │
+   legacy                │ ┌ as the console draws it ─────────────────────────────────────────────┐
+   vga                   │ │ user@north:~/notes$ ls -l                                            │
+   nord                  │ │ drwxr-xr-x 2 user  user  4096 Nov 27 drafts                          │
+   solarized             │ │ -rw-r--r-- 1 user  user  1823 Nov 27 plan.txt                        │
+   dusk                  │ │ user@north:~/notes$ colors                                           │
+   paper                 │ │ red green yellow blue magenta cyan white                             │
+ Pointer themes          │ │ Bold text and italic text beside plain.                              │
+   vtium's own           │ │ ┌──────────┬─────────┐                                               │
+   Adwaita               │ │ │ plan.txt │ 1.8 KiB │                                               │
+                         │ │ └──────────┴─────────┘                                               │
+                         │ │ café naïve Ångström Straße žluťoučký                                 │
+                         │ │ → ← ↑ ↓ ● ○ ✓ ✗ … ─│┌┐└┘ ▀▄█▌▐░▒▓                                    │
+                         │ │                                                                      │
+                         │ └──────────────────────────────────────────────────────────────────────┘
+                         │
+                         │
+                         │
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Enter Edit  n New  r Remove  t Try live  p Picture  Ctrl+S Save                  F10 Menu  q Quit
+```
+
+The third figure shows the Settings tab. At the left, under Settings, are the twelve sections, from Fonts and text to Running vtium, with Fonts and text highlighted. At the right are its keys in three headed groups, Font, Font size and spacing, and Box drawing and block characters. Each key shows its value and whether it is changed or the default, with font-name highlighted and changed. The foot of the right pane reads "font-name: the console's font, a font set, a kbd font or a file." The action bar reads Enter Change, F1 About this key and Ctrl+S Save.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   north ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Settings                       │ Font
+                                │   font-name           cullet-mono       changed
+   Fonts and text               │   font-frits          /etc/vtium/fonts  default
+   Colors                       │   font-paths          unset             default
+   Keyboard and mouse           │   font-engine         unset             default
+   Key bindings                 │   font-ligatures      off               default
+   Session and terminal         │ Font size and spacing
+   Consoles and the VT          │   font-size           0                 default
+   On-screen display and notic… │   font-hinting        unset             default
+   Displays                     │   font-line-spacing   unset             default
+   Power and blanking           │ Box drawing and block characters
+   Images                       │   glyph-source        unset             default
+   Running vtium                │   glyph-source-box    unset             default
+                                │   glyph-source-block  unset             default
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │font-name: the console's font, a font set, a kbd font or a file.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Enter Change  F1 About this key  Ctrl+S Save                                     F10 Menu  q Quit
+```
+
+The fourth figure shows the Help tab. At the left are the topics Fonts, Effects, Looks, Flow, Settings, Menus and Save, Mouse, Commands and About, with Looks highlighted. At the right, under the heading Looks, are its keys in two columns: the movement keys and Enter, `n` and `r`, `t` and `p`, and `w` and Space, each with what it does. The action bar reads ←→ Help, About. Ctrl+S saves on the Help tab too, so the build's bar adds `[Ctrl+S] Save`, which the approved mock-up left out.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help         ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+                     │ Looks
+  Fonts              │
+  Effects            │   ↑ ↓ Home End PgUp PgDn   move                Enter   open the look's card
+  Looks              │   n      new look or font set                  r       remove a look, or mar
+  Flow               │   t      try live for 10 s (Actions)           p       picture or sample
+  Settings           │   w      let programs resize the grid          Space   activate a color sche
+  Menus and Save     │
+  Mouse              │
+  Commands           │
+  About              │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+                     │
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ←→ Help, About                                                                   F10 Menu  q Quit
+```
+
+The fifth figure shows the Effects tab. At the left are the filter line, Show: All, then the vtlooks from No filter to white, with amber highlighted, then the color maps and the shaders. At the right, "amber, preset · used by no look" heads the chain `frame → spatial: none → turn → tint → contrast → screen`. Under it, tint reads color 255,176,0, amount 1.0 and floor 0.0, and contrast reads contrast 1.15 and brightness 0.0. The sample screen in amber follows. The action bar reads Space Activate, Enter Detail and Ctrl+S Save.
+
+```text
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   north ● 35 not saved · 3 problems
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Show: All ▾                 │ amber  preset · used by no look
+                             │
+ vtlooks                     │ frame  →  spatial: none  →  turn  →  tint  →  contrast  →  screen
+   No filter                 │
+   amber                     │ tint       color 255,176,0 · amount 1.0 · floor 0.0
+   deuteranopia              │ contrast   contrast 1.15 · brightness 0.0
+   green                     │
+   green  admin's            │ ┌ amber, on the sample screen ───────────────────────────────────┐
+   night  admin's            │ │ user@north:~/notes$ ls -l                                      │
+   protanopia                │ │ drwxr-xr-x 2 user  user  4096 Nov 27 drafts                    │
+   tritanopia                │ │ -rw-r--r-- 1 user  user  1823 Nov 27 plan.txt                  │
+   white                     │ │ user@north:~/notes$ colors                                     │
+ Color maps                  │ │ red green yellow blue magenta cyan white                       │
+   panel.cube                │ │ Bold text and italic text beside plain.                        │
+   warm.cube                 │ │ ┌──────────┬─────────┐                                         │
+ Shaders  none               │ │ │ plan.txt │ 1.8 KiB │                                         │
+                             │ │ └──────────┴─────────┘                                         │
+                             │ │ café naïve Ångström Straße žluťoučký                           │
+                             │ └────────────────────────────────────────────────────────────────┘
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Space Activate  Enter Detail  Ctrl+S Save                                        F10 Menu  q Quit
+```
+
+#### The book the screens are built to
+
+The maintainer accepted the mock-up catalog of every screen with the adjustments of the notes on it ("ok. I'm accepting those mockups if it's possible to edit them with the adjustments I shared"). The catalog is the target the alpha.13 rebuild builds to. The rebuild builds every screen of the catalog, and an effect that vtium does not build yet shows on its screen as planned, as the maintainer set for alpha.13. Where a screen of the catalog and this record differ, the record holds, and the difference goes to the maintainer.
+
+The catalog becomes a book of how vtium-config is used, committed under `docs/design-notes/vtium-config/`, so every worktree reads the same reference. The maintainer: "they have a reference - not goldens, but a coherent narrative … I kind of like to think about it as chapters in a book. structured, but the content itself also has to have continuity".
+
+- **Its chapters.** A contents page, then one chapter for each thing a person does with vtium-config, in the order a person meets them: opening it on a first run, choosing a font and its size, saving, a file changed on disk, looks and effects with the planned shader filters, wiring displays and inputs in Flow, settings, finding things, history and several configurations, problems and fonts not yet active, and the macro player and the live run.
+- **Its continuity.** One person on one machine keeps one configuration from chapter to chapter. Each chapter opens on the state the chapter before it left, and names that state in a line at its top.
+- **Its form.** Each chapter is prose in the docs' writing rules, with its screens as text blocks of 100×30. Later each chapter also carries the macro that plays it, so the real screens can be set beside the book's for review.
+- **A reference, not a golden.** A golden is a saved result that a test compares the output with. Nothing fails when the TUI differs from the book. A difference is reviewed, and either the book or the code changes.
+
+The book is a design note, a page for contributors: [the book of vtium-config's use](../../design-notes/vtium-config/index.md). Its own change writes it, beside these records, and until it lands the catalog stays the target. The HTML catalog stays a local view drawn from the same screens and is not committed.
+
+#### The keys and nodes these add
+
+The rows below join the lists in "How the tables carry this section", in the same columns and on the same terms: the work that builds this section adds them to the two tables as supported, with `status` and `issue` filled, in one change with the code that meets them. The table spells keys as the key table does, as in `Ctrl-Z`. Today's question, live trial and screen below the minimum size need no new rows, because their `any other key` rows cover the new keys.
+
+| id | key | state | means | today | decided | label |
+|---|---|---|---|---|---|---|
+| `ctrl-z.view` | Ctrl-Z | `view` | Undoes the last change, and says what it undid. With nothing to undo, says so. | the TUI drops Ctrl-Z | ADR-1403 D11; ADR-1206 D2, D3 | Undo |
+| `ctrl-z.layer` | Ctrl-Z | `layer` | Undoes the last change, and says what it undid. What is open stays open. | the TUI drops Ctrl-Z | ADR-1403 D11; ADR-1206 D3 | Undo |
+| `ctrl-z.typing` | Ctrl-Z | `typing` | Does nothing while you type. Esc drops what you typed. | the TUI drops Ctrl-Z | ADR-1403 D11 | - |
+| `ctrl-z.layer.menu` | Ctrl-Z | `layer:menu` | Does nothing while a menu is open. File › Undo undoes. | no menu opens | ADR-1403 D11 | - |
+| `ctrl-z.layer.save` | Ctrl-Z | `layer:save` | Does nothing in Save's review. Esc goes back, and Ctrl-Z then undoes. | the TUI drops Ctrl-Z | ADR-1403 D11 | - |
+| `ctrl-z.layer.save-changed` | Ctrl-Z | `layer:save-changed` | Does nothing here. Esc cancels, and Ctrl-Z then undoes. | the TUI drops Ctrl-Z | ADR-1403 D11 | - |
+| `ctrl-z.layer.save-settle` | Ctrl-Z | `layer:save-settle` | Does nothing while you settle the lines both of you changed. | the TUI drops Ctrl-Z | ADR-1403 D11 | - |
+| `ctrl-y.view` | Ctrl-Y | `view` | Redoes the change the last undo took back, and says what it redid. With nothing to redo, says so. | the TUI drops Ctrl-Y | ADR-1403 D11; ADR-1206 D2, D3 | Redo |
+| `ctrl-y.layer` | Ctrl-Y | `layer` | Redoes the change the last undo took back, and says what it redid. What is open stays open. | the TUI drops Ctrl-Y | ADR-1403 D11; ADR-1206 D3 | Redo |
+| `ctrl-y.typing` | Ctrl-Y | `typing` | Does nothing while you type. | the TUI drops Ctrl-Y | ADR-1403 D11 | - |
+| `ctrl-y.layer.menu` | Ctrl-Y | `layer:menu` | Does nothing while a menu is open. File › Redo redoes. | no menu opens | ADR-1403 D11 | - |
+| `ctrl-y.layer.save` | Ctrl-Y | `layer:save` | Does nothing in Save's review. | the TUI drops Ctrl-Y | ADR-1403 D11 | - |
+| `ctrl-y.layer.save-changed` | Ctrl-Y | `layer:save-changed` | Does nothing here. | the TUI drops Ctrl-Y | ADR-1403 D11 | - |
+| `ctrl-y.layer.save-settle` | Ctrl-Y | `layer:save-settle` | Does nothing while you settle the lines both of you changed. | the TUI drops Ctrl-Y | ADR-1403 D11 | - |
+| `f1.view` | F1 | `view` | Opens help for what is highlighted: the full text of a line the screen cut to one line, or of a message that ends with (F1). Otherwise lists every key of this screen. | the TUI drops F1 | ADR-1403 D11; ADR-1206 D2, D3 | Help |
+| `f1.layer` | F1 | `layer` | Opens help for what is highlighted: the full text of a line the screen cut to one line, or of a message that ends with (F1). Otherwise lists every key of this screen. | the TUI drops F1 | ADR-1403 D11; ADR-1206 D3 | Help |
+| `f1.layer.settings-section` | F1 | `layer:settings-section` | Opens the highlighted key's whole help, with its default and its value now. | the section's foot shows four lines of the key's help | ADR-1403 D11 | About this key |
+| `f1.layer.new-frit` | F1 | `layer:new-frit` | Opens what a font set is and what each role holds. | the form shows this as a paragraph | ADR-1403 D11 | About font sets |
+| `f1.view.help` | F1 | `view:help` | Does nothing here: the topics are in view. | the TUI drops F1 | ADR-1403 D11 | - |
+| `f1.typing` | F1 | `typing` | Does nothing while you type. | the TUI drops F1 | ADR-1403 D11 | - |
+| `f1.layer.menu` | F1 | `layer:menu` | Does nothing while a menu is open. | no menu opens | ADR-1403 D11 | - |
+| `f1.layer.about` | F1 | `layer:about` | Does nothing: the help is open. | no help opens | ADR-1403 D11 | - |
+| `scroll.layer.about` | Up, Down, PgUp, PgDn, Home, End | `layer:about` | Scroll the help. | no help opens | ADR-1403 D11 | move |
+| `esc.layer.about` | Esc | `layer:about` | Closes the help, back where you were. | no help opens | ADR-1403 D11 | Close |
+| `question.layer` | ? | `layer` | Where what is open offers the search, such as a section's keys or a list box with many choices, opens the search row on it. Elsewhere does nothing. | ? does nothing | ADR-1403 D11; ADR-1206 D3 | Search |
+| `question.view.flow` | ? | `view:flow` | Does nothing here. Ctrl+F finds a part by its name. | ? does nothing | ADR-1403 D11 | - |
+| `question.layer.menu` | ? | `layer:menu` | Does nothing while a menu is open. | no menu opens | ADR-1403 D11 | - |
+| `char.typing.search` | any letter | `typing:search` | Types the character, and the list keeps only what matches. | no search row opens | ADR-1403 D11; ADR-1206 D3 | type |
+| `updown.typing.search` | Up, Down | `typing:search` | Move the list's highlight, and the cursor stays in the entry. | no search row opens | ADR-1403 D11 | move |
+| `enter.typing.search` | Enter | `typing:search` | Keeps the filter and goes back to the list, with the row still showing the pattern. | no search row opens | ADR-1403 D11 | Keep |
+| `esc.typing.search` | Esc | `typing:search` | Closes the search row and clears the filter. | no search row opens | ADR-1403 D11 | Clear |
+| `backspace.typing.search` | Backspace | `typing:search` | Deletes the character before the cursor. On an empty entry, closes the search row and clears the filter. | no search row opens | ADR-1403 D11 | - |
+| `question.layer.filter` | ? | `layer:filter` | Puts the cursor back in the search row's entry. | no filter is kept | ADR-1403 D11 | Search |
+| `esc.layer.filter` | Esc | `layer:filter` | Clears the filter and closes the search row. A second Esc does what Esc does on this screen. | no filter is kept | ADR-1403 D11 | Clear |
+| `ctrl-f.view` | Ctrl-F | `view` | Opens Find in the search row: what matches in every tab, listed above it. | the TUI drops Ctrl-F | ADR-1403 D11; ADR-1206 D2, D3 | Find |
+| `ctrl-f.layer` | Ctrl-F | `layer` | Opens Find above what is open here. Esc from Find comes back here, and Enter on a match closes what is open and goes to the item. | the TUI drops Ctrl-F | ADR-1403 D11; ADR-1206 D3 | Find |
+| `ctrl-f.layer.menu` | Ctrl-F | `layer:menu` | Closes the menu and opens Find over the tab. | no menu opens | ADR-1403 D11; ADR-1206 D3 | - |
+| `ctrl-f.typing` | Ctrl-F | `typing` | Does nothing while you type, in Find too. | the TUI drops Ctrl-F | ADR-1403 D11 | - |
+| `char.typing.find` | any letter | `typing:find` | Types the character, and the list keeps only what matches. | no Find opens | ADR-1403 D11 | type |
+| `move.typing.find` | Up, Down, PgUp, PgDn | `typing:find` | Move the highlight through the matches. | no Find opens | ADR-1403 D11 | Match |
+| `enter.typing.find` | Enter, Click on a match | `typing:find` | Goes to the highlighted item in its tab, and closes Find. With nothing found, does nothing. | no Find opens | ADR-1403 D11 | Go |
+| `esc.typing.find` | Esc | `typing:find` | Closes Find. Nothing moves. | no Find opens | ADR-1403 D11 | Close |
+| `backspace.typing.find` | Backspace | `typing:find` | Deletes the character before the cursor. On an empty entry, closes Find. | no Find opens | ADR-1403 D11 | - |
+| `updown.layer.manage` | Up, Down | `layer:manage` | Moves through the configurations. | no such sheet opens, and vtium config draft list lists them from a shell | ADR-1403 D11 | move |
+| `enter.layer.manage` | Enter | `layer:manage` | Opens the highlighted configuration, and keeps the one that was open. | vtium config draft switch does it from a shell | ADR-1403 D11 | Open |
+| `r.layer.manage` | r | `layer:manage` | Asks for a new name for the highlighted configuration. | no command renames a draft | ADR-1403 D8, D11 | Rename… |
+| `delete.layer.manage` | Delete | `layer:manage` | Asks once, naming what is lost, then deletes the highlighted configuration. /etc is untouched. On the open configuration it is greyed out, with the reason. | vtium config draft rm does it from a shell, and the TUI drops Delete | ADR-1403 D8, D11; ADR-1206 D2 | Delete… |
+| `d.layer.manage` | d | `layer:manage` | Does what Delete does: asks once, then deletes the highlighted configuration. | vtium config draft rm does it from a shell | ADR-1403 D8, D11 | - |
+| `esc.layer.manage` | Esc | `layer:manage` | Closes the sheet. | no such sheet opens | ADR-1403 D11 | Close |
+| `v.layer.history-version` | v, Click on View changes | `layer:history-version` | Shows this version against the configuration, read-only, as Show changes does. | Restore's question counts the lines it changes | ADR-1403 D11 | View changes |
+| `a.layer.history-version` | a, Click on Use this version | `layer:history-version` | Loads this version into the configuration as one change, which Undo takes back and Save makes real. | Enter on Restore's list copies the file into the draft after a question | ADR-1403 D11 | Use this version |
+| `esc.layer.history-version` | Esc | `layer:history-version` | Closes the sheet. Nothing changes. | Esc closes Restore's question | ADR-1403 D11 | Close |
+| `w.layer.history-view` | w, Click on the checked pair | `layer:history-view` | Switches between the changes only and the whole file. | no such view opens | ADR-1403 D11 | Whole file |
+| `scroll.layer.history-view` | Up, Down, PgUp, PgDn, Home, End | `layer:history-view` | Scrolls the changes. | no such view opens | ADR-1403 D11 | move |
+| `esc.layer.history-view` | Esc | `layer:history-view` | Goes back to the version's sheet. | no such view opens | ADR-1403 D11 | Back |
+| `m.layer.save-settle` | m | `layer:save-settle` | Keeps your lines here, and goes to the next lines both of you changed. After the last, shows the review with Save. | i refuses the draft | ADR-1403 D8 | Mine |
+| `i.layer.save-settle` | i | `layer:save-settle` | Keeps the installed file's lines here, and goes to the next. After the last, shows the review with Save. | i refuses the draft | ADR-1403 D8 | Installed |
+| `esc.layer.save-settle` | Esc | `layer:save-settle` | Cancels the update, and leaves the configuration as it was. | i refuses the draft | ADR-1403 D8 | Cancel |
+| `shift-a.view.fonts` | A | `view:fonts` | Activates the fonts the configuration uses that are installed and trusted but not active, as one change, which Undo takes back and Save makes real. Says what it activated. | no such action, and Space activates one font at a time | ADR-1403 D11; ADR-1205 D4 | Activate missing |
+| `shift-a.layer.look` | A | `layer:look` | Activates this look's fonts that are installed and trusted but not active, as one change. | no such action | ADR-1403 D11; ADR-1205 D4 | Activate |
+| `click-choice.layer.list` | Click on a choice | `layer:list` | Picks the choice. A click on the choice already picked keeps it, as Enter does. | the list reads no clicks | ADR-1403 D11; ADR-1206 D8 | - |
+| `question.layer.list` | ? | `layer:list` | While the line has more choices than the list box shows, opens the search row on them. Otherwise does nothing. | ? does nothing | ADR-1403 D11; ADR-1206 D3, D8 | Search |
+
+Six rows of the Help tab change their meaning with "The tabs' layouts", and the build rewrites them in the same change:
+
+| id | Today | Once the work lands |
+|---|---|---|
+| `up.view.help` | Scrolls the page up by a line. | Moves to the topic above. |
+| `down.view.help` | Scrolls the page down by a line. | Moves to the topic below. |
+| `home.view.help` | Goes to the top of the page. | Goes to the first topic. |
+| `end.view.help` | Goes to the bottom of the page. | Goes to the last topic. |
+| `pgup.view.help` | Scrolls the page up by a window. | Scrolls the topic up by a window. |
+| `pgdn.view.help` | Scrolls the page down by a window. | Scrolls the topic down by a window. |
+
+Two rows gain a sentence with "Fonts the configuration uses but has not activated", and the build adds it in the same change. `enter.view.fonts` gains "On Activate missing fonts, activates them as A does." `enter.layer.problems`, in "How the tables carry this section", gains "On the line of fonts that are not active, asks whether to activate them, counting them." The question is `any.question.confirm`, whose `node` text gains "activating the fonts the configuration uses". The node `fonts` gains `shift-a.view.fonts`, and the node `looks.look` gains `shift-a.layer.look`.
+
+"The list box" changes one row and four nodes, and the build changes them in the same change:
+
+| id | Today | Once the work lands |
+|---|---|---|
+| `enter.layer.list` | Picks the highlighted item and closes the list. In a list that ends with Other…, picking Other… lets you type a value instead. | Keeps the highlighted choice as one change and closes the list box. On Other…, lets you type a value instead. |
+| `flow.card.list` | The shared list, as a list box inside the card: its displays, devices, VTs, font set files or terminals | The list box under a line of the card: its displays, devices, VTs, font set files or terminals |
+| `looks.look.list` | The shared list of the choices for a line of the look's card: font sets, the sizes the fonts supply, color schemes, vtlooks or active pointer themes | The list box under a line of the look's card: font sets, the sizes the fonts supply, color schemes, vtlooks or active pointer themes |
+| `settings.section.list` | The shared list of a key's allowed values | The list box under a key, with its allowed values |
+| `looks.new-frit.list` | The shared list of the active fonts that can fill a role | The list box under a role, with the active fonts that can fill it |
+
+The four nodes gain `click-choice.layer.list` and `question.layer.list`,.
+
+The interface tree's new nodes, in its columns:
+
+| id | parent | node | reach | leave | keys | now |
+|---|---|---|---|---|---|---|
+| `any.about` | `any` | The help F1 opens over a screen: the full text of a line the screen cut to one line or of a message, or every key of the screen | F1 | Esc, back where F1 was pressed | f1.layer.about, scroll.layer.about, esc.layer.about, ctrl-c.any | F1 does nothing |
+| `any.search` | `any` | The search row over a list: the entry after a `?` prompt, and the syntax help at the right | ? on a screen whose node's `search` column names fields | Enter to any.filter; Esc, or Backspace on an empty entry, closes it and clears the filter | char.typing.search, updown.typing.search, enter.typing.search, esc.typing.search, backspace.typing.search, tab.typing, q.typing, ctrl-z.typing, ctrl-y.typing, f1.typing, ctrl-f.typing, ctrl-c.any | ? does nothing |
+| `any.filter` | `any` | A list with a filter kept: the list's own keys act on what matches, and the search row shows the pattern | Enter in any.search | Esc clears the filter and goes back to the list; ? goes back to any.search | question.layer.filter, esc.layer.filter, and the rows of the list it filters | no filter is kept |
+| `any.find` | `any` | Find: the search row with the prompt Find, and the matches from every tab in the rows above it | Ctrl-F on any screen but a question or an entry; over a menu, once the menu closes | Enter or a click goes to the item; Esc, or Backspace on an empty entry, closes Find and goes back to what was open | char.typing.find, move.typing.find, enter.typing.find, esc.typing.find, backspace.typing.find, tab.typing, q.typing, ctrl-z.typing, ctrl-y.typing, f1.typing, ctrl-f.typing, ctrl-c.any | Ctrl-F does nothing |
+| `any.menu.file.manage` | `any.menu.file.open` | Manage configurations: each configuration with its state, the open one marked, with Open, Rename and Delete | Enter on Manage configurations… | Esc to the tab | updown.layer.manage, enter.layer.manage, r.layer.manage, delete.layer.manage, d.layer.manage, esc.layer.manage, click-row.view, click-button.any, ctrl-c.any | vtium config draft list, draft switch and draft rm do it from a shell |
+| `any.menu.file.manage.typing` | `any.menu.file.manage` | A configuration's new name being typed | r on a configuration | Enter keeps the name, and Esc drops it | char.typing, backspace.typing, enter.typing, esc.typing, ctrl-c.any | no command renames a draft |
+| `any.history.version` | `any.menu.file.history` | The sheet of a version chosen from History, with View changes and Use this version | Enter on a version in History's submenu | a loads it and goes back to the tab; v to any.history.view; Esc closes it | v.layer.history-version, a.layer.history-version, esc.layer.history-version, click-button.any, ctrl-c.any | Enter on Restore's list asks whether to copy the file into the draft |
+| `any.history.view` | `any.history.version` | A version against the configuration, read-only, as Show changes shows it | v on the version's sheet | Esc to any.history.version | w.layer.history-view, scroll.layer.history-view, esc.layer.history-view, click-button.any, ctrl-c.any | no such view |
+| `any.save.settle` | `any.save.changed` | The lines both you and the change on disk changed, one at a time, each with yours beside the installed file's | u on the changed-on-disk form, when both changed some of the same lines | m or i on the last goes to any.save; Esc cancels the update | m.layer.save-settle, i.layer.save-settle, esc.layer.save-settle, scroll.layer.save, click-button.any, ctrl-c.any | i refuses the draft |
+
+The tabs' nodes gain `ctrl-z.view`, `ctrl-y.view`, `f1.view` and `ctrl-f.view`, the Help node `f1.view.help` in place of `f1.view`. Each level open over a tab gains `ctrl-z.layer`, `ctrl-y.layer`, `f1.layer`, `ctrl-f.layer` and `question.layer`, or the narrower row of each. The menus' nodes gain `question.layer.menu` and `ctrl-f.layer.menu`.
+
+The interface tree's new `search` column, for the nodes that offer the search. Every other node's value is `-`:
+
+| Node | `search` |
+|---|---|
+| `fonts` | family, file |
+| `effects` | name |
+| `looks`, `looks-resources` | name |
+| `settings`, `settings.section` | key, description |
+| `help` | topic |
+| `flow.card.list`, `looks.look.list`, `settings.section.list`, `looks.new-frit.list` | choice, offered only while the line has more choices than the list box shows at once |
+
+> Edited 2026-11-27, after the mock-up catalog was accepted: the maintainer decided that a screen offers the search only where its node declares it (`considered`). The `search` column's table and the rows `question.view.flow` and `question.layer.menu` were added. `question.layer` read: "Opens the search row on the list open here, such as a card's list of choices or a section's keys. Where what is open shows no list, does nothing." This paragraph said that a level gained `question.layer` "where it shows a list". The delete question of `d.layer.manage` is `any.question.confirm`, whose `node` text gains "deleting a configuration".
+
+#### How the tables carry this section
+
+The interface tree and the key table stay as they are until the work that builds this section, because the code does what they say today. The new keys cannot be checked before then: the TUI's key decoder has no Alt chord, F10 or Ctrl+S yet, so the scenario walk cannot press them, and a planned row it cannot press would loosen the walk's checks in between. So the build card adds the key decoder's new keys, the rows and nodes below as supported, and the code that meets them, in one change. In the same change it takes out the rows that go: `s.view`, `s.view.fonts`, `i.view`, `action.layer`, `y.question.quit` and `n.question.quit`, and every row whose state is `layer:file-view` or `layer:restore`, with the nodes `flow.file`, `flow.restore` and `any.question.quit`. Those rows are `q.layer.file-view`, `s.layer.file-view`, `i.layer.file-view`, `key-line.layer.file-view`, the file view's moves from `j.layer.file-view` to `pgup.layer.file-view`, `q.layer.restore` and `enter.layer.restore`. It rewrites `q.view`, `ctrl-c.any` and the three `key-line` rows for the quit at once and the action bar. It rewrites `period.view` and `period.layer` for the action bar's `[.] More`, which opens the buttons the bar has no room for as a small menu, and `r.view.flow`, `n.view.flow`, `v.view.flow` and `o.view.flow`, which open File › Revert to saved…, New…, Show changes and History ›. The scenario test turns red until the code follows, as D7's "The contract" decides. The build fills each new row's `issue` column with the issue that tracks this interlude.
+
+The key table's new rows, in its columns, with `status` and `issue` left for the build to fill:
+
+| id | key | state | means | today | decided | label |
+|---|---|---|---|---|---|---|
+| `alt-f.view` | Alt-F | `view` | Opens the File menu, which holds what you do with the configuration as a document. | the TUI drops Alt and a key | ADR-1403 D11; ADR-1206 D2 | File |
+| `alt-a.view` | Alt-A | `view` | Opens the Actions menu, which holds what acts at once on this machine or on the console. | the TUI drops Alt and a key | ADR-1403 D11; ADR-1206 D2 | Actions |
+| `alt-tab.view` | Alt-N, Alt-E, Alt-L, Alt-O, Alt-S, Alt-H | `view` | Goes straight to the tab whose letter is underlined: Fonts, Effects, Looks, Flow, Settings or Help. | the TUI drops Alt and a key, and the digits go to the tabs | ADR-1403 D11; ADR-1206 D2 | go to tab |
+| `f10.view` | F10 | `view` | Opens the menu bar on the File menu. | the TUI ignores F10 | ADR-1403 D11; ADR-1206 D2 | Menu |
+| `ctrl-s.view` | Ctrl-S | `view` | Opens Save's review of what saving changes in /etc/vtium/vtium.conf. Ctrl-S there saves. | the TUI drops Ctrl-S, and s saves the changes into the draft | ADR-1403 D8, D11; ADR-1206 D2 | Save |
+| `question.view` | ? | `view` | Opens the search row, which filters the list on this screen as you type. | ? does nothing | ADR-1403 D11; ADR-1206 D3 | Search |
+| `click-menu.view` | Click on a menu's name | `view` | Opens that menu. | only the Flow view reads clicks | ADR-1403 D11 | - |
+| `click-tab.view` | Click on a tab's name | `view` | Goes to that tab. | only the Flow view reads clicks | ADR-1403 D11 | - |
+| `click-row.view` | Click on a row of a list | `view` | Highlights the row. A click on the highlighted row opens it, as Enter does. | only the Flow view reads clicks | ADR-1403 D11 | - |
+| `click-button.any` | Click on a button of the action bar | `any` | Does what the button's key does. | the bottom row is a key line, and only the Flow view reads clicks | ADR-1403 D11 | - |
+| `alt-p.view` | Alt-P | `view` | Opens the Problems list: each problem the check finds, in one line with where it is. | the TUI drops Alt and a key | ADR-1403 D11; ADR-1206 D2 | Problems |
+| `click-facts.view` | Click on the top row's counts | `view` | A click on the problems count opens the Problems list, and a click on the count not saved opens Show changes. | only the Flow view reads clicks | ADR-1403 D11 | - |
+| `updown.layer.menu` | Up, Down | `layer:menu` | Moves through the menu's items, past the separators and the items that are greyed out. | no menu opens | ADR-1403 D11; ADR-1206 D3 | move |
+| `leftright.layer.menu` | Left, Right | `layer:menu` | Opens the menu beside this one. On an item marked ›, Right opens its submenu, and Left closes it again. | no menu opens | ADR-1403 D11; ADR-1206 D3 | menus |
+| `enter.layer.menu` | Enter | `layer:menu` | Chooses the highlighted item. | no menu opens | ADR-1403 D11; ADR-1206 D3 | Pick |
+| `enter.layer.menu.open` | Enter | `layer:menu-open` | Opens the draft you chose as the configuration, and keeps the one that was open. On Manage configurations…, opens the sheet that renames and deletes them. | the TUI lists no drafts, and vtium config draft switch does it from a shell | ADR-1403 D11; ADR-1206 D3 | Pick |
+| `enter.layer.menu.history` | Enter | `layer:menu-history` | Opens a sheet for the version you chose, with View changes and Use this version. | o in the Flow view lists the installed history, and Enter copies one into the draft after a question | ADR-1403 D11; ADR-1206 D3 | Pick |
+| `esc.layer.menu` | Esc | `layer:menu` | Closes the menu, or only its submenu when one is open. | no menu opens | ADR-1403 D11; ADR-1206 D3 | Close |
+| `f10.layer.menu` | F10 | `layer:menu` | Closes the menu bar. | no menu opens | ADR-1403 D11; ADR-1206 D3 | Menu |
+| `letters.layer.menu.file` | n o u d s c e r h q | `layer:menu-file` | Chooses the item whose letter is underlined: New, Open, Undo, Redo, Save, Show changes, Edit as text, Revert to saved, History or Quit. | no menu opens | ADR-1403 D11; ADR-1206 D3 | - |
+| `letters.layer.menu.actions` | t r i | `layer:menu-actions` | Chooses the item whose letter is underlined: Try live, Read devices again, or Install as a system font. | no menu opens | ADR-1403 D11; ADR-1206 D3 | - |
+| `click-item.layer.menu` | Click on a menu item | `layer:menu` | Chooses the item. | no menu opens | ADR-1403 D11; ADR-1206 D3 | - |
+| `click-outside.layer.menu` | Click outside the menu | `layer:menu` | Closes the menu. | no menu opens | ADR-1403 D11; ADR-1206 D3 | - |
+| `ctrl-s.layer.save` | Ctrl-S, Enter | `layer:save` | Saves. vtium-config checks the configuration, and sudo asks for your password once before it writes /etc/vtium/vtium.conf. | i saves into the draft, then asks whether to install it | ADR-1403 D8; ADR-1201 D5 | Save |
+| `w.layer.save` | w | `layer:save` | Shows the whole file, or only the changes again. | Install's question shows only how many lines it adds and removes | ADR-1403 D8 | Whole file |
+| `esc.layer.save` | Esc | `layer:save` | Cancels, and changes nothing. | Esc cancels Install's question | ADR-1403 D8 | Cancel |
+| `scroll.layer.save` | Up, Down, PgUp, PgDn, Home, End | `layer:save` | Scrolls the review. | Install's question has nothing to scroll | ADR-1403 D8 | move |
+| `u.layer.save-changed` | u | `layer:save-changed` | Brings the change made on disk into yours, then shows the review again. Where both of you changed the same lines, it lists them one by one, for you to settle with m or i. | i refuses the draft and names two commands to run in a shell | ADR-1403 D8 | Update |
+| `o.layer.save-changed` | o | `layer:save-changed` | Saves yours over the change made on disk. History keeps the version it replaces. | i refuses the draft and names two commands to run in a shell | ADR-1403 D8; ADR-1201 D5 | Overwrite |
+| `r.layer.save-changed` | r | `layer:save-changed` | Asks, then reloads the file from disk and drops your changes. | vtium config revert does it from a shell | ADR-1403 D8 | Revert |
+| `w.layer.changes` | w, Click on the checked pair | `layer:changes` | Switches between the changes only and the whole file. | v in the Flow view shows the whole file, with no changes marked | ADR-1403 D11 | Whole file |
+| `e.layer.changes` | e | `layer:changes` | Opens the configuration in your editor, and checks it when you return. | the TUI has no way to edit the file as text, and vtium config edit does it from a shell | ADR-1403 D11 | Edit as text |
+| `ctrl-s.layer.changes` | Ctrl-S | `layer:changes` | Opens Save's review. | s and i act in the file view | ADR-1403 D11 | Save |
+| `scroll.layer.changes` | Up, Down, PgUp, PgDn, Home, End, j, k, g, G, Ctrl-D, Ctrl-U | `layer:changes` | Scrolls, as the file view's keys do. | the file view's keys scroll the file view | ADR-1403 D11 | move |
+| `move.layer.problems` | Up, Down, PgUp, PgDn, Home, End | `layer:problems` | Moves through the problems. | no Problems list opens | ADR-1403 D11 | move |
+| `enter.layer.problems` | Enter, Click on a problem | `layer:problems` | Goes to the place of the problem: its tab and item, or its line of vtium.conf in Show changes' whole file, so you can fix it. | no Problems list opens | ADR-1403 D11 | Go to |
+| `esc.layer.problems` | Esc | `layer:problems` | Closes the list. | no Problems list opens | ADR-1403 D11 | Close |
+
+The interface tree's new nodes, in its columns. The `now` column of each says what the TUI does today:
+
+| id | parent | node | reach | leave | keys | now |
+|---|---|---|---|---|---|---|
+| `any.menu.file` | `any` | The File menu: New, Open, Undo, Redo, Save, Show changes, Edit as text, Revert to saved, History and Quit, with each item's letter and shortcut | Alt-F or F10 on a tab with nothing open, or a click on File | Esc, F10 or a click outside it closes it; Left and Right go to the Actions menu; Enter or an item's letter chooses an item | updown.layer.menu, leftright.layer.menu, esc.layer.menu, click-item.layer.menu, click-outside.layer.menu, enter.layer.menu, f10.layer.menu, letters.layer.menu.file, tab.layer, shift-tab.layer, ctrl-c.any | the tab bar shows the draft's actions, and s, i, r, n, v and o act on their own |
+| `any.menu.file.open` | `any.menu.file` | Open's submenu: the configurations, the open one marked, and Manage configurations… last | Right or Enter on Open | Left or Esc to any.menu.file; Enter opens the draft chosen and closes the menu | updown.layer.menu, leftright.layer.menu, esc.layer.menu, click-item.layer.menu, click-outside.layer.menu, enter.layer.menu.open, q.layer, tab.layer, shift-tab.layer, ctrl-c.any | the TUI lists no drafts, and vtium config draft list and draft switch do it from a shell |
+| `any.menu.file.history` | `any.menu.file` | History's submenu: the versions installed before, newest first | Right or Enter on History | Left or Esc to any.menu.file; Enter loads the version chosen and closes the menu | updown.layer.menu, leftright.layer.menu, esc.layer.menu, click-item.layer.menu, click-outside.layer.menu, enter.layer.menu.history, q.layer, tab.layer, shift-tab.layer, ctrl-c.any | o in the Flow view lists the installed history (flow.restore) |
+| `any.menu.actions` | `any` | The Actions menu: Try live, Read devices again, and Install as a system font, each greyed out with its reason where it cannot run | Alt-A on a tab with nothing open, or a click on Actions | Esc, F10 or a click outside it closes it; Left and Right go to the File menu; Enter or an item's letter chooses an item | updown.layer.menu, leftright.layer.menu, esc.layer.menu, click-item.layer.menu, click-outside.layer.menu, enter.layer.menu, f10.layer.menu, letters.layer.menu.actions, q.layer, tab.layer, shift-tab.layer, ctrl-c.any | t and d act on their own in the tabs that have them, and Enter on a font of your own asks whether to install it as a system font |
+| `any.problems` | `any` | The Problems list: each problem the check finds, in one line with where it is, as its tab and item or its line of vtium.conf | Alt-P on a tab with nothing open, or a click on the top row's problems count | Esc goes back; Enter or a click on a problem goes to its place | move.layer.problems, enter.layer.problems, esc.layer.problems, click-button.any, q.layer, tab.layer, shift-tab.layer, ctrl-c.any | the top row counts the problems, and each tab shows its own problems in place |
+| `any.save` | `any` | Save's review: the lines of vtium.conf that saving changes, the font sets and active fonts it changes, the problems the check reports, and where the change takes effect | Ctrl-S on a tab, File › Save, or Ctrl-S in any.changes | Ctrl-S or Enter saves through sudo and goes back to the tab; Esc goes back without saving | ctrl-s.layer.save, w.layer.save, esc.layer.save, scroll.layer.save, click-button.any, q.layer, tab.layer, shift-tab.layer, ctrl-c.any | i saves, then asks whether to install the draft, with how many lines it adds and removes |
+| `any.save.changed` | `any.save` | Save's review when /etc/vtium/vtium.conf changed on disk after the configuration was opened: that change beside yours, with Update, Overwrite and Revert | Ctrl-S while the installed file is no longer the draft's base, an installed file exists, and the draft's text is neither its base's nor the installed file's | u merges and goes to any.save, or to any.save.settle where both changed the same lines; o goes to any.save to save over the change; r asks any.question.confirm; Esc goes back to the tab | u.layer.save-changed, o.layer.save-changed, r.layer.save-changed, esc.layer.save, scroll.layer.save, click-button.any, q.layer, tab.layer, shift-tab.layer, ctrl-c.any | i refuses the draft and names vtium config diff and vtium config revert |
+| `any.changes` | `any` | Show changes: the configuration's changes against /etc/vtium/vtium.conf as hunks with line numbers, or the whole file | File › Show changes | Esc to the tab; e to any.editor; Ctrl-S to any.save | w.layer.changes, e.layer.changes, ctrl-s.layer.changes, esc.layer, scroll.layer.changes, click-button.any, q.layer, tab.layer, shift-tab.layer, ctrl-c.any | v in the Flow view shows the draft's whole vtium.conf, read-only, with no changes marked (flow.file) |
+| `any.editor` | `any` | Edit as text: your editor runs on a copy of the configuration while the TUI steps aside | File › Edit as text, or e in any.changes | when the editor exits, vtium-config checks the copy, asks any.question.edit-again if it finds problems, and goes back | - | the TUI has no such step, and vtium config edit runs it from a shell |
+| `any.question.edit-again` | `any` | The question after your editor left problems in the configuration: edit it again? | the editor exits and the check finds problems | y goes to any.editor; Esc and Ctrl-C keep the text and go back | y.question, esc.question, ctrl-c.question, q.question, tab.question, shift-tab.question, other.question, key-line.any | the TUI has no such question, and vtium config edit asks it in a shell |
+
+The tabs' nodes list the new rows that act on a tab with nothing open:
+
+| Node | Rows it gains |
+|---|---|
+| `fonts` | alt-f.view, alt-a.view, alt-tab.view, f10.view, ctrl-s.view, question.view, click-menu.view, click-tab.view, click-row.view, click-button.any, alt-p.view, click-facts.view |
+| `effects` | alt-f.view, alt-a.view, alt-tab.view, f10.view, ctrl-s.view, question.view, click-menu.view, click-tab.view, click-row.view, click-button.any, alt-p.view, click-facts.view |
+| `looks` | alt-f.view, alt-a.view, alt-tab.view, f10.view, ctrl-s.view, question.view, click-menu.view, click-tab.view, click-row.view, click-button.any, alt-p.view, click-facts.view |
+| `looks-resources` | alt-f.view, alt-a.view, alt-tab.view, f10.view, ctrl-s.view, question.view, click-menu.view, click-tab.view, click-row.view, click-button.any, alt-p.view, click-facts.view |
+| `settings` | alt-f.view, alt-a.view, alt-tab.view, f10.view, ctrl-s.view, question.view, click-menu.view, click-tab.view, click-row.view, click-button.any, alt-p.view, click-facts.view |
+| `help` | alt-f.view, alt-a.view, alt-tab.view, f10.view, ctrl-s.view, question.view, click-menu.view, click-tab.view, click-button.any, alt-p.view, click-facts.view |
+| `flow` | alt-f.view, alt-a.view, alt-tab.view, f10.view, ctrl-s.view, question.view.flow, click-menu.view, click-button.any, alt-p.view, click-facts.view |
+
+> Edited 2026-11-27, at the end of the night: the maintainer's notes on the catalog and the steering session's calls changed seven rows and three nodes of these lists. `question.view` read "Opens the Help tab on every key of this screen.", with the label keys. `enter.layer.menu.history` read "Loads the version you chose into the configuration as a change, which you save like any other. If the configuration holds changes that are not saved, it asks first." `enter.layer.menu.open` ended at "keeps the one that was open." `letters.layer.menu.file` had the letters n o s c e r h q, without Undo and Redo. `u.layer.save-changed` read "Lines that both of you changed come first, for you to settle." `o.layer.save-changed` was `w.layer.save-changed`, on `w`. The node `any.menu.file` listed no Undo or Redo, `any.menu.file.open` read "Open's submenu: the drafts, the current one marked", and `any.save.changed` sent `w` to any.save.
+
+> Edited 2026-11-27, after the mock-up catalog was accepted: the maintainer decided that a screen offers the search only where its node declares it (`considered`). `question.view` ended "Where the screen shows no list, does nothing.", and the node `flow` gained `question.view`, where it now gains `question.view.flow`.
+
+> Edited 2026-11-28: a fresh review of these lists, and the steering session's calls on it, changed eleven rows and seven nodes. `ctrl-z.view` and `ctrl-z.layer` read "Undoes the last change since the last save". `ctrl-f.layer` read "Does nothing here. Esc goes back to the tab, where Ctrl-F opens Find.", and `ctrl-f.layer.menu` was not there. `d.layer.manage` was the one Delete row, on `d`, labelled Delete…, and `delete.layer.manage` was not there. `ctrl-s.view.help` said that Ctrl-S does nothing on the Help tab, while File › Save works there, so it goes and the node `help` gains `ctrl-s.view`. `any.save` was reached by "Ctrl-S on a tab but Help". `any.save.changed` named no installed file, so a missing one, which is no conflict, met its reach. `any.search` was reached by "? on a screen that shows a list", and `any.find` by "Ctrl-F on a tab with nothing open". The list of rows that go named `r.view.flow`, `n.view.flow`, `v.view.flow` and `o.view.flow`, and left out the other rows of the file view and of Restore's list.
+
 ## The maintainer's answers
 
 The maintainer answered the draft's open questions on 2026-11-04 (`considered`):
@@ -1603,6 +2736,8 @@ Once the maintainer accepts this record, each passage below is edited in place w
 - `vtium config edit` lets a user edit the whole configuration in their own editor with the same check the TUI's changes get.
 - One draft holds every change the user makes, whichever tool made it, and the view and `vtium config flow` say how it stands against the installed file, so the user always knows which configuration they are looking at and what `install` will install.
 - The seat file's second layer of the same keys goes, so a key has one place at each level.
+- One flow takes every change, of whatever kind, to `/etc/vtium/vtium.conf`: the draft holds it at once, Save's review shows it, and sudo asks once. A person who knows a word processor or an editor knows the steps (added 2026-11-27, D11).
+- A file changed on disk no longer stops a save in the TUI: the review shows the other change and offers Update, Overwrite or Revert (added 2026-11-27, D8).
 
 ### Negative
 
@@ -1615,6 +2750,10 @@ Once the maintainer accepts this record, each passage below is edited in place w
 - While two builds share `/etc/vtium/vtium.conf`, a build older than this change misreads a section's `login` and a look's font lines.
 - The view watches device events while it is open, so vtium-config gains an event source of its own, and what it shows can move while the user reads it; the selection and the opened component stay put, and the status line names each change.
 - The flow view brings color into vtium-config, which needs a rule for terminals without color and one screen for a terminal below its minimum.
+- Overwrite lets a person replace a change someone else made to the installed file, once the review has shown it. History keeps the replaced file (added 2026-11-27, D8).
+- A half-finished change sits in the draft on disk, where Save once kept it in memory until the person chose. A person who wants it gone reverts to saved (added 2026-11-27, D11).
+- Alt and a letter reach the menus and the tabs only in a terminal that sends Alt as ESC and the key. Elsewhere F10, a click and the digits reach them (added 2026-11-27, D11).
+- Each draft keeps its base's text as well as its hash, a second copy of an installed file in the person's home (added 2026-11-27, D8).
 
 ### Neutral
 

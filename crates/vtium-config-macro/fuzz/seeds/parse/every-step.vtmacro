@@ -1,0 +1,19 @@
+Set Live
+# a comment
+
+Esc
+Ctrl+Alt+Shift+F12 3
+Type 'say "hi"'
+Click "Save"
+Click Mouse "Save"
+Expect "11 pt"
+Expect Not "problems"
+Expect At looks.look
+Expect Saved
+Expect Unsaved
+Expect Exited 0
+Sleep 500ms
+Sleep 2s
+Screenshot after-save
+q
+Ctrl++
