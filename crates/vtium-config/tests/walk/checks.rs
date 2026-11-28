@@ -230,6 +230,7 @@ fn bar(t: &Tables, sim: &Sim, rows: &[String]) -> Result<(), String> {
         .iter()
         .map(|b| b.label.to_lowercase())
         .collect();
+    let ids: BTreeSet<&str> = layout.bar.buttons.iter().filter_map(|b| b.action).collect();
     let history = app.shared().documents.history();
     if !sheet && let Some(n) = t.node(node) {
         for row in t
@@ -247,7 +248,10 @@ fn bar(t: &Tables, sim: &Sim, rows: &[String]) -> Result<(), String> {
             } else {
                 !CONDITIONAL.contains(&row.id.as_str())
             };
-            if step && !labels.contains(&row.label.to_lowercase()) {
+            // a tab may name the button its own way, as Deactivate on an
+            // active font, so the button's row counts as well as its label
+            let shown = ids.contains(row.id.as_str()) || labels.contains(&row.label.to_lowercase());
+            if step && !shown {
                 return Err(format!(
                     "the action bar of {node} leaves out the labelled row {} ([{}] {}), neither on the bar nor behind [.] More",
                     row.id, row.key, row.label
@@ -475,12 +479,12 @@ const KNOWN: [(&str, &str); 4] = [
         "vtium-config-tab-flow moves between a detail and its choices, and into a label or a name being typed, with no Request::Open or Close, so the shell looks each key up in the wrong node and q quits while a name is typed",
     ),
     (
-        "gives such a syllable two cells, so கொ",
-        "F1's sheet of the Settings key cluster-width holds கொ, which the buffer draws in two cells and unicode-width measures as one, so the row is a column short of the screen",
+        "கொ",
+        "the Settings key cluster-width's help holds கொ, which the buffer draws in two cells and unicode-width measures as one, so F1's sheet and Find's match of it read a column short of the screen",
     ),
     (
-        "offers the row question.layer, and its key changes nothing",
-        "the action bar shows [?] Search on levels whose node names no search fields, where ? does nothing; ADR-1403 D11 says only a screen whose node declares the search shows it",
+        "offers the row question.layer",
+        "the action bar shows [?] Search on levels whose node names no search fields, and on list boxes with no more choices than they show, where ? does nothing; ADR-1403 D11 says only a screen that offers the search shows it",
     ),
 ];
 
