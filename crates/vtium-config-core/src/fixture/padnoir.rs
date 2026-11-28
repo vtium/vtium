@@ -100,5 +100,29 @@ pub fn shared() -> Shared {
         });
     let mut shared = super::machine(NAME, DRAFT, INSTALLED, frits(), desk, present());
     shared.found = super::found::padnoir();
+    let reads = super::reads(&shared.found);
+    shared.read_fonts(reads);
     shared
+}
+
+/// Records on `shared` what `vtium check-config` finds in workstation as
+/// the fixture holds it: the font set proof needs JetBrains Mono, which
+/// the machine lacks, a warning that leaves Save working.
+pub fn checked(shared: &mut Shared) {
+    use vtium_settings::fonts_report::{Named, missing};
+    let shown = super::shown(NAME);
+    let line = DRAFT
+        .lines()
+        .position(|l| l == "font-name = proof")
+        .map_or(0, |i| i.saturating_add(1));
+    let checked = crate::drafts::Checked {
+        verdict: crate::drafts::Verdict::MissingFonts,
+        problems: vec![format!(
+            "{}:{line}: {}",
+            shown.display(),
+            missing("proof", "JetBrains Mono", Named::ByName)
+        )],
+        notes: Vec::new(),
+    };
+    shared.checked(checked, shown);
 }
