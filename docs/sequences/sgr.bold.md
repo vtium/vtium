@@ -26,8 +26,8 @@ SGR 0, and SGR with no parameter, return the pen to its defaults: no attribute s
 
 These tests check what vtium does with the sequences on this page.
 
-- `style_asks_are_answered_in_their_style` in [crates/vtium-config/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/tests/style.rs)
-- `synthetic_bold_emboldens_an_outline_from_side_to_side` in [crates/vtium-config/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/tests/style.rs)
+- `style_asks_are_answered_in_their_style` in [crates/vtium-font-helper/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font-helper/tests/style.rs)
+- `synthetic_bold_emboldens_an_outline_from_side_to_side` in [crates/vtium-font-helper/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font-helper/tests/style.rs)
 - `a_sets_bold_italic_comes_from_its_regular_strike` in [crates/vtium-font/tests/italic.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/tests/italic.rs)
 - `bold_italic_widens_inside_the_cell_before_it_leans` in [crates/vtium-font/tests/italic.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/tests/italic.rs)
 - `bold_italic_widens_then_leans` in [crates/vtium-font/tests/italic.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/tests/italic.rs)

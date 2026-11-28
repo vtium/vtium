@@ -26,10 +26,10 @@ vtium draws italic text in the font's italic face. A font without one, such as a
 
 These tests check what vtium does with the sequences on this page.
 
-- `a_bitmap_box_passes_the_right_edge_and_stays_inside_a_chunk` in [crates/vtium-config/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/tests/style.rs)
-- `style_asks_are_answered_in_their_style` in [crates/vtium-config/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/tests/style.rs)
-- `synthetic_italic_slants_an_outline_by_a_fifth_about_the_baseline` in [crates/vtium-config/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/tests/style.rs)
-- `the_helper_shears_a_bitmap_as_vtium_font_does` in [crates/vtium-config/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-config/tests/style.rs)
+- `a_bitmap_box_passes_the_right_edge_and_stays_inside_a_chunk` in [crates/vtium-font-helper/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font-helper/tests/style.rs)
+- `style_asks_are_answered_in_their_style` in [crates/vtium-font-helper/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font-helper/tests/style.rs)
+- `synthetic_italic_slants_an_outline_by_a_fifth_about_the_baseline` in [crates/vtium-font-helper/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font-helper/tests/style.rs)
+- `the_helper_shears_a_bitmap_as_vtium_font_does` in [crates/vtium-font-helper/tests/style.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font-helper/tests/style.rs)
 - `a_scaled_psf_glyph_leans_by_twice_the_pixels` in [crates/vtium-font/tests/italic.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/tests/italic.rs)
 - `an_8x16_psf_glyph_leans_2_1_and_0` in [crates/vtium-font/tests/italic.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/tests/italic.rs)
 - `from_16_pixels_a_letters_last_rows_lean_together` in [crates/vtium-font/tests/italic.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-font/tests/italic.rs)

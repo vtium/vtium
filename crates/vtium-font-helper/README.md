@@ -10,7 +10,7 @@ Fonts, frits and the files they name are untrusted input. Every decoder lives he
 |---|---|
 | `src/frit.rs` | Frits in vtium.conf's line syntax, read strictly. |
 | `src/sources.rs` | Each source, found and read: kbd names as `setfont` finds them, files, vconsole.conf and the kernel command line, the kernel's VT font behind the `Consoles` seam, and the built-ins. The `Gate` that lets the console's helper read only the active fonts. |
-| `src/child.rs` | The parser's child process, `--parse`: its limits and the request it reads. Its parent's side lives in vtium-config's `tests/common/parser.rs`. `preview`, `fonts` and the TUI reach fonts through the helper, `serve`, under its own sandbox. |
+| `src/child.rs` | The parser's child process, `--parse`: its limits and the request it reads. Its parent's side lives in `tests/common/parser.rs`. `preview`, `fonts` and the TUI reach fonts through the helper, `serve`, under its own sandbox. |
 | `src/describe.rs` | What a font file is, as the font helper reads it in its sandbox: each face's family, style and version, bitmap or outline, monospaced or not, the scripts its character map covers, its groups, its bitmap strikes and its coverage. Also the bounded frame that carries the description, and its decoder, which replaces control characters in names. |
 | `src/decode.rs` | The decoders that the helper and the parser run: compressions told apart by their magic, gzip, PSF through vtium-font's reader, the font of a CPI file that `cp-size=` takes, and kbd unimaps. |
 | `src/bdf.rs` | vtium-config's own BDF reader. It gives a `bdf:` source's glyphs at the font's own cell. |
@@ -35,7 +35,19 @@ Fonts, frits and the files they name are untrusted input. Every decoder lives he
 | `src/needs.rs` | The helper's match of each font it finds against what the frit says the source needs: `check=`, `version=` and `sha256=`. |
 | `src/lib.rs` | The crate's modules and its lints. |
 | `src/scratch.rs` | A unit test's own temporary directory, removed when the test ends. vtium-config keeps a copy for its own unit tests. |
-| `tests/fixtures/` | Copies of the font subsets in vtium-config's `tests/fixtures/` that this crate's unit tests read, with their licences. That directory's README says how each subset was made. |
+| `tests/engine.rs` | The helper's engine on each source form, decoder and shipped frit, with fonts, a kbd tree and font directories generated in the test. |
+| `tests/parser.rs`, `tests/common/parser.rs` | The parser's child as its parent runs it, through the parent's side in `tests/common/parser.rs`, of which vtium-config keeps a copy. A child fails its source when it dies, fails, answers badly, overruns its deadline or floods stderr. The child holds an empty environment and only its pipes. A child that leaves a process holding its stdout is reaped as it exits, and that process is ended with it. |
+| `tests/accents.rs` | Accented capitals in DejaVu Sans Mono keep their whole accents at 16- and 32-pixel cells, and a precomposed capital and its decomposed sequence draw alike. |
+| `tests/blocks.rs` | Block elements and box lines from an outline font fill their character cell exactly, whatever the font's vertical metrics. |
+| `tests/color_strikes.rs` | Damaged and unusual color bitmap strikes, none of which hangs the helper, panics in it or makes it allocate past its memory limit. |
+| `tests/glyph_bound.rs` | Fonts that scale a glyph to tens of thousands of pixels, whose glyph the helper draws as empty. |
+| `tests/script.rs`, `tests/script_sizes.rs` | Superscript and subscript asks: the outline, color and bitmap glyphs made small, and the glyphs taken from a smaller size of a bitmap source. |
+| `tests/style.rs` | Style asks: bold, italic and bold italic from the frit's own faces, or synthesised from the regular glyph. |
+| `tests/separators.rs` | Powerline separators from a merged symbol font meet the segment beside them at every text height. |
+| `tests/pointer_file.rs` | vtium's shipped pointer file, `crates/vtium/install/pointers.svg`, against the pointer file reference, with each of its symbols drawn. |
+| `tests/indic_sizes.rs` | A measurement, ignored by default, of how the helper draws the Indic font set's clusters at 32 pixels with the Noto fonts in tier 2's font cache. For each cluster, it prints the ink as the helper draws it, beside the cluster drawn with each of the helper's rules added in turn, so the rule that changes a glyph shows. Run it with `cargo test -p vtium-font-helper --test indic_sizes -- --ignored --nocapture`. |
+| `tests/doubled_timing.rs` | A measurement, ignored by default, of how long the engine takes to draw a screen of text at each double size. |
+| `tests/fixtures/` | The font subsets that this crate's tests read, with their licences. The README says how each subset was made. vtium-config's `tests/fixtures/` keeps copies of three of them for its own tests. |
 | `tests/harfbuzz/` | A copy of vtium-config's `tests/harfbuzz/`: HarfBuzz's shaping tests of syllabic scripts on subsets of Noto fonts, copied from HarfRust, which judge the shaper in `src/shaping/harfbuzz.rs`. Its README says where they come from, and `differs.tsv` lists the 9 cases that the helper cannot draw as HarfBuzz does, with each reason. |
 | `fuzz/` | The fuzz targets, in a workspace of their own (`fuzz/README.md`). `make fuzz FUZZ_TARGETS=vtium-font-helper:TARGET` runs one. `shape` drives clusters through the shaper and the rasteriser. `bdf` drives any bytes through the BDF reader, and `hex` through the `.hex` reader. `serve` drives any bytes through the glyph helper's request parser. `names` drives a font's bytes through the name-table reader that finds a font by its family and the reader of a face's version, `frit` drives any bytes through the frit reader, and `describe` through the description of a font file. `xcursor` and `pointer_svg` drive a cursor file and an SVG pointer file through their readers. |
 
@@ -80,7 +92,7 @@ A frit and every source file are opened once, never blocking on a FIFO. Each is 
 | A console font | 32 pixels wide, 64 high, 512 glyphs | The source is refused |
 
 
-`cargo test -p vtium-font-helper` runs the crate's unit tests. vtium-config's integration tests drive the helper further, through its binary.
+`cargo test -p vtium-font-helper` runs the crate's unit tests and the integration tests that call its modules directly. vtium-config's integration tests drive the helper further, through its binary.
 
 References:
 - ADR-1200: why vtium generates its glyphs at run time, in a sandboxed helper, from a frit.

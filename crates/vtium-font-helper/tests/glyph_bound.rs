@@ -12,10 +12,10 @@
 //! whose W is past the bound gives no cell width, so its source fails
 //! rather than take a cell that its glyphs draw nothing in.
 
-use vtium_config::frit::Hinting;
-use vtium_config::names::sound;
-use vtium_config::outline::{Outline, OutlineRequest, cell_width, rasterise};
 use vtium_font::CELL_SIDE_MAX;
+use vtium_font_helper::frit::Hinting;
+use vtium_font_helper::names::sound;
+use vtium_font_helper::outline::{Outline, OutlineRequest, cell_width, rasterise};
 use vtium_testfont::ttf::{self, Glyph};
 
 const DEJAVU: &[u8] = include_bytes!("fixtures/DejaVuSansMono-ascii.ttf");

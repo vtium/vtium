@@ -12,11 +12,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use vtium_config::serve::{
-    ASK, Engine, FRAME_DONE, FRAME_GLYPHS, FritText, OwnCell, Paths, ServeRequest, serve,
-};
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face, Glyph, Psf, Style};
+use vtium_font_helper::serve::{
+    ASK, Engine, FRAME_DONE, FRAME_GLYPHS, FritText, OwnCell, Paths, ServeRequest, serve,
+};
 
 const REGULAR: Style = Style {
     bold: false,
