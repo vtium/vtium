@@ -1709,7 +1709,6 @@ dependencies = [
  "libc",
  "lzma-rust2",
  "miniz_oxide",
- "nix",
  "proptest",
  "proptest-state-machine",
  "ratatui-core",
@@ -1718,6 +1717,7 @@ dependencies = [
  "rustix",
  "ruzstd",
  "skrifa",
+ "vtium-config-core",
  "vtium-config-widgets",
  "vtium-devices",
  "vtium-font",
@@ -1728,6 +1728,22 @@ dependencies = [
  "vtium-term",
  "vtium-testfont",
  "vtium-testscript",
+]
+
+[[package]]
+name = "vtium-config-core"
+version = "0.1.0-alpha.12"
+dependencies = [
+ "nix",
+ "rustix",
+ "vtium-config-widgets",
+ "vtium-devices",
+ "vtium-font",
+ "vtium-font-helper",
+ "vtium-platform",
+ "vtium-render",
+ "vtium-settings",
+ "vtium-term",
 ]
 
 [[package]]

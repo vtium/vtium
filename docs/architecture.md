@@ -32,10 +32,18 @@ vtium-config (binary)   the configuration tool and the glyph helper: the drafts,
 ├── vtium-config-widgets   the TUI's toolkit: its Backend, its rows of styled text, its colors, the shared list and the decoder of keys and replies
 │   ├── vtium-font       the superscript and subscript a style carries
 │   └── vtium-term       the terminal's cluster width rule
+├── vtium-config-core   the configuration and the commands: the drafts, the store, the installs, the flow, the font scan and the specimens
+│   ├── vtium-font-helper
+│   ├── vtium-config-widgets
+│   ├── vtium-devices
+│   ├── vtium-font
+│   ├── vtium-platform
+│   ├── vtium-render     (feature `filters`) the frame filters' color tables for a look's specimen
+│   ├── vtium-settings
+│   └── vtium-term       the console's named palettes
 ├── vtium-devices
 ├── vtium-font
 ├── vtium-platform
-├── vtium-render     (feature `filters`) the frame filters' color tables for the Effects tab's preview
 ├── vtium-settings
 └── vtium-term       the terminal's cluster width rule and its palettes
 

@@ -49,14 +49,14 @@ vtium-font-helper.workspace = true
 # shared list and its decoder of keys and replies, which the TUI's `tui`
 # module re-exports.
 vtium-config-widgets.workspace = true
+# The configuration and the commands: the drafts, the store, the active
+# resources, the installs and the flow, which the command line and the TUI
+# call and this crate re-exports at its root.
+vtium-config-core.workspace = true
 # Opening a file without following a link, the
-# effective uid, `set`'s raw mode, and the terminal's width for the
-# banner; vtium-platform already builds this version with these features.
+# effective uid, and `set`'s raw mode; vtium-platform already builds this
+# version with these features.
 rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "process", "system", "termios", "thread"] }
-# The frame filters' color tables of the crate the console draws with,
-# which the Effects tab's preview draws a picture of the console through,
-# as the console's CPU path draws a frame.
-vtium-render = { workspace = true, features = ["filters"] }
 
 # The TUI's layout, buffer of cells, styled text and Terminal, and its
 # lists, tabs and paragraphs. Only their `std` feature, and no backend
@@ -64,11 +64,6 @@ vtium-render = { workspace = true, features = ["filters"] }
 # its loop writes. The two crates are released together and move together.
 ratatui-core = { version = "=0.1.2", default-features = false, features = ["std"] }
 ratatui-widgets = { version = "=0.3.2", default-features = false, features = ["std"] }
-
-# The user database's lookup of the name doas hands apply in DOAS_USER
-# (getpwnam), safe; the version calloop already builds, with its `user`
-# feature, in this binary only.
-nix = { version = "=0.31.3", default-features = false, features = ["user"] }
 
 [dev-dependencies]
 # A pty for `set`'s and the banner's tests; vtium-platform already builds
@@ -90,6 +85,9 @@ skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
 harfrust = { version = "=0.12.0", default-features = false, features = ["std"] }
 roxmltree = "=0.21.1"
 libc = "=0.2.191"
+# The pointer file's size bound, which tests/pointer_file.rs builds its
+# files against.
+vtium-render.workspace = true
 # The TrueType test font writer the tests build their outline fonts with,
 # which tier 2's ink test font shares (vtium/vtium#339).
 vtium-testfont = { path = "../../tools/testfont" }

@@ -2,12 +2,12 @@
 element	file	symbol
 you, at a terminal: vtium config runs as you, and refuses root but for apply	crates/vtium-config/src/cli.rs	root_refusal
 vtium config preview draws a sample of each font, and writes nothing	crates/vtium-config/src/preview.rs	command
-transition you pick fonts: preview names the fonts new-frit takes	crates/vtium-config/src/commands.rs	name_from
-vtium config new-frit makes a font set of the fonts you name	crates/vtium-config/src/commands.rs	frit_from
-vtium config new-frit --template prints a frit with each key explained	crates/vtium-config/src/commands.rs	TEMPLATE
-vtium config new-frit --from takes a file you wrote from its template	crates/vtium-config/src/commands.rs	new
+transition you pick fonts: preview names the fonts new-frit takes	crates/vtium-config-core/src/commands.rs	name_from
+vtium config new-frit makes a font set of the fonts you name	crates/vtium-config-core/src/commands.rs	frit_from
+vtium config new-frit --template prints a frit with each key explained	crates/vtium-config-core/src/commands.rs	TEMPLATE
+vtium config new-frit --from takes a file you wrote from its template	crates/vtium-config-core/src/commands.rs	new
 by hand: the file you write is read as strictly as any frit	crates/vtium-font-helper/src/frit.rs	FritError
-transition installing it asks for sudo once	crates/vtium-config/src/apply.rs	Route::Sudo
+transition installing it asks for sudo once	crates/vtium-config-core/src/apply.rs	Route::Sudo
 the frit: the directory of frits, /etc/vtium/fonts/	crates/vtium/src/font.rs	frits
 the frit: NAME.vtfrit	crates/vtium/src/font/frits.rs	frit
 the frit names the sources in order	crates/vtium-font-helper/src/frit.rs	Frit
@@ -31,9 +31,9 @@ the font helper runs in a sandbox	crates/vtium-font-helper/src/serve/sandbox.rs	
 the font helper exits when it has nothing to do	crates/vtium-font-helper/src/serve.rs	HELPER_IDLE_MS
 vtium starts a crashed font helper again a limited number of times per boot	crates/vtium/src/helper.rs	RESTARTS_MAX
 font files: the directories where the font helper finds installed fonts	crates/vtium/src/helper/launcher.rs	font_dirs
-your session: vtium config use-frit NAME	crates/vtium-config/src/switch.rs	command
-use-frit switches to another font set or to a built-in font	crates/vtium-config/src/switch.rs	known
-transition OSC 50, through the pty	crates/vtium-config/src/switch.rs	switch
+your session: vtium config use-frit NAME	crates/vtium-config-core/src/switch.rs	command
+use-frit switches to another font set or to a built-in font	crates/vtium-config-core/src/switch.rs	known
+transition OSC 50, through the pty	crates/vtium-config-core/src/switch.rs	switch
 vtium takes the font that OSC 50 names	crates/vtium-term/src/terminal.rs	Terminal::take_font_request
 vtium switches the console to that font	crates/vtium/src/app/fonts.rs	App::switch_font
 while allow-font-ops is on, as it is by default	crates/vtium-settings/src/keys.rs	key allow-font-ops
