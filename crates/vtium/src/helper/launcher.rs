@@ -87,7 +87,7 @@ pub struct Launcher {
 /// the whole request over one path that is not absolute UTF-8, holds a NUL
 /// byte or is too long, and then exits, so such a path is left out here
 /// and the other active fonts still reach the helper. The paths stop
-/// before they would pass the helper's bound, which a batch file within
+/// before they would pass the helper's bound, which a merged batch within
 /// its own bound never reaches.
 pub(super) fn active_request(owner: u32, batch: &Batch) -> Vec<u8> {
     let mut paths = Vec::new();

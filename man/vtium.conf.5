@@ -218,7 +218,7 @@ The query reports the name of the font on screen: the name of a font set or of a
 .IP
 When off, vtium ignores OSC 50, queries included.
 .IP
-The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when \fBbatch.conf\fR lists it and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See Active fonts <https://vtium.github.io/vtium/fonts/#active-fonts>.
+The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when it is active, because \fBbatch.conf\fR or a list in \fB/usr/share/vtium/batch.d\fR or \fB/etc/vtium/batch.d\fR names it, and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See Active fonts <https://vtium.github.io/vtium/fonts/#active-fonts>.
 .IP
 vtium reads a font set only when root owns it and no other user can change it or a folder above it.
 .IP
@@ -1267,7 +1267,7 @@ It takes a number in %: 1 to 100; vtium clamps a number outside that range. Defa
 .IP
 Set it in the top level or a \fB[look NAME]\fR section, or on vtium's command line with \fB\-\-login\-image\-scale=VALUE\fR.
 .SS "Running vtium"
-Where vtium finds its configuration, its log, the font helper that draws a font's characters, the helpers' sandbox, and the character cache.
+Where vtium finds its configuration, its log, the font helper that draws a font's characters, the helpers' sandbox, the character cache, and vtium-config's live macro runs.
 .TP
 \fBdebug\fR
 Log debug messages too, to help find what went wrong. When off, vtium logs information messages, warnings and errors.
@@ -1306,6 +1306,17 @@ How much memory vtium uses to cache drawn characters. When unset, \fBminspec\fR 
 It takes one of \fBminspec\fR, \fBperformance\fR. Default: unset.
 .IP
 Set it in the top level, or on vtium's command line with \fB\-\-glyph\-cache=VALUE\fR.
+.TP
+\fBallow-macro-live\fR
+Let \fBvtium\-config tui \-\-macro FILE \-\-live\fR play a macro on the real configuration and run its real commands.
+.IP
+vtium itself ignores the key. vtium-config reads it from the installed \fB/etc/vtium/vtium.conf\fR, under the same owner and mode check that vtium applies to that file, and never from a draft, an option or the environment, so a person who cannot change vtium.conf cannot lift the lock.
+.IP
+When off, \fB\-\-live\fR refuses with one line that names the key and the file, and the macro does not run. A macro played without \fB\-\-live\fR runs on a scratch copy of the configuration and changes nothing, so the key does not stop it. A vtium.conf that vtium-config cannot read under the check also stops live runs. It is on by default.
+.IP
+It takes a switch, on or off. Default: on.
+.IP
+Set it in the top level, or on vtium's command line with \fB\-\-allow\-macro\-live\fR and \fB\-\-no\-allow\-macro\-live\fR.
 .SH SECTIONS
 A look is a font and its size. A head is a screen: one or more displays that show the same consoles, with the input devices that type into them. The rules send each display and each input device to a head. The policy decides what happens to a device that no rule names.
 .PP

@@ -264,17 +264,22 @@ fn pointer_file_findings(
 }
 
 /// What check-config says of the batch file, the list of active fonts,
-/// color schemes, effects and pointer themes: the first list counts
-/// against the file, and the second is notes. A missing file is a note
+/// color schemes, effects and pointer themes, and of the lists in the
+/// packages' folder and in root's: the first list counts against the
+/// configuration, and the second is notes. A missing batch file is a note
 /// that says what vtium uses in its place and how to create the file. A
 /// file vtium cannot use, because it fails the owner and mode check, is
 /// too large or cannot be read, counts, and so does each line vtium
-/// ignores. Each finding reads as the console's log writes it. When vtium
-/// ignores more lines than it lists, the line that counts the rest comes
-/// last.
+/// ignores. When vtium ignores more lines of the batch file than it lists,
+/// the line that counts the rest comes after its findings. Each finding of
+/// the lists counts too, after the batch file's: a list vtium refuses, one
+/// past the count of a folder or past the merged batch's bound, and each
+/// line of a list vtium ignores. Each finding reads as the console's log
+/// writes it, a finished sentence that names the file first.
 ///
 /// References:
 /// - ADR-1205 D4, its notes of 2026-11-18 and 2026-11-19: check-config says the batch file is missing and how to create it, and names a file vtium ignores and why.
+/// - ADR-1205 D4, as amended on 2026-11-27: check-config names each list vtium refuses or leaves out, and each line of a list it ignores.
 pub(super) fn batch_findings(read: &vtium_settings::batch::Read) -> (Vec<String>, Vec<String>) {
     use vtium_settings::batch::Finding;
     let (mut counted, mut notes) = (Vec::new(), Vec::new());
@@ -285,6 +290,7 @@ pub(super) fn batch_findings(read: &vtium_settings::batch::Read) -> (Vec<String>
         }
     }
     counted.extend(read.more_line());
+    counted.extend(read.list_findings.iter().map(ToString::to_string));
     (counted, notes)
 }
 

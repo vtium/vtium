@@ -1518,7 +1518,7 @@ pub const ALLOW_FONT_OPS: Key = Key {
            [docs] `vtium-config use-frit NAME` switches the font with the same sequence.\n\n\
            [docs] The query reports the name of the font on screen: the name of a font set or of a built-in font. A font that `font-name` gives as a file's path or as a font family is reported by that path or by the family's name. A program can send the reported name back to return to that font.\n\n\
            When off, vtium ignores OSC 50, queries included.\n\n\
-           [docs] The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when `batch.conf` lists it and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See [Active fonts](fonts.md#active-fonts).\n\n\
+           [docs] The key is on by default. A program can choose an installed font set, a built-in font, the font its console started in, or a font file that root installed and activated. vtium takes such a file only when it is active, because `batch.conf` or a list in `/usr/share/vtium/batch.d` or `/etc/vtium/batch.d` names it, and the file sits in a folder that vtium searches for fonts. Root must own that folder, and only root may change it or a folder above it. See [Active fonts](fonts.md#active-fonts).\n\n\
            [docs] vtium reads a font set only when root owns it and no other user can change it or a folder above it.",
 };
 
@@ -1549,6 +1549,18 @@ pub const ALLOW_DISPLAY_OPS: Key = Key {
            vtium takes the display back at setForeground from the same console, when that console's session ends, when you switch away from vtium's VT and back, or when vtium restarts.\n\n\
            When off, vtium ignores both sequences. It is on by default.\n\n\
            [docs] When a seat manager, logind or seatd, gives vtium its seat, vtium ignores setBackground and logs that it did. A graphical program then runs in a session of its own on another VT.",
+};
+
+pub const ALLOW_MACRO_LIVE: Key = Key {
+    name: "allow-macro-live",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    what: "Let `vtium-config tui --macro FILE --live` play a macro on the real configuration and run its real commands.\n\n\
+           [docs] vtium itself ignores the key. vtium-config reads it from the installed `/etc/vtium/vtium.conf`, under the same owner and mode check that vtium applies to that file, and never from a draft, an option or the environment, so a person who cannot change vtium.conf cannot lift the lock.\n\n\
+           [docs] When off, `--live` refuses with one line that names the key and the file, and the macro does not run. A macro played without `--live` runs on a scratch copy of the configuration and changes nothing, so the key does not stop it. A vtium.conf that vtium-config cannot read under the check also stops live runs. It is on by default.",
 };
 
 pub const GLYPH_SOURCE: Key = Key {
@@ -2131,7 +2143,7 @@ pub const LOGIN_IMAGE_SCALE: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 143] = [
+pub static KEYS: [Key; 144] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2248,6 +2260,7 @@ pub static KEYS: [Key; 143] = [
     ALLOW_FONT_OPS,
     ALLOW_WINDOW_OPS,
     ALLOW_DISPLAY_OPS,
+    ALLOW_MACRO_LIVE,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
     GLYPH_SOURCE_BLOCK,
@@ -2623,7 +2636,7 @@ pub const SECTIONS: [Section; 11] = [
     },
     Section {
         title: "Running vtium",
-        about: "Where vtium finds its configuration, its log, the font helper that draws a font's characters, the helpers' sandbox, and the character cache.",
+        about: "Where vtium finds its configuration, its log, the font helper that draws a font's characters, the helpers' sandbox, the character cache, and vtium-config's live macro runs.",
         groups: &[
             Group {
                 title: "Command line",
@@ -2644,6 +2657,10 @@ pub const SECTIONS: [Section; 11] = [
             Group {
                 title: "Character cache",
                 keys: &[&GLYPH_CACHE],
+            },
+            Group {
+                title: "Live macro runs in vtium-config",
+                keys: &[&ALLOW_MACRO_LIVE],
             },
         ],
     },

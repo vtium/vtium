@@ -497,7 +497,8 @@ pub(super) const EXAMPLE_MAX: usize = 49_152;
 /// file's path used 15 bytes, which leaves 1,309. `scroll-draw` (ADR-1310
 /// D6) used 529 bytes, which leaves 780. `smooth-scroll` and `partial-row`
 /// (ADR-1310 D7 and D12) used 249 bytes, which leaves 531.
-const EXAMPLE_ROOM: usize = 531;
+/// `allow-macro-live` (ADR-1208 D5) used 249 bytes, which leaves 282.
+const EXAMPLE_ROOM: usize = 282;
 
 #[cfg(test)]
 #[expect(

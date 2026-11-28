@@ -11,7 +11,18 @@
 //! A line holds one absolute path. A line that starts with `#` is a
 //! comment, blank lines are allowed, and spaces around a path are
 //! dropped. vtium ignores a line that does not hold an absolute path
-//! without `..` and without a NUL byte, and reports it.
+//! without `..` and without a NUL byte, and reports it. A line of `-`
+//! followed by an absolute path turns that path off: it is not active,
+//! whichever list names it, the batch file's own lines included.
+//!
+//! A package can install a list of the resources it activates, in the
+//! same format but without `-` lines, as `NAME.conf` in the packages'
+//! list folder, `/usr/share/vtium/batch.d`. Root turns a package's list
+//! off, or replaces it, with an entry of the same name in
+//! `/etc/vtium/batch.d`, and keeps lists of its own there. The lists only
+//! add to the batch file, or to the list of a fresh install in its
+//! place, up to [`MERGED_BATCH_MAX`] bytes of paths in all. The `lists`
+//! module reads them.
 //!
 //! When the batch file is missing, as on a machine upgraded from an
 //! earlier vtium, the batch is the list of a fresh install:
@@ -19,14 +30,16 @@
 //! file fails the owner and mode check or is too large, because a batch
 //! that anyone else could have written says nothing about what root
 //! chose. The built-in font is always active and never appears in the
-//! file. [`Batch::holds`] answers whether a path is in the batch.
+//! file. [`Batch::holds`] answers whether a path is in the batch, and
+//! [`Batch::origin`] says which file activates it.
 //!
 //! References:
 //! - ADR-1205 D4: the batch, its file, the fresh-install list, the note of 2026-11-18 on a missing file, and the note of 2026-11-19 on where the console font is found and on a batch file vtium cannot use.
+//! - ADR-1205 D4, as amended on 2026-11-27: the packages' lists, the folder in /etc that turns one off, and the `-` line that turns one path off.
 //! - ADR-1205 D10: the palettes the package ships are active from the first start.
 //! - ADR-1401 D10: the owner and mode check the batch file passes, as vtium.conf does.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
@@ -36,8 +49,12 @@ use crate::error::{Problem, Untrusted};
 
 pub use crate::bounds::BATCH_MAX;
 
+mod lists;
 mod vconsole;
+pub use lists::{Folder, List, ListFile, ListFinding, ListState};
 pub use vconsole::{Vconsole, vconsole};
+
+pub use crate::bounds::{LISTS_MAX, MERGED_BATCH_MAX};
 
 /// The batch file, set at build time with `VTIUM_BATCH`.
 pub const BATCH_FILE: &str = match option_env!("VTIUM_BATCH") {
@@ -80,6 +97,13 @@ pub const FRESH_FONTS: [&str; 21] = [
     "CulletMono-Regular.ttf",
     "CulletMono-Bold.ttf",
 ];
+
+/// The name of the folder that holds lists of active resources: beside
+/// the package's font folder, as `/usr/share/vtium/batch.d`, for the
+/// packages' lists, and beside the batch file, as `/etc/vtium/batch.d`, for
+/// root's. Both follow the build's settings: [`PACKAGE_FONTS`] with
+/// `VTIUM_PACKAGE_FONTS`, and [`BATCH_FILE`] with `VTIUM_BATCH`.
+pub const LISTS_FOLDER: &str = "batch.d";
 
 /// The longest line vtium reads as a path: `PATH_MAX`, the longest path
 /// the kernel takes, with its terminating zero.
@@ -137,6 +161,9 @@ pub enum LineFault {
     NotUtf8,
     /// The line holds a NUL byte, which no file's path can hold.
     Nul,
+    /// The line turns a path off with `-` in a list other than the batch
+    /// file, where it has no effect.
+    OffInList,
 }
 
 impl fmt::Display for LineFault {
@@ -149,6 +176,7 @@ impl fmt::Display for LineFault {
             LineFault::TooLong => "This line is longer than the longest path Linux takes",
             LineFault::NotUtf8 => "This line is not UTF-8 text",
             LineFault::Nul => "This line holds a NUL byte, which no file's path can hold",
+            LineFault::OffInList => "This line starts with -, which turns a path off, and only batch.conf can turn a path off",
         })
     }
 }
@@ -205,6 +233,7 @@ pub enum Unread {
     TooLarge,
     /// The path names something other than a regular file.
     NotAFile,
+
     /// vtium could not read the file.
     Unreadable(std::io::ErrorKind),
 }
@@ -230,6 +259,7 @@ impl fmt::Display for Unread {
                 "the file is longer than {BATCH_MAX} bytes, the most vtium reads. Remove the lines it does not need."
             ),
             Unread::NotAFile => f.write_str("the path does not name a regular file."),
+
             Unread::Unreadable(kind) => {
                 write!(
                     f,
@@ -249,14 +279,57 @@ pub enum Entry {
 
 /// The batch: the resources vtium may draw from.
 ///
-/// Beside the entries in their order, the batch keeps a set of their
-/// paths, so [`Batch::holds`] answers without walking the whole list. The
-/// console, `vtium check-config` and vtium-config ask it once for each
-/// font file they find, and a batch can list thousands of files.
+/// Beside the active entries in their order, the batch keeps a map from
+/// each active path to the file that activates it, so [`Batch::holds`]
+/// answers without walking the whole list. The console, `vtium
+/// check-config` and vtium-config ask it once for each font file they
+/// find, and a batch can list thousands of files. It also keeps the paths
+/// that the batch file turns off with `-` lines, the lists it read, and
+/// for each path a list names the first list that names it, whether or
+/// not the path is turned off, which vtium-config needs to write a `-`
+/// line.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Batch {
     entries: Vec<Entry>,
-    paths: BTreeSet<PathBuf>,
+    paths: BTreeMap<PathBuf, Source>,
+    off: BTreeSet<PathBuf>,
+    lists: Vec<List>,
+    listed: BTreeMap<PathBuf, usize>,
+}
+
+/// Which file activates a path, as the batch keeps it: the index of a
+/// list in [`Batch::lists`] for a list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Source {
+    File,
+    Fresh,
+    List(usize),
+}
+
+/// Why a path is active: the batch file lists it, the list of a fresh
+/// install does in the batch file's place, or a list in one of the list
+/// folders does. Where the batch file and a list both name a path, the
+/// batch file is the origin, since it holds root's own choices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin<'a> {
+    /// The batch file, `batch.conf`, lists the path.
+    BatchFile,
+    /// The list of a fresh install, which vtium uses where it reads no
+    /// batch file, lists the path.
+    FreshInstall,
+    /// The list names the path.
+    List(&'a List),
+}
+
+/// The line of the batch file that turns `path` off: `-` and the path,
+/// with `.` and doubled slashes dropped. `None` for a path no line can
+/// name: one that is relative, holds `..` or a NUL byte, or is not UTF-8.
+///
+/// References:
+/// - ADR-1205 D4, as amended on 2026-11-27: vtium-config's Deactivate writes a `-` line for a path a package's list names.
+pub fn off_line(path: &Path) -> Option<String> {
+    let path = plain(path.to_str()?).ok()?;
+    Some(format!("-{}", path.to_str()?))
 }
 
 /// The batch file's verdict: the batch, and what vtium found reading it.
@@ -269,6 +342,12 @@ pub struct Read {
     /// The count of the lines vtium ignores past the first [`ERRORS_MAX`],
     /// which `findings` does not list.
     pub more: usize,
+    /// Each file in the two list folders and its state, in the byte order
+    /// of the names, a package's list before root's file of the same name.
+    pub list_files: Vec<ListFile>,
+    /// What vtium found reading the list folders: the lists it refused or
+    /// that come past [`LISTS_MAX`], and the lines it ignores.
+    pub list_findings: Vec<ListFinding>,
 }
 
 impl Read {
@@ -307,65 +386,180 @@ fn plain(text: &str) -> Result<PathBuf, LineFault> {
     Ok(path.components().collect())
 }
 
-impl Batch {
-    /// The batch listing `entries`.
-    pub fn new(entries: Vec<Entry>) -> Batch {
-        let mut paths = BTreeSet::new();
-        for Entry::Path(path) in &entries {
-            paths.insert(path.clone());
+/// What [`lines`] reads from a batch file or a list.
+struct Lines {
+    /// The paths the lines activate, in order.
+    paths: Vec<PathBuf>,
+    /// The paths `-` lines turn off.
+    off: BTreeSet<PathBuf>,
+    findings: Vec<Finding>,
+    more: usize,
+}
+
+/// Reads the lines of a batch file, or of a list when `batch_file` is
+/// false, where a `-` line is a fault. `path` names the file in the
+/// findings, which keep the first [`ERRORS_MAX`] lines vtium ignores and
+/// count the rest.
+fn lines(bytes: &[u8], path: &Path, batch_file: bool) -> Lines {
+    let bytes = bytes.strip_prefix(crate::split::BOM).unwrap_or(bytes);
+    let mut out = Lines {
+        paths: Vec::new(),
+        off: BTreeSet::new(),
+        findings: Vec::new(),
+        more: 0,
+    };
+    for (n, raw) in bytes.split(|&b| b == b'\n').enumerate() {
+        let line = n.saturating_add(1);
+        let mut fault = |fault| {
+            if out.findings.len() < ERRORS_MAX {
+                out.findings.push(Finding::Line {
+                    path: path.to_path_buf(),
+                    line,
+                    fault,
+                });
+            } else {
+                out.more = out.more.saturating_add(1);
+            }
+        };
+        if raw.len() > PATH_MAX {
+            fault(LineFault::TooLong);
+            continue;
         }
-        Batch { entries, paths }
+        let Ok(text) = std::str::from_utf8(raw) else {
+            fault(LineFault::NotUtf8);
+            continue;
+        };
+        let text = text.trim();
+        if text.is_empty() || text.starts_with('#') {
+            continue;
+        }
+        if let Some(rest) = text.strip_prefix('-') {
+            if !batch_file {
+                fault(LineFault::OffInList);
+                continue;
+            }
+            match plain(rest) {
+                Ok(p) => {
+                    out.off.insert(p);
+                }
+                Err(f) => fault(f),
+            }
+            continue;
+        }
+        match plain(text) {
+            Ok(p) => out.paths.push(p),
+            Err(f) => fault(f),
+        }
+    }
+    out
+}
+
+impl Batch {
+    /// The batch listing `entries`, as the batch file does.
+    pub fn new(entries: Vec<Entry>) -> Batch {
+        Batch::of(entries, Source::File)
     }
 
-    /// The entries, in order.
+    /// The batch listing `entries`, each activated by `source`.
+    fn of(entries: Vec<Entry>, source: Source) -> Batch {
+        let mut paths = BTreeMap::new();
+        for Entry::Path(path) in &entries {
+            paths.insert(path.clone(), source);
+        }
+        Batch {
+            entries,
+            paths,
+            ..Batch::default()
+        }
+    }
+
+    /// The active entries, in order: the batch file's, or the list of a
+    /// fresh install's, then each list's in the byte order of the lists'
+    /// names, each path once, and none that the batch file turns off.
+    /// The font helper's request of active fonts carries these.
     pub fn entries(&self) -> &[Entry] {
         &self.entries
+    }
+
+    /// Why `path` is active, or `None` when the batch does not hold it.
+    pub fn origin(&self, path: &Path) -> Option<Origin<'_>> {
+        let path = plain(path.to_str()?).ok()?;
+        Some(match self.paths.get(&path)? {
+            Source::File => Origin::BatchFile,
+            Source::Fresh => Origin::FreshInstall,
+            Source::List(at) => Origin::List(self.lists.get(*at)?),
+        })
+    }
+
+    /// Whether the batch file turns `path` off with a `-` line.
+    pub fn turns_off(&self, path: &Path) -> bool {
+        path.to_str()
+            .and_then(|p| plain(p).ok())
+            .is_some_and(|p| self.off.contains(&p))
+    }
+
+    /// The paths the batch file turns off, in the byte order of the
+    /// paths.
+    pub fn turned_off(&self) -> impl Iterator<Item = &Path> {
+        self.off.iter().map(PathBuf::as_path)
+    }
+
+    /// The first list, in the byte order of the lists' names, that names
+    /// `path`, whether or not the batch file turns the path off. A path
+    /// that a list names stays active once the batch file stops turning
+    /// it off, so vtium-config writes a `-` line to deactivate it and adds
+    /// no line of its own to activate it.
+    pub fn listed_by(&self, path: &Path) -> Option<&List> {
+        let path = plain(path.to_str()?).ok()?;
+        self.lists.get(*self.listed.get(&path)?)
+    }
+
+    /// The lists that add to the batch, in the byte order of their names:
+    /// those vtium read, and not those it refused or that another file
+    /// turns off.
+    pub fn lists(&self) -> &[List] {
+        &self.lists
+    }
+
+    /// Adds the paths a list names: each one becomes active unless the
+    /// batch already holds it or the batch file turns it off.
+    fn add_list(&mut self, list: List, paths: Vec<PathBuf>) {
+        let at = self.lists.len();
+        self.lists.push(list);
+        for path in paths {
+            self.listed.entry(path.clone()).or_insert(at);
+            if self.off.contains(&path) || self.paths.contains_key(&path) {
+                continue;
+            }
+            self.paths.insert(path.clone(), Source::List(at));
+            self.entries.push(Entry::Path(path));
+        }
     }
 
     /// Reads a batch file's bytes. `path` names the file in the findings.
     /// A byte-order mark at the start is dropped, as every other file
     /// vtium reads drops one. vtium keeps the first [`ERRORS_MAX`] lines it
     /// ignores as findings and counts the rest in [`Read::more`], so a
-    /// file of nothing but bad lines costs a bounded list.
+    /// file of nothing but bad lines costs a bounded list. A path that a
+    /// `-` line turns off is not among the entries, wherever the lines
+    /// stand.
     pub fn parse(bytes: &[u8], path: &Path) -> Read {
-        let bytes = bytes.strip_prefix(crate::split::BOM).unwrap_or(bytes);
-        let mut entries = Vec::new();
-        let mut findings = Vec::new();
-        let mut more = 0_usize;
-        for (n, raw) in bytes.split(|&b| b == b'\n').enumerate() {
-            let line = n.saturating_add(1);
-            let mut fault = |fault| {
-                if findings.len() < ERRORS_MAX {
-                    findings.push(Finding::Line {
-                        path: path.to_path_buf(),
-                        line,
-                        fault,
-                    });
-                } else {
-                    more = more.saturating_add(1);
-                }
-            };
-            if raw.len() > PATH_MAX {
-                fault(LineFault::TooLong);
-                continue;
-            }
-            let Ok(text) = std::str::from_utf8(raw) else {
-                fault(LineFault::NotUtf8);
-                continue;
-            };
-            let text = text.trim();
-            if text.is_empty() || text.starts_with('#') {
-                continue;
-            }
-            match plain(text) {
-                Ok(p) => entries.push(Entry::Path(p)),
-                Err(f) => fault(f),
-            }
-        }
+        let lines = lines(bytes, path, true);
+        let mut batch = Batch::new(
+            lines
+                .paths
+                .into_iter()
+                .filter(|p| !lines.off.contains(p))
+                .map(Entry::Path)
+                .collect(),
+        );
+        batch.off = lines.off;
         Read {
-            batch: Batch::new(entries),
-            findings,
-            more,
+            batch,
+            findings: lines.findings,
+            more: lines.more,
+            list_files: Vec::new(),
+            list_findings: Vec::new(),
         }
     }
 
@@ -412,7 +606,7 @@ impl Batch {
         }
         shipped.sort();
         entries.extend(shipped.into_iter().map(Entry::Path));
-        Batch::new(entries)
+        Batch::of(entries, Source::Fresh)
     }
 
     /// Reads the batch file at `path` under `trust`, the check vtium.conf
@@ -429,6 +623,8 @@ impl Batch {
                     path: path.to_path_buf(),
                 }],
                 more: 0,
+                list_files: Vec::new(),
+                list_findings: Vec::new(),
             },
             Err(rejected) => Read {
                 batch: fresh,
@@ -441,6 +637,8 @@ impl Batch {
                         .map_or(Unread::NotAFile, |e| e.problem.into()),
                 }],
                 more: 0,
+                list_files: Vec::new(),
+                list_findings: Vec::new(),
             },
         }
     }
@@ -453,7 +651,7 @@ impl Batch {
         let Some(Ok(path)) = path.to_str().map(plain) else {
             return false;
         };
-        self.paths.contains(&path)
+        self.paths.contains_key(&path)
     }
 }
 
@@ -529,6 +727,30 @@ impl Places {
             console_font_folders: CONSOLE_FONT_FOLDERS.iter().map(PathBuf::from).collect(),
         }
     }
+
+    /// The folder of the packages' lists: [`LISTS_FOLDER`] beside the
+    /// package's font folder, `/usr/share/vtium/batch.d` on this machine,
+    /// or `/usr/local/share/vtium/batch.d` for a console built for
+    /// `/usr/local`.
+    ///
+    /// References:
+    /// - ADR-1205 D4, as amended on 2026-11-27: where a package's list lives, set at build time as the package's font folder is.
+    pub fn package_lists(&self) -> PathBuf {
+        self.fonts
+            .parent()
+            .unwrap_or(&self.fonts)
+            .join(LISTS_FOLDER)
+    }
+
+    /// The folder of root's lists, whose files turn off or replace a
+    /// package's list of the same name: [`LISTS_FOLDER`] beside the batch
+    /// file, `/etc/vtium/batch.d` on this machine.
+    ///
+    /// References:
+    /// - ADR-1205 D4, as amended on 2026-11-27: turning a package's list off from /etc.
+    pub fn admin_lists(&self) -> PathBuf {
+        self.file.parent().unwrap_or(&self.file).join(LISTS_FOLDER)
+    }
 }
 
 /// `path`'s text, at most [`SMALL_FILE_MAX`] bytes; empty when vtium cannot
@@ -566,16 +788,20 @@ impl Batch {
 
     /// The batch at `places`, read under `trust`, the check vtium.conf
     /// passes, with the list of a fresh install in its place when the file
-    /// is missing or vtium cannot use it. This is the one place the console
-    /// and `vtium check-config` build the batch: the console reads it when
-    /// it starts and again at each new login, and hands the same batch to
-    /// its font helpers, its color schemes, its color maps and its pointer
-    /// files.
+    /// is missing or vtium cannot use it, and the lists of the two list
+    /// folders added, less what the batch file turns off. This is the one
+    /// place the console and `vtium check-config` build the batch: the
+    /// console reads it when it starts and again at each new login, and
+    /// hands the same batch to its font helpers, its color schemes, its
+    /// color maps and its pointer files.
     ///
     /// References:
     /// - ADR-1205 D4: one batch, read again at each new login, and the list of a fresh install in its place.
+    /// - ADR-1205 D4, as amended on 2026-11-27: the packages' lists read wherever the batch is read.
     pub fn system(places: &Places, trust: &Trust) -> Read {
-        Batch::read(&places.file, trust, Batch::fresh(places))
+        let mut read = Batch::read(&places.file, trust, Batch::fresh(places));
+        read.add_lists(&places.package_lists(), &places.admin_lists(), trust);
+        read
     }
 }
 

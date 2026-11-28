@@ -3865,6 +3865,12 @@ fn every_key_a_file_sets_is_read_or_listed_as_not_built() {
         .map(|k| k.name)
         .filter(|name| !read.contains(name))
         .filter(|name| !keys::NOT_BUILT.iter().any(|k| k.name == *name))
+        // a key vtium-config reads, such as allow-macro-live, vtium ignores
+        .filter(|name| {
+            !vtium_settings::keys::notes::NOTES
+                .iter()
+                .any(|n| n.key == *name && n.reader == "vtium-config")
+        })
         .collect();
     assert_eq!(unread, Vec::<&str>::new());
     let readme = include_str!("../README.md");
