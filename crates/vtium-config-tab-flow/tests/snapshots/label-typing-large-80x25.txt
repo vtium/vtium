@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────
+ Flow › DP-1                                                                    
+                                                                                
+ DISPLAY PART  DP-1                                                             
+   Label     Big screen_                [Enter] keeps it; blank removes it      
+                                                                                
+ CHOOSE WHICH DISPLAYS THIS PART MATCHES  from the widest to the narrowest; [E… 
+   ○ All displays   every display, connected now or later                       
+   ○ DP-1           by its connector                                            
+   ○ DP-2           by its connector                                            
+   ○ DP-3           by its connector                                            
+   ○ DP-4           by its connector                                            
+   ○ DP-1           by its connector                                            
+   ○ DP-2           by its connector                                            
+   ○ DP-3           by its connector                                            
+   ○ DP-4           by its connector                                            
+   ○ DP-1           by its connector                                            
+   ○ DP-2           by its connector                                            
+   ○ DP-3           by its connector                                            
+   ○ DP-4           by its connector                                            
+   ○ DP-1           by its connector                                            
+   ○ DP-2           by its connector                                            
+────────────────────────────────────────────────────────────────────────────────
+ [Esc] Cancel  [Enter] Keep  [Backspace] Delete                   [Ctrl+C] Quit 

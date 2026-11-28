@@ -80,6 +80,8 @@ enum Want {
     Effect(Effect),
     /// Nothing returned, and the tab on another node.
     Node(&'static str),
+    /// The level closed, and a message on the message line.
+    CloseSay,
     /// Nothing returned, and nothing changed.
     Nothing,
 }
@@ -89,6 +91,10 @@ fn got(commands: &[Command], before: &str, after: &str) -> Want {
     match commands {
         [Command::Change(Change::Say(_))] => Want::Say,
         [Command::Change(Change::Quiet)] => Want::Quiet,
+        [
+            Command::Request(Request::Close),
+            Command::Change(Change::Say(_)),
+        ] => Want::CloseSay,
         [Command::Request(r)] => Want::Request(r.clone()),
         [Command::Effect(e)] => Want::Effect(e.clone()),
         [] if before != after => Want::Node(leak(after)),
@@ -111,7 +117,17 @@ fn want(node: &str, row: &str) -> Want {
         }
         ("flow", "v.view.flow") => Want::Request(Request::Open("any.changes")),
         ("flow", "o.view.flow") => Want::Request(Request::Open("any.menu.file.history")),
-        ("flow", "space.view.flow" | "esc.view.flow" | "t.view.flow" | "p.view.flow") => Want::Say,
+        (
+            "flow",
+            "space.view.flow" | "esc.view.flow" | "t.view.flow" | "p.view.flow" | "a.view.flow"
+            | "e.view.flow",
+        ) => Want::Say,
+        // Enter on the label line starts typing the label, Enter on a
+        // choice picks it into NEW PATH, and e on a part of a path
+        // revises the path
+        ("flow.detail", "enter.layer.flow-detail") => Want::Quiet,
+        ("flow.detail.choices", "enter.layer.flow-choices")
+        | ("flow.info", "e.layer.flow-info") => Want::CloseSay,
         // the first box of either machine is a display of a path, whose
         // information opens
         ("flow", "enter.view.flow") => Want::Request(Request::Open("flow.info")),

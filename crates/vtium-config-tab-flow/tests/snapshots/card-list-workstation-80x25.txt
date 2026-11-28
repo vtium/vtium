@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────
+ Flow › desk                                                                    
+                                                                                
+ TERMINAL desk · every VT                                                       
+   Name                           desk                                          
+   Look                           big                                           
+   VTs                            every VT                                      
+   Consoles                       1                                             
+   Login                       ┌─────┐ult: /bin/login -p                        
+   When its screen is unplugged│ ● 1 │ the sessions running                     
+   Switch on Enter             │ ○ 2 │                                          
+                               │ ○ 3 │                                          
+   What a path joins changes on│ ○ 4 │ you revise it: [e].                      
+                               │ ○ 5 │                                          
+ WHAT THIS TERMINAL DRAWS      │ ○ 6 │                                          
+   Font set proof  →  look big └─────┘ displays                                 
+   Effects: No filter, the built-in vtlook, which changes no color.             
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+────────────────────────────────────────────────────────────────────────────────
+ [Enter] Pick  [Esc] Back  [?] Search  [Ctrl+Z] Undo  [.] More         [q] Quit 

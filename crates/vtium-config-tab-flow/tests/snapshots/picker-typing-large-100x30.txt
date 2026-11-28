@@ -1,0 +1,30 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help                   lab ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Flow › Display                                                                                     
+                                                                                                    
+ THIS MONITOR   each monitor lists what matches it now                                              
+   ○ edid:AAA:0x002b:PANEL0403   DP-3                                                               
+   ○ edid:AAA:0x002c:PANEL0404   DP-4                                                               
+   ○ edid:BBB:0x0033:PANEL0501   DP-1                                                               
+   ○ edid:BBB:0x0034:PANEL0502   DP-2                                                               
+   ○ edid:BBB:0x0035:PANEL0503   DP-3                                                               
+   ○ edid:BBB:0x0036:PANEL0504   DP-4                                                               
+   ○ edid:AAA:0x003d:PANEL0601   DP-1                                                               
+   ○ edid:AAA:0x003e:PANEL0602   DP-2                                                               
+   ○ edid:AAA:0x003f:PANEL0603   DP-3                                                               
+   ○ edid:AAA:0x0040:PANEL0604   DP-4                                                               
+   ○ edid:BBB:0x0047:PANEL0701   DP-1                                                               
+   ○ edid:BBB:0x0048:PANEL0702   DP-2                                                               
+   ○ edid:BBB:0x0049:PANEL0703   DP-3                                                               
+   ○ edid:BBB:0x004a:PANEL0704   DP-4                                                               
+   ○ edid:AAA:0x0051:PANEL0801   DP-1                                                               
+   ○ edid:AAA:0x0052:PANEL0802   DP-2                                                               
+   ○ edid:AAA:0x0053:PANEL0803   DP-3                                                               
+   ○ edid:AAA:0x0054:PANEL0804   DP-4                                                               
+   ○ edid:BBB:0x005b:PANEL0901   DP-1                                                               
+   ○ edid:BBB:0x005c:PANEL0902   DP-2                                                               
+   ○ edid:BBB:0x005d:PANEL0903   DP-3                                                               
+   ○ edid:BBB:0x005e:PANEL0904   DP-4                                                               
+   ○ Other…                      AAA:_                                                              
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ [Esc] Cancel  [Enter] Keep  [Backspace] Delete                                       [Ctrl+C] Quit 

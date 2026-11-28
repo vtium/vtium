@@ -1,0 +1,25 @@
+ File ▾  Actions ▾ │ Fonts  Effects  Looks  Flow  Settings  Help   ● 1 not saved
+────────────────────────────────────────────────────────────────────────────────
+ Flow › Input                                                                   
+                                                                                
+ USB PORT   each port lists what is plugged into it now                         
+   ○ path:pci-0000:15:00.0-usb-0   keyboard                                     
+   ○ path:LNXPWRBN/button/input0   Power Button                                 
+   ○ Other…                        type a value                                 
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+────────────────────────────────────────────────────────────────────────────────
+ [Enter] Pick  [Esc] Back  [Ctrl+Z] Undo  [Ctrl+Y] Redo  [.] More      [q] Quit 
